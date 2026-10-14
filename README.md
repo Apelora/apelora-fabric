@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/logo.png" alt="Apelora Fabric logo" width="80" height="80">
+  <img src="assets/brand/logo.svg" alt="Apelora Fabric logo" width="96" height="96">
 </p>
 
 <h1 align="center">Apelora Fabric</h1>
