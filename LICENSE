@@ -1,0 +1,13 @@
+GNU AFFERO GENERAL PUBLIC LICENSE
+Version 3, 19 November 2007
+
+This is a TEMPORARY repository setup placeholder, NOT the complete license.
+
+Before publishing or committing a release, replace this file with the full,
+unmodified GNU AGPLv3 license text obtained from:
+https://www.gnu.org/licenses/agpl-3.0.txt
+
+Run: bash scripts/install-agpl-license.sh
+
+Project licensing intention: AGPL-3.0-only for original Apelora Fabric code.
+Do not treat this placeholder as a finished license file.
