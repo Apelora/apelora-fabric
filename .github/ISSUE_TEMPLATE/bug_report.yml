@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible problem
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not report security vulnerabilities here. See SECURITY.md."
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options: [Studio, Controller, Node, Catalog, Fabric networking, Docs, Other]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "Expected vs actual behavior" }
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes: { label: Steps to reproduce }
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes: { label: Version or commit }

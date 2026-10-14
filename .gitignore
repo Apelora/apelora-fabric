@@ -1,0 +1,38 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+.claude/settings.local.json
+
+# Node / Studio
+node_modules/
+dist/
+build/
+coverage/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log
+playwright-report/
+test-results/
+
+# Rust
+target/
+**/*.rs.bk
+
+# Misc
+*.log
+tmp/
+.cache/

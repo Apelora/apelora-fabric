@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.svg text
+Cargo.lock linguist-generated
+package-lock.json linguist-generated
