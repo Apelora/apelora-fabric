@@ -1,4 +1,8 @@
-# Apelora Fabric
+<p align="center">
+  <img src="assets/brand/logo.png" alt="Apelora Fabric logo" width="80" height="80">
+</p>
+
+<h1 align="center">Apelora Fabric</h1>
 
 **Distributed Application OS** — an open-source, Xen-based platform for composing, connecting, deploying, and operating distributed applications through reusable virtual appliances.
 
