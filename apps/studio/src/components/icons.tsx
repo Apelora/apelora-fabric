@@ -1,0 +1,24 @@
+import type { ReactNode } from "react";
+
+const base = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
+const mk = (d: ReactNode) => function Icon({ size = 16 }: { size?: number }) { return <svg {...base} width={size} height={size}>{d}</svg>; };
+
+export const IconUndo = mk(<><path d="M9 14L4 9l5-5" /><path d="M4 9h10a6 6 0 010 12h-3" /></>);
+export const IconRedo = mk(<><path d="M15 14l5-5-5-5" /><path d="M20 9H10a6 6 0 000 12h3" /></>);
+export const IconPlus = mk(<path d="M12 5v14M5 12h14" />);
+export const IconMinus = mk(<path d="M5 12h14" />);
+export const IconFit = mk(<><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4" /></>);
+export const IconFocus = mk(<><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /></>);
+export const IconGrid = mk(<><circle cx="6" cy="6" r="1" /><circle cx="12" cy="6" r="1" /><circle cx="18" cy="6" r="1" /><circle cx="6" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="18" cy="12" r="1" /><circle cx="6" cy="18" r="1" /><circle cx="12" cy="18" r="1" /><circle cx="18" cy="18" r="1" /></>);
+export const IconMagnet = mk(<><path d="M6 15V4h4v11a2 2 0 004 0V4h4v11a6 6 0 01-12 0z" /></>);
+export const IconSearch = mk(<><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></>);
+export const IconUpload = mk(<><path d="M12 16V4M7 9l5-5 5 5" /><path d="M4 20h16" /></>);
+export const IconDownload = mk(<><path d="M12 4v12M7 11l5 5 5-5" /><path d="M4 20h16" /></>);
+export const IconTrash = mk(<><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" /></>);
+export const IconUp = mk(<path d="M6 15l6-6 6 6" />);
+export const IconDown = mk(<path d="M6 9l6 6 6-6" />);
+export const IconFile = mk(<><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z" /><path d="M14 3v5h5" /></>);
+export const IconAlert = mk(<><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18h.01" /></>);
+export const IconCheck = mk(<path d="M5 12l5 5 9-10" />);
+export const IconChevron = mk(<path d="M9 6l6 6-6 6" />);
+export const IconX = mk(<path d="M6 6l12 12M18 6L6 18" />);

@@ -1,0 +1,20 @@
+{
+  "name": "@apelora/studio",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@apelora/appliance-catalog": "*",
+    "@apelora/assembly-model": "*",
+    "@xyflow/react": "^12.12.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zustand": "^5.0.15"
+  }
+}

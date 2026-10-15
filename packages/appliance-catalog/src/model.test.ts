@@ -1,0 +1,128 @@
+import { describe, expect, it } from "vitest";
+import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
+import {
+  addAppliance, addPort, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
+} from "@apelora/assembly-model";
+
+const lookup = lookupClass;
+const nginx = lookupClass("nginx", "1.0.0")!;
+const pg = lookupClass("postgresql", "1.0.0")!;
+
+describe("geometry", () => {
+  it("fits two ports in the compact 96px card and grows from three rows", () => {
+    expect(minApplianceHeight(1, 2)).toBe(96);
+    expect(minApplianceHeight(2, 2)).toBe(96);
+    expect(minApplianceHeight(3, 1)).toBe(114);
+    expect(minApplianceHeight(8, 0)).toBe(204);
+  });
+});
+
+describe("sample assembly", () => {
+  it("has six appliances, six connections and no diagnostics", () => {
+    const a = sampleCommerceStack();
+    expect(a.spec.appliances).toHaveLength(6);
+    expect(a.spec.connections).toHaveLength(6);
+    expect(validateAssembly(a, lookup)).toEqual([]);
+  });
+  it("all catalog classes are valid and have unique port ids", () => {
+    for (const c of APPLIANCE_CLASSES) expect(new Set(c.ports.map((p) => p.id)).size).toBe(c.ports.length);
+  });
+});
+
+describe("connections", () => {
+  const base = () => {
+    let a = createEmptyAssembly("t");
+    const w = addAppliance(a, nginx, { x: 0, y: 0 }); a = w.assembly;
+    const d = addAppliance(a, pg, { x: 300, y: 0 }); a = d.assembly;
+    return { a, w: w.id, d: d.id };
+  };
+  it("accepts output → input of the same type", () => {
+    const { a, w, d } = base();
+    expect("assembly" in connect(a, { applianceId: w, portId: "db" }, { applianceId: d, portId: "postgres" })).toBe(true);
+  });
+  it("rejects wrong direction, type mismatch, self and duplicates with a reason", () => {
+    const { a, w, d } = base();
+    const rev = connect(a, { applianceId: d, portId: "postgres" }, { applianceId: w, portId: "http" });
+    expect("error" in rev && rev.error.code).toBe("direction");
+    const mism = connect(a, { applianceId: w, portId: "db" }, { applianceId: w, portId: "http" });
+    expect("error" in mism && mism.error.code).toBe("self-connection");
+    const ok = connect(a, { applianceId: w, portId: "db" }, { applianceId: d, portId: "postgres" });
+    if (!("assembly" in ok)) throw new Error("expected valid");
+    const dup = connect(ok.assembly, { applianceId: w, portId: "db" }, { applianceId: d, portId: "postgres" });
+    expect("error" in dup && ["duplicate", "source-full"]).toContain("error" in dup ? dup.error.code : "");
+    const typ = connect(a, { applianceId: d, portId: "metrics" }, { applianceId: w, portId: "http" });
+    expect("error" in typ && typ.error.code).toBe("type-mismatch");
+  });
+  it("rejects stale ports", () => {
+    const { a, w, d } = base();
+    const r = connect(a, { applianceId: w, portId: "nope" }, { applianceId: d, portId: "postgres" });
+    expect("error" in r && r.error.code).toBe("port-missing");
+  });
+});
+
+describe("ports and layout", () => {
+  it("adding ports grows only the affected node, only when needed", () => {
+    let a = sampleCommerceStack();
+    const target = a.spec.appliances.find((x) => x.classRef.name === "grafana")!;
+    const other = a.editor.nodes.find((n) => n.id !== target.id)!;
+    for (let i = 0; i < 4; i++) a = addPort(a, target.id, "input").assembly;
+    const n = a.editor.nodes.find((x) => x.id === target.id)!;
+    const inst = a.spec.appliances.find((x) => x.id === target.id)!;
+    expect(n.height).toBeGreaterThan(96);
+    expect(effectiveSize(n, inst.ports, "compact").height).toBe(n.height);
+    expect(a.editor.nodes.find((x) => x.id === other.id)!.height).toBe(other.height);
+    expect(a.editor.nodes.find((x) => x.id === target.id)!.width).toBe(128);
+  });
+  it("removing a port removes only its connections; reordering keeps connections", () => {
+    let a = sampleCommerceStack();
+    const lb = a.spec.appliances.find((x) => x.classRef.name === "haproxy")!;
+    const before = a.spec.connections.length;
+    const moved = movePort(a, lb.id, "frontend", 1);
+    expect(moved.spec.connections).toEqual(a.spec.connections);
+    a = removePort(a, lb.id, "backend");
+    expect(a.spec.connections.length).toBe(before - 2);
+  });
+  it("density keeps manually resized nodes", () => {
+    let a = sampleCommerceStack();
+    const id = a.spec.appliances[0]!.id;
+    a = resizeNode(a, id, { width: 200, height: 160 });
+    a = setDensity(a, "expanded");
+    expect(a.editor.nodes.find((n) => n.id === id)).toMatchObject({ width: 200, height: 160, custom: true });
+    expect(a.editor.nodes.find((n) => n.id !== id)).toMatchObject({ width: 178, height: 150 });
+  });
+  it("deleting an appliance deletes its edges and layout", () => {
+    const a0 = sampleCommerceStack();
+    const db = a0.spec.appliances.find((x) => x.classRef.name === "postgresql")!;
+    const a = removeAppliances(a0, [db.id]);
+    expect(a.spec.connections).toHaveLength(3);
+    expect(a.editor.nodes.some((n) => n.id === db.id)).toBe(false);
+    expect(disconnect(a0, a0.spec.connections.map((c) => c.id)).spec.connections).toEqual([]);
+  });
+});
+
+describe("serialization", () => {
+  it("round-trips deterministically", () => {
+    const a = sampleCommerceStack();
+    const text = serializeAssembly(a);
+    const r = parseAssembly(text);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(serializeAssembly(r.assembly)).toBe(text);
+  });
+  it("rejects malformed, hostile and inconsistent input without throwing", () => {
+    expect(parseAssembly("{not json").ok).toBe(false);
+    expect(parseAssembly("{}").ok).toBe(false);
+    expect(parseAssembly("x".repeat(10), 5).ok).toBe(false);
+    const bad = JSON.parse(serializeAssembly(sampleCommerceStack()));
+    bad.editor.nodes[0].x = "NaN";
+    expect(parseAssembly(JSON.stringify(bad)).ok).toBe(false);
+    const orphan = JSON.parse(serializeAssembly(sampleCommerceStack()));
+    orphan.editor.nodes.push({ id: "ghost-01", x: 0, y: 0, width: 128, height: 96, custom: false });
+    expect(parseAssembly(JSON.stringify(orphan)).ok).toBe(false);
+  });
+  it("flags a required input that is not connected", () => {
+    let a = createEmptyAssembly("t");
+    a = addAppliance(a, nginx, { x: 0, y: 0 }).assembly;
+    expect(validateAssembly(a, lookup).some((d) => d.code === "required-port-unconnected")).toBe(true);
+  });
+});

@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "apiVersion": {
+      "type": "string",
+      "const": "fabric.apelora/v1alpha1"
+    },
+    "kind": {
+      "type": "string",
+      "const": "ApplicationAssembly"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "name",
+        "uid"
+      ],
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "appliances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48
+              },
+              "classRef": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 256
+                  },
+                  "memoryMiB": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 4194304
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memoryMiB"
+                ],
+                "additionalProperties": false
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "input",
+                        "output"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "network",
+                        "http",
+                        "tcp",
+                        "postgres",
+                        "mysql",
+                        "redis",
+                        "amqp",
+                        "s3",
+                        "metrics"
+                      ]
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    },
+                    "multiplicity": {
+                      "type": "string",
+                      "enum": [
+                        "one",
+                        "many"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "direction",
+                    "type",
+                    "optional",
+                    "multiplicity"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "classRef",
+              "resources",
+              "ports"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "applianceId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "portId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                  }
+                },
+                "required": [
+                  "applianceId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "applianceId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "portId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                  }
+                },
+                "required": [
+                  "applianceId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "source",
+              "target"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "appliances",
+        "connections"
+      ],
+      "additionalProperties": false
+    },
+    "editor": {
+      "type": "object",
+      "properties": {
+        "layoutVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "density": {
+          "type": "string",
+          "enum": [
+            "compact",
+            "comfortable",
+            "expanded"
+          ]
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 64,
+                "maximum": 2000
+              },
+              "height": {
+                "type": "number",
+                "minimum": 48,
+                "maximum": 2000
+              },
+              "custom": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "x",
+              "y",
+              "width",
+              "height",
+              "custom"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "layoutVersion",
+        "density",
+        "nodes"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "apiVersion",
+    "kind",
+    "metadata",
+    "spec",
+    "editor"
+  ],
+  "additionalProperties": false
+}
