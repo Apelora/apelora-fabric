@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { lookupClass, sampleCommerceStack, APPLIANCE_CLASSES } from "@apelora/appliance-catalog";
 import {
-  addAppliance, addPort, connect, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -38,7 +38,7 @@ export interface StudioState {
   redo: () => void;
   replace: (next: ApplicationAssembly, opts?: { resetHistory?: boolean; fit?: boolean }) => void;
 
-  addFromCatalog: (classId: string, pos: { x: number; y: number }) => string | null;
+  addFromCatalog: (classId: string, pos: { x: number; y: number }, opts?: { avoidOverlap?: boolean }) => string | null;
   deleteElements: (nodeIds: string[], edgeIds: string[]) => void;
   moveTransient: (moves: Map<string, { x: number; y: number }>) => void;
   resizeTransient: (id: string, size: { width: number; height: number }, pos?: { x: number; y: number }) => void;
@@ -116,14 +116,14 @@ export function createStudioStore(initial: ApplicationAssembly) {
         if (opts.fit !== false) set((s) => ({ fitNonce: s.fitNonce + 1 }));
       },
 
-      addFromCatalog: (classId, pos) => {
+      addFromCatalog: (classId, pos, opts) => {
         const cls = APPLIANCE_CLASSES.find((c) => c.id === classId);
         if (!cls) return null;
-        const { assembly, selection } = get();
-        const r = addAppliance(assembly, cls, pos);
+        const { assembly } = get();
+        const at = opts?.avoidOverlap ? findFreeSpot(assembly, pos, DENSITY_SIZE[assembly.editor.density]) : pos;
+        const r = addAppliance(assembly, cls, at);
         commit(r.assembly);
         set({ selection: { nodes: [r.id], edges: [] } });
-        void selection;
         return r.id;
       },
       deleteElements: (nodeIds, edgeIds) => {

@@ -41,11 +41,9 @@ export function ApplianceCatalog() {
   const add = (cls: ApplianceClass) => {
     const el = canvasBridge.el;
     const size = DENSITY_SIZE[api.getState().assembly.editor.density];
-    const count = api.getState().assembly.spec.appliances.length;
     const r = el?.getBoundingClientRect();
-    const jitter = (count % 6) * 14;
-    const p = r ? screenToFlowPosition({ x: r.left + r.width / 2 + jitter, y: r.top + r.height / 2 + jitter }) : { x: 120, y: 120 };
-    api.getState().addFromCatalog(cls.id, { x: p.x - size.width / 2, y: p.y - size.height / 2 });
+    const p = r ? screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) : { x: 120, y: 120 };
+    api.getState().addFromCatalog(cls.id, { x: p.x - size.width / 2, y: p.y - size.height / 2 }, { avoidOverlap: true });
   };
 
   return (

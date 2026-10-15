@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
 import {
-  addAppliance, addPort, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  addAppliance, addPort, findFreeSpot, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
 
@@ -91,6 +91,14 @@ describe("ports and layout", () => {
     expect(a.editor.nodes.find((n) => n.id === id)).toMatchObject({ width: 200, height: 160, custom: true });
     expect(a.editor.nodes.find((n) => n.id !== id)).toMatchObject({ width: 178, height: 150 });
   });
+  it("density scales positions so spacing is preserved", () => {
+    const a = sampleCommerceStack();
+    const b = setDensity(a, "expanded");
+    const [n0, n1] = [a.editor.nodes[0]!, a.editor.nodes[1]!];
+    const [m0, m1] = [b.editor.nodes[0]!, b.editor.nodes[1]!];
+    expect(Math.abs((m1.x - m0.x) - (n1.x - n0.x) * (178 / 128))).toBeLessThanOrEqual(1);
+    expect(setDensity(b, "compact").editor.nodes.every((n, i) => Math.abs(n.x - a.editor.nodes[i]!.x) <= 2)).toBe(true);
+  });
   it("deleting an appliance deletes its edges and layout", () => {
     const a0 = sampleCommerceStack();
     const db = a0.spec.appliances.find((x) => x.classRef.name === "postgresql")!;
@@ -124,5 +132,14 @@ describe("serialization", () => {
     let a = createEmptyAssembly("t");
     a = addAppliance(a, nginx, { x: 0, y: 0 }).assembly;
     expect(validateAssembly(a, lookup).some((d) => d.code === "required-port-unconnected")).toBe(true);
+  });
+});
+
+describe("placement", () => {
+  it("click-add avoids overlapping existing nodes", () => {
+    const a = sampleCommerceStack();
+    const first = a.editor.nodes[0]!;
+    const spot = findFreeSpot(a, { x: first.x, y: first.y }, { width: 128, height: 96 });
+    expect(a.editor.nodes.some((n) => spot.x < n.x + n.width && spot.x + 128 > n.x && spot.y < n.y + n.height && spot.y + 96 > n.y)).toBe(false);
   });
 });

@@ -39,12 +39,12 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b border-base-300 bg-base-100 px-3" data-testid="header">
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
         <img src="/logo.svg" alt="" className="size-6 rounded" />
         <span className="text-sm font-semibold">Apelora Studio</span>
         <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
       </div>
-      <nav className="hidden min-w-0 items-center gap-1 text-xs text-base-content/60 md:flex" aria-label="Breadcrumb">
+      <nav className="hidden min-w-0 items-center gap-1 whitespace-nowrap text-xs text-base-content/60 min-[1400px]:flex" aria-label="Breadcrumb">
         <span>Assemblies</span><span>/</span><span className="max-w-40 truncate text-base-content" data-testid="breadcrumb-name">{name}</span>
         <span className="ml-2" data-testid="save-state">{saved ? "Saved locally" : "Saving…"}</span>
       </nav>

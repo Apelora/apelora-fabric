@@ -85,14 +85,23 @@ export function resetNodeSize(a: ApplicationAssembly, id: string): ApplicationAs
 }
 
 export function setDensity(a: ApplicationAssembly, density: Density): ApplicationAssembly {
+  const from = DENSITY_SIZE[a.editor.density];
   const size = DENSITY_SIZE[density];
+  const fx = size.width / from.width;
+  const fy = size.height / from.height;
   return {
     ...a,
     editor: {
       ...a.editor,
       density,
-      // Nodes without a manual size follow the preset; manually resized nodes keep their size.
-      nodes: a.editor.nodes.map((n) => (n.custom ? n : { ...n, width: size.width, height: size.height })),
+      // Positions scale with the preset so spacing between nodes is preserved. Nodes without a manual
+      // size follow the preset; manually resized nodes keep their size.
+      nodes: a.editor.nodes.map((n) => ({
+        ...n,
+        x: Math.round(n.x * fx),
+        y: Math.round(n.y * fy),
+        ...(n.custom ? {} : { width: size.width, height: size.height }),
+      })),
     },
   };
 }
@@ -169,4 +178,20 @@ export function connect(a: ApplicationAssembly, source: Endpoint, target: Endpoi
 export function disconnect(a: ApplicationAssembly, ids: readonly string[]): ApplicationAssembly {
   const gone = new Set(ids);
   return { ...a, spec: { ...a.spec, connections: a.spec.connections.filter((c) => !gone.has(c.id)) } };
+}
+
+/**
+ * Nudges a desired position diagonally until the new node would not overlap an existing one.
+ * Used for click-to-add; drag-and-drop always lands exactly where the user dropped.
+ */
+export function findFreeSpot(a: ApplicationAssembly, pos: { x: number; y: number }, size: { width: number; height: number }, gap = 16): { x: number; y: number } {
+  const hits = (x: number, y: number) =>
+    a.editor.nodes.some((n) => x < n.x + n.width + gap && x + size.width + gap > n.x && y < n.y + n.height + gap && y + size.height + gap > n.y);
+  let { x, y } = pos;
+  for (let i = 0; i < 60 && hits(x, y); i++) {
+    x += 28;
+    y += 28;
+    if (i % 8 === 7) { x -= 8 * 28; y += 12; }
+  }
+  return { x, y };
 }

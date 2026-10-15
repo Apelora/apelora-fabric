@@ -16,6 +16,19 @@
 - **Apelora Catalog:** Appliance definitions, ports, properties and resources.
 - **Apelora Fabric:** virtual networking and application interconnections.
 
+## Apelora Studio (browser-only preview)
+
+The visual designer runs entirely in the browser with mock data; nothing is deployed.
+
+```
+npm install
+npm run dev          # http://127.0.0.1:5173
+npm run typecheck && npm run lint && npm test && npm run build
+npx playwright install chromium && npm run test:e2e
+```
+
+See [docs/architecture/STUDIO-MVP.md](docs/architecture/STUDIO-MVP.md) for the design, [CLAUDE.md](CLAUDE.md) for project rules, and `docs/screenshots/` for current screenshots.
+
 ## Licensing
 
 **Community:** GNU Affero General Public License version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE) and [official license](https://www.gnu.org/licenses/agpl-3.0.html).
