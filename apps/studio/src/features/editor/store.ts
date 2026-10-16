@@ -23,6 +23,7 @@ export interface StudioState {
   fitNonce: number;
   showGrid: boolean;
   showLabels: boolean;
+  cableStyle: "line" | "cable";
   snap: boolean;
   importErrors: string[] | null;
 
@@ -56,6 +57,7 @@ export interface StudioState {
   renameAssembly: (name: string) => void;
   setShowGrid: (v: boolean) => void;
   setShowLabels: (v: boolean) => void;
+  setCableStyle: (v: "line" | "cable") => void;
   setSnap: (v: boolean) => void;
   setImportErrors: (e: string[] | null) => void;
 }
@@ -82,6 +84,7 @@ export function createStudioStore(initial: ApplicationAssembly) {
       fitNonce: 0,
       showGrid: true,
       showLabels: true,
+      cableStyle: "line",
       snap: false,
       importErrors: null,
 
@@ -172,6 +175,7 @@ export function createStudioStore(initial: ApplicationAssembly) {
       },
       setShowGrid: (v) => set({ showGrid: v }),
       setShowLabels: (v) => set({ showLabels: v }),
+      setCableStyle: (v) => set({ cableStyle: v }),
       setSnap: (v) => set({ snap: v }),
       setImportErrors: (e) => set({ importErrors: e }),
     };

@@ -104,7 +104,13 @@ body { overflow: hidden; }
 .react-flow__resize-control.apl-resize-control { background: transparent; border: 0; width: 16px; height: 16px; transform: translate(-4px, -4px); }
 
 /* ---- cables ---- */
-.react-flow__edge .apl-cable { stroke-linecap: round; fill: none; }
+.react-flow__edge .apl-cable { stroke-linecap: round; fill: none; stroke-width: 1.6; }
+.react-flow__edge.selected .apl-cable, .react-flow__edge:hover .apl-cable { stroke-width: 2.4; }
+.react-flow__edge .apl-cable-outline { stroke-width: 0; }
+/* Optional heavier patch-cable look. */
+.apl-canvas-frame[data-cable="cable"] .react-flow__edge .apl-cable { stroke-width: 2.8; }
+.apl-canvas-frame[data-cable="cable"] .react-flow__edge .apl-cable-outline { stroke-width: 4.6; }
+.apl-canvas-frame[data-cable="cable"] .react-flow__edge.selected .apl-cable-outline { stroke-width: 5.6; }
 .react-flow__edge:hover .apl-cable-outline, .react-flow__edge.selected .apl-cable-outline { filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-base-content) 35%, transparent)); }
 .react-flow__edge .apl-cable-outline { stroke-linecap: round; transition: filter 120ms ease; }
 .apl-cable-invalid { stroke-dasharray: 6 4; }
@@ -113,9 +119,9 @@ body { overflow: hidden; }
   position: absolute; pointer-events: none; font-size: 9px; line-height: 1; padding: 2px 4px; border-radius: 4px;
   background: var(--apl-canvas); border: 1px solid var(--apl-canvas-border); color: var(--color-base-content);
 }
-.apl-plug { position: absolute; top: 50%; width: 16px; height: 10px; transform: translateY(-50%); pointer-events: none; overflow: visible; filter: drop-shadow(0 1px 1px rgba(20,28,38,0.25)); }
-.apl-plug[data-side="input"] { left: -7px; }
-.apl-plug[data-side="output"] { right: -7px; transform: translateY(-50%) scaleX(-1); }
+.apl-plug { position: absolute; top: 50%; width: 14px; height: 9px; transform: translateY(-50%); pointer-events: none; overflow: visible; filter: drop-shadow(0 1px 1px rgba(20,28,38,0.25)); }
+.apl-plug[data-side="input"] { left: -6px; }
+.apl-plug[data-side="output"] { right: -6px; transform: translateY(-50%) scaleX(-1); }
 .apl-plug-count {
   position: absolute; top: -12px; font-size: 8px; line-height: 1; padding: 1.5px 3px; border-radius: 6px; pointer-events: none;
   background: var(--color-neutral); color: var(--color-neutral-content);

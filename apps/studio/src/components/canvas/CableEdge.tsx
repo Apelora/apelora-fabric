@@ -5,7 +5,7 @@ export type CableData = { type: string; label?: string; invalid?: boolean; [key:
 export type CableFlowEdge = Edge<CableData, "cable">;
 
 /** A patch cable: coloured by protocol, with a flow arrow near its target plug. The plug heads live in the nodes. */
-export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, selected, data }: EdgeProps<CableFlowEdge>) {
+export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps<CableFlowEdge>) {
   const sx = sourceX + CABLE_INSET;
   const tx = targetX - CABLE_INSET;
   const [path, lx, ly] = getBezierPath({ sourceX: sx, sourceY, sourcePosition, targetX: tx, targetY, targetPosition });
@@ -13,9 +13,9 @@ export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
   const color = data?.invalid ? "var(--color-error)" : cableColor(type);
   return (
     <>
-      <path d={path} fill="none" className="apl-cable-outline" style={{ stroke: data?.invalid ? "var(--color-error)" : cableOutline(type), strokeWidth: selected ? 5.6 : 4.6 }} />
-      <BaseEdge id={id} path={path} interactionWidth={18} className={`apl-cable ${data?.invalid ? "apl-cable-invalid" : ""}`} style={{ stroke: color, strokeWidth: selected ? 3.6 : 2.8 }} />
-      <path d={`M ${tx - 11} ${targetY - 3.2} L ${tx - 3} ${targetY} L ${tx - 11} ${targetY + 3.2} Z`} fill={color} className="apl-cable-arrow" />
+      <path d={path} fill="none" className="apl-cable-outline" style={{ stroke: data?.invalid ? "var(--color-error)" : cableOutline(type) }} />
+      <BaseEdge id={id} path={path} interactionWidth={18} className={`apl-cable ${data?.invalid ? "apl-cable-invalid" : ""}`} style={{ stroke: color }} />
+      <path d={`M ${tx - 9} ${targetY - 2.6} L ${tx - 2.5} ${targetY} L ${tx - 9} ${targetY + 2.6} Z`} fill={color} className="apl-cable-arrow" />
       {data?.label && (
         <EdgeLabelRenderer>
           <div className="apl-link-label nodrag nopan" data-testid="link-label" style={{ transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)` }}>{data.label}</div>

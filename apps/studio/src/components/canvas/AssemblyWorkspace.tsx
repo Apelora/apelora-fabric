@@ -51,6 +51,7 @@ export function AssemblyWorkspace() {
   const selection = useStudio((s) => s.selection);
   const showGrid = useStudio((s) => s.showGrid);
   const showLabels = useStudio((s) => s.showLabels);
+  const cableStyle = useStudio((s) => s.cableStyle);
   const customClasses = useCustomCatalog((s) => s.classes);
   const snap = useStudio((s) => s.snap);
   const fitNonce = useStudio((s) => s.fitNonce);
@@ -192,7 +193,7 @@ export function AssemblyWorkspace() {
   const zoom = useRFStore((s) => s.transform[2]);
 
   return (
-    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
+    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-cable={cableStyle} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
       <CanvasStrip zoom={zoom} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow<ApplianceFlowNode, CableFlowEdge>

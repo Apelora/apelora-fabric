@@ -42,6 +42,7 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 ## Terminals, labels and custom appliances
 
 - Every terminal is an RJ45-style **socket** (hollow, latch notch, contact pins); inputs are on the left, outputs on the right. The 10px jack has an 18px pointer target.
+- **Cable style.** The default is a thin 1.6px coloured line with a small plug head at each end (clean at any density); a toolbar toggle switches to a heavier outlined patch-cable look.
 - **Cables plug in.** A connected socket shows an RJ45 plug head inserted into it, and the cable (muted colour by protocol: http blue, postgres indigo, redis red, …) leaves from the plug's strain relief with a small flow arrow near its target. Plug heads are rendered inside the node so they sit above the socket; the cable starts 6px beyond the jack edge, under the boot. Unplugged sockets stay hollow.
 - **Single vs multiple cables.** Each port has a multiplicity. `multi` (the default for new ports) accepts several cables into the same socket, shown as one plug with a `×N` count; `single` accepts one and rejects another with a reason. Toggle it per port in the inspector or the Appliance Designer.
 - **Re-plugging.** Drag a cable's plug end to another compatible socket to move it (validated; one undo step).
