@@ -25,3 +25,7 @@ Source: `apps/studio/src/components/canvas/ApplianceNode.tsx`, geometry in `pack
 ## Acceptance
 
 Playwright specs "compact nodes are 128×96…", "adding 3–8 ports grows only the affected node", and "moving, resizing and density changes keep edges anchored" pass. Edge anchoring is checked numerically against handle bounding boxes (±1.5 flow px).
+
+## Cables and plugs
+
+Sockets are RJ45-style (`Jack.tsx`); connected ports render a `PlugHead` inside the handle (above the node) coloured by protocol (`cables.ts`); the cable (`CableEdge.tsx`) starts `CABLE_INSET` (6px) beyond the jack edge. Multi-link ports show `×N`; single-link ports reject a second cable. Edge re-plugging uses React Flow's `edgesReconnectable`/`onReconnect` with `explainConnection(..., ignoreConnectionId)`. Anchoring tests assume the 6px inset.

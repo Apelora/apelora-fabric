@@ -38,7 +38,7 @@ export async function assemblyState(page: Page) {
   });
 }
 
-/** Every edge path must start/end on the outer edge of its handles (±tol flow px). */
+/** Every cable must start/end 6px beyond the outer edge of its jacks, under the plug boot (±tol flow px). */
 export async function expectEdgesAnchored(page: Page, tol = 1.5) {
   const vp = await viewport(page);
   const rf = await page.locator(".react-flow").first().boundingBox();
@@ -55,9 +55,9 @@ export async function expectEdgesAnchored(page: Page, tol = 1.5) {
     const f = (px: number, py: number) => ({ x: (px - vp.x - rf.x) / vp.zoom, y: (py - vp.y - rf.y) / vp.zoom });
     const s = f(sh.x + sh.width, sh.y + sh.height / 2);
     const t = f(th.x, th.y + th.height / 2);
-    expect(Math.abs(s.x - sx), `${c.id} source x`).toBeLessThanOrEqual(tol);
+    expect(Math.abs(s.x + 6 - sx), `${c.id} source x`).toBeLessThanOrEqual(tol);
     expect(Math.abs(s.y - sy), `${c.id} source y`).toBeLessThanOrEqual(tol);
-    expect(Math.abs(t.x - tx), `${c.id} target x`).toBeLessThanOrEqual(tol);
+    expect(Math.abs(t.x - 6 - tx), `${c.id} target x`).toBeLessThanOrEqual(tol);
     expect(Math.abs(t.y - ty), `${c.id} target y`).toBeLessThanOrEqual(tol);
   }
 }

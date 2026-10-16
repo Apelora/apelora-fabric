@@ -1,7 +1,7 @@
 import type { ApplianceClass, Port } from "@apelora/assembly-model";
 
 const p = (id: string, name: string, direction: Port["direction"], type: Port["type"], description: string, opts: Partial<Pick<Port, "optional" | "multiplicity">> = {}): Port => ({
-  id, name, direction, type, description, optional: opts.optional ?? false, multiplicity: opts.multiplicity ?? "one",
+  id, name, direction, type, description, optional: opts.optional ?? false, multiplicity: opts.multiplicity ?? "many",
 });
 
 const cls = (
@@ -15,17 +15,17 @@ const cls = (
 /** Original, conceptual manifests written for this project. Short port names double as the on-canvas labels. */
 export const APPLIANCE_CLASSES: readonly ApplianceClass[] = [
   cls("gateway", "Gateway", "Network & Security", "Application edge: public entry point and routing to the assembly.", "gateway",
-    [p("wan", "wan", "input", "network", "Public network uplink", { optional: true }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256),
+    [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256),
   cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router appliance.", "opnsense",
-    [p("wan", "wan", "input", "network", "Uplink", { optional: true }), p("lan", "lan", "output", "network", "Protected network", { multiplicity: "many" })], 2, 1024),
+    [p("wan", "wan", "input", "network", "Uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "network", "Protected network", { multiplicity: "many" })], 2, 1024),
   cls("haproxy", "Load balancer", "Load Balancing", "TCP/HTTP load balancer fronting a pool of web servers.", "haproxy",
     [p("frontend", "in", "input", "http", "Client traffic"), p("backend", "out", "output", "http", "Pool of servers", { multiplicity: "many" })], 1, 512),
   cls("nginx", "NGINX", "Web & Application", "Web server and reverse proxy.", "nginx",
-    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "postgres", "PostgreSQL connection", { optional: true })], 1, 512),
+    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "postgres", "PostgreSQL connection", { optional: true, multiplicity: "one" })], 1, 512),
   cls("apache", "Apache HTTP", "Web & Application", "Apache HTTP Server.", "apache",
-    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "mysql", "MySQL-compatible connection", { optional: true })], 1, 512),
+    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "mysql", "MySQL-compatible connection", { optional: true, multiplicity: "one" })], 1, 512),
   cls("nodejs", "Node.js", "Web & Application", "Node.js application runtime.", "nodedotjs",
-    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "postgres", "PostgreSQL connection", { optional: true }), p("cache", "cache", "output", "redis", "Redis connection", { optional: true })], 1, 512),
+    [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "postgres", "PostgreSQL connection", { optional: true, multiplicity: "one" }), p("cache", "cache", "output", "redis", "Redis connection", { optional: true, multiplicity: "one" })], 1, 512),
   cls("postgresql", "PostgreSQL", "Databases & Cache", "Relational database.", "postgresql",
     [p("postgres", "sql", "input", "postgres", "Client connections", { multiplicity: "many" }), p("metrics", "mon", "output", "metrics", "Metrics endpoint", { optional: true, multiplicity: "many" })], 2, 2048),
   cls("mariadb", "MariaDB", "Databases & Cache", "MySQL-compatible relational database.", "mariadb",

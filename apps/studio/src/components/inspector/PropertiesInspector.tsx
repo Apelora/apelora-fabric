@@ -39,6 +39,7 @@ function PortRow({ appId, port, first, last }: { appId: string; port: Port; firs
         <select className="select select-xs min-w-0 flex-1" aria-label={`Type of ${port.name}`} value={port.type} onChange={(e) => s().editPort(appId, port.id, { type: e.target.value as Port["type"] })}>
           {PORT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
+        <label className="flex items-center gap-1 text-[11px]" title="Allow several cables to plug into this port"><input type="checkbox" className="checkbox checkbox-xs" data-testid="port-multi" checked={port.multiplicity === "many"} onChange={(e) => s().editPort(appId, port.id, { multiplicity: e.target.checked ? "many" : "one" })} />multi</label>
         <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" className="checkbox checkbox-xs" checked={!port.optional} onChange={(e) => s().editPort(appId, port.id, { optional: !e.target.checked })} />required</label>
       </div>
     </li>

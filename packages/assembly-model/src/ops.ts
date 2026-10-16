@@ -195,3 +195,11 @@ export function findFreeSpot(a: ApplicationAssembly, pos: { x: number; y: number
   }
   return { x, y };
 }
+
+/** Moves one end (or both) of an existing connection to different ports, keeping its id. */
+export function reconnect(a: ApplicationAssembly, connectionId: string, source: Endpoint, target: Endpoint): { assembly: ApplicationAssembly } | { error: { code: string; message: string; hint?: string } } {
+  if (!a.spec.connections.some((c) => c.id === connectionId)) return { error: { code: "connection-missing", message: "That connection no longer exists." } };
+  const error = explainConnection(a, source, target, connectionId);
+  if (error) return { error };
+  return { assembly: { ...a, spec: { ...a.spec, connections: a.spec.connections.map((c) => (c.id === connectionId ? { ...c, source, target } : c)) } } };
+}

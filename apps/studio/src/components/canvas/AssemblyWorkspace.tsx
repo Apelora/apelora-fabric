@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  Background, BackgroundVariant, ConnectionMode, MarkerType, ReactFlow, useReactFlow, useStore as useRFStore,
+  Background, BackgroundVariant, ConnectionMode, ReactFlow, useReactFlow, useStore as useRFStore,
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
@@ -10,10 +10,24 @@ import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { ApplianceNode, type ApplianceFlowNode } from "./ApplianceNode";
+import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
 import { ValidationPanel } from "../validation/ValidationPanel";
 
 const nodeTypes = { appliance: ApplianceNode };
+const edgeTypes = { cable: CableEdge };
+
+/** How many cables are plugged into each port of an appliance, and the protocol of the first one. */
+function linksFor(a: ApplicationAssembly, id: string): Record<string, { count: number; type: string }> {
+  const out: Record<string, { count: number; type: string }> = {};
+  for (const c of a.spec.connections) {
+    const end = c.source.applianceId === id ? c.source.portId : c.target.applianceId === id ? c.target.portId : null;
+    if (!end) continue;
+    const prev = out[end];
+    out[end] = prev ? { ...prev, count: prev.count + 1 } : { count: 1, type: linkLabel(a, c.source) };
+  }
+  return out;
+}
 
 /** Link label = the protocol carried by the source terminal. */
 function linkLabel(a: ApplicationAssembly, s: Endpoint): string {
@@ -92,27 +106,25 @@ export function AssemblyWorkspace() {
           height: size.height,
           minHeight: minHeightForPorts(a.ports),
           status,
+          links: linksFor(assembly, a.id),
         },
       }];
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assembly, diagnostics, selection.nodes, customClasses]);
 
-  const edges = useMemo<Edge[]>(() => {
+  const edges = useMemo<CableFlowEdge[]>(() => {
     const bad = new Set(diagnostics.filter((d) => d.connectionId).map((d) => d.connectionId));
     return assembly.spec.connections.map((c) => ({
       id: c.id,
+      type: "cable" as const,
       source: c.source.applianceId,
       sourceHandle: c.source.portId,
       target: c.target.applianceId,
       targetHandle: c.target.portId,
       selected: selection.edges.includes(c.id),
-      interactionWidth: 18,
-      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
-      ...(showLabels ? { label: linkLabel(assembly, c.source), labelStyle: { fontSize: 9, fill: "var(--color-base-content)" }, labelBgStyle: { fill: "var(--apl-canvas)", fillOpacity: 0.95 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 4 } : {}),
-      ...(bad.has(c.id) ? { "data-invalid": "true" } : {}),
-      data: { invalid: bad.has(c.id) },
-      className: bad.has(c.id) ? "invalid" : undefined,
+      reconnectable: true,
+      data: { type: linkLabel(assembly, c.source), invalid: bad.has(c.id), ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
     }));
   }, [assembly, diagnostics, selection.edges, showLabels]);
 
@@ -134,7 +146,7 @@ export function AssemblyWorkspace() {
     if (selChanged) s.setSelection({ nodes: selNodes });
   }, [api]);
 
-  const onEdgesChange = useCallback((changes: EdgeChange[]) => {
+  const onEdgesChange = useCallback((changes: EdgeChange<CableFlowEdge>[]) => {
     let sel = api.getState().selection.edges;
     let changed = false;
     for (const ch of changes) {
@@ -147,6 +159,11 @@ export function AssemblyWorkspace() {
     const a = api.getState().assembly;
     const o = orient(a, c as Connection);
     return !!o && explainConnection(a, o.source, o.target) === null;
+  }, [api]);
+
+  const onReconnect = useCallback((old: Edge, c: Connection) => {
+    const o = orient(api.getState().assembly, c);
+    if (o) api.getState().reconnectCable(old.id, o.source, o.target);
   }, [api]);
 
   const onConnect = useCallback((c: Connection) => {
@@ -178,10 +195,14 @@ export function AssemblyWorkspace() {
     <section ref={frameRef} data-labels={showLabels ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
       <CanvasStrip zoom={zoom} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
-        <ReactFlow<ApplianceFlowNode>
+        <ReactFlow<ApplianceFlowNode, CableFlowEdge>
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          edgesReconnectable
+          reconnectRadius={14}
+          onReconnect={onReconnect}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -198,7 +219,6 @@ export function AssemblyWorkspace() {
           minZoom={0.2}
           maxZoom={2.5}
           proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ type: "default" }}
         >
           {showGrid && <Background variant={BackgroundVariant.Dots} gap={20} size={1} />}
         </ReactFlow>

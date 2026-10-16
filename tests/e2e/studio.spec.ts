@@ -80,12 +80,67 @@ test.describe("terminals and labels", () => {
     await expect(n.locator(".apl-jack[data-kind=input]")).toHaveCount(1);
     await expect(n.locator(".apl-jack[data-kind=output]")).toHaveCount(1);
     // link labels carry the protocol
-    await expect(page.locator(".react-flow__edge-textwrapper").first()).toBeVisible();
+    await expect(page.getByTestId("link-label").first()).toBeVisible();
     await page.getByTestId("toggle-labels").click();
     await expect(page.getByTestId("port-label").first()).toBeHidden();
-    await expect(page.locator(".react-flow__edge-textwrapper")).toHaveCount(0);
+    await expect(page.getByTestId("link-label")).toHaveCount(0);
     await page.getByTestId("toggle-labels").click();
     await expect(page.getByTestId("port-label").first()).toBeVisible();
+  });
+});
+
+test.describe("cables and plugs", () => {
+  test("connected jacks show a plug head in the cable's protocol colour; free jacks stay empty", async ({ page }) => {
+    await open(page);
+    // one plug head per plugged port (6 cables share 9 ports; postgres "sql" takes three cables)
+    const heads = await page.getByTestId("plug-head").count();
+    expect(heads).toBe(9);
+    await expect(handle(page, "gateway-01", "wan").getByTestId("plug-head")).toHaveCount(0);
+    await expect(handle(page, "gateway-01", "lan").getByTestId("plug-head")).toHaveAttribute("data-type", "http");
+    await expect(handle(page, "postgresql-01", "postgres").getByTestId("plug-head")).toHaveAttribute("data-type", "postgres");
+    // deleting a cable unplugs both ends
+    await page.evaluate(() => (window as unknown as { __studio: { getState: () => { setSelection: (s: unknown) => void } } }).__studio.getState().setSelection({ nodes: [], edges: ["conn-01"] }));
+    await page.keyboard.press("Delete");
+    await expect(page.getByTestId("plug-head")).toHaveCount(7);
+    await expect(handle(page, "gateway-01", "lan").getByTestId("plug-head")).toHaveCount(0);
+  });
+
+  test("a multi-link port takes several cables and shows ×N; a single-link port refuses a second cable", async ({ page }) => {
+    await open(page);
+    // postgresql "sql" input is multi-link with 3 cables already
+    await expect(handle(page, "postgresql-01", "postgres").getByTestId("plug-count")).toHaveText("×3");
+    // nginx db output is single-link and already used → a second cable from it is refused with a reason
+    const before = await edgeCount(page);
+    await dragHandle(page, handle(page, "nginx-01", "db"), handle(page, "postgresql-01", "postgres"));
+    expect(await edgeCount(page)).toBe(before);
+    await expect(page.getByTestId("toast").last()).toContainText(/already connected|only one/);
+    // make it multi-link in the inspector, then connect a second cable from another port to the same jack
+    await node(page, "nginx-01").click();
+    await page.locator("[data-testid=port-row][data-port-id=db] [data-testid=port-multi]").check();
+    await expect(handle(page, "nginx-01", "db")).toHaveAttribute("aria-label", /multiple cables/);
+  });
+
+  test("dragging a plug end re-plugs the cable into another compatible port", async ({ page }) => {
+    await open(page);
+    const before = (await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!; // haproxy -> nginx-02
+    expect(before.target.applianceId).toBe("nginx-02");
+    // add a third web server to re-plug into
+    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+    const newId = (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !["gateway-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01", "grafana-01"].includes(id))!;
+    // grab the cable end near nginx-02's "in" jack and drop it on the new node's "in" jack
+    const jack = await center(handle(page, "nginx-02", "http"));
+    const dest = await center(handle(page, newId, "http"));
+    await page.mouse.move(jack.x - 14 * (await viewport(page)).zoom, jack.y);
+    await page.mouse.down();
+    await page.mouse.move((jack.x + dest.x) / 2, (jack.y + dest.y) / 2, { steps: 8 });
+    await page.mouse.move(dest.x, dest.y, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    const after = (await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!;
+    expect(after.target.applianceId).toBe(newId);
+    await expectEdgesAnchored(page);
+    await page.getByTestId("undo").click();
+    expect((await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!.target.applianceId).toBe("nginx-02");
   });
 });
 

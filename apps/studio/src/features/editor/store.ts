@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import {
-  addAppliance, addPort, connect, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -45,6 +45,7 @@ export interface StudioState {
   resizeTransient: (id: string, size: { width: number; height: number }, pos?: { x: number; y: number }) => void;
   resetSize: (id: string) => void;
   connectPorts: (s: Endpoint, t: Endpoint) => boolean;
+  reconnectCable: (id: string, s: Endpoint, t: Endpoint) => void;
   rename: (id: string, name: string) => void;
   setRes: (id: string, r: Partial<Resources>) => void;
   addPortTo: (id: string, direction: PortDirection, type?: PortType) => void;
@@ -146,6 +147,11 @@ export function createStudioStore(initial: ApplicationAssembly) {
         }
         commit(r.assembly);
         return true;
+      },
+      reconnectCable: (id, s, t) => {
+        const r = reconnect(get().assembly, id, s, t);
+        if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return; }
+        commit(r.assembly);
       },
       rename: (id, name) => commit(renameAppliance(get().assembly, id, name)),
       setRes: (id, r) => commit(setResources(get().assembly, id, r)),

@@ -41,7 +41,10 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 
 ## Terminals, labels and custom appliances
 
-- Terminals are drawn as RJ45-style jacks: a hollow socket with contact pins for inputs (left) and a solid plug for outputs (right). The 10px jack has an 18px pointer target.
+- Every terminal is an RJ45-style **socket** (hollow, latch notch, contact pins); inputs are on the left, outputs on the right. The 10px jack has an 18px pointer target.
+- **Cables plug in.** A connected socket shows an RJ45 plug head inserted into it, and the cable (muted colour by protocol: http blue, postgres indigo, redis red, …) leaves from the plug's strain relief with a small flow arrow near its target. Plug heads are rendered inside the node so they sit above the socket; the cable starts 6px beyond the jack edge, under the boot. Unplugged sockets stay hollow.
+- **Single vs multiple cables.** Each port has a multiplicity. `multi` (the default for new ports) accepts several cables into the same socket, shown as one plug with a `×N` count; `single` accepts one and rejects another with a reason. Toggle it per port in the inspector or the Appliance Designer.
+- **Re-plugging.** Drag a cable's plug end to another compatible socket to move it (validated; one undo step).
 - Every port shows a short text label inside the node next to its jack (truncated to the free space beside the logo, never over it); the full name, type and description appear in a tooltip. Links show the carried protocol as a small label. The `Aa` toggle in the canvas strip hides both.
 - **Appliance Designer** (New appliance, or the pencil on a tile, or "Save as custom appliance…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
 - Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.

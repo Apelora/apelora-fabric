@@ -2,7 +2,7 @@ import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
 import { NODE, portCenterY, type Port } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
-import { Jack } from "./Jack";
+import { Jack, PlugHead } from "./Jack";
 
 export type ApplianceNodeData = {
   name: string;
@@ -14,12 +14,14 @@ export type ApplianceNodeData = {
   height: number;
   minHeight: number;
   status: "ok" | "warning" | "error";
+  /** Cables plugged into each port: count and the protocol colour of the first cable. */
+  links: Record<string, { count: number; type: string }>;
   [key: string]: unknown;
 };
 export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
 
-function PortHandle({ port, index, side }: { port: Port; index: number; side: "input" | "output" }) {
-  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}${port.description ? ` — ${port.description}` : ""}`;
+function PortHandle({ port, index, side, link }: { port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined }) {
+  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}, ${port.multiplicity === "one" ? "single cable" : "multiple cables"}${link ? `, ${link.count} plugged` : ""}${port.description ? ` — ${port.description}` : ""}`;
   return (
     <Handle
       id={port.id}
@@ -34,6 +36,7 @@ function PortHandle({ port, index, side }: { port: Port; index: number; side: "i
       aria-label={label}
     >
       <Jack kind={side} />
+      {link && <PlugHead side={side} type={link.type} count={link.count} />}
       <span className="apl-port-label" data-testid="port-label" aria-hidden="true">{port.name}</span>
       <span className="apl-port-tip" aria-hidden="true">{label}</span>
     </Handle>
@@ -62,8 +65,8 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
       <div className="flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>
         {data.icon ? <img src={data.icon} alt="" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
       </div>
-      {data.inputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="input" />)}
-      {data.outputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="output" />)}
+      {data.inputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="input" link={data.links[p.id]} />)}
+      {data.outputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="output" link={data.links[p.id]} />)}
       <NodeResizeControl
         className="apl-resize-control"
         position="bottom-right"
