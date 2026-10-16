@@ -59,8 +59,98 @@ test.describe("visual contract", () => {
     const outH = await center(handle(page, "haproxy-01", "backend"));
     expect(inH.x).toBeLessThan(n.x);
     expect(outH.x).toBeGreaterThan(n.x);
-    expect(inH.width).toBeCloseTo(9 * (await viewport(page)).zoom, 0);
-    await expect(handle(page, "haproxy-01", "backend")).toHaveAttribute("aria-label", /Backend \(http\)/);
+    expect(inH.width).toBeCloseTo(10 * (await viewport(page)).zoom, 0);
+    await expect(handle(page, "haproxy-01", "backend")).toHaveAttribute("aria-label", /out \(http\)/);
+  });
+});
+
+test.describe("terminals and labels", () => {
+  test("every port shows a short text label; labels never cover the logo; jacks are RJ45-style and toggle off", async ({ page }) => {
+    await open(page);
+    const n = node(page, "nginx-01");
+    await expect(n.getByTestId("port-label")).toHaveText(["in", "db"]);
+    await expect(node(page, "haproxy-01").getByTestId("port-label")).toHaveText(["in", "out"]);
+    const logo = (await n.getByTestId("node-logo").boundingBox())!;
+    for (const l of await page.getByTestId("port-label").all()) {
+      const b = (await l.boundingBox())!;
+      const owner = await l.evaluate((el) => el.closest("[data-testid=appliance-node]")!.getAttribute("data-node-id"));
+      if (owner !== "nginx-01") continue;
+      expect(b.x + b.width <= logo.x + 0.5 || b.x >= logo.x + logo.width - 0.5, "label must not overlap the logo").toBe(true);
+    }
+    await expect(n.locator(".apl-jack[data-kind=input]")).toHaveCount(1);
+    await expect(n.locator(".apl-jack[data-kind=output]")).toHaveCount(1);
+    // link labels carry the protocol
+    await expect(page.locator(".react-flow__edge-textwrapper").first()).toBeVisible();
+    await page.getByTestId("toggle-labels").click();
+    await expect(page.getByTestId("port-label").first()).toBeHidden();
+    await expect(page.locator(".react-flow__edge-textwrapper")).toHaveCount(0);
+    await page.getByTestId("toggle-labels").click();
+    await expect(page.getByTestId("port-label").first()).toBeVisible();
+  });
+});
+
+test.describe("custom appliances", () => {
+  test("design a custom appliance with typed ports, place it, connect it, export/import it", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("new-appliance").click();
+    await expect(page.getByTestId("designer")).toBeVisible();
+    await page.getByTestId("designer-name").fill("Session cache");
+    await page.getByTestId("designer-add-input").click();
+    await page.getByTestId("designer-add-output").click();
+    await expect(page.getByTestId("designer-port")).toHaveCount(4);
+    // make the first input a required http port named "in"
+    const first = page.getByTestId("designer-port").first();
+    await first.getByLabel("Port type").selectOption("http");
+    await expect(page.getByTestId("designer-preview").locator("span").first()).toBeVisible();
+    await page.getByTestId("designer-save").click();
+    await expect(page.getByTestId("toast").last()).toContainText("Session cache");
+
+    const tile = page.locator("[data-testid=catalog-tile][data-class-id=custom-session-cache]");
+    await expect(tile).toBeVisible();
+    await tile.click();
+    const st = await assemblyState(page);
+    const added = st.spec.appliances.find((a) => a.id.startsWith("custom-session-cache"))!;
+    expect(added.ports.length).toBe(4);
+    const h = await flowSize(page, added.id);
+    expect(h.height).toBeCloseTo(96, 0);
+
+    // wire load balancer → custom input (http) is valid
+    await dragHandle(page, handle(page, "haproxy-01", "backend"), handle(page, added.id, "in"));
+    expect((await assemblyState(page)).spec.connections.length).toBe(7);
+
+    // export embeds the class; wiping the catalog and re-importing restores it
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    expect(JSON.parse(text).catalog.classes[0].id).toBe("custom-session-cache");
+    await page.evaluate(() => localStorage.removeItem("apelora.studio.catalog.v1"));
+    await page.reload();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-session-cache]")).toBeVisible();
+    await expect(page.getByTestId("error-count")).toHaveCount(0);
+  });
+
+  test("save an instance with extra ports as a reusable appliance; designer validates names", async ({ page }) => {
+    await open(page);
+    await node(page, "grafana-01").click();
+    await addPorts(page, "output", 2);
+    await page.getByTestId("save-as-class").click();
+    await page.getByTestId("designer-name").fill("");
+    await page.getByTestId("designer-save").click();
+    await expect(page.getByTestId("designer-errors")).toContainText("name");
+    await page.getByTestId("designer-name").fill("Dash pack");
+    await page.getByTestId("designer-save").click();
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-dash-pack]")).toBeVisible();
+    // editing and deleting a custom class
+    const tile = page.locator("[data-testid=catalog-tile][data-class-id=custom-dash-pack]");
+    await tile.hover();
+    await page.getByRole("button", { name: "Edit Dash pack" }).click();
+    await page.getByTestId("designer-delete").click();
+    await expect(tile).toHaveCount(0);
   });
 });
 
@@ -84,7 +174,7 @@ test.describe("catalog", () => {
     await expect(page.getByText("No appliances match")).toBeVisible();
   });
 
-  test("tiles show 14 appliances in 8 categories max, grouped", async ({ page }) => {
+  test("tiles show the 14 built-in appliances, grouped", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("catalog-tile")).toHaveCount(14);
     expect(await page.getByTestId("catalog-section").count()).toBeGreaterThanOrEqual(6);

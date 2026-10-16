@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { lookupClass, sampleCommerceStack, APPLIANCE_CLASSES } from "@apelora/appliance-catalog";
+import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import {
   addAppliance, addPort, connect, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
@@ -22,6 +22,7 @@ export interface StudioState {
   /** Incremented whenever the viewport should refit (new/import/sample). */
   fitNonce: number;
   showGrid: boolean;
+  showLabels: boolean;
   snap: boolean;
   importErrors: string[] | null;
 
@@ -53,6 +54,7 @@ export interface StudioState {
   changeDensity: (d: Density) => void;
   renameAssembly: (name: string) => void;
   setShowGrid: (v: boolean) => void;
+  setShowLabels: (v: boolean) => void;
   setSnap: (v: boolean) => void;
   setImportErrors: (e: string[] | null) => void;
 }
@@ -78,6 +80,7 @@ export function createStudioStore(initial: ApplicationAssembly) {
       toasts: [],
       fitNonce: 0,
       showGrid: true,
+      showLabels: true,
       snap: false,
       importErrors: null,
 
@@ -117,7 +120,7 @@ export function createStudioStore(initial: ApplicationAssembly) {
       },
 
       addFromCatalog: (classId, pos, opts) => {
-        const cls = APPLIANCE_CLASSES.find((c) => c.id === classId);
+        const cls = allClasses().find((c) => c.id === classId);
         if (!cls) return null;
         const { assembly } = get();
         const at = opts?.avoidOverlap ? findFreeSpot(assembly, pos, DENSITY_SIZE[assembly.editor.density]) : pos;
@@ -162,6 +165,7 @@ export function createStudioStore(initial: ApplicationAssembly) {
         if (n && n !== a.metadata.name) commit({ ...a, metadata: { ...a.metadata, name: n } });
       },
       setShowGrid: (v) => set({ showGrid: v }),
+      setShowLabels: (v) => set({ showLabels: v }),
       setSnap: (v) => set({ snap: v }),
       setImportErrors: (e) => set({ importErrors: e }),
     };

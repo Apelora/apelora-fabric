@@ -4,3 +4,6 @@ const modules = import.meta.glob("../assets/logos/*.svg", { eager: true, query: 
 export function logoUrl(icon: string): string | undefined {
   return modules[`../assets/logos/${icon}.svg`];
 }
+
+/** Original, trademark-free icons offered when designing a custom appliance. */
+export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "gateway", "haproxy", "linux-base"] as const;

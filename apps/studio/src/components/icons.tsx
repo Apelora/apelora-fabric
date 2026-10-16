@@ -22,3 +22,5 @@ export const IconAlert = mk(<><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18
 export const IconCheck = mk(<path d="M5 12l5 5 9-10" />);
 export const IconChevron = mk(<path d="M9 6l6 6-6 6" />);
 export const IconX = mk(<path d="M6 6l12 12M18 6L6 18" />);
+export const IconPencil = mk(<><path d="M4 20l4-1 11-11-3-3L5 16z" /><path d="M14 6l3 3" /></>);
+export const IconBox = mk(<><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></>);

@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { createEmptyAssembly, parseAssembly, serializeAssembly, type Density } from "@apelora/assembly-model";
-import { sampleCommerceStack } from "@apelora/appliance-catalog";
+import { lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
+import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { IconDownload, IconFile, IconRedo, IconUndo, IconUpload } from "../icons";
 
@@ -20,7 +21,10 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const file = useRef<HTMLInputElement>(null);
 
   const doExport = () => {
-    const a = api.getState().assembly;
+    const base = api.getState().assembly;
+    // Embed the custom appliance classes this assembly uses so the file is self-contained.
+    const used = [...new Map(base.spec.appliances.flatMap((x) => { const c = lookupClass(x.classRef.name, x.classRef.version); return c?.custom ? [[`${c.id}@${c.version}`, c] as const] : []; })).values()];
+    const a = { ...base, ...(used.length ? { catalog: { classes: used } } : { catalog: undefined }) };
     const url = URL.createObjectURL(new Blob([serializeAssembly(a)], { type: "application/json" }));
     const link = document.createElement("a");
     link.href = url;
@@ -33,8 +37,9 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const doImport = async (f: File) => {
     const r = parseAssembly(await f.text());
     if (!r.ok) { api.getState().setImportErrors(r.errors); return; }
+    const added = useCustomCatalog.getState().addMissing(r.assembly.catalog?.classes ?? []);
     api.getState().replace(r.assembly);
-    api.getState().toast("success", `Imported “${r.assembly.metadata.name}”. Undo restores the previous assembly.`);
+    api.getState().toast("success", `Imported “${r.assembly.metadata.name}”${added ? ` and ${added} custom appliance${added > 1 ? "s" : ""}` : ""}. Undo restores the previous assembly.`);
   };
 
   return (

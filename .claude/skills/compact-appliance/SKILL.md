@@ -16,7 +16,7 @@ Source: `apps/studio/src/components/canvas/ApplianceNode.tsx`, geometry in `pack
 
 ## Rules
 
-1. Logo centered; port labels never sit on it: names appear in a hover tooltip outside the node and in `title`/`aria-label`; full editing is in the inspector.
+1. Logo centered. Each port shows a short text label beside its RJ45-style jack (`Jack.tsx`), truncated to the space beside the logo (`--apl-node-w`); the full name/type/description is in the tooltip and `aria-label`. Labels are toggleable (`Aa`). Use short, lowercase catalog port names (`in`, `db`, `mon`).
 2. Handle ids are port ids. After any port or size change `useUpdateNodeInternals(id)` must run (the node does this from a signature of ports and size).
 3. Provide `measured` size on derived nodes so React Flow's fit/bounds are correct in controlled mode.
 4. Resizing uses `NodeResizeControl` bottom-right with `minWidth 128`, `minHeight = minHeightForPorts`; begin/end call `beginGesture/endGesture` so it is one undo step.

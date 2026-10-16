@@ -129,6 +129,10 @@
                         "one",
                         "many"
                       ]
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 160
                     }
                   },
                   "required": [
@@ -274,6 +278,180 @@
         "layoutVersion",
         "density",
         "nodes"
+      ],
+      "additionalProperties": false
+    },
+    "catalog": {
+      "type": "object",
+      "properties": {
+        "classes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48
+              },
+              "category": {
+                "type": "string",
+                "enum": [
+                  "Network & Security",
+                  "Load Balancing",
+                  "Web & Application",
+                  "Databases & Cache",
+                  "Storage",
+                  "Monitoring",
+                  "Operating Systems",
+                  "Utilities",
+                  "Custom"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "iconAssetPath": {
+                "type": "string"
+              },
+              "runtimeImage": {
+                "type": "object",
+                "properties": {
+                  "ref": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "ref"
+                ],
+                "additionalProperties": false
+              },
+              "architectures": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "x86_64",
+                    "aarch64"
+                  ]
+                }
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "input",
+                        "output"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "network",
+                        "http",
+                        "tcp",
+                        "postgres",
+                        "mysql",
+                        "redis",
+                        "amqp",
+                        "s3",
+                        "metrics"
+                      ]
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    },
+                    "multiplicity": {
+                      "type": "string",
+                      "enum": [
+                        "one",
+                        "many"
+                      ]
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 160
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "direction",
+                    "type",
+                    "optional",
+                    "multiplicity"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 256
+                  },
+                  "memoryMiB": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 4194304
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memoryMiB"
+                ],
+                "additionalProperties": false
+              },
+              "custom": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "version",
+              "displayName",
+              "category",
+              "summary",
+              "iconAssetPath",
+              "runtimeImage",
+              "architectures",
+              "ports",
+              "resources"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "classes"
       ],
       "additionalProperties": false
     }

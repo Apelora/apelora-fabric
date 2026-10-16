@@ -9,6 +9,7 @@ import { Toasts } from "./components/chrome/Toasts";
 import { ApplianceCatalog } from "./components/catalog/ApplianceCatalog";
 import { AssemblyWorkspace } from "./components/canvas/AssemblyWorkspace";
 import { PropertiesInspector } from "./components/inspector/PropertiesInspector";
+import { ApplianceDesigner } from "./components/designer/ApplianceDesigner";
 
 function Shortcuts() {
   const api = useStudioApi();
@@ -68,6 +69,7 @@ export function App() {
           </div>
         </div>
         <Toasts />
+        <ApplianceDesigner />
       </ReactFlowProvider>
     </StudioContext.Provider>
   );

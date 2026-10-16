@@ -7,6 +7,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
   const name = useStudio((s) => s.assembly.metadata.name);
   const showGrid = useStudio((s) => s.showGrid);
   const snap = useStudio((s) => s.snap);
+  const showLabels = useStudio((s) => s.showLabels);
   const selected = useStudio((s) => s.selection.nodes);
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
@@ -27,6 +28,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
       <div className="ml-auto flex items-center gap-1.5">
         <div className="join" role="group" aria-label="Canvas options">
           <button className={`btn btn-xs join-item ${showGrid ? "btn-active" : ""}`} aria-pressed={showGrid} title="Toggle dotted grid" aria-label="Toggle dotted grid" onClick={() => api.getState().setShowGrid(!showGrid)}><IconGrid size={14} /></button>
+          <button className={`btn btn-xs join-item ${showLabels ? "btn-active" : ""}`} aria-pressed={showLabels} title="Show port and link labels" aria-label="Port and link labels" data-testid="toggle-labels" onClick={() => api.getState().setShowLabels(!showLabels)}><span className="text-[10px] font-semibold leading-none">Aa</span></button>
           <button className={`btn btn-xs join-item ${snap ? "btn-active" : ""}`} aria-pressed={snap} title="Snap to grid" aria-label="Snap to grid" onClick={() => api.getState().setSnap(!snap)}><IconMagnet size={14} /></button>
         </div>
         <div className="join" role="group" aria-label="Zoom">

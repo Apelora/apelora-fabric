@@ -8,11 +8,17 @@ import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, coun
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
+import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { ApplianceNode, type ApplianceFlowNode } from "./ApplianceNode";
 import { CanvasStrip } from "./CanvasStrip";
 import { ValidationPanel } from "../validation/ValidationPanel";
 
 const nodeTypes = { appliance: ApplianceNode };
+
+/** Link label = the protocol carried by the source terminal. */
+function linkLabel(a: ApplicationAssembly, s: Endpoint): string {
+  return a.spec.appliances.find((x) => x.id === s.applianceId)?.ports.find((p) => p.id === s.portId)?.type ?? "";
+}
 
 /** Lets users drag from either side: orient the pair output → input before validating. */
 function orient(a: ApplicationAssembly, c: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">): { source: Endpoint; target: Endpoint } | null {
@@ -30,6 +36,8 @@ export function AssemblyWorkspace() {
   const assembly = useStudio((s) => s.assembly);
   const selection = useStudio((s) => s.selection);
   const showGrid = useStudio((s) => s.showGrid);
+  const showLabels = useStudio((s) => s.showLabels);
+  const customClasses = useCustomCatalog((s) => s.classes);
   const snap = useStudio((s) => s.snap);
   const fitNonce = useStudio((s) => s.fitNonce);
   const { screenToFlowPosition, fitView } = useReactFlow();
@@ -87,7 +95,8 @@ export function AssemblyWorkspace() {
         },
       }];
     });
-  }, [assembly, diagnostics, selection.nodes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assembly, diagnostics, selection.nodes, customClasses]);
 
   const edges = useMemo<Edge[]>(() => {
     const bad = new Set(diagnostics.filter((d) => d.connectionId).map((d) => d.connectionId));
@@ -100,11 +109,12 @@ export function AssemblyWorkspace() {
       selected: selection.edges.includes(c.id),
       interactionWidth: 18,
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
+      ...(showLabels ? { label: linkLabel(assembly, c.source), labelStyle: { fontSize: 9, fill: "var(--color-base-content)" }, labelBgStyle: { fill: "var(--apl-canvas)", fillOpacity: 0.95 }, labelBgPadding: [4, 2] as [number, number], labelBgBorderRadius: 4 } : {}),
       ...(bad.has(c.id) ? { "data-invalid": "true" } : {}),
       data: { invalid: bad.has(c.id) },
       className: bad.has(c.id) ? "invalid" : undefined,
     }));
-  }, [assembly.spec.connections, diagnostics, selection.edges]);
+  }, [assembly, diagnostics, selection.edges, showLabels]);
 
   const onNodesChange = useCallback((changes: NodeChange<ApplianceFlowNode>[]) => {
     const s = api.getState();
@@ -165,7 +175,7 @@ export function AssemblyWorkspace() {
   const zoom = useRFStore((s) => s.transform[2]);
 
   return (
-    <section ref={frameRef} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
+    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
       <CanvasStrip zoom={zoom} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow<ApplianceFlowNode>

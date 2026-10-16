@@ -24,6 +24,12 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("validation-toggle").click();
     await page.screenshot({ path: out("04-validation") });
 
+    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("designer-name").fill("Session cache");
+    await page.getByTestId("designer-add-output").click();
+    await page.getByTestId("designer-port").first().getByLabel("Port type").selectOption("redis");
+    await page.screenshot({ path: out("06-appliance-designer") });
+    await page.getByTestId("designer-save").click();
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample").click();
     await page.getByTestId("density-expanded").click();

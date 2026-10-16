@@ -24,6 +24,7 @@ export const CATEGORIES = [
   "Monitoring",
   "Operating Systems",
   "Utilities",
+  "Custom",
 ] as const;
 
 export const ARCHITECTURES = ["x86_64", "aarch64"] as const;

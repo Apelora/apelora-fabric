@@ -1,3 +1,3 @@
-export { APPLIANCE_CLASSES, lookupClass } from "./classes";
-export { logoUrl } from "./logos";
+export { APPLIANCE_CLASSES, allClasses, lookupClass, setCustomClasses } from "./classes";
+export { logoUrl, GENERIC_ICONS } from "./logos";
 export { sampleCommerceStack } from "./sample";

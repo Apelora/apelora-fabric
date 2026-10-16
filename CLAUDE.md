@@ -19,7 +19,8 @@ Authoritative rules for working in this repository. Skills in `.claude/skills/` 
 6. **Imports are untrusted input.** Validate with the schema; never replace the current document on failure.
 7. **No secrets in the repo.** `.mcp.json` holds non-secret config only; tokens stay in local env/keyring.
 8. **Licensing:** AGPL-3.0-only code; do not edit legal agreements without an explicit request; logos need recorded origin/licence (`packages/appliance-catalog/assets/logos/ATTRIBUTION.md`); see `docs/XEN-LICENSING-STRATEGY.md`.
-9. **Git:** commits are authored by the user only. Never add `Co-Authored-By` or any Claude attribution.
+9. **Original work only.** Use general concepts in our own wording; never copy another product's code, artwork, text, formats, class names or manifests, and never store or quote third-party documents or mention other products by name in this repository (see `docs/architecture/COMPONENT-MODEL.md`).
+10. **Git:** commits are authored by the user only. Never add `Co-Authored-By` or any Claude attribution.
 
 ## Commands
 

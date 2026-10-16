@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { APPLIANCE_CLASSES, logoUrl } from "@apelora/appliance-catalog";
+import { draftFromClass, emptyDraft, useCustomCatalog } from "../../features/catalog/customCatalog";
 import { CATEGORIES, DENSITY_SIZE, type ApplianceClass } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
-import { IconSearch } from "../icons";
+import { IconPencil, IconPlus, IconSearch } from "../icons";
 
-function Tile({ cls, onAdd }: { cls: ApplianceClass; onAdd: (c: ApplianceClass) => void }) {
+function Tile({ cls, onAdd, onEdit }: { cls: ApplianceClass; onAdd: (c: ApplianceClass) => void; onEdit: (c: ApplianceClass, editing: boolean) => void }) {
   const url = logoUrl(cls.iconAssetPath);
   return (
+    <div className="group relative">
     <button
       type="button"
       draggable
@@ -18,11 +20,20 @@ function Tile({ cls, onAdd }: { cls: ApplianceClass; onAdd: (c: ApplianceClass) 
       title={`${cls.displayName} — ${cls.summary}\nDrag onto the canvas, or click to add.`}
       onDragStart={(e) => { e.dataTransfer.setData(CATALOG_MIME, cls.id); e.dataTransfer.effectAllowed = "copy"; }}
       onClick={() => onAdd(cls)}
-      className="flex h-[72px] cursor-grab flex-col items-center justify-center gap-1.5 rounded-box border border-base-300 bg-base-100 p-1 text-[11px] leading-tight transition-colors hover:border-base-content/30 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content active:cursor-grabbing"
+      className="flex h-[72px] w-full cursor-grab flex-col items-center justify-center gap-1.5 rounded-box border border-base-300 bg-base-100 p-1 text-[11px] leading-tight transition-colors hover:border-base-content/30 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content active:cursor-grabbing"
     >
       {url ? <img src={url} alt="" width={28} height={28} className="size-7" draggable={false} /> : <span className="size-7 rounded bg-base-300" />}
       <span className="w-full truncate text-center">{cls.displayName}</span>
     </button>
+    <button
+      type="button"
+      className="btn btn-ghost btn-xs btn-square absolute right-0.5 top-0.5 size-5 min-h-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+      aria-label={cls.custom ? `Edit ${cls.displayName}` : `Customize a copy of ${cls.displayName}`}
+      title={cls.custom ? "Edit this custom appliance" : "Make an editable custom copy"}
+      data-testid="tile-edit"
+      onClick={() => onEdit(cls, !!cls.custom)}
+    ><IconPencil size={11} /></button>
+    </div>
   );
 }
 
@@ -33,10 +44,12 @@ export function ApplianceCatalog() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const q = query.trim().toLowerCase();
 
+  const custom = useCustomCatalog((s) => s.classes);
+  const all = useMemo(() => [...APPLIANCE_CLASSES, ...custom], [custom]);
   const groups = useMemo(() => CATEGORIES.map((cat) => ({
     cat,
-    items: APPLIANCE_CLASSES.filter((c) => c.category === cat && (!q || `${c.displayName} ${c.id} ${c.summary}`.toLowerCase().includes(q))),
-  })).filter((g) => g.items.length > 0), [q]);
+    items: all.filter((c) => c.category === cat && (!q || `${c.displayName} ${c.id} ${c.summary}`.toLowerCase().includes(q))),
+  })).filter((g) => g.items.length > 0), [q, all]);
 
   const add = (cls: ApplianceClass) => {
     const el = canvasBridge.el;
@@ -53,6 +66,7 @@ export function ApplianceCatalog() {
           <IconSearch size={14} />
           <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search appliances" aria-label="Search appliances" data-testid="catalog-search" className="grow" />
         </label>
+        <button type="button" className="btn btn-sm btn-outline mt-2 w-full" data-testid="new-appliance" onClick={() => useCustomCatalog.getState().openDesigner(emptyDraft())}><IconPlus size={14} />New appliance</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {groups.length === 0 && <p className="px-1 py-4 text-xs text-base-content/60">No appliances match “{query}”.</p>}
@@ -69,7 +83,7 @@ export function ApplianceCatalog() {
                 <span className="truncate">{cat}</span>
                 <span className="ml-1 flex items-center gap-1 font-normal normal-case tracking-normal text-base-content/50">{items.length}<span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span></span>
               </button>
-              {open && <div className="grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={c.id} cls={c} onAdd={add} />)}</div>}
+              {open && <div className="grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
             </div>
           );
         })}

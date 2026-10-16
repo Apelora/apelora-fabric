@@ -20,6 +20,7 @@ export const PortSchema = z.object({
   type: z.enum(PORT_TYPES),
   optional: z.boolean(),
   multiplicity: z.enum(["one", "many"]),
+  description: z.string().max(160).optional(),
 });
 
 export const ResourcesSchema = z.object({
@@ -38,6 +39,7 @@ export const ApplianceClassSchema = z.object({
   architectures: z.array(z.enum(ARCHITECTURES)).min(1),
   ports: z.array(PortSchema),
   resources: ResourcesSchema,
+  custom: z.boolean().optional(),
 });
 
 export const ApplianceInstanceSchema = z.object({
@@ -78,6 +80,8 @@ export const ApplicationAssemblySchema = z.object({
     density: z.enum(DENSITIES),
     nodes: z.array(EditorNodeSchema),
   }),
+  /** Definitions of custom appliance classes used by this assembly, so exports are self-contained. */
+  catalog: z.object({ classes: z.array(ApplianceClassSchema) }).optional(),
 });
 
 export type Port = z.infer<typeof PortSchema>;

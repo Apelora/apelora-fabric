@@ -73,19 +73,26 @@ body { overflow: hidden; }
 .apl-node[data-status="warning"] { border-color: var(--color-warning); }
 .apl-node-header { height: 24px; border-bottom: 1px solid var(--color-base-300); background: var(--color-base-200); border-radius: 7px 7px 0 0; }
 
-/* Handles: 9px visible marker; an invisible ::before widens the pointer target to 18px. */
+/* Terminals: a 10px RJ45-style jack. An invisible ::before widens the pointer target to 18px. */
 .react-flow__handle.apl-handle {
-  width: 9px; height: 9px; min-width: 0; min-height: 0; border-radius: 9999px;
-  background: var(--color-base-100); border: 1.5px solid color-mix(in oklab, var(--color-base-content) 55%, transparent);
-  transition: box-shadow 120ms ease, background 120ms ease;
+  width: 10px; height: 10px; min-width: 0; min-height: 0; border-radius: 2px; background: transparent; border: 0;
+  color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
 }
-.react-flow__handle.apl-handle::before { content: ""; position: absolute; inset: -4.5px; border-radius: 9999px; }
-.react-flow__handle.apl-handle[data-kind="output"] { background: color-mix(in oklab, var(--color-base-content) 70%, transparent); }
-.react-flow__handle.apl-handle:hover, .react-flow__handle.apl-handle.connectingto, .react-flow__handle.apl-handle.connectingfrom { background: var(--color-base-content); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-base-content) 18%, transparent); }
-.react-flow__handle.apl-handle.valid { background: var(--color-success); border-color: var(--color-success); }
+.react-flow__handle.apl-handle::before { content: ""; position: absolute; inset: -4px; border-radius: 4px; }
+.apl-jack { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; transition: color 120ms ease, filter 120ms ease; }
+.react-flow__handle.apl-handle:hover .apl-jack, .react-flow__handle.apl-handle.connectingto .apl-jack, .react-flow__handle.apl-handle.connectingfrom .apl-jack { color: var(--color-base-content); filter: drop-shadow(0 0 2px color-mix(in oklab, var(--color-base-content) 45%, transparent)); }
+.react-flow__handle.apl-handle.valid .apl-jack { color: var(--color-success); }
+.apl-port-label {
+  position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 9px; line-height: 1; letter-spacing: 0.01em; color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+  max-width: calc((var(--apl-node-w, 128px) - 30px) / 2 - 14px);
+}
+.apl-handle[data-side="input"] .apl-port-label { left: 14px; }
+.apl-handle[data-side="output"] .apl-port-label { right: 14px; text-align: right; }
+.apl-canvas-frame[data-labels="off"] .apl-port-label { display: none; }
 .apl-port-tip {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 10; pointer-events: none; white-space: nowrap;
-  font-size: 10px; line-height: 1; padding: 3px 6px; border-radius: 4px;
+  font-size: 10px; line-height: 1.2; padding: 3px 6px; border-radius: 4px; max-width: 240px; white-space: normal; width: max-content;
   background: var(--color-neutral); color: var(--color-neutral-content); opacity: 0; transition: opacity 100ms ease;
 }
 .apl-handle:hover .apl-port-tip, .apl-handle:focus-visible .apl-port-tip { opacity: 1; }

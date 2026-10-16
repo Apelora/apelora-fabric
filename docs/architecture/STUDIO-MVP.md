@@ -39,6 +39,13 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 - Density presets: compact 128×96, comfortable 152×112, expanded 178×150.
 - **Density vs manual size:** nodes the user has not resized follow the preset; a manually resized node keeps its own size (`custom: true`) and can be reset from the inspector. Heights never drop below the port minimum. Positions scale with the preset so spacing is preserved. (Tested.)
 
+## Terminals, labels and custom appliances
+
+- Terminals are drawn as RJ45-style jacks: a hollow socket with contact pins for inputs (left) and a solid plug for outputs (right). The 10px jack has an 18px pointer target.
+- Every port shows a short text label inside the node next to its jack (truncated to the free space beside the logo, never over it); the full name, type and description appear in a tooltip. Links show the carried protocol as a small label. The `Aa` toggle in the canvas strip hides both.
+- **Appliance Designer** (New appliance, or the pencil on a tile, or "Save as custom appliance…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
+- Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.
+
 ## Connections
 
 Validated by one pure function (`explainConnection`) used for live feedback and whole-assembly validation: direction, self-connection, port existence, type compatibility, duplicates, multiplicity. Users may drag from either end; the pair is oriented output → input first. Rejections show a reason and a hint. Required inputs that are unconnected are reported as errors in the validation panel (amber on the node while it is only that).
@@ -50,7 +57,7 @@ Validated by one pure function (`explainConnection`) used for live feedback and 
 
 ## Not in this milestone
 
-Control Console (M5), Rust API boundary (M6), Xen/Oxia/HA (M7), authentication, real deployment, planning against real hosts, runtime image resolution, health policies, nested assemblies, copy/paste, minimap.
+Control Console (M5), Rust API boundary (M6), Xen/Oxia/HA (M7), authentication, real deployment, planning against real hosts, runtime image resolution, health policies, nested assemblies (compose a selection into a class), setup parameters, copy/paste, minimap.
 
 ## Known limitations
 

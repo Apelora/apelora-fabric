@@ -18,4 +18,4 @@ CC0 covers the icon artwork as distributed by Simple Icons. **The marks themselv
 | nodedotjs.svg | Node.js | Simple Icons `nodedotjs` |
 | opnsense.svg | OPNsense | Simple Icons `opnsense` |
 
-Original, neutral icons created for this project (Apelora, AGPL-3.0-only): `gateway.svg`, `haproxy.svg` (generic load-balancer symbol; **not** the HAProxy mark), `linux-base.svg`.
+Original, neutral icons created for this project (Apelora, AGPL-3.0-only): `gateway.svg`, `haproxy.svg` (generic load-balancer symbol; **not** the HAProxy mark), `linux-base.svg`, and the `generic-*.svg` set offered when designing custom appliances.

@@ -25,7 +25,8 @@
         "Storage",
         "Monitoring",
         "Operating Systems",
-        "Utilities"
+        "Utilities",
+        "Custom"
       ]
     },
     "summary": {
@@ -105,6 +106,10 @@
               "one",
               "many"
             ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 160
           }
         },
         "required": [
@@ -137,6 +142,9 @@
         "memoryMiB"
       ],
       "additionalProperties": false
+    },
+    "custom": {
+      "type": "boolean"
     }
   },
   "required": [

@@ -2,6 +2,7 @@ import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
 import { NODE, portCenterY, type Port } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
+import { Jack } from "./Jack";
 
 export type ApplianceNodeData = {
   name: string;
@@ -18,7 +19,7 @@ export type ApplianceNodeData = {
 export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
 
 function PortHandle({ port, index, side }: { port: Port; index: number; side: "input" | "output" }) {
-  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}`;
+  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}${port.description ? ` — ${port.description}` : ""}`;
   return (
     <Handle
       id={port.id}
@@ -32,6 +33,8 @@ function PortHandle({ port, index, side }: { port: Port; index: number; side: "i
       title={label}
       aria-label={label}
     >
+      <Jack kind={side} />
+      <span className="apl-port-label" data-testid="port-label" aria-hidden="true">{port.name}</span>
       <span className="apl-port-tip" aria-hidden="true">{label}</span>
     </Handle>
   );
@@ -50,7 +53,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
       data-node-id={id}
       data-selected={selected ? "true" : "false"}
       data-status={data.status}
-      style={{ width: data.width, height: data.height }}
+      style={{ width: data.width, height: data.height, ["--apl-node-w" as string]: `${data.width}px` }}
     >
       <div className="apl-node-header flex items-center gap-1 px-2 text-[11px] font-medium leading-none" title={`${data.name} · ${data.className}`}>
         <span className="min-w-0 flex-1 truncate">{data.name}</span>
