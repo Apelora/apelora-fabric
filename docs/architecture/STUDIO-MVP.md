@@ -50,6 +50,20 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 - **Appliance Designer** (New appliance, or the pencil on a tile, or "Save as custom appliance…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
 - Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.
 
+## Context menus and shortcuts
+
+Right-click (or the Menu key / Shift+F10 on a selection) opens a context menu; arrow keys, Enter, Right/Left (submenus) and Escape work, and it closes on outside click, scroll or resize. Right-clicking something outside the current selection selects it first.
+
+| Target | Actions |
+|---|---|
+| Appliance | Rename (F2), Duplicate (Ctrl+D), Copy (Ctrl+C), Add port ▸ input/output, Reset size, Unplug all cables, Zoom to appliance, Save as custom appliance…, Edit appliance class… (custom only), Delete |
+| Several appliances | Duplicate, Copy, Align ▸ (left, right, top, bottom, centre H/V), Zoom to selection, Delete N |
+| Port (jack) | Rename port…, Protocol type ▸, Allow several cables ✓, Required ✓, Unplug cables (n), Move up/down, Delete port |
+| Cable | Select source / target appliance, Unplug cable |
+| Canvas | Add appliance ▸ (by category, at the pointer), Paste (at the pointer), Select all, Undo/Redo, Fit to view, Dotted grid ✓, Port and link labels ✓, Thick patch-cable look ✓ |
+
+Duplicate/Paste copy the appliances and only the cables **between** the copied appliances, with fresh ids; names default to the new id. Shortcuts: Ctrl+C/V/D/A, F2, Delete, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, `+` `-` `F`.
+
 ## Connections
 
 Validated by one pure function (`explainConnection`) used for live feedback and whole-assembly validation: direction, self-connection, port existence, type compatibility, duplicates, multiplicity. Users may drag from either end; the pair is oriented output → input first. Rejections show a reason and a hint. Required inputs that are unconnected are reported as errors in the validation panel (amber on the node while it is only that).

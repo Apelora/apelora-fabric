@@ -20,7 +20,8 @@ export type ApplianceNodeData = {
 };
 export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
 
-function PortHandle({ port, index, side, link }: { port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined }) {
+function PortHandle({ nodeId, port, index, side, link }: { nodeId: string; port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined }) {
+  const api = useStudioApi();
   const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}, ${port.multiplicity === "one" ? "single cable" : "multiple cables"}${link ? `, ${link.count} plugged` : ""}${port.description ? ` — ${port.description}` : ""}`;
   return (
     <Handle
@@ -34,6 +35,7 @@ function PortHandle({ port, index, side, link }: { port: Port; index: number; si
       style={{ top: portCenterY(index) }}
       title={label}
       aria-label={label}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "port", nodeId, portId: port.id } }); }}
     >
       <Jack kind={side} />
       {link && <PlugHead side={side} type={link.type} count={link.count} />}
@@ -65,8 +67,8 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
       <div className="flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>
         {data.icon ? <img src={data.icon} alt="" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
       </div>
-      {data.inputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="input" link={data.links[p.id]} />)}
-      {data.outputs.map((p, i) => <PortHandle key={p.id} port={p} index={i} side="output" link={data.links[p.id]} />)}
+      {data.inputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="input" link={data.links[p.id]} />)}
+      {data.outputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="output" link={data.links[p.id]} />)}
       <NodeResizeControl
         className="apl-resize-control"
         position="bottom-right"

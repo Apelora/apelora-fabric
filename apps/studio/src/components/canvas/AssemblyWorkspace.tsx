@@ -13,6 +13,7 @@ import { ApplianceNode, type ApplianceFlowNode } from "./ApplianceNode";
 import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
 import { ValidationPanel } from "../validation/ValidationPanel";
+import { ContextMenu } from "./ContextMenu";
 
 const nodeTypes = { appliance: ApplianceNode };
 const edgeTypes = { cable: CableEdge };
@@ -212,7 +213,10 @@ export function AssemblyWorkspace() {
           onNodeDragStart={() => api.getState().beginGesture()}
           onNodeDragStop={() => api.getState().endGesture()}
           onDelete={({ nodes: n, edges: e }) => api.getState().deleteElements(n.map((x) => x.id), e.map((x) => x.id))}
-          onPaneClick={() => api.getState().setSelection({ nodes: [], edges: [] })}
+          onPaneClick={() => { api.getState().closeMenu(); api.getState().setSelection({ nodes: [], edges: [] }); }}
+          onNodeContextMenu={(e, n) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "node", id: n.id } }); }}
+          onEdgeContextMenu={(e, ed) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "edge", id: ed.id } }); }}
+          onPaneContextMenu={(e) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "pane", flow: screenToFlowPosition({ x: e.clientX, y: e.clientY }) } }); }}
           connectionMode={ConnectionMode.Loose}
           deleteKeyCode={["Backspace", "Delete"]}
           snapToGrid={snap}
@@ -227,6 +231,7 @@ export function AssemblyWorkspace() {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-base-content/50">Drag an appliance from the catalog onto the canvas</div>
         )}
         <ValidationPanel diagnostics={diagnostics} />
+        <ContextMenu />
       </div>
     </section>
   );

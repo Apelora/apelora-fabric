@@ -203,3 +203,87 @@ export function reconnect(a: ApplicationAssembly, connectionId: string, source: 
   if (error) return { error };
   return { assembly: { ...a, spec: { ...a.spec, connections: a.spec.connections.map((c) => (c.id === connectionId ? { ...c, source, target } : c)) } } };
 }
+
+/** Removes every cable attached to one port. */
+export function disconnectPort(a: ApplicationAssembly, applianceId: string, portId: string): ApplicationAssembly {
+  return { ...a, spec: { ...a.spec, connections: a.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) } };
+}
+
+/** Removes every cable attached to an appliance. */
+export function disconnectAppliance(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
+  return { ...a, spec: { ...a.spec, connections: a.spec.connections.filter((c) => c.source.applianceId !== applianceId && c.target.applianceId !== applianceId) } };
+}
+
+/** A copyable slice of an assembly: appliances, their layout and the cables between them. */
+export interface Subset {
+  appliances: ApplianceInstance[];
+  nodes: ApplicationAssembly["editor"]["nodes"];
+  connections: Connection[];
+}
+
+export function extractSubset(a: ApplicationAssembly, ids: readonly string[]): Subset {
+  const keep = new Set(ids);
+  return {
+    appliances: a.spec.appliances.filter((x) => keep.has(x.id)),
+    nodes: a.editor.nodes.filter((n) => keep.has(n.id)),
+    connections: a.spec.connections.filter((c) => keep.has(c.source.applianceId) && keep.has(c.target.applianceId)),
+  };
+}
+
+/** Inserts a copied subset with fresh ids, offset by `delta`. Only cables between the copied appliances are kept. */
+export function insertSubset(a: ApplicationAssembly, s: Subset, delta: { x: number; y: number }): { assembly: ApplicationAssembly; ids: string[] } {
+  const taken = new Set(a.spec.appliances.map((x) => x.id));
+  const idMap = new Map<string, string>();
+  for (const x of s.appliances) {
+    const id = uniqueId(x.classRef.name, taken);
+    taken.add(id);
+    idMap.set(x.id, id);
+  }
+  const connTaken = new Set(a.spec.connections.map((c) => c.id));
+  let n = a.spec.connections.length;
+  const conns: Connection[] = s.connections.map((c) => {
+    let id: string;
+    do id = `conn-${String(++n).padStart(2, "0")}`; while (connTaken.has(id));
+    connTaken.add(id);
+    return { id, source: { ...c.source, applianceId: idMap.get(c.source.applianceId)! }, target: { ...c.target, applianceId: idMap.get(c.target.applianceId)! } };
+  });
+  return {
+    ids: [...idMap.values()],
+    assembly: {
+      ...a,
+      spec: {
+        appliances: [...a.spec.appliances, ...s.appliances.map((x) => ({ ...x, id: idMap.get(x.id)!, name: idMap.get(x.id)!, ports: x.ports.map((p) => ({ ...p })), resources: { ...x.resources } }))],
+        connections: [...a.spec.connections, ...conns],
+      },
+      editor: { ...a.editor, nodes: [...a.editor.nodes, ...s.nodes.map((nd) => ({ ...nd, id: idMap.get(nd.id)!, x: Math.round(nd.x + delta.x), y: Math.round(nd.y + delta.y) }))] },
+    },
+  };
+}
+
+export type AlignMode = "left" | "right" | "top" | "bottom" | "center-x" | "center-y";
+
+export function alignNodes(a: ApplicationAssembly, ids: readonly string[], mode: AlignMode): ApplicationAssembly {
+  const sel = a.editor.nodes.filter((n) => ids.includes(n.id));
+  if (sel.length < 2) return a;
+  const minX = Math.min(...sel.map((n) => n.x));
+  const maxR = Math.max(...sel.map((n) => n.x + n.width));
+  const minY = Math.min(...sel.map((n) => n.y));
+  const maxB = Math.max(...sel.map((n) => n.y + n.height));
+  return {
+    ...a,
+    editor: {
+      ...a.editor,
+      nodes: a.editor.nodes.map((n) => {
+        if (!ids.includes(n.id)) return n;
+        switch (mode) {
+          case "left": return { ...n, x: minX };
+          case "right": return { ...n, x: maxR - n.width };
+          case "top": return { ...n, y: minY };
+          case "bottom": return { ...n, y: maxB - n.height };
+          case "center-x": return { ...n, x: Math.round((minX + maxR) / 2 - n.width / 2) };
+          case "center-y": return { ...n, y: Math.round((minY + maxB) / 2 - n.height / 2) };
+        }
+      }),
+    },
+  };
+}

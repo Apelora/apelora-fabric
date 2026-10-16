@@ -95,6 +95,7 @@ body { overflow: hidden; }
   font-size: 10px; line-height: 1.2; padding: 3px 6px; border-radius: 4px; max-width: 240px; white-space: normal; width: max-content;
   background: var(--color-neutral); color: var(--color-neutral-content); opacity: 0; transition: opacity 100ms ease;
 }
+body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-handle:hover .apl-port-tip, .apl-handle:focus-visible .apl-port-tip { opacity: 1; }
 .apl-handle[data-side="input"] .apl-port-tip { right: 16px; }
 .apl-handle[data-side="output"] .apl-port-tip { left: 16px; }

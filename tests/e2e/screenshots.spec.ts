@@ -15,6 +15,17 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("catalog-search").hover();
     await page.screenshot({ path: out("02-selected-inspector") });
 
+    await node(page, "nginx-01").click({ button: "right" });
+    await page.screenshot({ path: out("10-context-menu-appliance") });
+    await page.keyboard.press("Escape");
+    await page.locator(".react-flow__node[data-id=postgresql-01] .react-flow__handle[data-port-id=postgres]").click({ button: "right", force: true });
+    await page.screenshot({ path: out("11-context-menu-port") });
+    await page.keyboard.press("Escape");
+    const cv = (await page.getByTestId("canvas").boundingBox())!;
+    await page.mouse.click(cv.x + 120, cv.y + 120, { button: "right" });
+    await page.getByTestId("menu-add").hover();
+    await page.screenshot({ path: out("12-context-menu-canvas") });
+    await page.keyboard.press("Escape");
     await node(page, "grafana-01").click();
     await addPorts(page, "input", 5);
     await page.waitForTimeout(200);

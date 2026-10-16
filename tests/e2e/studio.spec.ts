@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { test } from "@playwright/test";
-import { addPorts, assemblyState, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
+import { addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
 
 const rgb = (page: import("@playwright/test").Page, sel: string, prop = "backgroundColor") => (prop === "backgroundColor" ? resolvedColor(page, sel) : page.locator(sel).first().evaluate((el, p) => getComputedStyle(el)[p as "color"], prop));
 
@@ -61,6 +61,152 @@ test.describe("visual contract", () => {
     expect(outH.x).toBeGreaterThan(n.x);
     expect(inH.width).toBeCloseTo(10 * (await viewport(page)).zoom, 0);
     await expect(handle(page, "haproxy-01", "backend")).toHaveAttribute("aria-label", /out \(http\)/);
+  });
+});
+
+test.describe("context menus", () => {
+  const menu = (page: import("@playwright/test").Page) => page.getByTestId("context-menu");
+  const item = (page: import("@playwright/test").Page, id: string) => page.getByTestId(`menu-${id}`);
+
+  test("appliance menu: lists every action; rename, duplicate, add port, reset size, unplug, delete", async ({ page }) => {
+    await open(page);
+    await node(page, "nginx-01").click({ button: "right" });
+    await expect(menu(page)).toBeVisible();
+    await expect(menu(page)).toContainText("nginx-01");
+    for (const id of ["rename", "duplicate", "copy", "add-port", "reset-size", "disconnect", "zoom", "save-class", "delete"]) await expect(item(page, id)).toBeVisible();
+    await expect(item(page, "reset-size")).toBeDisabled(); // not manually resized
+    await expect(item(page, "edit-class")).toHaveCount(0); // built-in class
+    // rename focuses the inspector field
+    await item(page, "rename").click();
+    await expect(page.getByTestId("instance-name")).toBeFocused();
+    // add an input port via the submenu
+    await node(page, "nginx-01").click({ button: "right" });
+    await item(page, "add-port").click();
+    await page.getByTestId("menu-add-input").click();
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(3);
+    // duplicate: new appliance, no cables copied for a single node
+    const before = await assemblyState(page);
+    await node(page, "nginx-01").click({ button: "right" });
+    await item(page, "duplicate").click();
+    const after = await assemblyState(page);
+    expect(after.spec.appliances.length).toBe(before.spec.appliances.length + 1);
+    expect(after.spec.connections.length).toBe(before.spec.connections.length);
+    await expect(menu(page)).toHaveCount(0);
+    // unplug all cables, then undo
+    await node(page, "haproxy-01").click({ button: "right" });
+    await item(page, "disconnect").click();
+    expect((await assemblyState(page)).spec.connections.some((c) => c.source.applianceId === "haproxy-01" || c.target.applianceId === "haproxy-01")).toBe(false);
+    await page.getByTestId("undo").click();
+    // delete from the menu
+    await node(page, "grafana-01").click({ button: "right" });
+    await item(page, "delete").click();
+    expect((await assemblyState(page)).spec.appliances.some((a) => a.id === "grafana-01")).toBe(false);
+  });
+
+  test("multi-selection menu: align and delete", async ({ page }) => {
+    await open(page);
+    await node(page, "nginx-01").click();
+    await node(page, "grafana-01").click({ modifiers: ["Control"] });
+    await node(page, "grafana-01").click({ button: "right" });
+    await expect(menu(page)).toContainText("2 appliances selected");
+    await item(page, "align").click();
+    await page.getByTestId("menu-align-left").click();
+    const st = await assemblyState(page);
+    const xs = ["nginx-01", "grafana-01"].map((id) => st.editor.nodes.find((n) => n.id === id)!.x);
+    expect(xs[0]).toBe(xs[1]);
+    await node(page, "grafana-01").click({ button: "right" });
+    await item(page, "delete").click();
+    expect((await assemblyState(page)).spec.appliances.length).toBe(4);
+  });
+
+  test("port menu: type, multi-cable, required, unplug, reorder, delete", async ({ page }) => {
+    await open(page);
+    const pg = handle(page, "postgresql-01", "postgres");
+    await pg.click({ button: "right", force: true });
+    await expect(menu(page)).toContainText("sql (postgres)");
+    await expect(item(page, "multi")).toHaveAttribute("aria-checked", "true");
+    await item(page, "multi").click();
+    await expect(pg).toHaveAttribute("aria-label", /single cable/);
+    await pg.click({ button: "right", force: true });
+    await item(page, "required").click();
+    await expect(pg).toHaveAttribute("aria-label", /sql \(postgres\)(?!, required)/);
+    await pg.click({ button: "right", force: true });
+    await item(page, "type").click();
+    await page.getByTestId("menu-type-tcp").click();
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.find((p) => p.id === "postgres")!.type).toBe("tcp");
+    await pg.click({ button: "right", force: true });
+    await expect(item(page, "unplug")).toContainText("(3)");
+    await item(page, "unplug").click();
+    expect((await assemblyState(page)).spec.connections.length).toBe(3);
+    await handle(page, "postgresql-01", "metrics").click({ button: "right", force: true });
+    await item(page, "delete-port").click();
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.length).toBe(1);
+  });
+
+  test("cable menu: select ends and unplug", async ({ page }) => {
+    await open(page);
+    const p = await cablePoint(page, "conn-01", 0.5);
+    await page.mouse.click(p.x, p.y + 0, { button: "right" });
+    await expect(menu(page)).toContainText("gateway-01.lan → haproxy-01.in");
+    await item(page, "select-target").click();
+    await expect(page.getByTestId("instance-name")).toHaveValue("haproxy-01");
+    const q = await cablePoint(page, "conn-01", 0.5);
+    await page.mouse.click(q.x, q.y, { button: "right" });
+    await item(page, "delete").click();
+    expect((await assemblyState(page)).spec.connections.some((c) => c.id === "conn-01")).toBe(false);
+  });
+
+  test("canvas menu: add appliance at the pointer, paste at the pointer, select all, view toggles", async ({ page }) => {
+    await open(page);
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    const at = { x: canvas.x + canvas.width * 0.25, y: canvas.y + canvas.height * 0.8 };
+    await page.mouse.click(at.x, at.y, { button: "right" });
+    await expect(menu(page)).toContainText("Canvas");
+    await expect(item(page, "paste")).toBeDisabled();
+    await item(page, "add").click();
+    await page.getByTestId("menu-add-redis").click();
+    const st = await assemblyState(page);
+    const redis = st.spec.appliances.find((a) => a.id.startsWith("redis"))!;
+    const c = await center(node(page, redis.id));
+    expect(Math.abs(c.x - at.x)).toBeLessThan(3);
+    expect(Math.abs(c.y - at.y)).toBeLessThan(3);
+    // copy it, paste elsewhere via the canvas menu
+    await page.keyboard.press("Control+c");
+    const at2 = { x: canvas.x + canvas.width * 0.6, y: canvas.y + canvas.height * 0.82 };
+    await page.mouse.click(at2.x, at2.y, { button: "right" });
+    await item(page, "paste").click();
+    const st2 = await assemblyState(page);
+    const pasted = st2.spec.appliances.find((a) => a.id.startsWith("redis") && a.id !== redis.id)!;
+    const c2 = await center(node(page, pasted.id));
+    expect(Math.abs(c2.x - at2.x)).toBeLessThan(80); // pasted block's top-left lands at the pointer
+    expect(c2.x).toBeGreaterThan(at2.x - 10);
+    // select all, view toggles
+    await page.mouse.click(at.x, at.y - 60, { button: "right" });
+    await item(page, "select-all").click();
+    await expect(page.getByTestId("inspector-assembly")).toContainText("appliances selected");
+    await page.mouse.click(at.x, at.y - 60, { button: "right" });
+    await item(page, "labels").click();
+    await expect(page.getByTestId("port-label").first()).toBeHidden();
+  });
+
+  test("keyboard: Context Menu key opens, arrows navigate, Escape closes; outside click closes; Ctrl+D/C/V/A work", async ({ page }) => {
+    await open(page);
+    await node(page, "nginx-01").click();
+    await page.keyboard.press("ContextMenu");
+    await expect(menu(page)).toBeVisible();
+    await expect(item(page, "rename")).toBeFocused();
+    await page.keyboard.press("ArrowDown");
+    await expect(item(page, "duplicate")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(menu(page)).toHaveCount(0);
+    await page.keyboard.press("Control+d");
+    expect((await assemblyState(page)).spec.appliances.length).toBe(7);
+    await page.keyboard.press("Control+a");
+    await expect(page.getByTestId("inspector-assembly")).toContainText("7 appliances selected");
+    await node(page, "gateway-01").click({ button: "right" });
+    await expect(menu(page)).toBeVisible();
+    await page.mouse.click(10, 500); // outside
+    await expect(menu(page)).toHaveCount(0);
   });
 });
 

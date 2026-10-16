@@ -90,3 +90,13 @@ export async function resolvedColor(page: Page, selector: string, prop = "backgr
     return `rgb(${r}, ${g}, ${b})`;
   }, prop);
 }
+
+/** Screen position of a point along a cable (fraction t of its path length). */
+export async function cablePoint(page: Page, id: string, t = 0.5) {
+  return page.evaluate(({ id, t }) => {
+    const p = document.querySelector(`.react-flow__edge[data-id="${id}"] path.react-flow__edge-path`) as SVGPathElement;
+    const m = p.getScreenCTM()!;
+    const pt = p.getPointAtLength(p.getTotalLength() * t);
+    return { x: pt.x * m.a + m.e, y: pt.y * m.d + m.f };
+  }, { id, t });
+}

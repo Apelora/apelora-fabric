@@ -1,0 +1,152 @@
+import { allClasses, lookupClass } from "@apelora/appliance-catalog";
+import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, type AlignMode } from "@apelora/assembly-model";
+import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
+import type { MenuTarget, StudioStore } from "./store";
+
+export type MenuItem =
+  | { type: "header"; label: string }
+  | { type: "separator" }
+  | { type: "item"; id: string; label: string; shortcut?: string; checked?: boolean; disabled?: boolean; danger?: boolean; run?: () => void; children?: MenuItem[] };
+
+export interface MenuModel { title: string; items: MenuItem[] }
+
+export interface RfActions {
+  fitView: (o?: { nodes?: { id: string }[]; padding?: number; maxZoom?: number; duration?: number }) => void;
+}
+
+const item = (id: string, label: string, run: () => void, o: Partial<Extract<MenuItem, { type: "item" }>> = {}): MenuItem => ({ type: "item", id, label, run, ...o });
+const sep: MenuItem = { type: "separator" };
+
+/** Focuses a field in the inspector once React has rendered the selection. */
+function focusField(selector: string) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const el = document.querySelector<HTMLInputElement>(selector);
+    el?.focus();
+    el?.select();
+  }));
+}
+export const renameSelected = () => focusField("[data-testid=instance-name]");
+
+export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): MenuModel {
+  const s = () => api.getState();
+  const a = s().assembly;
+  const sel = s().selection;
+
+  if (target.kind === "node") {
+    const multi = sel.nodes.length > 1 && sel.nodes.includes(target.id);
+    if (multi) {
+      const ids = sel.nodes;
+      const align = (m: AlignMode) => () => s().align(m);
+      return {
+        title: `${ids.length} appliances selected`,
+        items: [
+          item("duplicate", "Duplicate", () => s().duplicateSelection(), { shortcut: "Ctrl+D" }),
+          item("copy", "Copy", () => s().copySelection(), { shortcut: "Ctrl+C" }),
+          item("align", "Align", () => undefined, {
+            children: [
+              item("align-left", "Left edges", align("left")), item("align-right", "Right edges", align("right")),
+              item("align-top", "Top edges", align("top")), item("align-bottom", "Bottom edges", align("bottom")),
+              item("align-cx", "Centre horizontally", align("center-x")), item("align-cy", "Centre vertically", align("center-y")),
+            ],
+          }),
+          item("zoom", "Zoom to selection", () => rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.5, maxZoom: 1.4, duration: 250 })),
+          sep,
+          item("delete", `Delete ${ids.length} appliances`, () => s().deleteElements(ids, []), { shortcut: "Del", danger: true }),
+        ],
+      };
+    }
+    const app = a.spec.appliances.find((x) => x.id === target.id);
+    if (!app) return { title: "", items: [] };
+    const cls = lookupClass(app.classRef.name, app.classRef.version);
+    const layout = a.editor.nodes.find((n) => n.id === app.id);
+    const cables = a.spec.connections.filter((c) => c.source.applianceId === app.id || c.target.applianceId === app.id).length;
+    return {
+      title: `${app.name} · ${cls?.displayName ?? app.classRef.name}`,
+      items: [
+        item("rename", "Rename…", () => renameSelected(), { shortcut: "F2" }),
+        item("duplicate", "Duplicate", () => s().duplicateSelection(), { shortcut: "Ctrl+D" }),
+        item("copy", "Copy", () => s().copySelection(), { shortcut: "Ctrl+C" }),
+        sep,
+        item("add-port", "Add port", () => undefined, {
+          children: [item("add-input", "Input port (left)", () => s().addPortTo(app.id, "input")), item("add-output", "Output port (right)", () => s().addPortTo(app.id, "output"))],
+        }),
+        item("reset-size", "Reset size", () => s().resetSize(app.id), { disabled: !layout?.custom }),
+        item("disconnect", cables ? `Unplug all cables (${cables})` : "Unplug all cables", () => s().disconnectAllCables(app.id), { disabled: cables === 0 }),
+        item("zoom", "Zoom to appliance", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: 250 })),
+        sep,
+        item("save-class", "Save as custom appliance…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box"))),
+        ...(cls?.custom ? [item("edit-class", "Edit appliance class…", () => useCustomCatalog.getState().openDesigner(draftFromClass(cls, true)))] : []),
+        sep,
+        item("delete", "Delete", () => s().deleteElements([app.id], []), { shortcut: "Del", danger: true }),
+      ],
+    };
+  }
+
+  if (target.kind === "port") {
+    const app = a.spec.appliances.find((x) => x.id === target.nodeId);
+    const port = app?.ports.find((p) => p.id === target.portId);
+    if (!app || !port) return { title: "", items: [] };
+    const side = app.ports.filter((p) => p.direction === port.direction);
+    const idx = side.findIndex((p) => p.id === port.id);
+    const cables = a.spec.connections.filter((c) => (c.source.applianceId === app.id && c.source.portId === port.id) || (c.target.applianceId === app.id && c.target.portId === port.id)).length;
+    return {
+      title: `${app.name} · ${port.name} (${port.type})`,
+      items: [
+        item("rename-port", "Rename port…", () => focusField(`[data-testid=port-row][data-port-id="${port.id}"] input`)),
+        item("type", "Protocol type", () => undefined, { children: PORT_TYPES.map((t) => item(`type-${t}`, t, () => s().editPort(app.id, port.id, { type: t }), { checked: port.type === t })) }),
+        item("multi", "Allow several cables", () => s().editPort(app.id, port.id, { multiplicity: port.multiplicity === "many" ? "one" : "many" }), { checked: port.multiplicity === "many" }),
+        item("required", "Required", () => s().editPort(app.id, port.id, { optional: !port.optional }), { checked: !port.optional }),
+        sep,
+        item("unplug", cables ? `Unplug cables (${cables})` : "Unplug cables", () => s().disconnectPortCables(app.id, port.id), { disabled: cables === 0 }),
+        item("up", "Move up", () => s().shiftPort(app.id, port.id, -1), { disabled: idx <= 0 }),
+        item("down", "Move down", () => s().shiftPort(app.id, port.id, 1), { disabled: idx === side.length - 1 }),
+        sep,
+        item("delete-port", "Delete port", () => s().deletePort(app.id, port.id), { danger: true }),
+      ],
+    };
+  }
+
+  if (target.kind === "edge") {
+    const c = a.spec.connections.find((x) => x.id === target.id);
+    if (!c) return { title: "", items: [] };
+    const sa = a.spec.appliances.find((x) => x.id === c.source.applianceId);
+    const ta = a.spec.appliances.find((x) => x.id === c.target.applianceId);
+    const sp = sa?.ports.find((p) => p.id === c.source.portId);
+    const tp = ta?.ports.find((p) => p.id === c.target.portId);
+    return {
+      title: `${sa?.name}.${sp?.name} → ${ta?.name}.${tp?.name}`,
+      items: [
+        { type: "header", label: `${sp?.type ?? ""} cable` },
+        item("select-source", `Select ${sa?.name ?? "source"}`, () => s().selectNode(c.source.applianceId)),
+        item("select-target", `Select ${ta?.name ?? "target"}`, () => s().selectNode(c.target.applianceId)),
+        sep,
+        item("delete", "Unplug cable", () => s().deleteElements([], [c.id]), { shortcut: "Del", danger: true }),
+      ],
+    };
+  }
+
+  // pane
+  const flow = target.flow;
+  const size = DENSITY_SIZE[a.editor.density];
+  const classes = allClasses();
+  const add: MenuItem[] = CATEGORIES.flatMap((cat) => {
+    const inCat = classes.filter((c) => c.category === cat);
+    return inCat.length ? [{ type: "header" as const, label: cat }, ...inCat.map((c) => item(`add-${c.id}`, c.displayName, () => void s().addFromCatalog(c.id, { x: flow.x - size.width / 2, y: flow.y - size.height / 2 })))] : [];
+  });
+  return {
+    title: "Canvas",
+    items: [
+      item("add", "Add appliance", () => undefined, { children: add }),
+      item("paste", "Paste", () => s().pasteAt(flow), { shortcut: "Ctrl+V", disabled: !s().clipboard }),
+      item("select-all", "Select all", () => s().selectAll(), { shortcut: "Ctrl+A", disabled: a.spec.appliances.length === 0 }),
+      sep,
+      item("undo", "Undo", () => s().undo(), { shortcut: "Ctrl+Z", disabled: s().past.length === 0 }),
+      item("redo", "Redo", () => s().redo(), { shortcut: "Ctrl+Shift+Z", disabled: s().future.length === 0 }),
+      sep,
+      item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: 250 }), { shortcut: "F" }),
+      item("grid", "Dotted grid", () => s().setShowGrid(!s().showGrid), { checked: s().showGrid }),
+      item("labels", "Port and link labels", () => s().setShowLabels(!s().showLabels), { checked: s().showLabels }),
+      item("cable", "Thick patch-cable look", () => s().setCableStyle(s().cableStyle === "line" ? "cable" : "line"), { checked: s().cableStyle === "cable" }),
+    ],
+  };
+}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
 import {
-  addAppliance, addPort, findFreeSpot, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  addAppliance, addPort, alignNodes, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
 
@@ -141,5 +141,33 @@ describe("placement", () => {
     const first = a.editor.nodes[0]!;
     const spot = findFreeSpot(a, { x: first.x, y: first.y }, { width: 128, height: 96 });
     expect(a.editor.nodes.some((n) => spot.x < n.x + n.width && spot.x + 128 > n.x && spot.y < n.y + n.height && spot.y + 96 > n.y)).toBe(false);
+  });
+});
+
+describe("context-menu operations", () => {
+  it("duplicate keeps only cables between the copied appliances and gives fresh ids", () => {
+    const a = sampleCommerceStack();
+    const ids = a.spec.appliances.filter((x) => ["haproxy", "nginx"].includes(x.classRef.name)).map((x) => x.id);
+    const sub = extractSubset(a, ids);
+    expect(sub.connections.length).toBe(2); // haproxy → each nginx
+    const r = insertSubset(a, sub, { x: 24, y: 24 });
+    expect(r.ids.length).toBe(3);
+    expect(new Set(r.assembly.spec.appliances.map((x) => x.id)).size).toBe(9);
+    expect(r.assembly.spec.connections.length).toBe(8);
+    expect(new Set(r.assembly.spec.connections.map((c) => c.id)).size).toBe(8);
+    expect(validateAssembly(r.assembly, lookup).filter((d) => d.code !== "required-port-unconnected")).toEqual([]);
+  });
+  it("disconnecting a port removes only its cables", () => {
+    const a = sampleCommerceStack();
+    const pg = a.spec.appliances.find((x) => x.classRef.name === "postgresql")!;
+    expect(disconnectPort(a, pg.id, "postgres").spec.connections.length).toBe(3);
+  });
+  it("aligns nodes", () => {
+    const a = sampleCommerceStack();
+    const ids = a.editor.nodes.map((n) => n.id);
+    const l = alignNodes(a, ids, "left");
+    expect(new Set(l.editor.nodes.map((n) => n.x)).size).toBe(1);
+    const t = alignNodes(a, ids, "top");
+    expect(new Set(t.editor.nodes.map((n) => n.y)).size).toBe(1);
   });
 });

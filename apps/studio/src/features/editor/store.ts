@@ -1,13 +1,20 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import {
-  addAppliance, addPort, connect, reconnect, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, alignNodes, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
 
 export interface Toast { id: number; kind: "info" | "success" | "warning" | "error"; text: string }
 interface Selection { nodes: string[]; edges: string[] }
+
+export type MenuTarget =
+  | { kind: "node"; id: string }
+  | { kind: "port"; nodeId: string; portId: string }
+  | { kind: "edge"; id: string }
+  | { kind: "pane"; flow: { x: number; y: number } };
+export interface MenuState { x: number; y: number; target: MenuTarget; keyboard?: boolean }
 
 const MAX_HISTORY = 100;
 let toastSeq = 1;
@@ -26,6 +33,18 @@ export interface StudioState {
   cableStyle: "line" | "cable";
   snap: boolean;
   importErrors: string[] | null;
+  menu: MenuState | null;
+  clipboard: Subset | null;
+
+  openMenu: (m: MenuState) => void;
+  closeMenu: () => void;
+  selectAll: () => void;
+  copySelection: () => void;
+  pasteAt: (flow?: { x: number; y: number }) => void;
+  duplicateSelection: () => void;
+  disconnectPortCables: (id: string, portId: string) => void;
+  disconnectAllCables: (id: string) => void;
+  align: (mode: AlignMode) => void;
 
   toast: (kind: Toast["kind"], text: string) => void;
   dismissToast: (id: number) => void;
@@ -87,6 +106,46 @@ export function createStudioStore(initial: ApplicationAssembly) {
       cableStyle: "line",
       snap: false,
       importErrors: null,
+      menu: null,
+      clipboard: null,
+
+      openMenu: (m) => {
+        const { selection } = get();
+        // Right-clicking something outside the current selection selects it first.
+        if (m.target.kind === "node" || m.target.kind === "port") {
+          const id = m.target.kind === "node" ? m.target.id : m.target.nodeId;
+          if (!selection.nodes.includes(id)) set({ selection: { nodes: [id], edges: [] } });
+        } else if (m.target.kind === "edge" && !selection.edges.includes(m.target.id)) set({ selection: { nodes: [], edges: [m.target.id] } });
+        set({ menu: m });
+      },
+      closeMenu: () => set({ menu: null }),
+      selectAll: () => set({ selection: { nodes: get().assembly.spec.appliances.map((a) => a.id), edges: [] } }),
+      copySelection: () => {
+        const { assembly, selection } = get();
+        if (!selection.nodes.length) return;
+        set({ clipboard: extractSubset(assembly, selection.nodes) });
+        get().toast("info", `Copied ${selection.nodes.length} appliance${selection.nodes.length > 1 ? "s" : ""}. Paste with Ctrl+V.`);
+      },
+      pasteAt: (flow) => {
+        const { clipboard, assembly } = get();
+        if (!clipboard || !clipboard.nodes.length) return;
+        const minX = Math.min(...clipboard.nodes.map((n) => n.x));
+        const minY = Math.min(...clipboard.nodes.map((n) => n.y));
+        const delta = flow ? { x: flow.x - minX, y: flow.y - minY } : { x: 32, y: 32 };
+        const r = insertSubset(assembly, clipboard, delta);
+        commit(r.assembly);
+        set({ selection: { nodes: r.ids, edges: [] } });
+      },
+      duplicateSelection: () => {
+        const { assembly, selection } = get();
+        if (!selection.nodes.length) return;
+        const r = insertSubset(assembly, extractSubset(assembly, selection.nodes), { x: 32, y: 32 });
+        commit(r.assembly);
+        set({ selection: { nodes: r.ids, edges: [] } });
+      },
+      disconnectPortCables: (id, portId) => commit(disconnectPort(get().assembly, id, portId)),
+      disconnectAllCables: (id) => commit(disconnectAppliance(get().assembly, id)),
+      align: (mode) => commit(alignNodes(get().assembly, get().selection.nodes, mode)),
 
       toast: (kind, text) => {
         const id = toastSeq++;
