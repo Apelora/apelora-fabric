@@ -40,6 +40,7 @@ npm run test:e2e         # Playwright (needs: npx playwright install chromium)
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 npm run schema           # regenerate JSON Schemas
+bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/development/UPSTREAM-INCUS.md)
 ```
 
 ## How to change things

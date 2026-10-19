@@ -1,0 +1,81 @@
+name: Upstream check
+
+# Weekly (and on demand): verify the pinned Incus release and, when upstream publishes a newer
+# release in the pinned series, open a pull request that moves the pin. A human reviews and
+# runs the integration tests before merging; nothing is upgraded automatically.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: false
+
+jobs:
+  incus:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify the current pin against upstream
+        run: bash scripts/upstream/verify.sh
+
+      - name: Check for a newer release in the pinned series
+        id: check
+        run: bash scripts/upstream/check-updates.sh
+
+      - name: Open an update pull request
+        if: steps.check.outputs.update != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check.outputs.update }}
+          PINNED: ${{ steps.check.outputs.pinned }}
+        run: |
+          branch="upstream/incus-${TAG}"
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Branch $branch already exists; an update PR is open or was closed. Nothing to do."
+            exit 0
+          fi
+          bash scripts/upstream/prepare-update.sh "$TAG" | tee /tmp/summary.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "Upstream: Incus ${PINNED} -> ${TAG}"
+          git push origin "$branch"
+          cat > /tmp/body.md <<EOF
+          Upstream Incus published **${TAG}** in the pinned series (currently **${PINNED}**).
+
+          $(cat /tmp/summary.txt)
+
+          Before merging:
+          - [ ] Read the upstream release notes and the compare link above (security fixes, API extension changes, host minimums)
+          - [ ] Rebase the fork's patch branch onto ${TAG} if it carries patches (docs/development/UPSTREAM-INCUS.md)
+          - [ ] Run the adapter contract tests and, when available, the disposable test cluster
+          - [ ] Update \`tested_with\` in upstream.lock.yaml with the evidence
+
+          Opened automatically by the upstream-check workflow. No production system is upgraded by this PR.
+          EOF
+          gh pr create --base main --head "$branch" --title "Upstream: Incus ${PINNED} -> ${TAG}" --body-file /tmp/body.md
+
+      - name: Report newer feature releases (informational)
+        run: echo "Newest Incus feature release upstream is ${{ steps.check.outputs.newest_feature }} (we track the ${{ steps.check.outputs.pinned }} LTS series)."
+
+  fork-sync:
+    # Keeps Apelora/incus main in step with lxc/incus main. Needs a token with write access to the
+    # fork (secret APELORA_FORK_TOKEN); skipped when the secret is absent. Patch branches are rebased
+    # by a human because conflicts need judgement.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork main from upstream
+        env:
+          GH_TOKEN: ${{ secrets.APELORA_FORK_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "APELORA_FORK_TOKEN not set; skipping fork sync."; exit 0; fi
+          gh repo sync Apelora/incus --source lxc/incus --branch main

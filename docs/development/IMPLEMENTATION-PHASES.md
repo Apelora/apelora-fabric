@@ -31,6 +31,7 @@ Audit (`docs/architecture/current-state.md`), ADR 0001, superseded Xen material 
 
 Verify the Incus 7.0 LTS install method, host minimums, licence and the REST endpoints/extensions we need, with source links and dates. Create `upstream.lock.yaml` (never invent versions, hashes or CVEs). Scripts under `scripts/upstream/` (status, check-updates, verify; optional read-only source checkout into a git-ignored path). Scheduled/manual workflow that opens review-only update PRs with least-privilege permissions. The adapter negotiates `api_extensions` and returns `UnsupportedCapability` instead of guessing.
 **Accept:** a clean checkout validates the tracked release; no build needs Incus source; no unattended upgrades.
+**Status:** done — pin `v7.0.2` (`01f81e5e`), fork `Apelora/incus` with patch branch `apelora/7.0`, scripts and weekly workflow; procedure in `UPSTREAM-INCUS.md`. Adapter-side `api_extensions` negotiation is partly in place (`require_extension`) and is completed against real responses in Phase 03.
 
 ## 03 — Rust API, domain and Incus adapter
 

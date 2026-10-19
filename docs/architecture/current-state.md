@@ -40,7 +40,7 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Target | Gap | Phase |
 |---|---|---|
 | Cargo workspace, control-plane and worker services | Skeleton created in Phase 01 (compiles, no behaviour) | 01 → 03 |
-| Upstream tracking (`upstream.lock.yaml`, update checks) | Missing | 02 |
+| Upstream tracking (`upstream.lock.yaml`, update checks, fork `Apelora/incus`) | Done in Phase 02 (`docs/development/UPSTREAM-INCUS.md`) | 02 |
 | Incus adapter (read-only + mock), PostgreSQL persistence, auth | Missing | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |
 | Shared API contract (OpenAPI → TS client) | Missing | 03 |

@@ -1,0 +1,20 @@
+# Upstream projects Apelora integrates with (see docs/development/UPSTREAM-INCUS.md).
+# Every value here was verified against the upstream repository on the date in `verified`.
+# Never edit by guess: use scripts/upstream/prepare-update.sh, which resolves tags to commits.
+version: 1
+upstreams:
+  incus:
+    url: https://github.com/lxc/incus
+    fork: https://github.com/Apelora/incus
+    fork_patch_branch: apelora/7.0
+    licence: Apache-2.0
+    series: "7.0"
+    pinned_tag: v7.0.2
+    pinned_commit: 01f81e5e607bbb5818410318e4b3496ad1820824
+    latest_feature_release: v7.5.1
+    support: LTS until June 2031 (bug and security fixes for two years, then security only)
+    host_minimums: Linux kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables 1.0
+    required_api_extensions: none yet (recorded from real /1.0 responses in Phase 03)
+    tested_with: NOT TESTED against a real cluster yet
+    upgrade_policy: update pull request only; human review; no automatic production upgrades
+    verified: 2026-10-20

@@ -28,3 +28,11 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - https://linuxcontainers.org/incus/docs/main/
 - https://github.com/lxc/incus
 - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+## Apelora setup (in place since Phase 02)
+
+- Pin: `upstream.lock.yaml` (`incus` block: series 7.0, `pinned_tag`, `pinned_commit`, fork, patch branch, `tested_with`, `verified`). Change it only with `scripts/upstream/prepare-update.sh <tag>`, which resolves the tag to a commit upstream.
+- Scripts (bash, no extra tools): `status.sh`, `verify.sh` (pinned tag must resolve to pinned commit), `check-updates.sh` (newer release in the series; writes `update=` to `$GITHUB_OUTPUT`), `bootstrap.sh` (read-only shallow checkout in git-ignored `upstream/incus`, remotes `origin`=upstream and `apelora`=fork), `prepare-update.sh`.
+- Workflow `.github/workflows/upstream-check.yml`: weekly + manual; verifies the pin and opens an update PR on branch `upstream/incus-<tag>` (never twice for the same tag); optional `fork-sync` job keeps `Apelora/incus` main in step when the `APELORA_FORK_TOKEN` secret exists.
+- Fork `Apelora/incus`: `apelora/7.0` = pinned tag + our patches (Apache-2.0, human DCO, no AI credit). Rebase onto each new tag; drop patches upstream accepts. Procedure: `docs/development/UPSTREAM-INCUS.md`.
+- Our own features (HA, mobility, networking intents) never go into the fork unless the API cannot support them.
