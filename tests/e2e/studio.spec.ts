@@ -83,7 +83,7 @@ test.describe("context menus", () => {
     await node(page, "nginx-01").click({ button: "right" });
     await item(page, "add-port").click();
     await page.getByTestId("menu-add-input").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(3);
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(4);
     // duplicate: new appliance, no cables copied for a single node
     const before = await assemblyState(page);
     await node(page, "nginx-01").click({ button: "right" });
@@ -140,7 +140,7 @@ test.describe("context menus", () => {
     expect((await assemblyState(page)).spec.connections.length).toBe(3);
     await handle(page, "postgresql-01", "metrics").click({ button: "right", force: true });
     await item(page, "delete-port").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.length).toBe(1);
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.length).toBe(2);
   });
 
   test("cable menu: select ends and unplug", async ({ page }) => {
@@ -385,6 +385,154 @@ test.describe("category colours and cable routing", () => {
   });
 });
 
+test.describe("network interface and link tags", () => {
+  const stubs = (page: import("@playwright/test").Page, tag?: string) => page.locator(tag ? `[data-testid=tag-stub][data-tag="${tag}"]` : "[data-testid=tag-stub]");
+  const addByClick = async (page: import("@playwright/test").Page, cls: string) => {
+    const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
+    await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).click();
+    return (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !before.includes(id))!;
+  };
+
+  const dropAt = async (page: import("@playwright/test").Page, cls: string, fx: number, fy: number) => {
+    const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
+    const box = (await page.getByTestId("canvas").boundingBox())!;
+    await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
+    return (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !before.includes(id))!;
+  };
+
+  test("every appliance shows a net terminal with a link light; default network until plugged", async ({ page }) => {
+    await open(page);
+    for (const id of ["gateway-01", "haproxy-01", "nginx-01", "postgresql-01", "grafana-01"]) {
+      await expect(handle(page, id, "net")).toHaveAttribute("aria-label", /net \(network\).*single cable/);
+      await expect(node(page, id).getByTestId("nic-led")).toHaveAttribute("data-linked", "false");
+    }
+    await node(page, "nginx-01").click();
+    await expect(page.getByTestId("nic-status")).toHaveText("default network");
+    // plug it into a Network appliance by cable
+    const net = await addByClick(page, "network");
+    await dragHandle(page, handle(page, net, "net"), handle(page, "nginx-01", "net"));
+    await expect(node(page, "nginx-01").getByTestId("nic-led")).toHaveAttribute("data-linked", "true");
+    await node(page, "nginx-01").click();
+    await expect(page.getByTestId("nic-status")).toContainText(`${net} (cable)`);
+    // a NIC takes one network: a second cable is refused
+    const net2 = await addByClick(page, "network");
+    const before = await edgeCount(page);
+    await dragHandle(page, handle(page, net2, "net"), handle(page, "nginx-01", "net"));
+    expect(await edgeCount(page)).toBe(before);
+    // a service port is not a NIC
+    await dragHandle(page, handle(page, net2, "net"), handle(page, "haproxy-01", "frontend"));
+    expect(await edgeCount(page)).toBe(before);
+    // the net terminal cannot be deleted
+    await node(page, "nginx-01").click();
+    await expect(page.locator("[data-testid=port-row][data-port-id=net] [data-testid=delete-port]")).toBeDisabled();
+  });
+
+  test("link tags join terminals by name without a cable; hover highlights; convert to cable and back", async ({ page }) => {
+    await open(page);
+    const node1 = await dropAt(page, "nodejs", 0.1, 0.8);
+    const redis = await dropAt(page, "redis", 0.62, 0.8);
+    const edges = await edgeCount(page);
+    await expect(handle(page, redis, "redis")).toBeVisible();
+    // tag the redis input first: no source yet → warning
+    await node(page, redis).click();
+    await page.locator("[data-testid=port-row][data-port-id=redis] [data-testid=port-tag]").fill("cache");
+    await page.locator("[data-testid=port-row][data-port-id=redis] [data-testid=port-tag]").press("Enter");
+    await expect(stubs(page, "cache")).toHaveCount(1);
+    await page.getByTestId("validation-toggle").click();
+    await expect(page.getByTestId("diagnostics")).toContainText("nothing feeds it");
+    await node(page, node1).click();
+    await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").fill("cache");
+    await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").press("Enter");
+    await expect(stubs(page, "cache")).toHaveCount(2);
+    expect(await edgeCount(page)).toBe(edges); // no cable drawn
+    await expect(handle(page, node1, "cache").getByTestId("plug-head")).toHaveAttribute("data-type", "redis");
+    await expect(page.getByTestId("diagnostics")).not.toContainText("nothing feeds it");
+    // hovering one stub highlights the other
+    await stubs(page, "cache").first().hover();
+    await expect(stubs(page, "cache").nth(1)).toHaveAttribute("data-hot", "true");
+    // selecting the tag shows its members; convert to a cable
+    await stubs(page, "cache").first().click();
+    await expect(page.getByTestId("inspector-tag")).toBeVisible();
+    await expect(page.getByTestId("tag-members").locator("li")).toHaveCount(2);
+    await page.getByTestId("tag-to-cable").click();
+    await expect(stubs(page)).toHaveCount(0);
+    expect(await edgeCount(page)).toBe(edges + 1);
+    await expectEdgesAnchored(page);
+    // cable → tag via the cable's context menu
+    const id = (await assemblyState(page)).spec.connections.find((c) => c.source.applianceId === node1 && c.target.applianceId === redis)!.id;
+    const pt = await cablePoint(page, id, 0.5);
+    await page.mouse.click(pt.x, pt.y, { button: "right" });
+    await page.getByTestId("menu-to-tag").click();
+    await expect(stubs(page)).toHaveCount(2);
+    expect(await edgeCount(page)).toBe(edges);
+    // remove the tag
+    await stubs(page).first().click();
+    await page.getByTestId("tag-remove").click();
+    await expect(stubs(page)).toHaveCount(0);
+  });
+
+  test("tag validation: protocol mismatch is rejected with a reason; port menu lists existing tags", async ({ page }) => {
+    await open(page);
+    const nodejs = await dropAt(page, "nodejs", 0.1, 0.8);
+    const web = await dropAt(page, "nginx", 0.55, 0.8);
+    await node(page, nodejs).click();
+    await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").fill("link-a");
+    await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").press("Enter");
+    await expect(stubs(page, "link-a")).toHaveCount(1);
+    await node(page, web).click();
+    await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").fill("link-a");
+    await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").press("Enter");
+    await expect(page.getByTestId("toast").last()).toContainText(/cannot feed/);
+    await expect(stubs(page, "link-a")).toHaveCount(1);
+    await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").fill("Bad Name");
+    await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").press("Enter");
+    await expect(page.getByTestId("toast").last()).toContainText("not a valid tag name");
+    // the port menu offers existing tags
+    await handle(page, web, "db").click({ button: "right", force: true });
+    await page.getByTestId("menu-link-tag").click();
+    await expect(page.getByTestId("menu-tag-link-a")).toBeVisible();
+    await expect(page.getByTestId("menu-tag-new")).toBeVisible();
+  });
+
+  test("sample with a Network appliance joins every NIC through the tag 'lan'; export/import keeps tags", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-sample-network").click();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForTimeout(400);
+    await expect(stubs(page, "lan")).toHaveCount(7);
+    await expect(page.getByTestId("nic-led").first()).toHaveAttribute("data-linked", "true");
+    await expect(page.getByTestId("validation-panel")).toContainText("No issues");
+    await node(page, "nginx-01").click();
+    await expect(page.getByTestId("nic-status")).toContainText("(tag lan)");
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    expect(JSON.parse(text).spec.links).toHaveLength(7);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    await page.getByTestId("import-input").setInputFiles({ name: "t.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await expect(stubs(page, "lan")).toHaveCount(7);
+  });
+
+  test("designer: a new appliance always includes a locked net interface", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("designer-name").fill("Probe");
+    const ports = page.getByTestId("designer-port");
+    await expect(ports).toHaveCount(3);
+    const nic = ports.nth(1); // inputs are listed first: in, net
+    await expect(nic.getByLabel("Port name")).toHaveValue("net");
+    await expect(nic.getByLabel("Port name")).toBeDisabled();
+    await expect(nic.getByLabel("Delete port")).toBeDisabled();
+    await page.getByTestId("designer-save").click();
+    await page.locator("[data-testid=catalog-tile][data-class-id=custom-probe]").click();
+    const probe = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("custom-probe"))!;
+    expect(probe.ports.some((p) => p.id === "net" && p.type === "network" && p.direction === "input")).toBe(true);
+  });
+});
+
 test.describe("transitions", () => {
   test("menus, dialogs, plugs and cables animate; reduced motion disables them", async ({ page }) => {
     await open(page);
@@ -411,8 +559,8 @@ test.describe("terminals and labels", () => {
   test("every port shows a short text label; labels never cover the logo; jacks are RJ45-style and toggle off", async ({ page }) => {
     await open(page);
     const n = node(page, "nginx-01");
-    await expect(n.getByTestId("port-label")).toHaveText(["in", "db"]);
-    await expect(node(page, "haproxy-01").getByTestId("port-label")).toHaveText(["in", "out"]);
+    await expect(n.getByTestId("port-label")).toHaveText(["in", "net", "db"]);
+    await expect(node(page, "haproxy-01").getByTestId("port-label")).toHaveText(["in", "net", "out"]);
     const logo = (await n.getByTestId("node-logo").boundingBox())!;
     for (const l of await page.getByTestId("port-label").all()) {
       const b = (await l.boundingBox())!;
@@ -420,7 +568,7 @@ test.describe("terminals and labels", () => {
       if (owner !== "nginx-01") continue;
       expect(b.x + b.width <= logo.x + 0.5 || b.x >= logo.x + logo.width - 0.5, "label must not overlap the logo").toBe(true);
     }
-    await expect(n.locator(".apl-jack[data-kind=input]")).toHaveCount(1);
+    await expect(n.locator(".apl-jack[data-kind=input]")).toHaveCount(2); // in + net
     await expect(n.locator(".apl-jack[data-kind=output]")).toHaveCount(1);
     // link labels carry the protocol
     await expect(page.getByTestId("link-label").first()).toBeVisible();
@@ -495,7 +643,7 @@ test.describe("custom appliances", () => {
     await page.getByTestId("designer-name").fill("Session cache");
     await page.getByTestId("designer-add-input").click();
     await page.getByTestId("designer-add-output").click();
-    await expect(page.getByTestId("designer-port")).toHaveCount(4);
+    await expect(page.getByTestId("designer-port")).toHaveCount(5);
     // make the first input a required http port named "in"
     const first = page.getByTestId("designer-port").first();
     await first.getByLabel("Port type").selectOption("http");
@@ -508,9 +656,9 @@ test.describe("custom appliances", () => {
     await tile.click();
     const st = await assemblyState(page);
     const added = st.spec.appliances.find((a) => a.id.startsWith("custom-session-cache"))!;
-    expect(added.ports.length).toBe(4);
+    expect(added.ports.length).toBe(5);
     const h = await flowSize(page, added.id);
-    expect(h.height).toBeCloseTo(96, 0);
+    expect(h.height).toBeCloseTo(60 + 18 * 3, 0); // in, added input and net
 
     // wire load balancer → custom input (http) is valid
     await dragHandle(page, handle(page, "haproxy-01", "backend"), handle(page, added.id, "in"));
@@ -572,9 +720,9 @@ test.describe("catalog", () => {
     await expect(page.getByText("No appliances match")).toBeVisible();
   });
 
-  test("tiles show the 14 built-in appliances, grouped", async ({ page }) => {
+  test("tiles show the 15 built-in appliances, grouped", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("catalog-tile")).toHaveCount(14);
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(15);
     expect(await page.getByTestId("catalog-section").count()).toBeGreaterThanOrEqual(6);
   });
 });
@@ -656,11 +804,11 @@ test.describe("editing", () => {
     let s = await flowSize(page, "grafana-01");
     expect(s.width).toBeCloseTo(128, 0);
     expect(s.height).toBeGreaterThan(96);
-    expect(s.height).toBeCloseTo(60 + 18 * 5, 0); // 5 inputs
+    expect(s.height).toBeCloseTo(60 + 18 * 6, 0); // ui + net + 4 added = 6 inputs
     await addPorts(page, "input", 3);
     await page.waitForTimeout(150);
     s = await flowSize(page, "grafana-01");
-    expect(s.height).toBeCloseTo(60 + 18 * 8, 0);
+    expect(s.height).toBeCloseTo(60 + 18 * 9, 0);
     expect(await flowSize(page, "postgresql-01")).toEqual(otherBefore);
     await expectEdgesAnchored(page);
     // logo is still centered horizontally and no port overlaps it

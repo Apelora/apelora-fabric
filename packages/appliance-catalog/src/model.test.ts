@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
 import {
-  addAppliance, addPort, alignNodes, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  addAppliance, addPort, alignNodes, ensureNics, cableToTag, explainTag, removeAppliances as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
 
@@ -204,5 +204,94 @@ describe("configuration properties", () => {
     expect(validateAssembly(a, lookup)).toEqual([]);
     const r = parseAssembly(serializeAssembly(a));
     expect(r.ok && r.assembly.spec.appliances.find((x) => x.id === id)!.config).toEqual({ "max-connections": 250 });
+  });
+});
+
+describe("link tags", () => {
+  const web = (a: ReturnType<typeof sampleCommerceStack>) => a.spec.appliances.filter((x) => x.classRef.name === "nginx").map((x) => x.id);
+  const mk = () => {
+    let a = createEmptyAssembly("t");
+    const g = addAppliance(a, lookupClass("grafana", "1.0.0")!, { x: 0, y: 0 }); a = g.assembly;
+    const p = addAppliance(a, lookupClass("postgresql", "1.0.0")!, { x: 300, y: 0 }); a = p.assembly;
+    return { a, g: g.id, p: p.id };
+  };
+  it("joins an output and an input by name and drops the required-input error", () => {
+    const { a, g, p } = mk();
+    let r = tagPort(a, { applianceId: g, portId: "source" }, "db");
+    if (!("assembly" in r)) throw new Error("expected ok");
+    r = tagPort(r.assembly, { applianceId: p, portId: "postgres" }, "db");
+    if (!("assembly" in r)) throw new Error("expected ok");
+    expect(tagNet(r.assembly, "db")).toHaveLength(2);
+    const diags = validateAssembly(r.assembly, lookup);
+    expect(diags.some((d) => d.code === "required-port-unconnected" && d.applianceId === p)).toBe(false);
+    expect(diags.some((d) => d.code.startsWith("tag-"))).toBe(false);
+  });
+  it("rejects bad names and incompatible protocols with a reason", () => {
+    const { a, g, p } = mk();
+    expect(explainTag(a, { applianceId: g, portId: "source" }, "Bad Name")?.code).toBe("tag-name");
+    const r = tagPort(a, { applianceId: g, portId: "source" }, "x");
+    if (!("assembly" in r)) throw new Error();
+    // postgres output cannot feed an http input
+    const bad = explainTag(r.assembly, { applianceId: p, portId: "metrics" }, "x");
+    expect(bad).toBeNull(); // output + output is fine
+    const web1 = addAppliance(r.assembly, lookupClass("nginx", "1.0.0")!, { x: 0, y: 200 });
+    expect(explainTag(web1.assembly, { applianceId: web1.id, portId: "http" }, "x")?.code).toBe("tag-type");
+  });
+  it("warns about tags without a source or a listener", () => {
+    const { a, g } = mk();
+    const r = tagPort(a, { applianceId: g, portId: "source" }, "orphan");
+    if (!("assembly" in r)) throw new Error();
+    expect(validateAssembly(r.assembly, lookup).some((d) => d.code === "tag-no-target")).toBe(true);
+  });
+  it("converts a cable to a tag and back; untag and appliance removal clean up", () => {
+    const a = sampleCommerceStack();
+    const conn = a.spec.connections[0]!;
+    const r = cableToTag(a, conn.id, "edge");
+    if (!("assembly" in r)) throw new Error("expected ok");
+    expect(r.assembly.spec.connections.length).toBe(5);
+    expect(tagNet(r.assembly, "edge")).toHaveLength(2);
+    const back = tagToCable(r.assembly, "edge");
+    if (!("assembly" in back)) throw new Error("expected ok");
+    expect(back.assembly.spec.connections.length).toBe(6);
+    expect(back.assembly.spec.links).toBeUndefined();
+    expect(untagPort(r.assembly, conn.source).spec.links).toHaveLength(1);
+    expect(removeApps(r.assembly, [conn.source.applianceId]).spec.links ?? []).toHaveLength(1);
+    void web; void renameTag;
+  });
+  it("round-trips through JSON", () => {
+    const a = sampleCommerceStack();
+    const r = cableToTag(a, a.spec.connections[0]!.id, "edge");
+    if (!("assembly" in r)) throw new Error();
+    const p = parseAssembly(serializeAssembly(r.assembly));
+    expect(p.ok && p.assembly.spec.links?.length).toBe(2);
+  });
+});
+
+describe("network interface (NIC)", () => {
+  it("every built-in appliance has a net terminal; the Network appliance offers net outputs", () => {
+    for (const c of APPLIANCE_CLASSES) {
+      const net = c.ports.find((p) => p.id === "net");
+      expect(net, `${c.id} has net`).toBeDefined();
+      if (c.id === "network") expect(net!.direction).toBe("output");
+      else expect(net).toMatchObject({ direction: "input", type: "network", optional: true, multiplicity: "one" });
+    }
+  });
+  it("a NIC can plug into a network by cable, and a second cable is refused", () => {
+    let a = createEmptyAssembly("t");
+    const n = addAppliance(a, lookupClass("network", "1.0.0")!, { x: 0, y: 0 }); a = n.assembly;
+    const w = addAppliance(a, lookupClass("nginx", "1.0.0")!, { x: 200, y: 0 }); a = w.assembly;
+    const r = connect(a, { applianceId: n.id, portId: "net" }, { applianceId: w.id, portId: "net" });
+    if (!("assembly" in r)) throw new Error("expected ok");
+    const again = connect(r.assembly, { applianceId: n.id, portId: "net" }, { applianceId: w.id, portId: "net" });
+    expect("error" in again).toBe(true);
+    // a service port is not a NIC
+    expect("error" in connect(a, { applianceId: n.id, portId: "net" }, { applianceId: w.id, portId: "http" })).toBe(true);
+  });
+  it("migrates older assemblies that lack the interface", () => {
+    const a = sampleCommerceStack();
+    const stripped = { ...a, spec: { ...a.spec, appliances: a.spec.appliances.map((x) => ({ ...x, ports: x.ports.filter((p) => p.id !== "net") })) } };
+    const fixed = ensureNics(stripped, lookup);
+    expect(fixed.spec.appliances.every((x) => x.ports.some((p) => p.id === "net"))).toBe(true);
+    expect(ensureNics(fixed, lookup)).toBe(fixed);
   });
 });

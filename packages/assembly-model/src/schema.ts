@@ -78,6 +78,13 @@ export const ConnectionSchema = z.object({
   target: EndpointSchema,
 });
 
+/** Names a terminal so it is linked, without a drawn cable, to every other terminal with the same name. */
+export const LinkTagSchema = z.object({
+  id: entityId,
+  tag: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,31}$/, "tag must be lowercase letters, digits, . _ or - (max 32)"),
+  endpoint: EndpointSchema,
+});
+
 export const EditorNodeSchema = z.object({
   id: entityId,
   x: finite,
@@ -94,6 +101,7 @@ export const ApplicationAssemblySchema = z.object({
   spec: z.object({
     appliances: z.array(ApplianceInstanceSchema),
     connections: z.array(ConnectionSchema),
+    links: z.array(LinkTagSchema).optional(),
   }),
   editor: z.object({
     layoutVersion: z.literal(LAYOUT_VERSION),
@@ -114,6 +122,7 @@ export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type Endpoint = Connection["source"];
+export type LinkTag = z.infer<typeof LinkTagSchema>;
 export type EditorNode = z.infer<typeof EditorNodeSchema>;
 export type ApplicationAssembly = z.infer<typeof ApplicationAssemblySchema>;
 export type Density = ApplicationAssembly["editor"]["density"];

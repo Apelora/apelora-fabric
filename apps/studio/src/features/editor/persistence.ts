@@ -1,4 +1,5 @@
-import { parseAssembly, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
+import { ensureNics, parseAssembly, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
+import { lookupClass } from "@apelora/appliance-catalog";
 
 const KEY = "apelora.studio.v1";
 const BACKUP = "apelora.studio.v1.invalid";
@@ -15,7 +16,7 @@ export function loadAssembly(): LoadResult {
     const env = JSON.parse(raw) as Partial<Envelope>;
     if (env.version !== 1 || typeof env.assembly !== "string") throw new Error("unsupported storage format");
     const r = parseAssembly(env.assembly);
-    if (r.ok) return { assembly: r.assembly };
+    if (r.ok) return { assembly: ensureNics(r.assembly, lookupClass) };
     // Never silently discard: keep the unreadable copy so it can be recovered.
     localStorage.setItem(BACKUP, raw);
     return { assembly: null, error: `Saved work could not be read (${r.errors[0] ?? "invalid"}). A backup was kept under "${BACKUP}".` };

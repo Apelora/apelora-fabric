@@ -1,11 +1,11 @@
-import { PORT_TYPES, type Port, type PortDirection } from "@apelora/assembly-model";
+import { PORT_TYPES, portOf, tagNames, tagNet, tagOf, type Port, type PortDirection } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { IconDown, IconTrash, IconUp, IconPlus, IconBox } from "../icons";
 import { draftFromPorts, useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useMemo } from "react";
-import { effectiveSize } from "@apelora/assembly-model";
+import { effectiveSize, type ApplicationAssembly } from "@apelora/assembly-model";
 import { ConfigForm } from "./ConfigForm";
 
 function NumberField({ label, value, min, step, onCommit, testId }: { label: string; value: number; min: number; step: number; onCommit: (n: number) => void; testId: string }) {
@@ -26,6 +26,9 @@ function NumberField({ label, value, min, step, onCommit, testId }: { label: str
 function PortRow({ appId, port, first, last }: { appId: string; port: Port; first: boolean; last: boolean }) {
   const api = useStudioApi();
   const s = () => api.getState();
+  const assembly = useStudio((st) => st.assembly);
+  const tag = tagOf(assembly, { applianceId: appId, portId: port.id })?.tag ?? "";
+  const listId = `tags-${appId}-${port.id}`;
   return (
     <li className="rounded-box border border-base-300 p-1.5" data-testid="port-row" data-port-id={port.id}>
       <div className="flex items-center gap-1">
@@ -34,7 +37,13 @@ function PortRow({ appId, port, first, last }: { appId: string; port: Port; firs
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
         <button className="btn btn-ghost btn-xs btn-square" aria-label={`Move ${port.name} up`} disabled={first} onClick={() => s().shiftPort(appId, port.id, -1)}><IconUp size={12} /></button>
         <button className="btn btn-ghost btn-xs btn-square" aria-label={`Move ${port.name} down`} disabled={last} onClick={() => s().shiftPort(appId, port.id, 1)}><IconDown size={12} /></button>
-        <button className="btn btn-ghost btn-xs btn-square" aria-label={`Delete port ${port.name}`} data-testid="delete-port" onClick={() => s().deletePort(appId, port.id)}><IconTrash size={12} /></button>
+        <button className="btn btn-ghost btn-xs btn-square" aria-label={`Delete port ${port.name}`} data-testid="delete-port" disabled={port.id === "net"} title={port.id === "net" ? "Every appliance keeps its network interface" : undefined} onClick={() => s().deletePort(appId, port.id)}><IconTrash size={12} /></button>
+      </div>
+      <div className="mt-1 flex items-center gap-1">
+        <input key={tag} defaultValue={tag} list={listId} aria-label={`Link tag of ${port.name}`} data-testid="port-tag" placeholder="link tag (name)" maxLength={32} className="input input-xs min-w-0 flex-1 font-mono"
+          onBlur={(e) => { const v = e.currentTarget.value.trim().toLowerCase(); if (v === tag) return; if (v === "") s().untagPortAction({ applianceId: appId, portId: port.id }); else if (!s().tagPortTo({ applianceId: appId, portId: port.id }, v)) e.currentTarget.value = tag; }}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+        <datalist id={listId}>{tagNames(assembly).map((n) => <option key={n} value={n} />)}</datalist>
       </div>
       <div className="mt-1 flex items-center gap-2">
         <select className="select select-xs min-w-0 flex-1" aria-label={`Type of ${port.name}`} value={port.type} onChange={(e) => s().editPort(appId, port.id, { type: e.target.value as Port["type"] })}>
@@ -64,6 +73,20 @@ function PortSection({ appId, ports, direction }: { appId: string; ports: Port[]
   );
 }
 
+/** Where an appliance's net interface is plugged: a network appliance (by cable or tag) or the default network. */
+function nicStatus(a: ReturnType<typeof useStudio<ApplicationAssembly>>, id: string): string {
+  const e = { applianceId: id, portId: "net" };
+  if (!portOf(a, e)) return "no interface";
+  const cable = a.spec.connections.find((c) => c.target.applianceId === id && c.target.portId === "net");
+  if (cable) return `${a.spec.appliances.find((x) => x.id === cable.source.applianceId)?.name ?? "?"} (cable)`;
+  const t = tagOf(a, e);
+  if (t) {
+    const src = tagNet(a, t.tag).find((l) => portOf(a, l.endpoint)?.direction === "output");
+    return src ? `${a.spec.appliances.find((x) => x.id === src.endpoint.applianceId)?.name ?? "?"} (tag ${t.tag})` : `tag ${t.tag} (no network yet)`;
+  }
+  return "default network";
+}
+
 export function PropertiesInspector() {
   const api = useStudioApi();
   const assembly = useStudio((s) => s.assembly);
@@ -73,10 +96,31 @@ export function PropertiesInspector() {
   const nodeId = selection.nodes.length === 1 ? selection.nodes[0] : undefined;
   const app = assembly.spec.appliances.find((a) => a.id === nodeId);
   const layout = assembly.editor.nodes.find((n) => n.id === nodeId);
+  const selectedTag = useStudio((st) => st.selectedTag);
   const conn = selection.nodes.length === 0 && selection.edges.length === 1 ? assembly.spec.connections.find((c) => c.id === selection.edges[0]) : undefined;
 
   let body;
-  if (app && layout) {
+  if (selectedTag && tagNet(assembly, selectedTag).length > 0) {
+    const members = tagNet(assembly, selectedTag);
+    const outs = members.filter((m) => portOf(assembly, m.endpoint)?.direction === "output").length;
+    body = (
+      <div className="flex flex-col gap-3 text-xs" data-testid="inspector-tag">
+        <label className="fieldset"><span className="fieldset-legend text-[11px]">Link tag</span>
+          <input key={selectedTag} defaultValue={selectedTag} data-testid="tag-name" className="input input-sm w-full font-mono" maxLength={32}
+            onBlur={(e) => { const v = e.currentTarget.value.trim().toLowerCase(); if (v && v !== selectedTag && !api.getState().renameTagAction(selectedTag, v)) e.currentTarget.value = selectedTag; }}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+        </label>
+        <p className="text-base-content/60">Terminals with the same name are linked without a drawn cable. {members.length} terminals: {outs} output{outs === 1 ? "" : "s"}, {members.length - outs} input{members.length - outs === 1 ? "" : "s"}.</p>
+        <ul className="flex flex-col gap-1" data-testid="tag-members">
+          {members.map((m) => { const a = assembly.spec.appliances.find((x) => x.id === m.endpoint.applianceId); const p = portOf(assembly, m.endpoint); return (
+            <li key={m.id}><button type="button" className="btn btn-ghost btn-xs w-full justify-start font-normal" onClick={() => api.getState().selectNode(m.endpoint.applianceId)}><span className="badge badge-xs">{p?.direction === "output" ? "out" : "in"}</span>{a?.name}.{p?.name} <span className="text-base-content/50">({p?.type})</span></button></li>
+          ); })}
+        </ul>
+        <button className="btn btn-sm btn-outline" data-testid="tag-to-cable" disabled={!(outs === 1 && members.length - outs === 1)} title="Only a tag with one output and one input can become a cable" onClick={() => api.getState().tagToCableAction(selectedTag)}>Convert to cable</button>
+        <button className="btn btn-sm btn-outline" data-testid="tag-remove" onClick={() => api.getState().removeTagAction(selectedTag)}><IconTrash size={14} />Remove tag</button>
+      </div>
+    );
+  } else if (app && layout) {
     const cls = lookupClass(app.classRef.name, app.classRef.version);
     const size = effectiveSize(layout, app.ports, assembly.editor.density);
     const mine = diagnostics.filter((d) => d.applianceId === app.id);
@@ -90,6 +134,7 @@ export function PropertiesInspector() {
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
           <dt className="text-base-content/60">Class</dt><dd className="truncate">{cls?.displayName ?? app.classRef.name} <span className="text-base-content/50">v{app.classRef.version}</span></dd>
           <dt className="text-base-content/60">Id</dt><dd className="truncate font-mono">{app.id}</dd>
+          <dt className="text-base-content/60">Network</dt><dd className="truncate" data-testid="nic-status">{nicStatus(assembly, app.id)}</dd>
           <dt className="text-base-content/60">Size</dt><dd className="tabular-nums" data-testid="node-size">{size.width} × {size.height}{layout.custom && <button className="link ml-2" onClick={() => api.getState().resetSize(app.id)}>reset</button>}</dd>
         </dl>
         <section>

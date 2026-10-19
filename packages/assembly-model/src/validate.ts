@@ -1,5 +1,6 @@
 import { portTypesCompatible } from "./compat";
 import { effectiveValue, validateProperty } from "./config";
+import { explainTag, linkCount, tagNames, tagNet, portOf } from "./tags";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, Endpoint, Port } from "./schema";
 
 export type Severity = "error" | "warning";
@@ -46,9 +47,9 @@ export function explainConnection(
   const others = assembly.spec.connections.filter((c) => c.id !== ignoreConnectionId);
   if (others.some((c) => c.source.applianceId === source.applianceId && c.source.portId === source.portId && c.target.applianceId === target.applianceId && c.target.portId === target.portId))
     return { code: "duplicate", message: "These ports are already connected.", hint: "Select the existing connection instead." };
-  if (sp.multiplicity === "one" && others.some((c) => c.source.applianceId === source.applianceId && c.source.portId === source.portId))
+  if (sp.multiplicity === "one" && linkCount(assembly, source, { connectionId: ignoreConnectionId }) >= 1)
     return { code: "source-full", message: `${sp.name} on ${sa.name} accepts only one connection.`, hint: "Disconnect it first or add another output port." };
-  if (tp.multiplicity === "one" && others.some((c) => c.target.applianceId === target.applianceId && c.target.portId === target.portId))
+  if (tp.multiplicity === "one" && linkCount(assembly, target, { connectionId: ignoreConnectionId }) >= 1)
     return { code: "target-full", message: `${tp.name} on ${ta.name} accepts only one connection.`, hint: "Disconnect it first or add another input port." };
   return null;
 }
@@ -86,9 +87,22 @@ export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLoo
 
   for (const a of assembly.spec.appliances) {
     for (const p of a.ports) {
-      if (p.direction === "input" && !p.optional && !assembly.spec.connections.some((c) => c.target.applianceId === a.id && c.target.portId === p.id))
+      const tagged = (assembly.spec.links ?? []).find((l) => l.endpoint.applianceId === a.id && l.endpoint.portId === p.id);
+      const fedByTag = !!tagged && tagNet(assembly, tagged.tag).some((l) => portOf(assembly, l.endpoint)?.direction === "output");
+      if (p.direction === "input" && !p.optional && !fedByTag && !assembly.spec.connections.some((c) => c.target.applianceId === a.id && c.target.portId === p.id))
         out.push({ severity: "error", code: "required-port-unconnected", message: `${a.name}: required input "${p.name}" is not connected.`, hint: `Connect a ${p.type} output to it, or mark the port optional.`, applianceId: a.id, portId: p.id });
     }
+  }
+  for (const l of assembly.spec.links ?? []) {
+    const problem = explainTag(assembly, l.endpoint, l.tag, l.id);
+    if (problem) out.push({ severity: "error", code: "tag-invalid", message: problem.message, hint: problem.hint, applianceId: l.endpoint.applianceId, portId: l.endpoint.portId });
+  }
+  for (const name of tagNames(assembly)) {
+    const net = tagNet(assembly, name);
+    const outs = net.filter((l) => portOf(assembly, l.endpoint)?.direction === "output").length;
+    const ins = net.length - outs;
+    if (outs === 0) out.push({ severity: "warning", code: "tag-no-source", message: `Tag “${name}” has ${ins} input${ins === 1 ? "" : "s"} but nothing feeds it.`, hint: "Give an output terminal the same tag.", applianceId: net[0]?.endpoint.applianceId });
+    else if (ins === 0) out.push({ severity: "warning", code: "tag-no-target", message: `Tag “${name}” has no listening input.`, hint: "Give an input terminal the same tag.", applianceId: net[0]?.endpoint.applianceId });
   }
   if (assembly.spec.appliances.length === 0)
     out.push({ severity: "warning", code: "empty", message: "The assembly has no appliances.", hint: "Drag appliances from the catalog onto the canvas." });

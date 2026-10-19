@@ -4,7 +4,7 @@ import {
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
-import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, countPorts, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
+import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, countPorts, portOf, tagNet, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
@@ -27,6 +27,18 @@ function linksFor(a: ApplicationAssembly, id: string): Record<string, { count: n
     if (!end) continue;
     const prev = out[end];
     out[end] = prev ? { ...prev, count: prev.count + 1 } : { count: 1, type: linkLabel(a, c.source) };
+  }
+  return out;
+}
+
+/** Link tags on an appliance's ports, with the protocol of each net (taken from its first output). */
+function tagsFor(a: ApplicationAssembly, id: string): Record<string, { name: string; type: string; members: number }> {
+  const out: Record<string, { name: string; type: string; members: number }> = {};
+  for (const l of a.spec.links ?? []) {
+    if (l.endpoint.applianceId !== id) continue;
+    const net = tagNet(a, l.tag);
+    const src = net.map((m) => portOf(a, m.endpoint)).find((p) => p?.direction === "output") ?? portOf(a, l.endpoint);
+    out[l.endpoint.portId] = { name: l.tag, type: src?.type ?? "tcp", members: net.length };
   }
   return out;
 }
@@ -113,6 +125,7 @@ export function AssemblyWorkspace() {
           minHeight: minHeightForPorts(a.ports),
           status,
           links: linksFor(assembly, a.id),
+          tags: tagsFor(assembly, a.id),
         },
       }];
     });

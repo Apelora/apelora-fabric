@@ -83,11 +83,11 @@ export function ApplianceDesigner() {
         {d.ports.filter((p) => p.direction === direction).map((p, i, arr) => (
           <li key={p.key} className="rounded-box border border-base-300 p-1.5" data-testid="designer-port">
             <div className="flex items-center gap-1">
-              <input className="input input-xs min-w-0 flex-1" aria-label="Port name" placeholder="short name, e.g. db" maxLength={48} value={p.name} onChange={(e) => setPort(p.key, { name: e.target.value })} />
-              <select className="select select-xs w-24" aria-label="Port type" value={p.type} onChange={(e) => setPort(p.key, { type: e.target.value as DraftPort["type"] })}>{PORT_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
+              <input className="input input-xs min-w-0 flex-1" aria-label="Port name" placeholder="short name, e.g. db" maxLength={48} value={p.name} disabled={p.locked} title={p.locked ? "Every appliance has a network interface" : undefined} onChange={(e) => setPort(p.key, { name: e.target.value })} />
+              <select className="select select-xs w-24" aria-label="Port type" disabled={p.locked} value={p.type} onChange={(e) => setPort(p.key, { type: e.target.value as DraftPort["type"] })}>{PORT_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
               <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Move up" disabled={i === 0} onClick={() => move(p.key, -1)}><IconUp size={12} /></button>
               <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Move down" disabled={i === arr.length - 1} onClick={() => move(p.key, 1)}><IconDown size={12} /></button>
-              <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Delete port" onClick={() => patch({ ports: d.ports.filter((x) => x.key !== p.key) })}><IconTrash size={12} /></button>
+              <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Delete port" disabled={p.locked} title={p.locked ? "Every appliance has a network interface (net)" : undefined} onClick={() => patch({ ports: d.ports.filter((x) => x.key !== p.key) })}><IconTrash size={12} /></button>
             </div>
             <div className="mt-1 flex items-center gap-2">
               <input className="input input-xs min-w-0 flex-1" aria-label="Port description" placeholder="what it carries (tooltip)" maxLength={160} value={p.description} onChange={(e) => setPort(p.key, { description: e.target.value })} />

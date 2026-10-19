@@ -6,12 +6,15 @@ const p = (id: string, name: string, direction: Port["direction"], type: Port["t
 
 const prop = (id: string, label: string, type: Property["type"], o: Partial<Omit<Property, "id" | "label" | "type">> = {}): Property => ({ id, label, type, required: false, ...o });
 
+/** Every appliance has a network interface: plug it into a network or a network appliance; unplugged it joins the default network. */
+const NIC: Port = { id: "net", name: "net", direction: "input", type: "network", optional: true, multiplicity: "one", description: "Network interface (NIC). Plug into a network or a network appliance; unplugged, it joins the default network." };
+
 const cls = (
   id: string, displayName: string, category: ApplianceClass["category"], summary: string, icon: string,
   ports: Port[], cpu: number, memoryMiB: number, properties: Property[] = [],
 ): ApplianceClass => ({
   id, version: "1.0.0", displayName, category, summary, iconAssetPath: icon,
-  runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports, resources: { cpu, memoryMiB }, ...(properties.length ? { properties } : {}),
+  runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports: ports.some((q) => q.id === "net") ? ports : [...ports, { ...NIC }], resources: { cpu, memoryMiB }, ...(properties.length ? { properties } : {}),
 });
 
 /** Original, conceptual manifests written for this project. Short port names double as the on-canvas labels. */
@@ -20,6 +23,8 @@ export const APPLIANCE_CLASSES: readonly ApplianceClass[] = [
     [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256, [prop("public-name", "Public DNS name", "string", { default: "app.example.test", group: "Network", description: "Name clients use to reach the application." }), prop("tls", "Terminate TLS", "bool", { default: true, group: "Network" })]),
   cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router appliance.", "opnsense",
     [p("wan", "wan", "input", "network", "Uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "network", "Protected network", { multiplicity: "many" })], 2, 1024, [prop("default-policy", "Default policy", "enum", { options: ["deny", "allow"], default: "deny", required: true, group: "Firewall" }), prop("admin-secret", "Admin password reference", "secret", { default: "firewall-admin", required: true, group: "Access", description: "Name of the secret that holds the admin password." })]),
+  cls("network", "Network", "Network & Security", "Virtual network segment (no VM). Appliances plug their net interface into it; link it to a gateway or another network through uplink.", "generic-network",
+    [p("uplink", "uplink", "input", "network", "Connect this network to another network or to a gateway", { optional: true, multiplicity: "many" }), p("net", "net", "output", "network", "Plug appliance network interfaces (NICs) in here", { multiplicity: "many" })], 1, 64),
   cls("haproxy", "Load balancer", "Load Balancing", "TCP/HTTP load balancer fronting a pool of web servers.", "haproxy",
     [p("frontend", "in", "input", "http", "Client traffic"), p("backend", "out", "output", "http", "Pool of servers", { multiplicity: "many" })], 1, 512, [prop("algorithm", "Balance algorithm", "enum", { options: ["roundrobin", "leastconn", "source"], default: "roundrobin", required: true, group: "Balancing" }), prop("health-path", "Health check path", "string", { default: "/healthz", group: "Balancing" }), prop("max-conn", "Max connections", "int", { default: 4096, min: 16, max: 100000, required: true, group: "Limits" })]),
   cls("nginx", "NGINX", "Web & Application", "Web server and reverse proxy.", "nginx",
@@ -43,7 +48,7 @@ export const APPLIANCE_CLASSES: readonly ApplianceClass[] = [
   cls("rabbitmq", "RabbitMQ", "Utilities", "Message broker.", "rabbitmq",
     [p("amqp", "amqp", "input", "amqp", "Producers and consumers", { multiplicity: "many" })], 1, 1024, [prop("vhost", "Virtual host", "string", { default: "/", group: "Broker" }), prop("user-secret", "User password secret reference", "secret", { default: "mq-password", required: true, group: "Access" })]),
   cls("linux-base", "Linux base", "Operating Systems", "Minimal Linux base image for custom appliances.", "linux-base",
-    [p("net", "net", "input", "network", "Network", { optional: true, multiplicity: "many" })], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System" }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
+    [], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System" }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
 ];
 
 const customClasses = new Map<string, ApplianceClass>();

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import {
-  addAppliance, addPort, connect, reconnect, alignNodes, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, alignNodes, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -37,7 +37,17 @@ export interface StudioState {
   importErrors: string[] | null;
   menu: MenuState | null;
   clipboard: Subset | null;
+  selectedTag: string | null;
+  hoverTag: string | null;
 
+  selectTag: (name: string | null) => void;
+  setHoverTag: (name: string | null) => void;
+  tagPortTo: (e: Endpoint, name: string) => boolean;
+  untagPortAction: (e: Endpoint) => void;
+  cableToTagAction: (connectionId: string) => void;
+  tagToCableAction: (name: string) => void;
+  removeTagAction: (name: string) => void;
+  renameTagAction: (from: string, to: string) => boolean;
   openMenu: (m: MenuState) => void;
   closeMenu: () => void;
   selectAll: () => void;
@@ -116,6 +126,39 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       importErrors: null,
       menu: null,
       clipboard: null,
+      selectedTag: null,
+      hoverTag: null,
+
+      selectTag: (name) => set({ selectedTag: name, selection: name ? { nodes: [], edges: [] } : get().selection }),
+      setHoverTag: (name) => set({ hoverTag: name }),
+      tagPortTo: (e, name) => {
+        const r = tagPort(get().assembly, e, name);
+        if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return false; }
+        commit(r.assembly);
+        return true;
+      },
+      untagPortAction: (e) => commit(untagPort(get().assembly, e)),
+      cableToTagAction: (id) => {
+        const r = cableToTag(get().assembly, id);
+        if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return; }
+        commit(r.assembly);
+        set({ selectedTag: r.tag, selection: { nodes: [], edges: [] } });
+        get().toast("info", `Cable replaced by link tag “${r.tag}”. Select the tag to convert it back.`);
+      },
+      tagToCableAction: (name) => {
+        const r = tagToCable(get().assembly, name);
+        if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return; }
+        commit(r.assembly);
+        set({ selectedTag: null });
+      },
+      removeTagAction: (name) => { commit(removeTag(get().assembly, name)); set({ selectedTag: null }); },
+      renameTagAction: (from, to) => {
+        const r = renameTag(get().assembly, from, to);
+        if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return false; }
+        commit(r.assembly);
+        set({ selectedTag: to });
+        return true;
+      },
 
       openMenu: (m) => {
         const { selection } = get();
@@ -163,8 +206,8 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         setTimeout(() => get().dismissToast(id), kind === "error" ? 7000 : 4000);
       },
       dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-      setSelection: (s) => set((st) => ({ selection: { ...st.selection, ...s } })),
-      selectNode: (id) => set({ selection: { nodes: [id], edges: [] } }),
+      setSelection: (s) => set((st) => ({ selection: { ...st.selection, ...s }, selectedTag: null })),
+      selectNode: (id) => set({ selection: { nodes: [id], edges: [] }, selectedTag: null }),
 
       commit,
       beginGesture: () => set({ gestureStart: get().assembly }),

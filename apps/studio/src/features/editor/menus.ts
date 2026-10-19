@@ -1,5 +1,5 @@
 import { allClasses, lookupClass } from "@apelora/appliance-catalog";
-import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, type AlignMode } from "@apelora/assembly-model";
+import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, tagNames, tagNet, tagOf, type AlignMode } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
 import { ms } from "./motion";
@@ -99,6 +99,16 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       items: [
         item("rename-port", "Rename port…", () => focusField(`[data-testid=port-row][data-port-id="${port.id}"] input`)),
         item("type", "Protocol type", () => undefined, { children: PORT_TYPES.map((t) => item(`type-${t}`, t, () => s().editPort(app.id, port.id, { type: t }), { checked: port.type === t })) }),
+        item("link-tag", tagOf(a, { applianceId: app.id, portId: port.id }) ? `Link by name (${tagOf(a, { applianceId: app.id, portId: port.id })!.tag})` : "Link by name", () => undefined, {
+          children: [
+            ...tagNames(a).map((n) => item(`tag-${n}`, n, () => void s().tagPortTo({ applianceId: app.id, portId: port.id }, n), { checked: tagOf(a, { applianceId: app.id, portId: port.id })?.tag === n })),
+            item("tag-new", "New tag…", () => focusField(`[data-testid=port-row][data-port-id="${port.id}"] [data-testid=port-tag]`)),
+          ],
+        }),
+        ...(tagOf(a, { applianceId: app.id, portId: port.id }) ? [
+          item("tag-remove", "Remove link tag", () => s().untagPortAction({ applianceId: app.id, portId: port.id })),
+          item("tag-select", "Select linked appliances", () => { const t = tagOf(a, { applianceId: app.id, portId: port.id })!.tag; s().setSelection({ nodes: [...new Set(tagNet(a, t).map((l) => l.endpoint.applianceId))], edges: [] }); }),
+        ] : []),
         item("multi", "Allow several cables", () => s().editPort(app.id, port.id, { multiplicity: port.multiplicity === "many" ? "one" : "many" }), { checked: port.multiplicity === "many" }),
         item("required", "Required", () => s().editPort(app.id, port.id, { optional: !port.optional }), { checked: !port.optional }),
         sep,
@@ -106,7 +116,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         item("up", "Move up", () => s().shiftPort(app.id, port.id, -1), { disabled: idx <= 0 }),
         item("down", "Move down", () => s().shiftPort(app.id, port.id, 1), { disabled: idx === side.length - 1 }),
         sep,
-        item("delete-port", "Delete port", () => s().deletePort(app.id, port.id), { danger: true }),
+        item("delete-port", "Delete port", () => s().deletePort(app.id, port.id), { danger: true, disabled: port.id === "net" }),
       ],
     };
   }
@@ -122,6 +132,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       title: `${sa?.name}.${sp?.name} → ${ta?.name}.${tp?.name}`,
       items: [
         { type: "header", label: `${sp?.type ?? ""} cable` },
+        item("to-tag", "Convert to link tag", () => s().cableToTagAction(c.id)),
         item("select-source", `Select ${sa?.name ?? "source"}`, () => s().selectNode(c.source.applianceId)),
         item("select-target", `Select ${ta?.name ?? "target"}`, () => s().selectNode(c.target.applianceId)),
         sep,

@@ -66,6 +66,12 @@ Right-click (or the Menu key / Shift+F10 on a selection) opens a context menu; a
 
 Duplicate/Paste copy the appliances and only the cables **between** the copied appliances, with fresh ids; names default to the new id. Shortcuts: Ctrl+C/V/D/A, F2, Delete, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, `+` `-` `F`.
 
+## Category colours, routing, link tags, network interface
+
+- Node headers carry a muted category accent (and a small class-name footer); catalog tiles and section headings use the same colours. Toggle in the canvas menu; persisted with the other view preferences (grid, labels, cable style, routing, snap) in `localStorage` (`apelora.studio.view.v1`).
+- Cables can be **curved** or **right-angle** (canvas header or menu).
+- Link tags and the `net` interface are specified in `STUDIO-UI-SPEC.md`. Model: `spec.links[]` (`{id, tag, endpoint}`); logic in `packages/assembly-model/src/tags.ts` (`tagPort`, `cableToTag`, `tagToCable`, `explainTag`, `linkCount`), shared with validation so cables and tags obey the same multiplicity rules. `ensureNics` migrates older assemblies.
+
 ## Connections
 
 Validated by one pure function (`explainConnection`) used for live feedback and whole-assembly validation: direction, self-connection, port existence, type compatibility, duplicates, multiplicity. Users may drag from either end; the pair is oriented output → input first. Rejections show a reason and a hint. Required inputs that are unconnected are reported as errors in the validation panel (amber on the node while it is only that).

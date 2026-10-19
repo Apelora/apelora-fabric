@@ -1,4 +1,4 @@
-import { connect, createEmptyAssembly, addAppliance, type ApplicationAssembly } from "@apelora/assembly-model";
+import { connect, createEmptyAssembly, addAppliance, tagPort, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass } from "./classes";
 
 /** The six-appliance "commerce stack": gateway → load balancer → 2× NGINX → PostgreSQL, with Grafana reading PostgreSQL. */
@@ -27,5 +27,21 @@ export function sampleCommerceStack(): ApplicationAssembly {
   link(web1, "db", db, "postgres");
   link(web2, "db", db, "postgres");
   link(gf, "source", db, "postgres");
+  return a;
+}
+
+/** The commerce stack plus a Network appliance: every NIC joins it through the link tag "lan" (no cables needed). */
+export function sampleNetworkedStack(): ApplicationAssembly {
+  let a = sampleCommerceStack();
+  a = { ...a, metadata: { name: "commerce-stack-networked", uid: "assembly-sample-networked" } };
+  const net = addAppliance(a, lookupClass("network", "1.0.0")!, { x: 40, y: 340 });
+  a = net.assembly;
+  const joined = (e: { applianceId: string; portId: string }) => {
+    const r = tagPort(a, e, "lan");
+    if ("error" in r) throw new Error(`sample is invalid: ${r.error.message}`);
+    a = r.assembly;
+  };
+  joined({ applianceId: net.id, portId: "net" });
+  for (const x of a.spec.appliances) if (x.id !== net.id) joined({ applianceId: x.id, portId: "net" });
   return a;
 }

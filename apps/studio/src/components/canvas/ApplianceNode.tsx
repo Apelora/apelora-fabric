@@ -2,7 +2,8 @@ import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
 import { NODE, portCenterY, type Category, type Port } from "@apelora/assembly-model";
 import { categoryColor } from "../../features/editor/categories";
-import { useStudioApi } from "../../features/editor/context";
+import { useStudio, useStudioApi } from "../../features/editor/context";
+import { TagStub } from "./TagStub";
 import { Jack, PlugHead } from "./Jack";
 
 export type ApplianceNodeData = {
@@ -18,13 +19,16 @@ export type ApplianceNodeData = {
   status: "ok" | "warning" | "error";
   /** Cables plugged into each port: count and the protocol colour of the first cable. */
   links: Record<string, { count: number; type: string }>;
+  /** Link tags on each port: the tag name, the protocol of its net and how many terminals share it. */
+  tags: Record<string, { name: string; type: string; members: number }>;
   [key: string]: unknown;
 };
 export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
 
-function PortHandle({ nodeId, port, index, side, link }: { nodeId: string; port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined }) {
+function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined; tag: { name: string; type: string; members: number } | undefined }) {
   const api = useStudioApi();
-  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}, ${port.multiplicity === "one" ? "single cable" : "multiple cables"}${link ? `, ${link.count} plugged` : ""}${port.description ? ` — ${port.description}` : ""}`;
+  const hot = useStudio((s) => !!tag && (s.hoverTag === tag.name || s.selectedTag === tag.name));
+  const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}, ${port.multiplicity === "one" ? "single cable" : "multiple cables"}${link ? `, ${link.count} plugged` : ""}${tag ? `, linked by name “${tag.name}” with ${tag.members - 1} other terminal${tag.members === 2 ? "" : "s"}` : ""}${port.description ? ` — ${port.description}` : ""}`;
   return (
     <Handle
       id={port.id}
@@ -40,7 +44,9 @@ function PortHandle({ nodeId, port, index, side, link }: { nodeId: string; port:
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "port", nodeId, portId: port.id } }); }}
     >
       <Jack kind={side} />
-      {link && <PlugHead side={side} type={link.type} count={link.count} />}
+      {(link || tag) && <PlugHead side={side} type={link?.type ?? tag!.type} count={link?.count ?? 1} />}
+      {port.id === "net" && <span className="apl-nic-led" data-testid="nic-led" data-side={side} data-linked={!!(link || tag)} aria-hidden="true" />}
+      {tag && <TagStub side={side} tag={tag} hot={hot} onSelect={() => api.getState().selectTag(tag.name)} onHover={(v) => api.getState().setHoverTag(v ? tag.name : null)} />}
       <span className="apl-port-label" data-testid="port-label" aria-hidden="true">{port.name}</span>
       <span className="apl-port-tip" aria-hidden="true">{label}</span>
     </Handle>
@@ -70,8 +76,8 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
         {data.icon ? <img src={data.icon} alt="" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
         <span className="apl-node-class" data-testid="node-class">{data.className}</span>
       </div>
-      {data.inputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="input" link={data.links[p.id]} />)}
-      {data.outputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="output" link={data.links[p.id]} />)}
+      {data.inputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="input" link={data.links[p.id]} tag={data.tags[p.id]} />)}
+      {data.outputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="output" link={data.links[p.id]} tag={data.tags[p.id]} />)}
       <NodeResizeControl
         className="apl-resize-control"
         position="bottom-right"

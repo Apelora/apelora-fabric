@@ -4,7 +4,7 @@ import { ApplianceClassSchema, effectiveValue, slug, validateProperty, type Appl
 
 const KEY = "apelora.studio.catalog.v1";
 
-export interface DraftPort { key: string; name: string; direction: Port["direction"]; type: Port["type"]; optional: boolean; multiplicity: Port["multiplicity"]; description: string }
+export interface DraftPort { key: string; /** The network interface every appliance has; cannot be removed or retyped. */ locked?: boolean; name: string; direction: Port["direction"]; type: Port["type"]; optional: boolean; multiplicity: Port["multiplicity"]; description: string }
 export interface DraftProp { key: string; /** Stable id kept when editing, so saved configuration values keep matching. */ id?: string; label: string; type: Property["type"]; default: string; required: boolean; group: string; description: string; options: string; min: string; max: string }
 
 export interface Draft {
@@ -80,12 +80,16 @@ function toDraftProps(list: readonly Property[] | undefined, config?: Readonly<R
   }));
 }
 
+const NIC_DESCRIPTION = "Network interface (NIC). Plug into a network or a network appliance; unplugged, it joins the default network.";
+export const nicDraft = (): DraftPort => ({ key: newPortKey(), locked: true, name: "net", direction: "input", type: "network", optional: true, multiplicity: "one", description: NIC_DESCRIPTION });
+
 export function emptyDraft(): Draft {
   return {
     name: "", category: "Custom", summary: "", icon: "generic-box", cpu: 1, memoryMiB: 512,
     ports: [
       { key: newPortKey(), name: "in", direction: "input", type: "tcp", optional: false, multiplicity: "many", description: "" },
       { key: newPortKey(), name: "out", direction: "output", type: "tcp", optional: true, multiplicity: "many", description: "" },
+      nicDraft(),
     ],
     properties: [],
   };
@@ -100,7 +104,7 @@ export function draftFromClass(c: ApplianceClass, editing: boolean): Draft {
     icon: c.iconAssetPath,
     cpu: c.resources.cpu,
     memoryMiB: c.resources.memoryMiB,
-    ports: c.ports.map((p) => ({ key: newPortKey(), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
+    ports: c.ports.map((p) => ({ key: newPortKey(), ...(p.id === "net" && p.direction === "input" ? { locked: true } : {}), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
     properties: toDraftProps(c.properties),
   };
 }
@@ -108,7 +112,7 @@ export function draftFromClass(c: ApplianceClass, editing: boolean): Draft {
 export function draftFromPorts(name: string, ports: readonly Port[], res: { cpu: number; memoryMiB: number }, icon: string, props?: readonly Property[], config?: Readonly<Record<string, ConfigValue>>): Draft {
   return {
     name: `${name}-class`, category: "Custom", summary: "", icon, cpu: res.cpu, memoryMiB: res.memoryMiB,
-    ports: ports.map((p) => ({ key: newPortKey(), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
+    ports: ports.map((p) => ({ key: newPortKey(), ...(p.id === "net" && p.direction === "input" ? { locked: true } : {}), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
     properties: toDraftProps(props, config),
   };
 }
@@ -131,6 +135,7 @@ export function classFromDraft(d: Draft): { ok: true; cls: ApplianceClass } | { 
     ids.add(id);
     return { id, name: n || "port", direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, ...(p.description.trim() ? { description: p.description.trim().slice(0, 160) } : {}) };
   });
+  if (!ports.some((p) => p.id === "net")) ports.push({ id: "net", name: "net", direction: "input", type: "network", optional: true, multiplicity: "one", description: NIC_DESCRIPTION });
   if (ports.length > 24) errors.push("At most 24 ports are supported.");
   const propIds = new Set<string>();
   const properties: Property[] = d.properties.map((p) => {

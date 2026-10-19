@@ -3,6 +3,11 @@ import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
+function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAssembly["spec"]["links"]>[number]) => boolean): ApplicationAssembly["spec"]["links"] {
+  const next = (a.spec.links ?? []).filter((l) => !pred(l));
+  return next.length ? next : undefined;
+}
+
 export function slug(input: string): string {
   const s = input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   return /^[a-z]/.test(s) ? s.slice(0, 40) : `x-${s}`.slice(0, 40);
@@ -55,8 +60,10 @@ export function removeAppliances(a: ApplicationAssembly, ids: readonly string[])
   return {
     ...a,
     spec: {
+      ...a.spec,
       appliances: a.spec.appliances.filter((x) => !gone.has(x.id)),
       connections: a.spec.connections.filter((c) => !gone.has(c.source.applianceId) && !gone.has(c.target.applianceId)),
+      links: dropLinks(a, (l) => gone.has(l.endpoint.applianceId)),
     },
     editor: { ...a.editor, nodes: a.editor.nodes.filter((n) => !gone.has(n.id)) },
   };
@@ -145,7 +152,7 @@ export function removePort(a: ApplicationAssembly, applianceId: string, portId: 
   const next = updateAppliance(a, applianceId, (x) => ({ ...x, ports: x.ports.filter((p) => p.id !== portId) }));
   return {
     ...next,
-    spec: { ...next.spec, connections: next.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) },
+    spec: { ...next.spec, links: dropLinks(next, (l) => l.endpoint.applianceId === applianceId && l.endpoint.portId === portId), connections: next.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) },
   };
 }
 
@@ -206,12 +213,12 @@ export function reconnect(a: ApplicationAssembly, connectionId: string, source: 
 
 /** Removes every cable attached to one port. */
 export function disconnectPort(a: ApplicationAssembly, applianceId: string, portId: string): ApplicationAssembly {
-  return { ...a, spec: { ...a.spec, connections: a.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) } };
+  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.applianceId === applianceId && l.endpoint.portId === portId), connections: a.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) } };
 }
 
 /** Removes every cable attached to an appliance. */
 export function disconnectAppliance(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
-  return { ...a, spec: { ...a.spec, connections: a.spec.connections.filter((c) => c.source.applianceId !== applianceId && c.target.applianceId !== applianceId) } };
+  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.applianceId === applianceId), connections: a.spec.connections.filter((c) => c.source.applianceId !== applianceId && c.target.applianceId !== applianceId) } };
 }
 
 /** A copyable slice of an assembly: appliances, their layout and the cables between them. */
@@ -252,6 +259,7 @@ export function insertSubset(a: ApplicationAssembly, s: Subset, delta: { x: numb
     assembly: {
       ...a,
       spec: {
+        ...a.spec,
         appliances: [...a.spec.appliances, ...s.appliances.map((x) => ({ ...x, id: idMap.get(x.id)!, name: idMap.get(x.id)!, ports: x.ports.map((p) => ({ ...p })), resources: { ...x.resources } }))],
         connections: [...a.spec.connections, ...conns],
       },
@@ -302,4 +310,25 @@ export function setConfig(a: ApplicationAssembly, applianceId: string, key: stri
 
 export function resetConfig(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
   return updateAppliance(a, applianceId, (x) => { const { config: _old, ...rest } = x; void _old; return rest; });
+}
+
+/**
+ * Brings older assemblies up to date: any appliance whose class defines a `net` interface but whose instance
+ * lacks it gets one. Returns the same object when nothing changed.
+ */
+export function ensureNics(a: ApplicationAssembly, lookup: (name: string, version: string) => ApplianceClass | undefined): ApplicationAssembly {
+  let changed = false;
+  const appliances = a.spec.appliances.map((x) => {
+    if (x.ports.some((p) => p.id === "net")) return x;
+    const nic = lookup(x.classRef.name, x.classRef.version)?.ports.find((p) => p.id === "net");
+    if (!nic) return x;
+    changed = true;
+    return { ...x, ports: [...x.ports, { ...nic }] };
+  });
+  if (!changed) return a;
+  return growAll({ ...a, spec: { ...a.spec, appliances } });
+}
+
+function growAll(a: ApplicationAssembly): ApplicationAssembly {
+  return { ...a, editor: { ...a.editor, nodes: a.editor.nodes.map((n) => { const inst = a.spec.appliances.find((x) => x.id === n.id); const min = inst ? minHeightForPorts(inst.ports) : 0; return n.height < min ? { ...n, height: min } : n; }) } };
 }

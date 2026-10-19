@@ -15,6 +15,14 @@ Everything here runs in the browser against mock data. Nothing is sent to a serv
 
 128×96 flow units (compact), 24px header, centred 30px logo, left inputs / right outputs. Every terminal is an RJ45-style socket with a short label; connected sockets show a plug head in the protocol colour; `×N` marks several cables. Height grows only when ports need it. Status: amber/red border for warnings/errors. Resize handle bottom-right. Full geometry and behaviour: `STUDIO-MVP.md`.
 
+### Network interface (`net`)
+
+Every appliance has a **net** terminal, the equivalent of a network card (NIC): an input of type `network`, single-cable, optional. It plugs into a **Network** appliance (a virtual segment, no VM) or any appliance that offers a `network` output (firewall `lan`, another Network). Left unplugged, the appliance joins the application's **default network**. A small **link light** on the jack turns green when the NIC is plugged; the inspector shows `Network: default network | <appliance> (cable) | <appliance> (tag lan)`. The `net` terminal cannot be deleted from an instance, is locked in the Appliance Designer (every custom appliance gets one), and is added automatically to older saved or imported assemblies.
+
+### Link tags
+
+A **link tag** names a terminal so it is connected, with no drawn cable, to every other terminal carrying the same name (an output feeds the inputs of its net). Use cables for the main data flow and tags for repetitive side links (monitoring, logs, the network). A tagged terminal shows its plug and a coloured name flag; hovering a flag highlights every member; clicking it selects the tag (inspector: rename/merge, member list, **Convert to cable** for one-output/one-input tags, **Remove tag**). Create: port row "link tag" field, port menu ▸ Link by name, or a cable's menu ▸ **Convert to link tag**. Rules match cables: protocol compatibility, no self-link, single-cable ports accept one link in total, required inputs are satisfied by a tag that has an output; nets without a source or listener raise warnings. Tags are not copied by Duplicate/Paste.
+
 ## 3. Interactions
 
 | Action | How | Result |
@@ -85,4 +93,4 @@ Empty canvas hint; validation panel (No issues / counts / list with hints, click
 
 ## 9. Out of scope (this phase)
 
-Backend, deployment, real hosts, authentication, nested components (planned), setup parameters at application level, link tags, category colouring and orthogonal routing (proposed, not built).
+Backend, deployment, real hosts, authentication, nested components (planned), setup parameters at application level.

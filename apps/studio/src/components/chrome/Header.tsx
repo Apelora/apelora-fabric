@@ -1,6 +1,6 @@
 import { useRef } from "react";
-import { createEmptyAssembly, parseAssembly, serializeAssembly, type Density } from "@apelora/assembly-model";
-import { lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
+import { createEmptyAssembly, ensureNics, parseAssembly, serializeAssembly, type Density } from "@apelora/assembly-model";
+import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { IconDownload, IconFile, IconRedo, IconUndo, IconUpload } from "../icons";
@@ -38,7 +38,8 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
     const r = parseAssembly(await f.text());
     if (!r.ok) { api.getState().setImportErrors(r.errors); return; }
     const added = useCustomCatalog.getState().addMissing(r.assembly.catalog?.classes ?? []);
-    api.getState().replace(r.assembly);
+    const assembly = ensureNics(r.assembly, lookupClass);
+    api.getState().replace(assembly);
     api.getState().toast("success", `Imported “${r.assembly.metadata.name}”${added ? ` and ${added} custom appliance${added > 1 ? "s" : ""}` : ""}. Undo restores the previous assembly.`);
   };
 
@@ -67,6 +68,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
           <button tabIndex={0} className="btn btn-sm" data-testid="new-menu"><IconFile />New</button>
           <ul tabIndex={0} className="menu dropdown-content z-30 mt-1 w-52 rounded-box border border-base-300 bg-base-100 p-1 shadow-sm">
             <li><button data-testid="new-empty" onClick={() => { api.getState().replace(createEmptyAssembly("untitled-assembly")); (document.activeElement as HTMLElement | null)?.blur(); }}>Empty assembly</button></li>
+            <li><button data-testid="new-sample-network" onClick={() => { api.getState().replace(sampleNetworkedStack()); (document.activeElement as HTMLElement | null)?.blur(); }}>Commerce stack + network</button></li>
             <li><button data-testid="new-sample" onClick={() => { api.getState().replace(sampleCommerceStack()); (document.activeElement as HTMLElement | null)?.blur(); }}>Sample commerce stack</button></li>
           </ul>
         </div>

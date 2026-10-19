@@ -116,6 +116,22 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-canvas-frame[data-category="off"] .apl-node-class { display: none; }
 .apl-tile-accent { border-bottom: 2px solid color-mix(in oklab, var(--apl-cat) 70%, transparent); }
 
+/* ---- link tags and network interface ---- */
+.apl-tag {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+  font-size: 9px; line-height: 1; padding: 2px 5px; border-radius: 4px; white-space: nowrap; max-width: 90px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--color-base-content); background: color-mix(in oklab, var(--apl-tag) 16%, var(--color-base-100)); border: 1px solid var(--apl-tag);
+  transition: box-shadow var(--apl-dur-fast) ease;
+}
+.apl-tag[data-side="input"] { right: 20px; }
+.apl-tag[data-side="output"] { left: 20px; }
+.apl-tag[data-hot="true"] { box-shadow: 0 0 0 2px color-mix(in oklab, var(--apl-tag) 45%, transparent); }
+.apl-tag-n { font-size: 8px; padding: 0 3px; border-radius: 6px; background: var(--apl-tag); color: white; }
+.apl-nic-led { position: absolute; top: -3px; width: 4px; height: 4px; border-radius: 9999px; background: color-mix(in oklab, var(--color-base-content) 25%, transparent); pointer-events: none; }
+.apl-nic-led[data-side="input"] { left: 7px; }
+.apl-nic-led[data-side="output"] { right: 7px; }
+.apl-nic-led[data-linked="true"] { background: var(--color-success); box-shadow: 0 0 3px var(--color-success); }
+
 /* ---- cables ---- */
 .react-flow__edge .apl-cable { stroke-linecap: round; fill: none; stroke-width: 1.6; }
 .react-flow__edge.selected .apl-cable, .react-flow__edge:hover .apl-cable { stroke-width: 2.4; }

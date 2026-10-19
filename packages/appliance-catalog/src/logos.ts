@@ -6,4 +6,4 @@ export function logoUrl(icon: string): string | undefined {
 }
 
 /** Original, trademark-free icons offered when designing a custom appliance. */
-export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "gateway", "haproxy", "linux-base"] as const;
+export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "generic-network", "gateway", "haproxy", "linux-base"] as const;
