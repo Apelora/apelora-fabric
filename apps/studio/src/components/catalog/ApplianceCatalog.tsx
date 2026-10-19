@@ -50,7 +50,8 @@ export function ApplianceCatalog() {
   const groups = useMemo(() => CATEGORIES.map((cat) => ({
     cat,
     items: all.filter((c) => c.category === cat && (!q || `${c.displayName} ${c.id} ${c.summary}`.toLowerCase().includes(q))),
-  })).filter((g) => g.items.length > 0), [q, all]);
+    // The Custom section is always shown (with an empty state) unless the user is searching.
+  })).filter((g) => g.items.length > 0 || (g.cat === "Custom" && !q)), [q, all]);
 
   const add = (cls: ApplianceClass) => {
     const el = canvasBridge.el;
@@ -88,7 +89,13 @@ export function ApplianceCatalog() {
                 <span className="flex min-w-0 items-center gap-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: categoryColor(cat) }} aria-hidden="true" /><span className="truncate">{cat}</span></span>
                 <span className="ml-1 flex items-center gap-1 font-normal normal-case tracking-normal text-base-content/50">{items.length}<span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span></span>
               </button>
-              {open && <div className="apl-catalog-grid grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
+              {open && items.length === 0 && cat === "Custom" && (
+                <div className="apl-catalog-grid mb-1.5 rounded-box border border-dashed border-base-300 p-2 text-[11px] leading-snug text-base-content/60" data-testid="custom-empty">
+                  No custom appliances yet. Create one with its own ports and settings, save a configured appliance as one, or group several appliances (Ctrl+G).
+                  <button type="button" className="btn btn-xs btn-outline mt-1.5 w-full" data-testid="custom-empty-new" onClick={() => useCustomCatalog.getState().openDesigner(emptyDraft())}>Create appliance…</button>
+                </div>
+              )}
+              {open && items.length > 0 && <div className="apl-catalog-grid grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
             </div>
           );
         })}

@@ -433,6 +433,14 @@ describe("catalog quality", () => {
     const prom = lookupClass("prometheus", "1.0.0")!.ports.find((q) => q.id === "scrape")!;
     for (const c of classes) for (const q of c.ports.filter((x) => x.id === "mon")) expect(portTypesCompatible(q.type, prom.type), c.id).toBe(true);
   });
+  it("identity providers and Microsoft Windows appliances exist; no Microsoft artwork is bundled", () => {
+    for (const id of ["keycloak", "authelia", "authentik", "pocketid", "openldap", "zitadel"]) expect(lookupClass(id, "1.0.0")?.category, id).toBe("Security & Identity");
+    const win = classes.filter((c) => c.category === "Microsoft Windows");
+    expect(win.map((c) => c.id)).toEqual(expect.arrayContaining(["windows-server", "windows-11", "windows-10", "active-directory", "iis", "sql-server", "dotnet", "smb-files", "rd-gateway", "exchange"]));
+    for (const c of win) expect(["dotnet"].includes(c.iconAssetPath) || c.iconAssetPath.startsWith("generic-"), `${c.id} icon ${c.iconAssetPath}`).toBe(true);
+    for (const c of win.filter((x) => x.id !== "dotnet")) expect(c.summary.length).toBeGreaterThan(10);
+    expect(CATEGORIES[0]).toBe("Custom");
+  });
   it("requested favourites exist: Kafka, HAProxy, Apache httpd, CouchDB, Redis, MongoDB, MySQL, Cassandra", () => {
     for (const id of ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "elasticsearch", "traefik", "envoy"]) expect(lookupClass(id, "1.0.0"), id).toBeDefined();
   });

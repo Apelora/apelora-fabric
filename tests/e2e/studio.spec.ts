@@ -1175,6 +1175,38 @@ test.describe("catalog", () => {
     await expect(page.getByText("No appliances match")).toBeVisible();
   });
 
+  test("Custom section is always visible (with an empty state) and fills when you create one; identity and Microsoft Windows sections exist", async ({ page }) => {
+    await open(page);
+    const custom = page.locator("[data-testid=catalog-section][data-category=Custom]");
+    await expect(custom).toBeVisible();
+    await expect(page.getByTestId("catalog-section").first()).toHaveAttribute("data-category", "Custom"); // first in the list
+    await expect(page.getByTestId("custom-empty")).toBeVisible();
+    await expect(custom.getByTestId("catalog-tile")).toHaveCount(0);
+    // searching hides the empty Custom section
+    await page.getByTestId("catalog-search").fill("keycloak");
+    await expect(custom).toHaveCount(0);
+    await page.getByTestId("catalog-search").fill("");
+    // create one from the empty state
+    await page.getByTestId("custom-empty-new").click();
+    await page.getByTestId("designer-name").fill("My service");
+    await page.getByTestId("designer-save").click();
+    await expect(custom.getByTestId("catalog-tile")).toHaveCount(1);
+    await expect(page.getByTestId("custom-empty")).toHaveCount(0);
+    // identity providers
+    const ident = page.locator("[data-testid=catalog-section][data-category='Security & Identity']");
+    for (const id of ["keycloak", "authelia", "authentik", "pocketid"]) await expect(ident.locator(`[data-class-id=${id}]`)).toBeVisible();
+    // Microsoft Windows
+    const win = page.locator("[data-testid=catalog-section][data-category='Microsoft Windows']");
+    await expect(win.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.filter((c) => c.category === "Microsoft Windows").length);
+    for (const id of ["windows-server", "windows-11", "active-directory", "iis", "sql-server", "dotnet"]) await expect(win.locator(`[data-class-id=${id}]`)).toBeVisible();
+    // a Windows appliance has the usual net terminal, ports and configuration
+    await win.locator("[data-class-id=sql-server]").click();
+    const id = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("sql-server"))!.id;
+    await openProps(page, id, "config");
+    await expect(page.getByTestId("config-form")).toBeVisible();
+    await expect(page.getByTestId("cfg-edition")).toBeVisible();
+  });
+
   test("tiles show every built-in appliance, grouped, with collapse all / expand all", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.length);

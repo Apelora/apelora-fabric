@@ -25,9 +25,13 @@ export const PORT_TYPES = [
   "smtp",
   "syslog",
   "nfs",
+  "mssql",
+  "smb",
+  "rdp",
 ] as const;
 
 export const CATEGORIES = [
+  "Custom",
   "Network & Security",
   "Security & Identity",
   "Load Balancing",
@@ -38,8 +42,8 @@ export const CATEGORIES = [
   "Storage",
   "Monitoring",
   "Operating Systems",
+  "Microsoft Windows",
   "Utilities",
-  "Custom",
 ] as const;
 
 export const ARCHITECTURES = ["x86_64", "aarch64"] as const;

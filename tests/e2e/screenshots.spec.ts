@@ -11,6 +11,12 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     const out = (n: string) => `docs/screenshots/${n}-${w}x${h}.png`;
     await page.screenshot({ path: out("01-commerce-stack") });
 
+    // catalog: Custom (empty state), Security & Identity and Microsoft Windows sections
+    await page.getByTestId("catalog-collapse-all").click();
+    for (const cat of ["Custom", "Security & Identity", "Microsoft Windows"]) await page.locator(`[data-testid=catalog-section][data-category='${cat}'] button`).first().click();
+    await page.screenshot({ path: out("21-catalog-custom-identity-windows"), clip: { x: 0, y: 0, width: 720, height: h } });
+    await page.getByTestId("catalog-expand-all").click();
+
     await openProps(page, "haproxy-01");
     await page.screenshot({ path: out("02-properties-window") });
     await page.getByTestId("props-close").click();

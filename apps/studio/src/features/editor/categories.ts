@@ -12,6 +12,7 @@ const HUES: Record<Category, string> = {
   Storage: "oklch(68% 0.13 60)",
   Monitoring: "oklch(66% 0.10 205)",
   "Operating Systems": "oklch(62% 0.11 150)",
+  "Microsoft Windows": "oklch(60% 0.14 232)",
   Utilities: "oklch(60% 0.12 300)",
   Custom: "oklch(60% 0.03 260)",
 };

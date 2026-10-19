@@ -67,5 +67,9 @@ CC0 covers the icon artwork as distributed by Simple Icons. **The marks themselv
 | consul.svg | Consul | Simple Icons `consul` |
 | apacheairflow.svg | Apache Airflow | Simple Icons `apacheairflow` |
 | authelia.svg | Authelia | Simple Icons `authelia` |
+| authentik.svg | Authentik | Simple Icons `authentik` |
+| dotnet.svg | .NET | Simple Icons `dotnet` |
 
-Original, neutral icons created for this project (Apelora, AGPL-3.0-only): `gateway.svg`, `haproxy.svg` (generic load-balancer symbol; **not** the HAProxy mark), `linux-base.svg`, and the `generic-*.svg` set (box, server, database, shield, queue, chart, network, cache, storage, message broker, search) offered when designing custom appliances and used for products without a freely licensed mark (for example HAProxy, Varnish, NATS, ActiveMQ, Memcached and NFS).
+**Microsoft Windows section:** no Microsoft artwork (Windows, SQL Server, IIS, Exchange or Active Directory logos) is bundled. Those marks are not freely licensed and are no longer distributed by Simple Icons. The Windows appliances use original neutral icons (`generic-window`, `generic-desktop`, `generic-directory`, `generic-database`, `generic-server`, `generic-storage`); only the .NET icon (Simple Icons, CC0 artwork) is a vendor mark. Running Windows software requires a valid Microsoft licence; the catalog ships no Windows image. If you hold the right to use Microsoft's official artwork, add the SVGs here, point the class `iconAssetPath` at them and record the licence in this file.
+
+Original, neutral icons created for this project (Apelora, AGPL-3.0-only): `gateway.svg`, `haproxy.svg` (generic load-balancer symbol; **not** the HAProxy mark), `linux-base.svg`, and the `generic-*.svg` set (box, window, desktop, directory, passkey, server, database, shield, queue, chart, network, cache, storage, message broker, search) offered when designing custom appliances and used for products without a freely licensed mark (for example HAProxy, Varnish, NATS, ActiveMQ, Memcached and NFS).

@@ -21,6 +21,9 @@ const COLORS: Record<string, string> = {
   smtp: "oklch(64% 0.12 80)",
   syslog: "oklch(55% 0.06 100)",
   nfs: "oklch(58% 0.10 70)",
+  mssql: "oklch(52% 0.13 25)",
+  smb: "oklch(60% 0.09 250)",
+  rdp: "oklch(58% 0.12 225)",
 };
 export const cableColor = (type: string): string => COLORS[type] ?? COLORS.tcp!;
 export const cableOutline = (type: string): string => `color-mix(in oklab, ${cableColor(type)} 55%, black)`;
