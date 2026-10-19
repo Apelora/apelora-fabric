@@ -10,16 +10,18 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-apelora-domain = { version = "0.0.0", path = "../../crates/domain" }
+apelora-domain = { version = "0.0.0", path = "../../crates/domain", features = ["utoipa"] }
 apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter" }
 apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
 axum = "0.8.9"
 jiff = "0.2.38"
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 time = "0.3.45"
 tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
+utoipa = { version = "5.5.0", features = ["axum_extras"] }
 uuid = "1.26.1"
 
 [dev-dependencies]

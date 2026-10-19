@@ -31,12 +31,13 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
-      - name: Generated files are up to date (JSON Schemas, catalog reference)
+      - name: Generated files are up to date (JSON Schemas, catalog reference, API client)
         run: |
           npm run schema
           npm run catalog:doc
-          git diff --exit-code -- packages/assembly-model/schema docs/architecture/CATALOG.md \
-            || { echo "::error::Generated files are stale. Run 'npm run schema' and 'npm run catalog:doc' and commit the result."; exit 1; }
+          npm run generate -w @apelora/api-client
+          git diff --exit-code -- packages/assembly-model/schema docs/architecture/CATALOG.md packages/api-client/src/generated.ts \
+            || { echo "::error::Generated files are stale. Run 'npm run schema', 'npm run catalog:doc' and 'npm run api:generate' and commit the result."; exit 1; }
 
   rust:
     name: Rust (fmt, clippy, test)

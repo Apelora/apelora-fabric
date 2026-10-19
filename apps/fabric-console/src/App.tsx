@@ -1,20 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-/** Shapes returned by the Apelora control plane (`/api/v1`). */
-type Provider = "mock" | "incus";
-type Source = { provider: Provider; observedAt: string };
-type Health = {
-  status: string;
-  version: string;
-  provider: Provider;
-  auth?: "tokens" | "disabled-development";
-  incus: { connected: boolean; apiVersion?: string; serverVersion?: string | null; clustered?: boolean; error?: string };
-};
-type Member = { name: string; url: string; roles: string[]; status: string; message: string; architecture: string; failureDomain: string };
-type Instance = { name: string; project: string; kind: "container" | "virtual-machine" | "unknown"; status: string; location: string; architecture: string };
-type ClusterRes = { source: Source; server: { clustered: boolean; serverVersion: string | null }; members: Member[] };
-type ListRes<T> = { source: Source; items: T[] };
-type ApiError = { error: { code: string; message: string } };
+import { createClient, type ApiRequestError, type ClusterResponse, type Health, type Instance, type InstanceList, type Source } from "@apelora/api-client";
 
 type Load<T> = { kind: "loading" } | { kind: "ok"; data: T } | { kind: "error"; message: string };
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
@@ -24,22 +10,13 @@ const TOKEN_KEY = "apelora.apiToken";
 const readToken = (): string | null => { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } };
 const writeToken = (t: string | null) => { try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* storage unavailable */ } };
 
-class Unauthenticated extends Error {}
+const client = createClient({ token: readToken });
 
-async function getJson<T>(path: string): Promise<T> {
-  const token = readToken();
-  const res = await fetch(path, { headers: { accept: "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) } });
-  const body = (await res.json().catch(() => null)) as T | ApiError | null;
-  if (res.status === 401) throw new Unauthenticated((body as ApiError | null)?.error?.message ?? "An API token is required.");
-  if (!res.ok || body === null) throw new Error((body as ApiError | null)?.error?.message ?? `HTTP ${res.status}`);
-  return body as T;
-}
-
-function load<T>(path: string, set: (l: Load<T>) => void, onAuth: (msg: string) => void) {
+function load<T>(request: Promise<T>, set: (l: Load<T>) => void, onAuth: (msg: string) => void) {
   set({ kind: "loading" });
-  getJson<T>(path)
+  request
     .then((data) => set({ kind: "ok", data }))
-    .catch((e: Error) => { if (e instanceof Unauthenticated) onAuth(e.message); set({ kind: "error", message: e.message }); });
+    .catch((e: ApiRequestError) => { if (e.unauthenticated) onAuth(e.message); set({ kind: "error", message: e.message }); });
 }
 
 function SignIn({ message, onSubmit }: { message: string; onSubmit: (token: string) => void }) {
@@ -98,19 +75,19 @@ const KIND_LABEL: Record<Instance["kind"], string> = { container: "Container", "
 
 export function App() {
   const [api, setApi] = useState<ApiState>({ kind: "checking" });
-  const [cluster, setCluster] = useState<Load<ClusterRes>>({ kind: "loading" });
-  const [instances, setInstances] = useState<Load<ListRes<Instance>>>({ kind: "loading" });
+  const [cluster, setCluster] = useState<Load<ClusterResponse>>({ kind: "loading" });
+  const [instances, setInstances] = useState<Load<InstanceList>>({ kind: "loading" });
   const [authNeeded, setAuthNeeded] = useState<string | null>(null);
 
   const check = useCallback(() => {
     setApi({ kind: "checking" });
     setAuthNeeded(null);
-    getJson<Health>("/api/v1/health")
+    client.get("health")
       .then((health) => {
         setApi({ kind: "up", health });
         const onAuth = (msg: string) => { writeToken(null); setAuthNeeded(msg); };
-        load("/api/v1/cluster", setCluster, onAuth);
-        load("/api/v1/instances", setInstances, onAuth);
+        load(client.get("cluster"), setCluster, onAuth);
+        load(client.get("instances"), setInstances, onAuth);
       })
       .catch(() => setApi({ kind: "down" }));
   }, []);

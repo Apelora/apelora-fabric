@@ -5,6 +5,7 @@
 //! `apelora-control-plane token create --name <n> --role <r> [--expires-days <d>]`
 //! `apelora-control-plane token list`
 //! `apelora-control-plane token revoke <id>`
+//! `apelora-control-plane openapi`         print the OpenAPI document
 //!
 //! With `DATABASE_URL` the API requires bearer tokens. Without it, authentication is disabled
 //! for development and the server only binds to loopback. Inventory comes from Incus when
@@ -22,6 +23,10 @@ use serde_json::json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt().init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("openapi") {
+        print!("{}", api::openapi_json());
+        return Ok(());
+    }
     let database_url = std::env::var("DATABASE_URL").ok().filter(|u| !u.is_empty());
     if args.first().map(String::as_str) == Some("token") {
         let url = database_url.ok_or("token commands need DATABASE_URL")?;

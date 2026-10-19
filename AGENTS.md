@@ -10,6 +10,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 
 - `apps/studio` — working, browser-only designer: Vite + React + TypeScript + React Flow (`@xyflow/react`) + Tailwind CSS 4 + daisyUI 5.
 - `apps/fabric-console` — administrator console placeholder; shows control-plane and Incus status honestly.
+- `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema.
 - `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly.
 - `services/control-plane` (Axum API, `/api/v1/health` only), `services/deployment-worker`, `crates/domain`, `crates/incus-adapter` (provider trait + mock) — Phase 01 skeletons. **No real Incus integration yet.**
@@ -37,6 +38,7 @@ npm run dev:console      # Fabric Console at http://127.0.0.1:5174 (proxies /api
 cargo run -p apelora-control-plane   # API at http://127.0.0.1:8080 (mock provider)
 docker compose -f infra/dev/compose.yaml up -d   # PostgreSQL 18 on 127.0.0.1:15432 for Rust tests and the worker
 DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --role fabric-admin   # API token (shown once)
+npm run api:generate   # after API changes: OpenAPI document + TypeScript client (packages/api-client)
 npm run typecheck && npm run lint && npm test && npm run build
 npm run test:e2e         # Playwright (needs: npx playwright install chromium)
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
@@ -51,7 +53,7 @@ bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/developme
 - Keep changes focused; prefer the smallest change that fits the current design.
 - New dependencies (npm or Cargo), new public Rust items and new crates are architectural decisions: justify them, check their licence (`license-compliance`), and prefer what is already in the tree.
 - For a bug, first reproduce it with the smallest failing test, then fix it.
-- Generated files (`docs/architecture/CATALOG.md`, `packages/assembly-model/schema/*.json`) are regenerated with their scripts, never edited by hand.
+- Generated files (`docs/architecture/CATALOG.md`, `packages/assembly-model/schema/*.json`, `packages/api-client/openapi.json`, `packages/api-client/src/generated.ts`) are regenerated with their scripts, never edited by hand.
 
 ## Definition of done
 

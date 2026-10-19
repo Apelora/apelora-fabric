@@ -8,6 +8,7 @@ pub const API_VERSION: &str = "v1";
 
 /// How an appliance runs on Incus (ADR 0001).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Runtime {
     IncusSystemContainer,
@@ -25,6 +26,7 @@ impl Runtime {
 
 /// Where the backend's view of the infrastructure comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum ProviderMode {
     /// Fixture data for development and tests; never a real cluster.
@@ -34,6 +36,7 @@ pub enum ProviderMode {
 
 /// How much evidence backs a claim about a feature (see the `testing-operations` skill).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Evidence {
     NotTested,
@@ -44,6 +47,7 @@ pub enum Evidence {
 
 /// Kind of Incus instance as reported by the cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum InstanceKind {
     Container,
@@ -53,6 +57,7 @@ pub enum InstanceKind {
 
 /// Observed state of an Incus cluster member ("minion" in the UI).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ClusterMember {
     pub name: String,
@@ -68,6 +73,7 @@ pub struct ClusterMember {
 
 /// Observed state of one Incus instance.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Instance {
     pub name: String,
@@ -80,6 +86,7 @@ pub struct Instance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub name: String,
@@ -87,6 +94,7 @@ pub struct Project {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Network {
     pub name: String,
@@ -98,6 +106,7 @@ pub struct Network {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct StoragePool {
     pub name: String,
@@ -108,10 +117,12 @@ pub struct StoragePool {
 
 /// Facts about the Incus server the adapter is talking to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
     pub api_version: String,
     /// `None` when unknown (e.g. the mock provider).
+    #[cfg_attr(feature = "utoipa", schema(required = true))]
     pub server_version: Option<String>,
     pub api_extensions: Vec<String>,
     pub clustered: bool,
@@ -121,6 +132,7 @@ pub struct ServerInfo {
 /// Who may do what. Every API route names the permission it needs; roles map to permissions
 /// here and nowhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Role {
     /// Manages the platform: members, networks, storage, tokens.
@@ -134,6 +146,7 @@ pub enum Role {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum Permission {
     ReadInventory,

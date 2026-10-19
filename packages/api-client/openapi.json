@@ -1,0 +1,910 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Apelora control plane API",
+    "description": "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.",
+    "license": {
+      "name": "AGPL-3.0-only",
+      "identifier": "AGPL-3.0-only"
+    },
+    "version": "v1"
+  },
+  "paths": {
+    "/api/v1/audit": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "The 100 most recent audit events, newest first. Needs `read-audit` and a database.",
+        "operationId": "audit",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The Incus server and its cluster members. Needs `read-inventory`.",
+        "operationId": "cluster",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Public. Reports the service, the inventory provider, the authentication mode and whether\nIncus is reachable.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/instances": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Instances in all projects. Needs `read-inventory`.",
+        "operationId": "instances",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/networks": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Networks in all projects. Needs `read-inventory`.",
+        "operationId": "networks",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetworkList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Incus projects. Needs `read-inventory`.",
+        "operationId": "projects",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/storage-pools": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Storage pools. Needs `read-inventory`.",
+        "operationId": "storage_pools",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoragePoolList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whoami": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The caller's name, role and the permissions that role grants.",
+        "operationId": "whoami",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhoAmI"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuditItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "action",
+          "target",
+          "detail"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "description": "RFC 3339 timestamp."
+          },
+          "detail": {
+            "type": "object"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "AuditList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditItem"
+            }
+          }
+        }
+      },
+      "AuthMode": {
+        "type": "string",
+        "enum": [
+          "tokens",
+          "disabled-development"
+        ]
+      },
+      "ClusterMember": {
+        "type": "object",
+        "description": "Observed state of an Incus cluster member (\"minion\" in the UI).",
+        "required": [
+          "name",
+          "url",
+          "roles",
+          "status",
+          "message",
+          "architecture",
+          "failureDomain",
+          "database",
+          "groups"
+        ],
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "database": {
+            "type": "boolean"
+          },
+          "failureDomain": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "ClusterResponse": {
+        "type": "object",
+        "required": [
+          "source",
+          "server",
+          "members"
+        ],
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClusterMember"
+            },
+            "description": "Empty when the Incus server is not clustered."
+          },
+          "server": {
+            "$ref": "#/components/schemas/ServerInfo"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ErrorBody": {
+        "type": "object",
+        "description": "Error body for every non-2xx response.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable code, e.g. `incus_unreachable`, `unauthenticated`, `forbidden`."
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "required": [
+          "status",
+          "service",
+          "version",
+          "apiVersion",
+          "provider",
+          "auth",
+          "incus"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode"
+          },
+          "incus": {
+            "$ref": "#/components/schemas/IncusStatus"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "service": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "IncusStatus": {
+        "type": "object",
+        "description": "What the control plane knows about its Incus connection.",
+        "required": [
+          "connected",
+          "serverVersion"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "clustered": {
+            "type": "boolean"
+          },
+          "connected": {
+            "type": "boolean",
+            "description": "True only when talking to a real Incus server (never for mock data)."
+          },
+          "error": {
+            "type": "string"
+          },
+          "serverVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "Instance": {
+        "type": "object",
+        "description": "Observed state of one Incus instance.",
+        "required": [
+          "name",
+          "project",
+          "kind",
+          "status",
+          "location",
+          "architecture",
+          "description"
+        ],
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InstanceKind"
+          },
+          "location": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "InstanceKind": {
+        "type": "string",
+        "description": "Kind of Incus instance as reported by the cluster.",
+        "enum": [
+          "container",
+          "virtual-machine",
+          "unknown"
+        ]
+      },
+      "InstanceList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Instance"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "Network": {
+        "type": "object",
+        "required": [
+          "name",
+          "project",
+          "kind",
+          "managed",
+          "status",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "managed": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "NetworkList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Network"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "Permission": {
+        "type": "string",
+        "enum": [
+          "read-inventory",
+          "read-audit",
+          "manage-tokens",
+          "manage-infrastructure",
+          "design-applications",
+          "deploy"
+        ]
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ProviderMode": {
+        "type": "string",
+        "description": "Where the backend's view of the infrastructure comes from.",
+        "enum": [
+          "mock",
+          "incus"
+        ]
+      },
+      "Role": {
+        "type": "string",
+        "description": "Who may do what. Every API route names the permission it needs; roles map to permissions\nhere and nowhere else.",
+        "enum": [
+          "fabric-admin",
+          "operator",
+          "studio-designer",
+          "auditor"
+        ]
+      },
+      "ServerInfo": {
+        "type": "object",
+        "description": "Facts about the Incus server the adapter is talking to.",
+        "required": [
+          "apiVersion",
+          "serverVersion",
+          "apiExtensions",
+          "clustered",
+          "auth"
+        ],
+        "properties": {
+          "apiExtensions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "apiVersion": {
+            "type": "string"
+          },
+          "auth": {
+            "type": "string"
+          },
+          "clustered": {
+            "type": "boolean"
+          },
+          "serverVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` when unknown (e.g. the mock provider)."
+          }
+        }
+      },
+      "Source": {
+        "type": "object",
+        "description": "Where inventory data came from and when it was read.",
+        "required": [
+          "provider",
+          "observedAt"
+        ],
+        "properties": {
+          "observedAt": {
+            "type": "string",
+            "description": "RFC 3339 timestamp (UTC)."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode"
+          }
+        }
+      },
+      "StoragePool": {
+        "type": "object",
+        "required": [
+          "name",
+          "driver",
+          "status",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "driver": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "StoragePoolList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoragePool"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "WhoAmI": {
+        "type": "object",
+        "required": [
+          "name",
+          "role",
+          "permissions"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Permission"
+            }
+          },
+          "role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "An Apelora API token (`apl_…`)."
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "system"
+    },
+    {
+      "name": "inventory"
+    },
+    {
+      "name": "audit"
+    }
+  ]
+}

@@ -28,7 +28,7 @@ Apelora's backend is Rust. It owns application graphs, appliance definitions, de
 - `tokio` + `axum`; `serde`; SQLx with migrations; `reqwest` with TLS verification on; `tracing` with request, resource and operation ids.
 - `thiserror` for library errors; typed API errors with stable codes; no `unwrap` outside tests.
 - Verify the installed toolchain/MSRV and crate versions before choosing dependencies; pin with `Cargo.lock`.
-- API changes are reflected in the OpenAPI document and the generated TypeScript client.
+- Every handler returns a typed `ToSchema` struct (never `serde_json::json!`) and carries `#[utoipa::path]` with its error statuses; register it in `ApiDoc` in `services/control-plane/src/api.rs`. Then run `npm run api:generate` and commit `packages/api-client/openapi.json` and `src/generated.ts`; `committed_openapi_document_is_current` and the CI generated-file check fail otherwise. Frontends call the API only through `@apelora/api-client`.
 - `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace` must pass.
 
 ## Checklist

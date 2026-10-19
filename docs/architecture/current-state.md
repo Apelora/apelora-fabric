@@ -44,9 +44,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Incus adapter (read-only + mock) and inventory API | Done, CONTRACT VERIFIED (no real cluster yet) | 03 |
 | PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
-| OpenAPI document + generated TS client | Missing | 03 |
+| OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |
-| Shared API contract (OpenAPI → TS client) | Missing | 03 |
 | Network fabric, service discovery, publishing | Missing | 07 |
 | Coordination, HA, mobility | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |

@@ -3,6 +3,7 @@ use apelora_incus_adapter::{IncusClient, MockIncus};
 use axum::body::Body;
 use axum::http::Request;
 use http_body_util::BodyExt;
+use serde_json::json;
 use tower::ServiceExt;
 
 async fn call(
@@ -178,5 +179,59 @@ async fn tokens_are_required_and_roles_are_enforced(pool: Pool) {
     assert_eq!(
         call(state, "/api/v1/instances", Some(&designer)).await.0,
         401
+    );
+}
+
+/// `packages/api-client/openapi.json` is the contract the TypeScript client is generated from.
+/// Regenerate with `npm run api:generate` (or `UPDATE_OPENAPI=1 cargo test -p apelora-control-plane`).
+#[test]
+fn committed_openapi_document_is_current() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/api-client/openapi.json"
+    );
+    let current = openapi_json();
+    if std::env::var_os("UPDATE_OPENAPI").is_some() {
+        std::fs::write(path, &current).expect("write openapi.json");
+    }
+    let committed = std::fs::read_to_string(path).unwrap_or_default();
+    assert!(
+        committed == current,
+        "{path} is stale: run `npm run api:generate`"
+    );
+}
+
+#[tokio::test]
+async fn openapi_document_is_public_and_lists_every_route() {
+    let (status, doc, _) = call(
+        AppState::new(
+            Provider::Mock(MockIncus::default()),
+            Auth::DisabledForDevelopment,
+        ),
+        "/api/v1/openapi.json",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    for route in [
+        "/api/v1/health",
+        "/api/v1/whoami",
+        "/api/v1/cluster",
+        "/api/v1/instances",
+        "/api/v1/projects",
+        "/api/v1/networks",
+        "/api/v1/storage-pools",
+        "/api/v1/audit",
+    ] {
+        assert!(doc["paths"][route]["get"].is_object(), "{route} missing");
+    }
+    assert_eq!(
+        doc["paths"]["/api/v1/health"]["get"]["security"],
+        json!([{}]),
+        "health is public"
+    );
+    assert_eq!(
+        doc["components"]["securitySchemes"]["bearer"]["scheme"],
+        "bearer"
     );
 }
