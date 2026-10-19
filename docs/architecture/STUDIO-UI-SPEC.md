@@ -7,7 +7,7 @@ Everything here runs in the browser against mock data. Nothing is sent to a serv
 | Region | Spec |
 |---|---|
 | Header (48px) | Logo + "Apelora Studio", **Mock · Design only** badge, breadcrumb + save state (≥1400px), Undo/Redo, density (Compact / Comfortable / Expanded), New ▾ (empty, sample, sample + network), Import, **Export JSON** (the single primary button), theme |
-| Catalog (left, 176–192px) | Search, appliance count with collapse all / expand all, **New appliance**, collapsible category sections, 2-column tiles (logo + name). Tile: drag to canvas or click to add; pencil = edit custom / copy built-in |
+| Catalog (left, 176–192px) | Search, appliance count with collapse all / expand all, collapsible category sections (Custom first, with **Create appliance…** at the end of the section), 2-column tiles (logo + name). Tile: drag to canvas or click to add; pencil = edit custom / copy built-in |
 | Canvas frame (everything else) | Light-gray `#F7F7F8`, 12px radius, 1px border, **full width** (there is no permanent right sidebar). Title strip: three dots, **tools** (Select, Pan), editable assembly name, **Zones** menu, selection count, toggles (grid, labels `Aa`, cable style, routing, snap), zoom −/%/+/fit/zoom-to-selection. Validation panel docked bottom-left |
 | Properties window (on demand) | A floating, draggable window opened from the context menu (**Properties…**), a double-click, or Enter. See "Properties window" below |
 
@@ -91,7 +91,7 @@ Fields are grouped (first group open; groups with changed or invalid fields open
 
 ## 5. Appliance Designer (custom appliances)
 
-Dialog opened from **New appliance**, a tile's pencil, or **Save as custom appliance…**. Left: name, category, summary, vCPU, memory, generic icon, live node preview. Right, two tabs:
+Dialog opened from **Create appliance…** in the Custom section, a tile's pencil, or **Save as custom appliance…**. Left: name, category, summary, vCPU, memory, generic icon, live node preview. Right, two tabs:
 
 - **Ports** — name (short, shown on the canvas), protocol type, description (tooltip), required, several-cables, reorder, delete.
 - **Configuration** — fields with label, type, default, group, help text, required; enum options (comma separated), int min/max. Saving validates labels, enum option count, min ≤ max and that each default satisfies its own rules; errors list in a red alert and nothing is saved until fixed.

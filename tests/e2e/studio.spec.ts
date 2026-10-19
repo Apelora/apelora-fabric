@@ -1214,12 +1214,15 @@ test.describe("catalog", () => {
     await page.getByTestId("catalog-search").fill("keycloak");
     await expect(custom).toHaveCount(0);
     await page.getByTestId("catalog-search").fill("");
-    // create one from the empty state
-    await page.getByTestId("custom-empty-new").click();
+    // one create button, and it lives in the Custom section (no separate one above the catalog)
+    await expect(page.getByTestId("new-appliance")).toHaveCount(1);
+    await expect(custom.getByTestId("new-appliance")).toHaveText(/Create appliance/);
+    await custom.getByTestId("new-appliance").click();
     await page.getByTestId("designer-name").fill("My service");
     await page.getByTestId("designer-save").click();
     await expect(custom.getByTestId("catalog-tile")).toHaveCount(1);
     await expect(page.getByTestId("custom-empty")).toHaveCount(0);
+    await expect(custom.getByTestId("new-appliance")).toBeVisible(); // still there once the section has appliances
     // identity providers
     const ident = page.locator("[data-testid=catalog-section][data-category='Security & Identity']");
     for (const id of ["keycloak", "authelia", "authentik", "pocketid"]) await expect(ident.locator(`[data-class-id=${id}]`)).toBeVisible();
