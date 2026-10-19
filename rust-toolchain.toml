@@ -1,0 +1,4 @@
+# Pinned so every machine and CI build uses the same compiler. Update deliberately.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]

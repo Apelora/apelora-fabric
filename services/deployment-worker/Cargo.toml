@@ -1,0 +1,16 @@
+[package]
+name = "apelora-deployment-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+apelora-domain = { version = "0.0.0", path = "../../crates/domain" }
+apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter" }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"

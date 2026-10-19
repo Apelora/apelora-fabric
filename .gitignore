@@ -36,3 +36,9 @@ target/
 *.log
 tmp/
 .cache/
+
+# Agent/browser tooling output
+.playwright-mcp/
+
+# Optional read-only upstream source checkouts (Phase 02)
+upstream/

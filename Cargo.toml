@@ -1,0 +1,21 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/domain",
+  "crates/incus-adapter",
+  "services/control-plane",
+  "services/deployment-worker",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
