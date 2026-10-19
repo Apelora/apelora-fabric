@@ -42,7 +42,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Cargo workspace, control-plane and worker services | Skeleton created in Phase 01 (compiles, no behaviour) | 01 → 03 |
 | Upstream tracking (`upstream.lock.yaml`, update checks, fork `Apelora/incus`) | Done in Phase 02 (`docs/development/UPSTREAM-INCUS.md`) | 02 |
 | Incus adapter (read-only + mock) and inventory API | Done, CONTRACT VERIFIED (no real cluster yet) | 03 |
-| PostgreSQL persistence, auth/RBAC, OpenAPI client, worker job loop | Missing | 03 |
+| PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
+| Auth/RBAC, OpenAPI client | Missing | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |
 | Shared API contract (OpenAPI → TS client) | Missing | 03 |
 | Network fabric, service discovery, publishing | Missing | 07 |

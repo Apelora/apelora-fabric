@@ -41,6 +41,20 @@ jobs:
   rust:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
+    # Persistence and worker tests run against a real PostgreSQL (fresh database per test).
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: apelora
+          POSTGRES_PASSWORD: apelora-ci-only
+          POSTGRES_DB: apelora
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U apelora -d apelora"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      DATABASE_URL: postgres://apelora:apelora-ci-only@127.0.0.1:5432/apelora
     steps:
       - uses: actions/checkout@v7
       - name: Install the pinned toolchain (rust-toolchain.toml)

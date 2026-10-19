@@ -1,0 +1,5 @@
+# Default database for `cargo test` (persistence and worker tests need PostgreSQL).
+# Start it with: docker compose -f infra/dev/compose.yaml up -d   (development credentials only)
+# An explicit DATABASE_URL in the environment (e.g. in CI) takes precedence.
+[env]
+DATABASE_URL = { value = "postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora", force = false }

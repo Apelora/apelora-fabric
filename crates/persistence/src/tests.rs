@@ -1,0 +1,218 @@
+// Run against a real PostgreSQL (DATABASE_URL); each test gets a fresh database with the
+// migrations applied. Locally: `docker compose -f infra/dev/compose.yaml up -d` and
+// DATABASE_URL=postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora
+
+use std::collections::HashSet;
+use std::time::Duration;
+
+use serde_json::json;
+
+use super::*;
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn revisions_are_numbered_and_concurrent_saves_never_collide(pool: PgPool) {
+    let app = create_application(&pool, "shop").await.expect("app");
+    let r1 = add_revision(&pool, app.id, &json!({ "v": 1 }), "tester")
+        .await
+        .expect("rev 1");
+    assert_eq!(r1.revision, 1);
+    let mut handles = Vec::new();
+    for i in 0..10 {
+        let pool = pool.clone();
+        handles.push(tokio::spawn(async move {
+            add_revision(&pool, app.id, &json!({ "v": i }), "tester")
+                .await
+                .expect("rev")
+                .revision
+        }));
+    }
+    let mut numbers = HashSet::new();
+    for h in handles {
+        assert!(
+            numbers.insert(h.await.expect("join")),
+            "duplicate revision number"
+        );
+    }
+    assert_eq!(numbers, (2..=11).collect());
+    assert_eq!(
+        latest_revision(&pool, app.id)
+            .await
+            .expect("latest")
+            .expect("some")
+            .revision,
+        11
+    );
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn duplicate_application_names_conflict_and_unknown_apps_are_not_found(pool: PgPool) {
+    create_application(&pool, "shop").await.expect("app");
+    assert!(matches!(
+        create_application(&pool, "shop").await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(matches!(
+        add_revision(&pool, Uuid::new_v4(), &json!({}), "t").await,
+        Err(StoreError::NotFound(_))
+    ));
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn enqueue_with_the_same_idempotency_key_creates_one_job(pool: PgPool) {
+    let a = enqueue_job(&pool, "deploy", None, &json!({}), Some("deploy-shop-rev-3"))
+        .await
+        .expect("first");
+    let b = enqueue_job(&pool, "deploy", None, &json!({}), Some("deploy-shop-rev-3"))
+        .await
+        .expect("second");
+    assert!(matches!(a, Enqueued::Created(_)));
+    assert_eq!(b, Enqueued::Existing(a.id()));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(count, 1);
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn concurrent_workers_never_claim_the_same_job(pool: PgPool) {
+    for _ in 0..30 {
+        enqueue_job(&pool, "noop", None, &json!({}), None)
+            .await
+            .expect("enqueue");
+    }
+    let mut workers = Vec::new();
+    for w in 0..8 {
+        let pool = pool.clone();
+        workers.push(tokio::spawn(async move {
+            let name = format!("worker-{w}");
+            let mut mine = Vec::new();
+            while let Some(job) = claim_job(&pool, &name, 30).await.expect("claim") {
+                complete_job(&pool, &job, &name, &Outcome::Succeeded)
+                    .await
+                    .expect("complete");
+                mine.push(job.id);
+            }
+            mine
+        }));
+    }
+    let mut seen = HashSet::new();
+    for w in workers {
+        for id in w.await.expect("join") {
+            assert!(seen.insert(id), "job {id} was claimed twice");
+        }
+    }
+    assert_eq!(seen.len(), 30);
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn an_expired_lease_is_reclaimed_and_the_old_worker_is_fenced_out(pool: PgPool) {
+    let id = enqueue_job(&pool, "deploy", None, &json!({}), None)
+        .await
+        .expect("enqueue")
+        .id();
+    let old = claim_job(&pool, "worker-a", 1)
+        .await
+        .expect("claim")
+        .expect("job");
+    assert!(
+        claim_job(&pool, "worker-b", 30)
+            .await
+            .expect("claim")
+            .is_none(),
+        "lease still valid"
+    );
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    let new = claim_job(&pool, "worker-b", 30)
+        .await
+        .expect("claim")
+        .expect("reclaimed");
+    assert_eq!(new.id, id);
+    assert_eq!(new.generation, old.generation + 1);
+    assert!(matches!(
+        renew_lease(&pool, &old, "worker-a", 30).await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(matches!(
+        complete_job(&pool, &old, "worker-a", &Outcome::Succeeded).await,
+        Err(StoreError::Conflict(_))
+    ));
+    complete_job(&pool, &new, "worker-b", &Outcome::Succeeded)
+        .await
+        .expect("owner completes");
+    assert_eq!(job_status(&pool, id).await.expect("status").0, "succeeded");
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn failures_retry_with_backoff_then_fail_permanently(pool: PgPool) {
+    let id = enqueue_job(&pool, "deploy", None, &json!({}), None)
+        .await
+        .expect("enqueue")
+        .id();
+    sqlx::query("UPDATE jobs SET max_attempts = 2 WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .expect("cap");
+    let j1 = claim_job(&pool, "w", 30)
+        .await
+        .expect("claim")
+        .expect("job");
+    complete_job(
+        &pool,
+        &j1,
+        "w",
+        &Outcome::Failed("incus unreachable".into()),
+    )
+    .await
+    .expect("fail 1");
+    let (status, attempts, err) = job_status(&pool, id).await.expect("status");
+    assert_eq!(
+        (status.as_str(), attempts, err.as_deref()),
+        ("pending", 1, Some("incus unreachable"))
+    );
+    assert!(
+        claim_job(&pool, "w", 30).await.expect("claim").is_none(),
+        "backoff delays the retry"
+    );
+    sqlx::query("UPDATE jobs SET run_after = now() WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .expect("skip backoff");
+    let j2 = claim_job(&pool, "w", 30)
+        .await
+        .expect("claim")
+        .expect("retry");
+    complete_job(
+        &pool,
+        &j2,
+        "w",
+        &Outcome::Failed("still unreachable".into()),
+    )
+    .await
+    .expect("fail 2");
+    assert_eq!(job_status(&pool, id).await.expect("status").0, "failed");
+    assert!(
+        claim_job(&pool, "w", 30).await.expect("claim").is_none(),
+        "failed jobs are not retried"
+    );
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn audit_events_are_recorded(pool: PgPool) {
+    audit(
+        &pool,
+        "tester",
+        "application.create",
+        "shop",
+        &json!({ "via": "test" }),
+    )
+    .await
+    .expect("audit");
+    let action: String = sqlx::query_scalar("SELECT action FROM audit_events")
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+    assert_eq!(action, "application.create");
+}

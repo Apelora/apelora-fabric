@@ -1,0 +1,23 @@
+# Local development services. Development credentials only; never reuse them anywhere else.
+# Start:  docker compose -f infra/dev/compose.yaml up -d
+# Stop:   docker compose -f infra/dev/compose.yaml down        (add -v to delete the data)
+name: apelora-dev
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: apelora-dev-db
+    environment:
+      POSTGRES_USER: apelora
+      POSTGRES_PASSWORD: apelora-dev-only
+      POSTGRES_DB: apelora
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - apelora-dev-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apelora -d apelora"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+volumes:
+  apelora-dev-db: {}
