@@ -1,5 +1,5 @@
 import { allClasses, lookupClass } from "@apelora/appliance-catalog";
-import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, STROKE_STYLES, shapeContents, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
+import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, shapeContents, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
 import { ms } from "./motion";
@@ -147,6 +147,12 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       items: [
         { type: "header", label: `${sp?.type ?? ""} cable` },
         item("properties", "Properties…", () => s().openProps({ kind: "cable", id: c.id })),
+        item("cable-colour", "Cable colour", () => undefined, {
+          children: [
+            item("cable-colour-protocol", "Protocol colour", () => s().setCableColorAction(c.id, null), { checked: !cableColorOf(a, c.id) }),
+            ...SHAPE_PALETTE.map((p) => item(`cable-colour-${p.name.toLowerCase()}`, p.name, () => s().setCableColorAction(c.id, p.color), { checked: cableColorOf(a, c.id) === p.color })),
+          ],
+        }),
         item("to-tag", "Convert to link tag", () => s().cableToTagAction(c.id)),
         item("select-source", `Select ${sa?.name ?? "source"}`, () => s().selectNode(c.source.applianceId)),
         item("select-target", `Select ${ta?.name ?? "target"}`, () => s().selectNode(c.target.applianceId)),

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { effectiveSize, portOf, tagNet, type ApplicationAssembly } from "@apelora/assembly-model";
+import { cableColorOf, effectiveSize, portOf, tagNet, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -8,7 +8,7 @@ import { categoryColor } from "../../features/editor/categories";
 import { IconBox, IconTrash, IconX } from "../icons";
 import { ConfigForm } from "./ConfigForm";
 import { NumberField, PortSection, nicStatus } from "./PropertiesInspector";
-import { ShapeProperties } from "./ShapeProperties";
+import { ShapeProperties, Swatches } from "./ShapeProperties";
 
 const W = 420;
 
@@ -88,6 +88,7 @@ function CableBody({ id, api, assembly }: { id: string; api: Api; assembly: Appl
   const ta = assembly.spec.appliances.find((a) => a.id === conn.target.applianceId);
   const sp = sa?.ports.find((p) => p.id === conn.source.portId);
   const tp = ta?.ports.find((p) => p.id === conn.target.portId);
+  const custom = cableColorOf(assembly, conn.id);
   return (
     <div className="flex flex-col gap-3 text-xs" data-testid="inspector-connection">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
@@ -96,6 +97,13 @@ function CableBody({ id, api, assembly }: { id: string; api: Api; assembly: Appl
         <dt className="text-base-content/60">Protocol</dt><dd>{sp?.type}</dd>
         <dt className="text-base-content/60">Id</dt><dd className="font-mono">{conn.id}</dd>
       </dl>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-base-content/60">Colour</span>
+        <Swatches value={custom ?? ""} label="Cable colour" testId="cable-colour" onPick={(c) => api.getState().setCableColorAction(conn.id, c)} />
+        <button type="button" className="btn btn-xs btn-ghost self-start" data-testid="cable-colour-reset" disabled={!custom} onClick={() => api.getState().setCableColorAction(conn.id, null)}>
+          {custom ? "Use protocol colour" : "Using protocol colour"}
+        </button>
+      </div>
       <div className="flex gap-2">
         <button className="btn btn-sm btn-outline flex-1" data-testid="cable-to-tag" onClick={() => { api.getState().cableToTagAction(conn.id); }}>Convert to link tag</button>
         <button className="btn btn-sm btn-outline" data-testid="delete-connection" onClick={() => api.getState().deleteElements([], [conn.id])}><IconTrash size={14} />Unplug</button>

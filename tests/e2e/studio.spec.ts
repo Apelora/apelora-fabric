@@ -770,6 +770,52 @@ test.describe("properties window", () => {
   });
 });
 
+test.describe("cable colour", () => {
+  const stroke = (page: import("@playwright/test").Page, id: string) =>
+    page.locator(`.react-flow__edge[data-id="${id}"] path.react-flow__edge-path`).evaluate((el) => getComputedStyle(el).stroke);
+
+  test("pick a colour in cable properties or the right-click menu; reset; undo; survives export/import", async ({ page }) => {
+    await open(page);
+    const protocol = await stroke(page, "conn-01");
+    const pt = await cablePoint(page, "conn-01", 0.5);
+    await page.mouse.dblclick(pt.x, pt.y);
+    await expect(page.getByTestId("cable-colour-reset")).toBeDisabled();
+    await page.getByTestId("cable-colour").getByRole("radio", { name: "Green" }).click();
+    await expect.poll(() => stroke(page, "conn-01")).toBe("rgb(34, 197, 94)");
+    expect((await assemblyState(page)).editor.cables).toEqual([{ id: "conn-01", color: "#22c55e" }]);
+    expect((await assemblyState(page)).spec.connections.find((c) => c.id === "conn-01")).not.toHaveProperty("color");
+    // other cables keep their protocol colour
+    expect(await stroke(page, "conn-02")).not.toBe("rgb(34, 197, 94)");
+    // undo restores the protocol colour, redo brings green back
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect.poll(() => stroke(page, "conn-01")).toBe(protocol);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect.poll(() => stroke(page, "conn-01")).toBe("rgb(34, 197, 94)");
+    // reset from the properties window
+    await page.getByTestId("cable-colour-reset").click();
+    await expect.poll(() => stroke(page, "conn-01")).toBe(protocol);
+    await page.getByTestId("props-close").click();
+    // right-click menu
+    await page.mouse.click(pt.x, pt.y, { button: "right" });
+    await page.getByTestId("menu-cable-colour").hover();
+    await page.getByTestId("menu-cable-colour-rose").click();
+    await expect.poll(() => stroke(page, "conn-01")).toBe("rgb(244, 63, 94)");
+    // export and re-import keep the colour
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    expect(JSON.parse(text).editor.cables).toEqual([{ id: "conn-01", color: "#f43f5e" }]);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await expect.poll(() => stroke(page, "conn-01")).toBe("rgb(244, 63, 94)");
+    // unplugging the cable drops its colour
+    await page.mouse.click(pt.x, pt.y, { button: "right" });
+    await page.getByTestId("menu-delete").click();
+    expect((await assemblyState(page)).editor.cables ?? []).toEqual([]);
+  });
+});
+
 test.describe("zones and shapes", () => {
   const shapeBox = async (page: import("@playwright/test").Page, id: string) => (await page.locator(`[data-testid=shape-node][data-shape-id="${id}"]`).boundingBox())!;
   const shapes = async (page: import("@playwright/test").Page) => (await assemblyState(page)).editor.shapes ?? [];

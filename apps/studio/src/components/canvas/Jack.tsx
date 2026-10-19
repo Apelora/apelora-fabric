@@ -13,7 +13,7 @@ export function Jack({ kind, className = "" }: { kind: "input" | "output"; class
 /** The cable's RJ45 plug head, drawn inserted into the socket and pointing outward. Colour = the link's protocol. */
 export function PlugHead({ side, type, count }: { side: "input" | "output"; type: string; count: number }) {
   const fill = cableColor(type);
-  const edge = cableOutline(type);
+  const edge = cableOutline(cableColor(type));
   return (
     <>
       <svg className="apl-plug" data-side={side} data-testid="plug-head" data-type={type} viewBox="0 0 16 10" aria-hidden="true" focusable="false">

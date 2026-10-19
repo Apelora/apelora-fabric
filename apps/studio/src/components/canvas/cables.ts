@@ -26,6 +26,7 @@ const COLORS: Record<string, string> = {
   rdp: "oklch(58% 0.12 225)",
 };
 export const cableColor = (type: string): string => COLORS[type] ?? COLORS.tcp!;
-export const cableOutline = (type: string): string => `color-mix(in oklab, ${cableColor(type)} 55%, black)`;
+/** Darker edge for a cable of the given colour. */
+export const cableOutline = (color: string): string => `color-mix(in oklab, ${color} 55%, black)`;
 /** Cable ends this many px beyond the jack edge, under the plug's strain relief. */
 export const CABLE_INSET = 6;

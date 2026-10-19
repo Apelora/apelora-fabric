@@ -6,7 +6,8 @@ const KIND_LABEL: Record<Shape["kind"], string> = { rect: "Square", ellipse: "Ci
 const KIND_ICON = { rect: IconSquare, ellipse: IconCircle, rounded: IconRounded, triangle: IconTriangle } as const;
 const POS_LABEL: Record<Shape["labelPos"], string> = { "top-left": "Top left", top: "Top", center: "Center", bottom: "Bottom" };
 
-function Swatches({ value, onPick, label, testId }: { value: string; onPick: (c: string) => void; label: string; testId: string }) {
+/** Palette of colour swatches plus a custom picker. `value` may be empty when no colour is chosen. */
+export function Swatches({ value, onPick, label, testId }: { value: string; onPick: (c: string) => void; label: string; testId: string }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-wrap items-center gap-1.5" data-testid={testId}>
       {SHAPE_PALETTE.map((p) => (
@@ -15,7 +16,7 @@ function Swatches({ value, onPick, label, testId }: { value: string; onPick: (c:
       ))}
       <label className="relative size-6 cursor-pointer overflow-hidden rounded-full border border-dashed border-base-content/40" title="Custom colour">
         <span className="absolute inset-0 flex items-center justify-center text-[10px]">+</span>
-        <input type="color" aria-label={`${label}: custom colour`} className="absolute inset-0 size-full cursor-pointer opacity-0" value={value} onChange={(e) => onPick(e.target.value)} />
+        <input type="color" aria-label={`${label}: custom colour`} className="absolute inset-0 size-full cursor-pointer opacity-0" value={value || "#64748b"} onChange={(e) => onPick(e.target.value)} />
       </label>
     </div>
   );

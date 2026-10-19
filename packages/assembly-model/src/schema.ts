@@ -76,6 +76,8 @@ export const LinkTagSchema = z.object({
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "color must be #rrggbb");
 
 /** A zone/sector drawn behind appliances. View-only: it never affects deployment semantics. */
+export const CableStyleSchema = z.object({ id: entityId, color: hexColor });
+
 export const ShapeSchema = z.object({
   id: z.string().regex(/^shape-[a-z0-9-]{1,40}$/, "shape id must look like shape-01"),
   kind: z.enum(SHAPE_KINDS),
@@ -143,6 +145,8 @@ export const ApplicationAssemblySchema = z.object({
     density: z.enum(DENSITIES),
     nodes: z.array(EditorNodeSchema),
     shapes: z.array(ShapeSchema).max(200).optional(),
+    /** Per-cable colour overrides (layout only); cables without an entry use their protocol colour. */
+    cables: z.array(CableStyleSchema).max(1000).optional(),
   }),
   /** Definitions of custom appliance classes used by this assembly, so exports are self-contained. */
   catalog: z.object({ classes: z.array(ApplianceClassSchema) }).optional(),
@@ -157,6 +161,7 @@ export type Resources = z.infer<typeof ResourcesSchema>;
 export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
+export type CableStyle = z.infer<typeof CableStyleSchema>;
 export type Composition = z.infer<typeof CompositionSchema>;
 export type Endpoint = Connection["source"];
 export type LinkTag = z.infer<typeof LinkTagSchema>;

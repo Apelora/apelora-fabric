@@ -18,15 +18,19 @@
     "category": {
       "type": "string",
       "enum": [
+        "Custom",
         "Network & Security",
+        "Security & Identity",
         "Load Balancing",
         "Web & Application",
         "Databases & Cache",
+        "Messaging & Streaming",
+        "Search & Analytics",
         "Storage",
         "Monitoring",
         "Operating Systems",
-        "Utilities",
-        "Custom"
+        "Microsoft Windows",
+        "Utilities"
       ]
     },
     "summary": {
@@ -94,7 +98,22 @@
               "redis",
               "amqp",
               "s3",
-              "metrics"
+              "metrics",
+              "kafka",
+              "pulsar",
+              "mqtt",
+              "nats",
+              "mongodb",
+              "cassandra",
+              "memcached",
+              "grpc",
+              "ldap",
+              "smtp",
+              "syslog",
+              "nfs",
+              "mssql",
+              "smb",
+              "rdp"
             ]
           },
           "optional": {
@@ -217,6 +236,357 @@
         ],
         "additionalProperties": false
       }
+    },
+    "composition": {
+      "type": "object",
+      "properties": {
+        "appliances": {
+          "minItems": 1,
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 48
+              },
+              "classRef": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "additionalProperties": false
+              },
+              "resources": {
+                "type": "object",
+                "properties": {
+                  "cpu": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 256
+                  },
+                  "memoryMiB": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 4194304
+                  }
+                },
+                "required": [
+                  "cpu",
+                  "memoryMiB"
+                ],
+                "additionalProperties": false
+              },
+              "ports": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 48
+                    },
+                    "direction": {
+                      "type": "string",
+                      "enum": [
+                        "input",
+                        "output"
+                      ]
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "network",
+                        "http",
+                        "tcp",
+                        "postgres",
+                        "mysql",
+                        "redis",
+                        "amqp",
+                        "s3",
+                        "metrics",
+                        "kafka",
+                        "pulsar",
+                        "mqtt",
+                        "nats",
+                        "mongodb",
+                        "cassandra",
+                        "memcached",
+                        "grpc",
+                        "ldap",
+                        "smtp",
+                        "syslog",
+                        "nfs",
+                        "mssql",
+                        "smb",
+                        "rdp"
+                      ]
+                    },
+                    "optional": {
+                      "type": "boolean"
+                    },
+                    "multiplicity": {
+                      "type": "string",
+                      "enum": [
+                        "one",
+                        "many"
+                      ]
+                    },
+                    "description": {
+                      "type": "string",
+                      "maxLength": 160
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "direction",
+                    "type",
+                    "optional",
+                    "multiplicity"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "config": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 512
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "classRef",
+              "resources",
+              "ports"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "connections": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "source": {
+                "type": "object",
+                "properties": {
+                  "applianceId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "portId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                  }
+                },
+                "required": [
+                  "applianceId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              },
+              "target": {
+                "type": "object",
+                "properties": {
+                  "applianceId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "portId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                  }
+                },
+                "required": [
+                  "applianceId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "source",
+              "target"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "links": {
+          "maxItems": 1000,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "tag": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$"
+              },
+              "endpoint": {
+                "type": "object",
+                "properties": {
+                  "applianceId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                  },
+                  "portId": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                  }
+                },
+                "required": [
+                  "applianceId",
+                  "portId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "tag",
+              "endpoint"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "layout": {
+          "maxItems": 200,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,62}$"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 64,
+                "maximum": 2000
+              },
+              "height": {
+                "type": "number",
+                "minimum": 48,
+                "maximum": 2000
+              },
+              "custom": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "x",
+              "y",
+              "width",
+              "height",
+              "custom"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "exposes": {
+          "maxItems": 64,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "port": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{0,47}$"
+              },
+              "inner": {
+                "minItems": 1,
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "applianceId": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+                    },
+                    "portId": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+                    }
+                  },
+                  "required": [
+                    "applianceId",
+                    "portId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "port",
+              "inner"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "appliances",
+        "connections",
+        "layout",
+        "exposes"
+      ],
+      "additionalProperties": false
     },
     "custom": {
       "type": "boolean"

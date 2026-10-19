@@ -4,7 +4,7 @@ import {
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
-import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
+import { DENSITY_SIZE, cableColorOf, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
@@ -174,10 +174,10 @@ export function AssemblyWorkspace() {
       targetHandle: c.target.portId,
       selected: selection.edges.includes(c.id),
       reconnectable: true,
-      data: { type: linkLabel(assembly, c.source), invalid: bad.has(c.id), angled: routing === "angled", ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
+      data: { type: linkLabel(assembly, c.source), color: cableColorOf(assembly, c.id), invalid: bad.has(c.id), angled: routing === "angled", ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assembly.spec, diagnostics, selection.edges, showLabels, routing]);
+  }, [assembly.spec, assembly.editor.cables, diagnostics, selection.edges, showLabels, routing]);
 
   const onNodesChange = useCallback((changes: NodeChange<AnyFlowNode>[]) => {
     const s = api.getState();

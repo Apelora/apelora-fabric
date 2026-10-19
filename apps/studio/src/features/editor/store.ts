@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
-  addAppliance, addPort, connect, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -56,6 +56,8 @@ export interface StudioState {
   addShapeAt: (kind: ShapeKind, center?: { x: number; y: number }, cascade?: boolean) => string;
   wrapInZone: (kind: ShapeKind) => void;
   editShape: (id: string, patch: Partial<Omit<Shape, "id">>) => void;
+  /** Sets a cable's colour, or with `null` returns it to its protocol colour. */
+  setCableColorAction: (connectionId: string, color: string | null) => void;
   moveShapesTransient: (moves: Map<string, { x: number; y: number }>) => void;
   resizeShapeTransient: (id: string, rect: { width: number; height: number; x?: number; y?: number }) => void;
   deleteShapes: (ids: string[]) => void;
@@ -142,7 +144,8 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
     let lastKey = "";
     let lastAt = 0;
     /** Consecutive edits with the same key within 800 ms (typing, slider drags) become one undo step. */
-    const commitCoalesced = (key: string, next: ApplicationAssembly) => {
+    const commitCoalesced = (key: string, nextRaw: ApplicationAssembly) => {
+      const next = pruneCableStyles(nextRaw);
       const { assembly, past, selection } = get();
       if (next === assembly) return;
       const now = Date.now();
@@ -150,7 +153,8 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       lastKey = key; lastAt = now;
       set({ assembly: next, past: merge ? past : [...past, assembly].slice(-MAX_HISTORY), future: [], selection: prune(next, selection) });
     };
-    const commit = (next: ApplicationAssembly) => {
+    const commit = (nextRaw: ApplicationAssembly) => {
+      const next = pruneCableStyles(nextRaw);
       lastKey = "";
       const { assembly, past, selection } = get();
       if (next === assembly) return;
@@ -203,6 +207,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         set({ selection: { nodes: [], edges: [], shapes: [r.id] } });
         get().openProps({ kind: "shape", id: r.id, tab: "label" });
       },
+      setCableColorAction: (connectionId, color) => commit(setCableColor(get().assembly, connectionId, color)),
       editShape: (id, patch) => commitCoalesced(`shape:${id}:${Object.keys(patch).join(",")}`, updateShape(get().assembly, id, patch)),
       moveShapesTransient: (moves) => set({ assembly: moveShapes(get().assembly, moves) }),
       resizeShapeTransient: (id, rect) => set({ assembly: resizeShape(get().assembly, id, rect) }),
