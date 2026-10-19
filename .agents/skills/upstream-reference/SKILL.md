@@ -58,7 +58,7 @@ Running an appliance image does not link its code into ours; record the licence 
 | Project | Licence | What we took (as practice, not code) |
 |---|---|---|
 | **Vite** | MIT | Already our build tool; it uses pnpm itself, we keep npm workspaces by decision |
-| **TypeScript** | Apache-2.0 | Already our language; its compiler is moving to a native (Go) implementation |
+| **TypeScript** | Apache-2.0 | Already our language. Version 7 is the native (Go) compiler; as of 2026-10 typescript-eslint 8.71 only supports TypeScript < 7, so Dependabot ignores TypeScript majors until it does (CI caught this on PR #2) |
 | **Cargo** | MIT or Apache-2.0 | `cargo deny` for licence allow-list and advisories (Phase 10) |
 | **rustfmt** | MIT or Apache-2.0 | `rustfmt.toml` with `edition` and `style_edition` so editors and `cargo fmt` agree; `--check` in CI |
 | **docs.rs** | MIT | Same stack (Axum, SQLx, PostgreSQL): local PostgreSQL via compose on loopback, SQLx offline metadata committed, parallel test runner (Phase 03) |

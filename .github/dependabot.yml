@@ -11,13 +11,19 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Minor and patch updates are grouped; every major version arrives as its own pull request
+    # and is adopted deliberately (CI must pass; peers such as typescript-eslint may lag).
     groups:
       npm:
-        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    ignore:
+      # TypeScript 7 (native compiler) waits until typescript-eslint declares support for it.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
     groups:
       cargo:
-        patterns: ["*"]
+        update-types: ["minor", "patch"]
