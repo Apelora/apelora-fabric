@@ -13,13 +13,14 @@
   },
   "scripts": {
     "dev": "npm run dev -w @apelora/studio",
-    "build": "npm run build -w @apelora/studio",
+    "build": "npm run build -w @apelora/studio && npm run build -w @apelora/fabric-console",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "schema": "npm run schema -w @apelora/assembly-model",
-    "catalog:doc": "npm run catalog:doc -w @apelora/appliance-catalog"
+    "catalog:doc": "npm run catalog:doc -w @apelora/appliance-catalog",
+    "dev:console": "npm run dev -w @apelora/fabric-console"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

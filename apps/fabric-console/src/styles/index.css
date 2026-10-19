@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Same theme as Apelora Studio (see the studio-design-system skill). */
+@plugin "daisyui" {
+  themes: light --default, winter, night --prefersdark;
+}
+
+/* Quiet, neutral "light": white surfaces, near-black primary, no noise. */
+@plugin "daisyui/theme" {
+  name: "light";
+  default: true;
+  color-scheme: light;
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(97.5% 0.002 260);
+  --color-base-300: oklch(92.5% 0.004 260);
+  --color-base-content: oklch(21% 0.01 260);
+  --color-primary: oklch(24% 0.01 260);
+  --color-primary-content: oklch(98% 0 0);
+  --color-neutral: oklch(30% 0.01 260);
+  --color-neutral-content: oklch(98% 0 0);
+  --radius-selector: 0.375rem;
+  --radius-field: 0.375rem;
+  --radius-box: 0.5rem;
+  --noise: 0;
+}
+
+html, body, #root { height: 100%; }
