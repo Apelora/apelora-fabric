@@ -1,0 +1,183 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//! Real mutual-TLS handshakes against a local rustls server that requires a client certificate.
+//! Certificates are shaped like the ones Incus generates (self-signed ECDSA P-384, not a CA,
+//! server-auth/client-auth usage, server name "unspecified"). Evidence: CONTRACT VERIFIED for
+//! the TLS layer; not a real Incus server.
+
+use std::sync::Arc;
+
+use apelora_incus_adapter::{AdapterError, IncusClient, IncusConfig, Provider};
+use rcgen::{
+    CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
+    PKCS_ECDSA_P384_SHA384,
+};
+use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::server::WebPkiClientVerifier;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio_rustls::TlsAcceptor;
+
+struct Pem {
+    cert: String,
+    key: String,
+    der: CertificateDer<'static>,
+    key_der: Vec<u8>,
+}
+
+fn incus_like(names: &[&str], client: bool) -> Pem {
+    let key = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).expect("key");
+    let mut p = CertificateParams::new(names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>())
+        .expect("params");
+    p.distinguished_name = DistinguishedName::new();
+    p.is_ca = IsCa::ExplicitNoCa;
+    p.key_usages = vec![
+        KeyUsagePurpose::DigitalSignature,
+        KeyUsagePurpose::KeyEncipherment,
+    ];
+    p.extended_key_usages = vec![if client {
+        ExtendedKeyUsagePurpose::ClientAuth
+    } else {
+        ExtendedKeyUsagePurpose::ServerAuth
+    }];
+    let cert = p.self_signed(&key).expect("cert");
+    Pem {
+        cert: cert.pem(),
+        key: key.serialize_pem(),
+        der: cert.der().clone(),
+        key_der: key.serialize_der(),
+    }
+}
+
+const SERVER_JSON: &str = r#"{"type":"sync","status":"Success","status_code":200,"error_code":0,"error":"","metadata":{"api_extensions":["clustering"],"api_status":"stable","api_version":"1.0","auth":"trusted","environment":{"server_clustered":false,"server_version":"7.0.2"}}}"#;
+
+/// Serves `/1.0` over TLS, accepting only clients presenting `trusted_client`.
+async fn tls_server(server: &Pem, trusted_client: &Pem) -> u16 {
+    let mut roots = RootCertStore::empty();
+    roots.add(trusted_client.der.clone()).expect("root");
+    let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
+        .build()
+        .expect("verifier");
+    let config = rustls::ServerConfig::builder()
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(
+            vec![server.der.clone()],
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(server.key_der.clone())),
+        )
+        .expect("server config");
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((tcp, _)) = listener.accept().await else {
+                return;
+            };
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut tls) = acceptor.accept(tcp).await else {
+                    return;
+                };
+                let mut buf = vec![0u8; 4096];
+                let _ = tls.read(&mut buf).await;
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{SERVER_JSON}",
+                    SERVER_JSON.len()
+                );
+                let _ = tls.write_all(resp.as_bytes()).await;
+                let _ = tls.shutdown().await;
+            });
+        }
+    });
+    port
+}
+
+fn cfg(
+    port: u16,
+    host: &str,
+    client: &Pem,
+    pinned_server: &Pem,
+    tls_name: Option<&str>,
+) -> IncusConfig {
+    IncusConfig {
+        url: format!("https://{host}:{port}"),
+        client_cert_pem: client.cert.clone().into_bytes(),
+        client_key_pem: client.key.clone().into_bytes(),
+        server_cert_pem: pinned_server.cert.clone().into_bytes(),
+        tls_server_name: tls_name.map(str::to_owned),
+    }
+}
+
+#[tokio::test]
+async fn pinned_incus_style_certificate_named_unspecified_connects_by_ip() {
+    let server = incus_like(&["unspecified"], false);
+    let client = incus_like(&[], true);
+    let port = tls_server(&server, &client).await;
+    let p = Provider::Incus(
+        IncusClient::mtls(&cfg(port, "127.0.0.1", &client, &server, None)).expect("client"),
+    );
+    let info = p
+        .server_info()
+        .await
+        .expect("handshake and request succeed");
+    assert_eq!(info.server_version.as_deref(), Some("7.0.2"));
+}
+
+#[tokio::test]
+async fn certificate_naming_the_host_needs_no_override() {
+    let server = incus_like(&["localhost"], false);
+    let client = incus_like(&[], true);
+    let port = tls_server(&server, &client).await;
+    let c = IncusClient::mtls(&cfg(port, "localhost", &client, &server, None)).expect("client");
+    assert!(c.server_info().await.is_ok());
+}
+
+#[tokio::test]
+async fn a_different_server_certificate_is_rejected() {
+    let server = incus_like(&["unspecified"], false);
+    let impostor_pin = incus_like(&["unspecified"], false);
+    let client = incus_like(&[], true);
+    let port = tls_server(&server, &client).await;
+    let c =
+        IncusClient::mtls(&cfg(port, "127.0.0.1", &client, &impostor_pin, None)).expect("client");
+    let err = c
+        .server_info()
+        .await
+        .expect_err("must not trust an unpinned certificate");
+    assert!(
+        matches!(&err, AdapterError::Connectivity(m) if m.to_lowercase().contains("certificate")),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_client_the_server_does_not_trust_is_rejected() {
+    let server = incus_like(&["unspecified"], false);
+    let trusted = incus_like(&[], true);
+    let stranger = incus_like(&[], true);
+    let port = tls_server(&server, &trusted).await;
+    let c = IncusClient::mtls(&cfg(port, "127.0.0.1", &stranger, &server, None)).expect("client");
+    assert!(matches!(
+        c.server_info().await,
+        Err(AdapterError::Connectivity(_))
+    ));
+}
+
+#[test]
+fn an_explicit_name_the_certificate_does_not_cover_is_refused() {
+    let server = incus_like(&["unspecified"], false);
+    let client = incus_like(&[], true);
+    let err = IncusClient::mtls(&cfg(
+        8443,
+        "127.0.0.1",
+        &client,
+        &server,
+        Some("incus.example.test"),
+    ))
+    .expect_err("must refuse");
+    assert!(
+        matches!(&err, AdapterError::InvalidConfig(m) if m.contains("incus.example.test")),
+        "{err:?}"
+    );
+}

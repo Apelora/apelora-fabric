@@ -1,0 +1,282 @@
+// Contract tests: the real client against a local fixture server that answers with
+// response shapes from Incus's API specification. Evidence level: CONTRACT VERIFIED
+// (spec-shaped fixtures), not a real Incus server.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use axum::Router;
+use axum::http::{StatusCode, Uri};
+use axum::response::IntoResponse;
+use serde_json::{Value, json};
+
+use super::*;
+
+fn sync(metadata: Value) -> (u16, Value) {
+    (
+        200,
+        json!({ "type": "sync", "status": "Success", "status_code": 200, "operation": "", "error_code": 0, "error": "", "metadata": metadata }),
+    )
+}
+
+fn error(code: u16, msg: &str) -> (u16, Value) {
+    (
+        code,
+        json!({ "type": "error", "error": msg, "error_code": code }),
+    )
+}
+
+/// Serves `path?query` -> (status, body); anything else is a 404 error envelope.
+async fn fixture_server(routes: Vec<(&'static str, (u16, Value))>) -> String {
+    let table: Arc<HashMap<String, (u16, Value)>> =
+        Arc::new(routes.into_iter().map(|(k, v)| (k.to_owned(), v)).collect());
+    let app = Router::new().fallback(move |uri: Uri| {
+        let table = table.clone();
+        async move {
+            let key = uri
+                .path_and_query()
+                .map(|p| p.as_str().to_owned())
+                .unwrap_or_default();
+            let (status, body) = table
+                .get(&key)
+                .cloned()
+                .unwrap_or_else(|| error(404, "not found"));
+            (
+                StatusCode::from_u16(status).expect("status"),
+                axum::Json(body),
+            )
+                .into_response()
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    format!("http://{addr}")
+}
+
+fn server_json(clustered: bool) -> Value {
+    json!({
+        "api_extensions": ["storage_zfs_remove_snapshots", "clustering", "instances"],
+        "api_status": "stable", "api_version": "1.0", "auth": "trusted", "auth_methods": ["tls"],
+        "config": {}, "public": false,
+        "environment": { "server_clustered": clustered, "server_version": "7.0.2", "server_name": "node-1", "kernel_version": "6.12.0", "storage": "zfs" }
+    })
+}
+
+#[tokio::test]
+async fn reads_server_info_and_extensions() {
+    let base = fixture_server(vec![("/1.0", sync(server_json(true)))]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let info = p.server_info().await.expect("info");
+    assert_eq!(info.server_version.as_deref(), Some("7.0.2"));
+    assert!(info.clustered);
+    assert_eq!(info.auth, "trusted");
+    assert_eq!(p.require_extension("clustering").await, Ok(()));
+    assert_eq!(
+        p.require_extension("no_such_extension").await,
+        Err(AdapterError::UnsupportedCapability(
+            "no_such_extension".into()
+        ))
+    );
+}
+
+#[tokio::test]
+async fn maps_cluster_members() {
+    let base = fixture_server(vec![
+        ("/1.0", sync(server_json(true))),
+        ("/1.0/cluster/members?recursion=1", sync(json!([
+            { "server_name": "node-1", "url": "https://10.0.0.1:8443", "roles": ["database-leader", "database"], "status": "Online", "message": "Fully operational", "architecture": "x86_64", "failure_domain": "rack-a", "database": true, "groups": ["default"], "config": {}, "description": "" },
+            { "server_name": "node-2", "url": "https://10.0.0.2:8443", "roles": ["database"], "status": "Offline", "message": "No heartbeat", "architecture": "aarch64", "failure_domain": "rack-b", "database": true, "groups": [], "config": {}, "description": "" }
+        ]))),
+    ]).await;
+    let members = Provider::Incus(IncusClient::plain_for_tests(&base))
+        .cluster_members()
+        .await
+        .expect("members");
+    assert_eq!(members.len(), 2);
+    assert_eq!(members[0].name, "node-1");
+    assert_eq!(members[0].roles, vec!["database-leader", "database"]);
+    assert_eq!(members[1].status, "Offline");
+    assert_eq!(members[1].failure_domain, "rack-b");
+}
+
+#[tokio::test]
+async fn standalone_server_has_no_members_and_skips_the_cluster_call() {
+    // No /1.0/cluster/members route: calling it would 404.
+    let base = fixture_server(vec![("/1.0", sync(server_json(false)))]).await;
+    let members = Provider::Incus(IncusClient::plain_for_tests(&base))
+        .cluster_members()
+        .await
+        .expect("members");
+    assert!(members.is_empty());
+}
+
+#[tokio::test]
+async fn maps_instance_kinds_and_ignores_unknown_fields() {
+    let base = fixture_server(vec![(
+        "/1.0/instances?recursion=1&all-projects=true",
+        sync(json!([
+            { "name": "web-01", "project": "shop", "type": "container", "status": "Running", "status_code": 103, "location": "node-1", "architecture": "x86_64", "description": "", "config": {}, "devices": {}, "a_future_field": 1 },
+            { "name": "win-01", "project": "default", "type": "virtual-machine", "status": "Stopped", "status_code": 102, "location": "node-2", "architecture": "x86_64", "description": "" },
+            { "name": "odd-01", "type": "something-new" }
+        ])),
+    )]).await;
+    let list = Provider::Incus(IncusClient::plain_for_tests(&base))
+        .instances()
+        .await
+        .expect("instances");
+    assert_eq!(
+        list.iter().map(|i| i.kind).collect::<Vec<_>>(),
+        vec![
+            InstanceKind::Container,
+            InstanceKind::VirtualMachine,
+            InstanceKind::Unknown
+        ]
+    );
+    assert_eq!(list[0].project, "shop");
+    assert_eq!(
+        list[2].project, "",
+        "missing fields default instead of failing"
+    );
+}
+
+#[tokio::test]
+async fn reads_projects_networks_and_pools() {
+    let base = fixture_server(vec![
+        ("/1.0/projects?recursion=1", sync(json!([{ "name": "default", "description": "Default Incus project", "config": {}, "used_by": [] }]))),
+        ("/1.0/networks?recursion=1&all-projects=true", sync(json!([{ "name": "incusbr0", "project": "default", "type": "bridge", "managed": true, "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
+        ("/1.0/storage-pools?recursion=1", sync(json!([{ "name": "local", "driver": "zfs", "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
+    ]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    assert_eq!(p.projects().await.expect("projects")[0].name, "default");
+    let nets = p.networks().await.expect("networks");
+    assert_eq!((nets[0].kind.as_str(), nets[0].managed), ("bridge", true));
+    assert_eq!(p.storage_pools().await.expect("pools")[0].driver, "zfs");
+}
+
+#[tokio::test]
+async fn operations_accept_flat_and_grouped_shapes() {
+    let op = |id: &str, status: &str| json!({ "id": id, "class": "task", "description": "Creating instance", "status": status, "status_code": 103, "err": "", "location": "node-1", "may_cancel": false, "created_at": "2026-10-20T00:00:00Z", "updated_at": "2026-10-20T00:00:01Z", "resources": {}, "metadata": {} });
+    let flat = fixture_server(vec![(
+        "/1.0/operations?recursion=1&all-projects=true",
+        sync(json!([op("a", "Running")])),
+    )])
+    .await;
+    assert_eq!(
+        IncusClient::plain_for_tests(&flat)
+            .operations()
+            .await
+            .expect("ops")[0]
+            .id,
+        "a"
+    );
+    let grouped = fixture_server(vec![(
+        "/1.0/operations?recursion=1&all-projects=true",
+        sync(json!({ "running": [op("b", "Running")], "success": [op("c", "Success")] })),
+    )])
+    .await;
+    let mut ids: Vec<String> = IncusClient::plain_for_tests(&grouped)
+        .operations()
+        .await
+        .expect("ops")
+        .into_iter()
+        .map(|o| o.id)
+        .collect();
+    ids.sort();
+    assert_eq!(ids, vec!["b", "c"]);
+}
+
+#[tokio::test]
+async fn error_envelopes_become_typed_errors() {
+    let base = fixture_server(vec![
+        ("/1.0", error(403, "not authorized")),
+        (
+            "/1.0/projects?recursion=1",
+            error(500, "database is locked"),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    assert_eq!(
+        p.server_info().await,
+        Err(AdapterError::Authentication("not authorized".into()))
+    );
+    assert_eq!(
+        p.projects().await,
+        Err(AdapterError::Api {
+            status: 500,
+            message: "database is locked".into()
+        })
+    );
+    assert!(matches!(
+        p.storage_pools().await,
+        Err(AdapterError::NotFound(_))
+    ));
+}
+
+#[tokio::test]
+async fn unreachable_server_is_a_connectivity_error() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    drop(listener);
+    let res = IncusClient::plain_for_tests(&format!("http://{addr}"))
+        .server_info()
+        .await;
+    assert!(matches!(res, Err(AdapterError::Connectivity(_))), "{res:?}");
+}
+
+#[test]
+fn mtls_refuses_plain_http_and_bad_certificates() {
+    let cfg = IncusConfig {
+        url: "http://incus.invalid:8443".into(),
+        client_cert_pem: vec![],
+        client_key_pem: vec![],
+        server_cert_pem: vec![],
+        tls_server_name: None,
+    };
+    assert!(matches!(
+        IncusClient::mtls(&cfg),
+        Err(AdapterError::InvalidConfig(_))
+    ));
+    let cfg = IncusConfig {
+        url: "https://incus.invalid:8443".into(),
+        client_cert_pem: b"not a cert".to_vec(),
+        client_key_pem: b"not a key".to_vec(),
+        server_cert_pem: b"nope".to_vec(),
+        tls_server_name: None,
+    };
+    assert!(matches!(
+        IncusClient::mtls(&cfg),
+        Err(AdapterError::InvalidConfig(_))
+    ));
+    assert!(
+        !format!("{cfg:?}").contains("not a key"),
+        "debug output must not reveal key material"
+    );
+}
+
+#[tokio::test]
+async fn mock_is_labelled_and_claims_no_version() {
+    let p = Provider::Mock(MockIncus::default());
+    assert_eq!(p.mode(), ProviderMode::Mock);
+    let info = p.server_info().await.expect("info");
+    assert_eq!(info.server_version, None);
+    assert!(
+        p.cluster_members()
+            .await
+            .expect("members")
+            .iter()
+            .all(|m| m.name.starts_with("mock-"))
+    );
+    assert!(
+        p.instances()
+            .await
+            .expect("instances")
+            .iter()
+            .all(|i| i.name.starts_with("mock-"))
+    );
+}

@@ -36,3 +36,7 @@ Apelora's backend is Rust. It owns application graphs, appliance definitions, de
 - Reconciler tested with a fake provider: crash mid-operation, partial failure, duplicate delivery, worker restart
 - Authn/authz on every route, scoped by project (see `security-tenancy`, `security-review`)
 - Results labelled MOCK VERIFIED, CONTRACT VERIFIED or REAL INCUS TESTED (see `testing-operations`)
+
+## Current API (Phase 03, read-only)
+
+`GET /api/v1/health`, `/api/v1/cluster`, `/api/v1/instances`, `/api/v1/projects`, `/api/v1/networks`, `/api/v1/storage-pools`. Inventory responses carry `source: {provider: mock|incus, observedAt}`; adapter failures map to 502/503 with stable codes (`incus_unreachable`, `incus_authentication`, `incus_api_error`, `incus_bad_response`, `incus_unsupported_capability`, ...). `incus-adapter` exposes `Provider` (enum: `Mock` | `Incus`), not a trait object; its `test-util` feature exposes `IncusClient::plain_for_tests` for other crates' tests only.

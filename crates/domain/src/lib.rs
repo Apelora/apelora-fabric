@@ -42,6 +42,82 @@ pub enum Evidence {
     RealIncusTested,
 }
 
+/// Kind of Incus instance as reported by the cluster.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum InstanceKind {
+    Container,
+    VirtualMachine,
+    Unknown,
+}
+
+/// Observed state of an Incus cluster member ("minion" in the UI).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterMember {
+    pub name: String,
+    pub url: String,
+    pub roles: Vec<String>,
+    pub status: String,
+    pub message: String,
+    pub architecture: String,
+    pub failure_domain: String,
+    pub database: bool,
+    pub groups: Vec<String>,
+}
+
+/// Observed state of one Incus instance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Instance {
+    pub name: String,
+    pub project: String,
+    pub kind: InstanceKind,
+    pub status: String,
+    pub location: String,
+    pub architecture: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Project {
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Network {
+    pub name: String,
+    pub project: String,
+    pub kind: String,
+    pub managed: bool,
+    pub status: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StoragePool {
+    pub name: String,
+    pub driver: String,
+    pub status: String,
+    pub description: String,
+}
+
+/// Facts about the Incus server the adapter is talking to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    pub api_version: String,
+    /// `None` when unknown (e.g. the mock provider).
+    pub server_version: Option<String>,
+    pub api_extensions: Vec<String>,
+    pub clustered: bool,
+    pub auth: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

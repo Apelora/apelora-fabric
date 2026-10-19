@@ -4,11 +4,11 @@
 //! Phase 01 skeleton: starts read-only against the mock provider and exits. Durable jobs,
 //! leases and reconciliation arrive in Phases 03 and 08.
 
-use apelora_incus_adapter::{IncusProvider, MockIncus};
+use apelora_incus_adapter::{MockIncus, Provider};
 
 fn main() {
     tracing_subscriber::fmt().init();
-    let provider = MockIncus::default();
+    let provider = Provider::Mock(MockIncus::default());
     tracing::info!(
         provider = ?provider.mode(),
         read_only = true,
