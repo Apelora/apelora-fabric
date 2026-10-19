@@ -87,7 +87,7 @@ Validated by one pure function (`explainConnection`) used for live feedback and 
 
 ## Not in this milestone
 
-Control Console (M5), Rust API boundary (M6), Xen/Oxia/HA (M7), authentication, real deployment, planning against real hosts, runtime image resolution, health policies, nested assemblies (compose a selection into a class), setup parameters, copy/paste, minimap.
+Control Console (M5), Rust API boundary (M6), Incus integration and HA (M7; see `docs/development/IMPLEMENTATION-PHASES.md`), authentication, real deployment, planning against real hosts, runtime image resolution, health policies, nested assemblies (compose a selection into a class), setup parameters, copy/paste, minimap.
 
 ## Known limitations
 

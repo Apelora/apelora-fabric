@@ -1,4 +1,6 @@
-# Apelora Fabric architecture (proposed)
+# Apelora Fabric architecture (superseded)
+
+> **Superseded by [ADR 0001](adr/0001-incus-first.md).** The current target is [architecture/PLATFORM-ARCHITECTURE.md](architecture/PLATFORM-ARCHITECTURE.md): Incus runs the appliances (LXC, OCI, optional VMs) and the Rust control plane manages applications on top. The earlier Xen-based plan below is kept for history.
 
 Apelora Fabric targets the upstream **Xen Project hypervisor directly**, with no XCP-ng dependency.
 

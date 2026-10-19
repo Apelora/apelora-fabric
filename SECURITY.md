@@ -18,7 +18,7 @@ Please include the affected component (Studio, Controller, Node, Catalog, Fabric
 
 ## Scope
 
-In scope: all code in this repository, including the planned hypervisor-facing host agent, the control plane API, and the catalog/assembly formats. Out of scope: vulnerabilities in the Xen Project hypervisor itself (report those to the Xen Project security team), in third-party appliance images, or in upstream dependencies (report upstream; tell us too if we are affected).
+In scope: all code in this repository, including the control plane API, the deployment worker, the Incus adapter, the Studio and Fabric Console, and the catalog/assembly formats. Out of scope: vulnerabilities in Incus, LXC or QEMU themselves (report those to their upstream security teams), in third-party appliance images, or in upstream dependencies (report upstream; tell us too if we are affected).
 
 ## Supported versions
 

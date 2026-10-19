@@ -13,7 +13,7 @@ Proposed inquiry contact: **Add an authorized licensing contact before publishin
 ## Limits
 
 - Only code owned or properly sublicensable by the licensor can be commercially relicensed.
-- Xen hypervisor code, other third-party dependencies, and third-party icons remain under their respective terms.
+- Upstream platform software (such as Incus, LXC and QEMU), other third-party dependencies, and third-party icons remain under their respective terms.
 - A separate commercial agreement does not automatically authorize use of Apelora trademarks.
 - Contributions received solely under AGPL without appropriate additional permission may not be eligible for commercial relicensing.
 - Legal review is recommended before offering or signing a commercial agreement.

@@ -1,5 +1,7 @@
 # Prompt: build Apelora Studio (frontend only)
 
+> Historical prompt for the Studio milestone. Backend work now follows `docs/development/IMPLEMENTATION-PHASES.md` (Incus-first, ADR 0001).
+
 Use with Claude Code from the repository root. Read `CLAUDE.md`, `docs/architecture/STUDIO-MVP.md`, `docs/development/MCP-HOSTING.md`, `.mcp.json` and the relevant skills first.
 
 Goal: a fully working browser-only Studio (Vite, React, TypeScript, React Flow, Tailwind 4, daisyUI 5) with a white shell, a categorized searchable catalog, a framed light-gray canvas, compact 128×96 appliances with typed left/right ports, automatic height growth, resizing, validated connections, a property inspector, JSON import/export, validation diagnostics, undo/redo and local persistence.

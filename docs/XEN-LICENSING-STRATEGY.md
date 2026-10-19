@@ -1,5 +1,7 @@
 # Using Xen with Apelora's license (proposal)
 
+> **Superseded by [ADR 0001](adr/0001-incus-first.md).** Apelora no longer integrates with Xen; it uses Incus (Apache-2.0) over its REST API. Kept for history; see `license-compliance` for current guidance.
+
 > Engineering analysis, **not legal advice**. Have counsel confirm before the first release or any commercial-license sale. License facts below should be re-verified against the Xen version you target.
 
 ## Goal

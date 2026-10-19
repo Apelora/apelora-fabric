@@ -11,8 +11,8 @@ MCP servers give Claude Code tools. They are **developer-workstation helpers**, 
 | Inspo / Figma MCP | User-level (not in `.mcp.json`) | Optional | Design references only; project conventions win. |
 | GitHub MCP | Local Docker with OAuth, machine-local config | Not configured | Prefer OAuth over tokens; least privilege; never commit credentials. |
 | Filesystem MCP | — | Not installed | Claude Code already has file tools; extra access = extra attack surface. |
-| Apelora dev MCP (catalog/validate, read-only) | `tools/mcp/apelora-dev`, local stdio | Future | Must not run Xen operations. |
-| Xen / controller / minion APIs | Rust management plane | Future, **not MCP** | Authenticated, audited; never exposed to an AI agent unrestricted. |
+| Apelora dev MCP (catalog/validate, read-only) | `tools/mcp/apelora-dev`, local stdio | Future | Must not run Incus operations. |
+| Incus / control plane / cluster member APIs | Rust management plane | Future, **not MCP** | Authenticated, audited; never exposed to an AI agent unrestricted. |
 
 ## Rules
 
