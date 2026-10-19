@@ -45,21 +45,6 @@ export const ResourcesSchema = z.object({
   memoryMiB: z.number().positive().max(4_194_304),
 });
 
-export const ApplianceClassSchema = z.object({
-  id: entityId,
-  version: z.string().min(1),
-  displayName: z.string().min(1).max(48),
-  category: z.enum(CATEGORIES),
-  summary: z.string().max(200),
-  iconAssetPath: z.string(),
-  runtimeImage: z.object({ ref: z.string().nullable() }),
-  architectures: z.array(z.enum(ARCHITECTURES)).min(1),
-  ports: z.array(PortSchema),
-  resources: ResourcesSchema,
-  properties: z.array(PropertySchema).max(40).optional(),
-  custom: z.boolean().optional(),
-});
-
 export const ApplianceInstanceSchema = z.object({
   id: entityId,
   name: z.string().min(1).max(48),
@@ -94,6 +79,31 @@ export const EditorNodeSchema = z.object({
   custom: z.boolean(),
 });
 
+/** A component: an assembly packaged as a class. Its ports map onto inner terminals (the NIC maps onto every inner NIC). */
+export const CompositionSchema = z.object({
+  appliances: z.array(ApplianceInstanceSchema).min(1).max(200),
+  connections: z.array(ConnectionSchema).max(1000),
+  links: z.array(LinkTagSchema).max(1000).optional(),
+  layout: z.array(EditorNodeSchema).max(200),
+  exposes: z.array(z.object({ port: portId, inner: z.array(EndpointSchema).min(1).max(200) })).max(64),
+});
+
+export const ApplianceClassSchema = z.object({
+  id: entityId,
+  version: z.string().min(1),
+  displayName: z.string().min(1).max(48),
+  category: z.enum(CATEGORIES),
+  summary: z.string().max(200),
+  iconAssetPath: z.string(),
+  runtimeImage: z.object({ ref: z.string().nullable() }),
+  architectures: z.array(z.enum(ARCHITECTURES)).min(1),
+  ports: z.array(PortSchema),
+  resources: ResourcesSchema,
+  properties: z.array(PropertySchema).max(40).optional(),
+  composition: CompositionSchema.optional(),
+  custom: z.boolean().optional(),
+});
+
 export const ApplicationAssemblySchema = z.object({
   apiVersion: z.literal(API_VERSION),
   kind: z.literal(ASSEMBLY_KIND),
@@ -121,6 +131,7 @@ export type Resources = z.infer<typeof ResourcesSchema>;
 export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
+export type Composition = z.infer<typeof CompositionSchema>;
 export type Endpoint = Connection["source"];
 export type LinkTag = z.infer<typeof LinkTagSchema>;
 export type EditorNode = z.infer<typeof EditorNodeSchema>;

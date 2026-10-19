@@ -116,6 +116,10 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-canvas-frame[data-category="off"] .apl-node-class { display: none; }
 .apl-tile-accent { border-bottom: 2px solid color-mix(in oklab, var(--apl-cat) 70%, transparent); }
 
+/* ---- components (grouped appliances) ---- */
+.apl-node[data-component="true"] { box-shadow: 4px 4px 0 -1px var(--color-base-100), 4px 4px 0 0 var(--color-base-300), 8px 8px 0 -1px var(--color-base-100), 8px 8px 0 0 var(--color-base-300), 0 6px 16px rgba(20, 28, 38, 0.1); }
+.apl-comp-badge { font-size: 9px; line-height: 1; padding: 1px 4px; border-radius: 6px; background: var(--color-neutral); color: var(--color-neutral-content); white-space: nowrap; }
+
 /* ---- link tags and network interface ---- */
 .apl-tag {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; display: inline-flex; align-items: center; gap: 3px; cursor: pointer;

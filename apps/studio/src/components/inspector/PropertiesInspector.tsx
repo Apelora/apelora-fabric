@@ -144,6 +144,16 @@ export function PropertiesInspector() {
             <NumberField label="Memory MiB" value={app.resources.memoryMiB} min={64} step={64} testId="res-mem" onCommit={(n) => api.getState().setRes(app.id, { memoryMiB: n })} />
           </div>
         </section>
+        {cls?.composition && (
+          <section aria-label="Component contents" data-testid="component-contents">
+            <div className="mb-1 flex items-center justify-between">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Contents ({cls.composition.appliances.length})</h4>
+              <button className="btn btn-ghost btn-xs" data-testid="ungroup" onClick={() => api.getState().ungroupSelection(app.id)}>Ungroup</button>
+            </div>
+            <ul className="flex flex-col gap-0.5 text-xs">{cls.composition.appliances.map((x) => <li key={x.id} className="truncate">{x.name} <span className="text-base-content/50">· {lookupClass(x.classRef.name, x.classRef.version)?.displayName ?? x.classRef.name}</span></li>)}</ul>
+            <p className="mt-1 text-[10px] text-base-content/50">Its <span className="font-mono">net</span> plugs every inner appliance into the network.</p>
+          </section>
+        )}
         <ConfigForm app={app} />
         <PortSection appId={app.id} ports={app.ports} direction="input" />
         <PortSection appId={app.id} ports={app.ports} direction="output" />
@@ -157,7 +167,7 @@ export function PropertiesInspector() {
             <ul className="flex flex-col gap-1">{mine.map((d, i) => <li key={i} className="text-xs"><span className={`badge badge-xs mr-1 ${d.severity === "error" ? "badge-error" : "badge-warning"}`}>{d.severity}</span>{d.message}{d.hint && <span className="block pl-1 text-base-content/60">{d.hint}</span>}</li>)}</ul>
           </section>
         )}
-        <button className="btn btn-sm btn-outline" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom appliance…</button>
+        <button className="btn btn-sm btn-outline" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" disabled={!!cls?.composition} onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom appliance…</button>
         <button className="btn btn-sm btn-outline" data-testid="delete-appliance" onClick={() => api.getState().deleteElements([app.id], [])}><IconTrash size={14} />Delete appliance</button>
       </div>
     );

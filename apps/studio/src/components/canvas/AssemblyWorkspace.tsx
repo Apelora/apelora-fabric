@@ -117,6 +117,7 @@ export function AssemblyWorkspace() {
           name: a.name,
           className: cls?.displayName ?? a.classRef.name,
           category: cls?.category ?? "Custom",
+          inner: cls?.composition?.appliances.length ?? 0,
           icon: cls ? logoUrl(cls.iconAssetPath) : undefined,
           inputs: a.ports.filter((p) => p.direction === "input"),
           outputs: a.ports.filter((p) => p.direction === "output"),

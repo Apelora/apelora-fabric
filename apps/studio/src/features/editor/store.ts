@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
+import { useCustomCatalog } from "../catalog/customCatalog";
 import {
-  addAppliance, addPort, connect, reconnect, alignNodes, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -39,7 +40,12 @@ export interface StudioState {
   clipboard: Subset | null;
   selectedTag: string | null;
   hoverTag: string | null;
+  groupDialog: string[] | null;
 
+  openGroupDialog: () => void;
+  closeGroupDialog: () => void;
+  groupSelection: (name: string, exposes: ExposeChoice[]) => boolean;
+  ungroupSelection: (id?: string) => void;
   selectTag: (name: string | null) => void;
   setHoverTag: (name: string | null) => void;
   tagPortTo: (e: Endpoint, name: string) => boolean;
@@ -128,6 +134,34 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       clipboard: null,
       selectedTag: null,
       hoverTag: null,
+      groupDialog: null,
+
+      openGroupDialog: () => {
+        const ids = get().selection.nodes;
+        if (ids.length < 2) { get().toast("info", "Select at least two appliances to make a component."); return; }
+        set({ groupDialog: ids });
+      },
+      closeGroupDialog: () => set({ groupDialog: null }),
+      groupSelection: (name, exposes) => {
+        const ids = get().groupDialog ?? get().selection.nodes;
+        const r = groupAppliances(get().assembly, ids, name, exposes, new Set(allClasses().map((c) => c.id)));
+        if (!r.ok) { get().toast("warning", r.errors[0] ?? "Could not create the component."); return false; }
+        useCustomCatalog.getState().save(r.cls);
+        commit(r.assembly);
+        set({ groupDialog: null, selection: { nodes: [r.instanceId], edges: [] }, selectedTag: null });
+        get().toast(r.dropped ? "warning" : "success", `Created component “${r.cls.displayName}” from ${ids.length} appliances.${r.dropped ? ` ${r.dropped} cable${r.dropped > 1 ? "s" : ""} to terminals that were not exposed ${r.dropped > 1 ? "were" : "was"} removed; undo to restore.` : ""} It is in the catalog under Custom.`);
+        return true;
+      },
+      ungroupSelection: (id) => {
+        const target = id ?? get().selection.nodes[0];
+        const app = get().assembly.spec.appliances.find((x) => x.id === target);
+        const cls = app ? lookupClass(app.classRef.name, app.classRef.version) : undefined;
+        if (!app || !cls?.composition) { get().toast("info", "Select a component to ungroup it."); return; }
+        const r = ungroupAppliance(get().assembly, app.id, cls);
+        if ("error" in r) { get().toast("warning", r.error); return; }
+        commit(r.assembly);
+        set({ selection: { nodes: r.ids, edges: [] } });
+      },
 
       selectTag: (name) => set({ selectedTag: name, selection: name ? { nodes: [], edges: [] } : get().selection }),
       setHoverTag: (name) => set({ hoverTag: name }),

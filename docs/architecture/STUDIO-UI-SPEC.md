@@ -23,6 +23,10 @@ Every appliance has a **net** terminal, the equivalent of a network card (NIC): 
 
 A **link tag** names a terminal so it is connected, with no drawn cable, to every other terminal carrying the same name (an output feeds the inputs of its net). Use cables for the main data flow and tags for repetitive side links (monitoring, logs, the network). A tagged terminal shows its plug and a coloured name flag; hovering a flag highlights every member; clicking it selects the tag (inspector: rename/merge, member list, **Convert to cable** for one-output/one-input tags, **Remove tag**). Create: port row "link tag" field, port menu ▸ Link by name, or a cable's menu ▸ **Convert to link tag**. Rules match cables: protocol compatibility, no self-link, single-cable ports accept one link in total, required inputs are satisfied by a tag that has an output; nets without a source or listener raise warnings. Tags are not copied by Duplicate/Paste.
 
+### Components (grouping)
+
+Select two or more appliances and choose **Group into component…** (context menu or Ctrl+G). The dialog asks for a name and lists every inner terminal; terminals that are linked to something outside the selection are pre-selected and locked (marked "linked"), others can be exposed optionally, and each exposed port gets an editable name. Creating the component replaces the selection with one appliance, re-plugs the outside cables onto its exposed ports, registers a reusable custom class (catalog ▸ Custom) and shows a stacked-card look with a `▣ N` badge. Its `net` plugs every inner appliance's NIC into the network. **Ungroup** (menu, inspector button, Ctrl+Shift+G) expands it back into independent appliances and internal cables, re-plugging the outside cables to the inner terminals. Both are single undo steps. Exports embed the component class (and any custom classes it uses); importing restores it. Component classes are edited by ungrouping; they cannot be re-opened in the designer. Tags that cross the selection boundary stay with the inner appliances.
+
 ## 3. Interactions
 
 | Action | How | Result |
@@ -93,4 +97,4 @@ Empty canvas hint; validation panel (No issues / counts / list with hints, click
 
 ## 9. Out of scope (this phase)
 
-Backend, deployment, real hosts, authentication, nested components (planned), setup parameters at application level.
+Backend, deployment, real hosts, authentication, drilling into a component on the canvas (contents are listed in the inspector), validating a component's inner assembly, setup parameters at application level.

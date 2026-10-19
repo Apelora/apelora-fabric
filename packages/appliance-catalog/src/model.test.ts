@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
+import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
 import {
-  addAppliance, addPort, alignNodes, ensureNics, cableToTag, explainTag, removeAppliances as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  addAppliance, addPort, alignNodes, ensureNics, groupAppliances, groupCandidates, ungroupAppliance, usedCustomClasses, ApplianceClassSchema, type ApplianceClass, cableToTag, explainTag, removeAppliances as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
 
@@ -293,5 +293,98 @@ describe("network interface (NIC)", () => {
     const fixed = ensureNics(stripped, lookup);
     expect(fixed.spec.appliances.every((x) => x.ports.some((p) => p.id === "net"))).toBe(true);
     expect(ensureNics(fixed, lookup)).toBe(fixed);
+  });
+});
+
+describe("components (group / ungroup)", () => {
+  const stack = () => sampleCommerceStack();
+  const pick = (a: ReturnType<typeof stack>, names: string[]) => a.spec.appliances.filter((x) => names.includes(x.classRef.name)).map((x) => x.id);
+  const expose = (a: ReturnType<typeof stack>, ids: string[]) => groupCandidates(a, ids).filter((c) => c.external).map((c, i) => ({ inner: { applianceId: c.appliance.id, portId: c.port.id }, name: `${c.port.name}${i}` }));
+
+  it("lists terminals that link outside the selection as candidates", () => {
+    const a = stack();
+    const ids = pick(a, ["haproxy", "nginx"]);
+    const ext = groupCandidates(a, ids).filter((c) => c.external);
+    expect(ext.map((c) => `${c.appliance.classRef.name}.${c.port.id}`).sort()).toEqual(["haproxy.frontend", "nginx.db", "nginx.db"]);
+  });
+
+  it("groups three appliances into one component, re-plugging external cables", () => {
+    const a = stack();
+    const ids = pick(a, ["haproxy", "nginx"]);
+    const r = groupAppliances(a, ids, "Web tier", expose(a, ids), new Set());
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.dropped).toBe(0);
+    expect(r.assembly.spec.appliances).toHaveLength(4);
+    const inst = r.assembly.spec.appliances.find((x) => x.id === r.instanceId)!;
+    expect(inst.ports.some((p) => p.id === "net")).toBe(true);
+    expect(r.assembly.spec.connections).toHaveLength(4); // gateway→comp, comp→pg ×2, grafana→pg
+    expect(ApplianceClassSchema.safeParse(r.cls).success).toBe(true);
+    expect(r.cls.resources.cpu).toBe(3);
+    const lk = (name: string, v: string) => (name === r.cls.id ? r.cls : lookupClass(name, v));
+    expect(validateAssembly(r.assembly, lk)).toEqual([]);
+    // round-trips through JSON
+    const parsed = parseAssembly(serializeAssembly(r.assembly));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it("drops cables to terminals that are not exposed and counts them; rejects bad input", () => {
+    const a = stack();
+    const ids = pick(a, ["haproxy", "nginx"]);
+    const only = expose(a, ids).slice(0, 1); // just the load balancer frontend
+    const r = groupAppliances(a, ids, "Web tier", only, new Set());
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.dropped).toBe(2);
+    expect(groupAppliances(a, ids.slice(0, 1), "x", [], new Set()).ok).toBe(false);
+    expect(groupAppliances(a, ids, "  ", only, new Set()).ok).toBe(false);
+    const dup = groupAppliances(a, ids, "Dup", [{ ...only[0]!, name: "a" }, { inner: { applianceId: ids[1]!, portId: "db" }, name: "db" }, { inner: { applianceId: ids[2]!, portId: "db" }, name: "DB" }], new Set());
+    expect(dup.ok).toBe(false);
+  });
+
+  it("ungroup restores the appliances, internal cables and external cables", () => {
+    const a = stack();
+    const ids = pick(a, ["haproxy", "nginx"]);
+    const g = groupAppliances(a, ids, "Web tier", expose(a, ids), new Set());
+    if (!g.ok) throw new Error();
+    const u = ungroupAppliance(g.assembly, g.instanceId, g.cls);
+    if ("error" in u) throw new Error(u.error);
+    expect(u.assembly.spec.appliances).toHaveLength(6);
+    expect(u.assembly.spec.connections).toHaveLength(6);
+    expect(new Set(u.assembly.spec.connections.map((c) => c.id)).size).toBe(6);
+    const lk = (n: string, v: string) => lookupClass(n, v);
+    expect(validateAssembly(u.assembly, lk)).toEqual([]);
+  });
+
+  it("the component NIC maps onto every inner NIC; exports include nested custom classes", () => {
+    const a = stack();
+    const ids = pick(a, ["haproxy", "nginx"]);
+    const g = groupAppliances(a, ids, "Web tier", expose(a, ids), new Set());
+    if (!g.ok) throw new Error();
+    expect(g.cls.composition!.exposes.find((e) => e.port === "net")!.inner).toHaveLength(3);
+    const lk = (n: string, v: string): ApplianceClass | undefined => (n === g.cls.id ? g.cls : lookupClass(n, v));
+    expect(usedCustomClasses(g.assembly, lk).map((c) => c.id)).toEqual([g.cls.id]);
+  });
+});
+
+describe("components and the network", () => {
+  it("a component inherits the shared network tag of its inner NICs and passes it back on ungroup", () => {
+    const a = sampleNetworkedStack();
+    const ids = a.spec.appliances.filter((x) => ["haproxy", "nginx"].includes(x.classRef.name)).map((x) => x.id);
+    const ext = groupCandidates(a, ids).filter((c) => c.external).map((c, i) => ({ inner: { applianceId: c.appliance.id, portId: c.port.id }, name: `${c.port.name}${i}` }));
+    const g = groupAppliances(a, ids, "Web tier", ext, new Set());
+    if (!g.ok) throw new Error(g.errors.join("; "));
+    const nicLink = (g.assembly.spec.links ?? []).find((l) => l.endpoint.applianceId === g.instanceId && l.endpoint.portId === "net");
+    expect(nicLink?.tag).toBe("lan");
+    const lk = (n: string, v: string) => (n === g.cls.id ? g.cls : lookupClass(n, v));
+    expect(validateAssembly(g.assembly, lk)).toEqual([]);
+    // retag the component's NIC, then ungroup: every inner NIC follows the component
+    let re = g.assembly;
+    const r = renameTag(re, "lan", "backbone");
+    if (!("assembly" in r)) throw new Error("rename failed");
+    re = r.assembly;
+    const u = ungroupAppliance(re, g.instanceId, g.cls);
+    if ("error" in u) throw new Error(u.error);
+    const inner = u.assembly.spec.appliances.filter((x) => ["haproxy", "nginx"].includes(x.classRef.name)).map((x) => x.id);
+    for (const id of inner) expect((u.assembly.spec.links ?? []).find((l) => l.endpoint.applianceId === id && l.endpoint.portId === "net")?.tag).toBe("backbone");
+    expect(validateAssembly(u.assembly, lookup)).toEqual([]);
   });
 });

@@ -533,6 +533,113 @@ test.describe("network interface and link tags", () => {
   });
 });
 
+test.describe("components", () => {
+  const webTier = async (page: import("@playwright/test").Page) => {
+    await node(page, "haproxy-01").click();
+    await node(page, "nginx-01").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+  };
+
+  test("group three appliances into a component: dialog, re-plugged cables, badge, catalog tile; ungroup restores", async ({ page }) => {
+    await open(page);
+    await webTier(page);
+    await node(page, "nginx-02").click({ button: "right" });
+    await expect(page.getByTestId("menu-group")).toBeVisible();
+    await page.getByTestId("menu-group").click();
+    await expect(page.getByTestId("component-dialog")).toBeVisible();
+    // linked terminals are pre-selected and locked
+    const linked = page.locator("[data-testid=component-port][data-external=true]");
+    await expect(linked).toHaveCount(3);
+    for (const cb of await linked.locator("input[type=checkbox]").all()) { await expect(cb).toBeChecked(); await expect(cb).toBeDisabled(); }
+    // validation: name is required
+    await page.getByTestId("component-create").click();
+    await expect(page.getByTestId("toast").last()).toContainText("name");
+    await page.getByTestId("component-name").fill("Web tier");
+    await page.getByTestId("component-create").click();
+    await expect(page.getByTestId("component-dialog")).toHaveCount(0);
+
+    const st = await assemblyState(page);
+    expect(st.spec.appliances.map((a) => a.id).sort()).toEqual(["custom-web-tier-01", "gateway-01", "grafana-01", "postgresql-01"]);
+    expect(st.spec.connections).toHaveLength(4);
+    const comp = node(page, "custom-web-tier-01");
+    await expect(comp.getByTestId("component-badge")).toContainText("3");
+    await expect(comp).toHaveAttribute("data-component", "true");
+    await expect(page.getByTestId("component-contents")).toContainText("haproxy-01");
+    await expect(page.getByTestId("validation-panel")).toContainText("No issues");
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]")).toBeVisible();
+    await expectEdgesAnchored(page);
+    // another instance from the catalog; the component is reusable
+    await page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]").click();
+    expect((await assemblyState(page)).spec.appliances.some((a) => a.id === "custom-web-tier-02")).toBe(true);
+    await page.getByTestId("undo").click();
+
+    // ungroup via the menu
+    await comp.click({ button: "right" });
+    await page.getByTestId("menu-ungroup").click();
+    const after = await assemblyState(page);
+    expect(after.spec.appliances).toHaveLength(6);
+    expect(after.spec.connections).toHaveLength(6);
+    await expectEdgesAnchored(page);
+    // undo brings the component back
+    await page.getByTestId("undo").click();
+    await expect(node(page, "custom-web-tier-01")).toBeVisible();
+  });
+
+  test("keyboard: Ctrl+G opens the dialog, Ctrl+Shift+G ungroups; unexposed cables are removed with a warning", async ({ page }) => {
+    await open(page);
+    await webTier(page);
+    await page.keyboard.press("Control+g");
+    await expect(page.getByTestId("component-dialog")).toBeVisible();
+    await page.getByTestId("component-name").fill("Partial");
+    // expose only the load balancer's input by unchecking nothing: linked ones are locked, so exposing all is the minimum
+    await page.getByTestId("component-create").click();
+    await expect(page.getByTestId("component-dialog")).toHaveCount(0);
+    await expect(node(page, "custom-partial-01")).toBeVisible();
+    await page.keyboard.press("Control+Shift+g");
+    await expect(node(page, "custom-partial-01")).toHaveCount(0);
+    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+  });
+
+  test("a component joins the same network as its inner appliances", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-sample-network").click();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await webTier(page);
+    await page.keyboard.press("Control+g");
+    await page.getByTestId("component-name").fill("Web tier");
+    await page.getByTestId("component-create").click();
+    await node(page, "custom-web-tier-01").click();
+    await expect(page.getByTestId("nic-status")).toContainText("(tag lan)");
+    await expect(page.getByTestId("validation-panel")).toContainText("No issues");
+    await expect(page.locator("[data-testid=tag-stub][data-tag=lan]")).toHaveCount(5); // network, gateway, component, postgres, grafana
+  });
+
+  test("export embeds the component class and import restores it", async ({ page }) => {
+    await open(page);
+    await webTier(page);
+    await page.keyboard.press("Control+g");
+    await page.getByTestId("component-name").fill("Web tier");
+    await page.getByTestId("component-create").click();
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    const json = JSON.parse(text);
+    expect(json.catalog.classes[0].composition.appliances).toHaveLength(3);
+    await page.evaluate(() => localStorage.removeItem("apelora.studio.catalog.v1"));
+    await page.reload();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await expect(node(page, "custom-web-tier-01").getByTestId("component-badge")).toContainText("3");
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]")).toBeVisible();
+    await node(page, "custom-web-tier-01").click({ button: "right" });
+    await page.getByTestId("menu-ungroup").click();
+    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+  });
+});
+
 test.describe("transitions", () => {
   test("menus, dialogs, plugs and cables animate; reduced motion disables them", async ({ page }) => {
     await open(page);

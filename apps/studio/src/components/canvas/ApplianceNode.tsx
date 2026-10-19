@@ -10,6 +10,8 @@ export type ApplianceNodeData = {
   name: string;
   className: string;
   category: Category;
+  /** Number of appliances inside, when this node is a component. */
+  inner: number;
   icon: string | undefined;
   inputs: Port[];
   outputs: Port[];
@@ -66,10 +68,12 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
       data-node-id={id}
       data-selected={selected ? "true" : "false"}
       data-status={data.status}
+      data-component={data.inner > 0}
       style={{ width: data.width, height: data.height, ["--apl-node-w" as string]: `${data.width}px`, ["--apl-cat" as string]: categoryColor(data.category) }}
     >
       <div className="apl-node-header flex items-center gap-1 px-2 text-[11px] font-medium leading-none" title={`${data.name} · ${data.className}`}>
         <span className="min-w-0 flex-1 truncate">{data.name}</span>
+        {data.inner > 0 && <span className="apl-comp-badge" data-testid="component-badge" title={`Component of ${data.inner} appliances`}>▣ {data.inner}</span>}
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
       </div>
       <div className="relative flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { createEmptyAssembly, ensureNics, parseAssembly, serializeAssembly, type Density } from "@apelora/assembly-model";
+import { createEmptyAssembly, ensureNics, parseAssembly, serializeAssembly, usedCustomClasses, type Density } from "@apelora/assembly-model";
 import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
@@ -23,7 +23,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const doExport = () => {
     const base = api.getState().assembly;
     // Embed the custom appliance classes this assembly uses so the file is self-contained.
-    const used = [...new Map(base.spec.appliances.flatMap((x) => { const c = lookupClass(x.classRef.name, x.classRef.version); return c?.custom ? [[`${c.id}@${c.version}`, c] as const] : []; })).values()];
+    const used = usedCustomClasses(base, lookupClass);
     const a = { ...base, ...(used.length ? { catalog: { classes: used } } : { catalog: undefined }) };
     const url = URL.createObjectURL(new Blob([serializeAssembly(a)], { type: "application/json" }));
     const link = document.createElement("a");

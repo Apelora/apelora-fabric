@@ -26,14 +26,14 @@ function Tile({ cls, onAdd, onEdit }: { cls: ApplianceClass; onAdd: (c: Applianc
       {url ? <img src={url} alt="" width={28} height={28} className="size-7" draggable={false} /> : <span className="size-7 rounded bg-base-300" />}
       <span className="w-full truncate text-center">{cls.displayName}</span>
     </button>
-    <button
+    {!cls.composition && <button
       type="button"
       className="btn btn-ghost btn-xs btn-square absolute right-0.5 top-0.5 size-5 min-h-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
       aria-label={cls.custom ? `Edit ${cls.displayName}` : `Customize a copy of ${cls.displayName}`}
       title={cls.custom ? "Edit this custom appliance" : "Make an editable custom copy"}
       data-testid="tile-edit"
       onClick={() => onEdit(cls, !!cls.custom)}
-    ><IconPencil size={11} /></button>
+    ><IconPencil size={11} /></button>}
     </div>
   );
 }

@@ -7,3 +7,4 @@ export * from "./ops";
 export * from "./serialize";
 export * from "./config";
 export * from "./tags";
+export * from "./components";

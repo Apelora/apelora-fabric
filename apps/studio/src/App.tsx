@@ -11,6 +11,7 @@ import { AssemblyWorkspace } from "./components/canvas/AssemblyWorkspace";
 import { renameSelected } from "./features/editor/menus";
 import { PropertiesInspector } from "./components/inspector/PropertiesInspector";
 import { ApplianceDesigner } from "./components/designer/ApplianceDesigner";
+import { ComponentDialog } from "./components/designer/ComponentDialog";
 import { ms } from "./features/editor/motion";
 
 function Shortcuts() {
@@ -26,6 +27,7 @@ function Shortcuts() {
       else if (mod && k === "y") { e.preventDefault(); api.getState().redo(); }
       else if (mod && k === "c") { e.preventDefault(); api.getState().copySelection(); }
       else if (mod && k === "v") { e.preventDefault(); api.getState().pasteAt(); }
+      else if (mod && k === "g") { e.preventDefault(); if (e.shiftKey) api.getState().ungroupSelection(); else api.getState().openGroupDialog(); }
       else if (mod && k === "d") { e.preventDefault(); api.getState().duplicateSelection(); }
       else if (mod && k === "a") { e.preventDefault(); api.getState().selectAll(); }
       else if (e.key === "F2") { e.preventDefault(); if (api.getState().selection.nodes.length === 1) renameSelected(); }
@@ -86,6 +88,7 @@ export function App() {
         </div>
         <Toasts />
         <ApplianceDesigner />
+        <ComponentDialog />
       </ReactFlowProvider>
     </StudioContext.Provider>
   );

@@ -13,7 +13,7 @@ export function slug(input: string): string {
   return /^[a-z]/.test(s) ? s.slice(0, 40) : `x-${s}`.slice(0, 40);
 }
 
-function uniqueId(base: string, taken: ReadonlySet<string>): string {
+export function uniqueId(base: string, taken: ReadonlySet<string>): string {
   let n = 1;
   let id = `${base}-${String(n).padStart(2, "0")}`;
   while (taken.has(id)) id = `${base}-${String(++n).padStart(2, "0")}`;

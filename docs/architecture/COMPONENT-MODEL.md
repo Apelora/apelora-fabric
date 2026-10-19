@@ -13,7 +13,9 @@ These are general, long-established ideas in component-based and infrastructure-
 | **Point-to-point logical links** | An assembly connects one output terminal to one input terminal. Links are logical (protocol-level), not IP addresses or hosts; the platform later decides how to realise them on the network. | Model implemented; realisation is a later phase |
 | **Hardware independence** | Assemblies contain no hosts, IP addresses or storage identifiers, only resource *requests*. | Implemented (schema) |
 | **Custom components** | Users define their own appliance classes (name, icon, ports, resources) in the Appliance Designer, or turn a configured instance into a class. Custom classes are embedded in exported assemblies so files are self-contained. | Implemented |
-| **Hierarchical composition** | An assembly can later be packaged as a class whose exposed terminals map to inner appliance ports, so assemblies nest. | Planned (next milestone) |
+| **Hierarchical composition** | A selection of appliances is packaged as a class (`composition`) whose exposed ports map to inner terminals; its `net` maps to every inner NIC. Components can contain components. | Implemented (grouping, ungrouping, export/import); drill-in view planned |
+| **Network interface** | Every appliance has a `net` terminal (a NIC) that plugs into a network or a network appliance; unplugged it uses the default network. | Implemented |
+| **Link tags** | Terminals sharing a name are linked without a drawn cable. | Implemented |
 | **Setup parameters** | Per-instance values (names, public addresses, credentials by reference) supplied when an application is instantiated. | Planned |
 | **Volumes and resource budgets** | Persistent volumes attached to appliances, and a minimum/maximum resource budget per application. | Planned |
 | **Catalog sharing** | Exporting/importing classes and assemblies as portable, versioned, diff-friendly text. | Partly implemented (JSON) |
