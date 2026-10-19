@@ -109,6 +109,13 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-node:hover .apl-resize-grip, .apl-node[data-selected="true"] .apl-resize-grip { opacity: 0.55; }
 .react-flow__resize-control.apl-resize-control { background: transparent; border: 0; width: 16px; height: 16px; transform: translate(-4px, -4px); }
 
+/* ---- category colours ---- */
+.apl-node-header { position: relative; }
+.apl-canvas-frame[data-category="on"] .apl-node-header { background: color-mix(in oklab, var(--apl-cat) 12%, var(--color-base-200)); box-shadow: inset 0 2px 0 var(--apl-cat); }
+.apl-node-class { position: absolute; left: 0; right: 0; bottom: 3px; text-align: center; font-size: 8px; line-height: 1; letter-spacing: 0.02em; color: color-mix(in oklab, var(--color-base-content) 45%, transparent); pointer-events: none; padding: 0 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.apl-canvas-frame[data-category="off"] .apl-node-class { display: none; }
+.apl-tile-accent { border-bottom: 2px solid color-mix(in oklab, var(--apl-cat) 70%, transparent); }
+
 /* ---- cables ---- */
 .react-flow__edge .apl-cable { stroke-linecap: round; fill: none; stroke-width: 1.6; }
 .react-flow__edge.selected .apl-cable, .react-flow__edge:hover .apl-cable { stroke-width: 2.4; }

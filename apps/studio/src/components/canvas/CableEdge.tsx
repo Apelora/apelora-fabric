@@ -1,14 +1,16 @@
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, type Edge, type EdgeProps } from "@xyflow/react";
 import { CABLE_INSET, cableColor, cableOutline } from "./cables";
 
-export type CableData = { type: string; label?: string; invalid?: boolean; [key: string]: unknown };
+export type CableData = { type: string; label?: string; invalid?: boolean; angled?: boolean; [key: string]: unknown };
 export type CableFlowEdge = Edge<CableData, "cable">;
 
 /** A patch cable: coloured by protocol, with a flow arrow near its target plug. The plug heads live in the nodes. */
 export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps<CableFlowEdge>) {
   const sx = sourceX + CABLE_INSET;
   const tx = targetX - CABLE_INSET;
-  const [path, lx, ly] = getBezierPath({ sourceX: sx, sourceY, sourcePosition, targetX: tx, targetY, targetPosition });
+  const [path, lx, ly] = data?.angled
+    ? getSmoothStepPath({ sourceX: sx, sourceY, sourcePosition, targetX: tx, targetY, targetPosition, borderRadius: 6, offset: 14 })
+    : getBezierPath({ sourceX: sx, sourceY, sourcePosition, targetX: tx, targetY, targetPosition });
   const type = data?.type ?? "tcp";
   const color = data?.invalid ? "var(--color-error)" : cableColor(type);
   return (

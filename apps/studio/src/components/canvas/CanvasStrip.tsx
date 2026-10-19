@@ -10,6 +10,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
   const snap = useStudio((s) => s.snap);
   const showLabels = useStudio((s) => s.showLabels);
   const cableStyle = useStudio((s) => s.cableStyle);
+  const routing = useStudio((s) => s.routing);
   const selected = useStudio((s) => s.selection.nodes);
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
@@ -32,6 +33,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
           <button className={`btn btn-xs join-item ${showGrid ? "btn-active" : ""}`} aria-pressed={showGrid} title="Toggle dotted grid" aria-label="Toggle dotted grid" onClick={() => api.getState().setShowGrid(!showGrid)}><IconGrid size={14} /></button>
           <button className={`btn btn-xs join-item ${showLabels ? "btn-active" : ""}`} aria-pressed={showLabels} title="Show port and link labels" aria-label="Port and link labels" data-testid="toggle-labels" onClick={() => api.getState().setShowLabels(!showLabels)}><span className="text-[10px] font-semibold leading-none">Aa</span></button>
           <button className={`btn btn-xs join-item ${cableStyle === "cable" ? "btn-active" : ""}`} aria-pressed={cableStyle === "cable"} title={cableStyle === "line" ? "Switch to thick patch-cable look" : "Switch to thin line look"} aria-label="Cable style" data-testid="toggle-cable-style" onClick={() => api.getState().setCableStyle(cableStyle === "line" ? "cable" : "line")}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={cableStyle === "cable" ? 4 : 1.6} strokeLinecap="round" aria-hidden="true"><path d="M3 18C9 18 9 6 15 6h6" /></svg></button>
+          <button className={`btn btn-xs join-item ${routing === "angled" ? "btn-active" : ""}`} aria-pressed={routing === "angled"} title={routing === "angled" ? "Switch to curved cables" : "Switch to right-angle cables"} aria-label="Cable routing" data-testid="toggle-routing" onClick={() => api.getState().setRouting(routing === "angled" ? "curved" : "angled")}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={routing === "angled" ? "M3 18H12V6H21" : "M3 18C9 18 9 6 15 6H21"} /></svg></button>
           <button className={`btn btn-xs join-item ${snap ? "btn-active" : ""}`} aria-pressed={snap} title="Snap to grid" aria-label="Snap to grid" onClick={() => api.getState().setSnap(!snap)}><IconMagnet size={14} /></button>
         </div>
         <div className="join" role="group" aria-label="Zoom">

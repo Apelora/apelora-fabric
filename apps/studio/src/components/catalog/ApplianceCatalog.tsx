@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { APPLIANCE_CLASSES, logoUrl } from "@apelora/appliance-catalog";
+import { categoryColor } from "../../features/editor/categories";
 import { draftFromClass, emptyDraft, useCustomCatalog } from "../../features/catalog/customCatalog";
 import { CATEGORIES, DENSITY_SIZE, type ApplianceClass } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
@@ -10,7 +11,7 @@ import { IconPencil, IconPlus, IconSearch } from "../icons";
 function Tile({ cls, onAdd, onEdit }: { cls: ApplianceClass; onAdd: (c: ApplianceClass) => void; onEdit: (c: ApplianceClass, editing: boolean) => void }) {
   const url = logoUrl(cls.iconAssetPath);
   return (
-    <div className="group relative">
+    <div className="group relative" style={{ ["--apl-cat" as string]: categoryColor(cls.category) }}>
     <button
       type="button"
       draggable
@@ -20,7 +21,7 @@ function Tile({ cls, onAdd, onEdit }: { cls: ApplianceClass; onAdd: (c: Applianc
       title={`${cls.displayName} — ${cls.summary}\nDrag onto the canvas, or click to add.`}
       onDragStart={(e) => { e.dataTransfer.setData(CATALOG_MIME, cls.id); e.dataTransfer.effectAllowed = "copy"; }}
       onClick={() => onAdd(cls)}
-      className="flex h-[72px] w-full cursor-grab flex-col items-center justify-center gap-1.5 rounded-box border border-base-300 bg-base-100 p-1 text-[11px] leading-tight transition-colors hover:border-base-content/30 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content active:cursor-grabbing"
+      className="apl-tile-accent flex h-[72px] w-full cursor-grab flex-col items-center justify-center gap-1.5 rounded-box border border-base-300 bg-base-100 p-1 text-[11px] leading-tight transition-colors hover:border-base-content/30 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content active:cursor-grabbing"
     >
       {url ? <img src={url} alt="" width={28} height={28} className="size-7" draggable={false} /> : <span className="size-7 rounded bg-base-300" />}
       <span className="w-full truncate text-center">{cls.displayName}</span>
@@ -80,7 +81,7 @@ export function ApplianceCatalog() {
                 aria-expanded={open}
                 onClick={() => setCollapsed((c) => ({ ...c, [cat]: open }))}
               >
-                <span className="truncate">{cat}</span>
+                <span className="flex min-w-0 items-center gap-1.5"><span className="size-2 shrink-0 rounded-full" style={{ background: categoryColor(cat) }} aria-hidden="true" /><span className="truncate">{cat}</span></span>
                 <span className="ml-1 flex items-center gap-1 font-normal normal-case tracking-normal text-base-content/50">{items.length}<span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span></span>
               </button>
               {open && <div className="apl-catalog-grid grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}

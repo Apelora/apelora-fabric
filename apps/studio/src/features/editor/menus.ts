@@ -151,6 +151,8 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), { shortcut: "F" }),
       item("grid", "Dotted grid", () => s().setShowGrid(!s().showGrid), { checked: s().showGrid }),
       item("labels", "Port and link labels", () => s().setShowLabels(!s().showLabels), { checked: s().showLabels }),
+      item("routing", "Right-angle cables", () => s().setRouting(s().routing === "angled" ? "curved" : "angled"), { checked: s().routing === "angled" }),
+      item("category", "Category colours", () => s().setShowCategory(!s().showCategory), { checked: s().showCategory }),
       item("cable", "Thick patch-cable look", () => s().setCableStyle(s().cableStyle === "line" ? "cable" : "line"), { checked: s().cableStyle === "cable" }),
     ],
   };

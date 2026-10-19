@@ -1,12 +1,14 @@
 import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
-import { NODE, portCenterY, type Port } from "@apelora/assembly-model";
+import { NODE, portCenterY, type Category, type Port } from "@apelora/assembly-model";
+import { categoryColor } from "../../features/editor/categories";
 import { useStudioApi } from "../../features/editor/context";
 import { Jack, PlugHead } from "./Jack";
 
 export type ApplianceNodeData = {
   name: string;
   className: string;
+  category: Category;
   icon: string | undefined;
   inputs: Port[];
   outputs: Port[];
@@ -58,14 +60,15 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
       data-node-id={id}
       data-selected={selected ? "true" : "false"}
       data-status={data.status}
-      style={{ width: data.width, height: data.height, ["--apl-node-w" as string]: `${data.width}px` }}
+      style={{ width: data.width, height: data.height, ["--apl-node-w" as string]: `${data.width}px`, ["--apl-cat" as string]: categoryColor(data.category) }}
     >
       <div className="apl-node-header flex items-center gap-1 px-2 text-[11px] font-medium leading-none" title={`${data.name} · ${data.className}`}>
         <span className="min-w-0 flex-1 truncate">{data.name}</span>
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
       </div>
-      <div className="flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>
+      <div className="relative flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>
         {data.icon ? <img src={data.icon} alt="" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
+        <span className="apl-node-class" data-testid="node-class">{data.className}</span>
       </div>
       {data.inputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="input" link={data.links[p.id]} />)}
       {data.outputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="output" link={data.links[p.id]} />)}

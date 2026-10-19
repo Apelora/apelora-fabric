@@ -36,3 +36,21 @@ export function saveAssembly(a: ApplicationAssembly): boolean {
 
 export const loadTheme = (): string => { try { return localStorage.getItem(THEME) ?? "light"; } catch { return "light"; } };
 export const saveTheme = (t: string): void => { try { localStorage.setItem(THEME, t); } catch { /* storage unavailable */ } };
+
+const VIEW = "apelora.studio.view.v1";
+export interface ViewPrefs { showGrid: boolean; showLabels: boolean; cableStyle: "line" | "cable"; routing: "curved" | "angled"; showCategory: boolean; snap: boolean }
+
+export function loadView(): Partial<ViewPrefs> {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW) ?? "{}") as Record<string, unknown>;
+    const out: Partial<ViewPrefs> = {};
+    if (typeof v.showGrid === "boolean") out.showGrid = v.showGrid;
+    if (typeof v.showLabels === "boolean") out.showLabels = v.showLabels;
+    if (v.cableStyle === "line" || v.cableStyle === "cable") out.cableStyle = v.cableStyle;
+    if (v.routing === "curved" || v.routing === "angled") out.routing = v.routing;
+    if (typeof v.showCategory === "boolean") out.showCategory = v.showCategory;
+    if (typeof v.snap === "boolean") out.snap = v.snap;
+    return out;
+  } catch { return {}; }
+}
+export function saveView(p: ViewPrefs): void { try { localStorage.setItem(VIEW, JSON.stringify(p)); } catch { /* storage unavailable */ } }

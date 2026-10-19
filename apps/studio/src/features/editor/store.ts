@@ -31,6 +31,8 @@ export interface StudioState {
   showGrid: boolean;
   showLabels: boolean;
   cableStyle: "line" | "cable";
+  routing: "curved" | "angled";
+  showCategory: boolean;
   snap: boolean;
   importErrors: string[] | null;
   menu: MenuState | null;
@@ -79,6 +81,8 @@ export interface StudioState {
   setShowGrid: (v: boolean) => void;
   setShowLabels: (v: boolean) => void;
   setCableStyle: (v: "line" | "cable") => void;
+  setRouting: (v: "curved" | "angled") => void;
+  setShowCategory: (v: boolean) => void;
   setSnap: (v: boolean) => void;
   setImportErrors: (e: string[] | null) => void;
 }
@@ -88,7 +92,7 @@ const prune = (a: ApplicationAssembly, s: Selection): Selection => ({
   edges: s.edges.filter((id) => a.spec.connections.some((c) => c.id === id)),
 });
 
-export function createStudioStore(initial: ApplicationAssembly) {
+export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pick<StudioState, "showGrid" | "showLabels" | "cableStyle" | "routing" | "showCategory" | "snap">> = {}) {
   return create<StudioState>()((set, get) => {
     const commit = (next: ApplicationAssembly) => {
       const { assembly, past, selection } = get();
@@ -103,10 +107,12 @@ export function createStudioStore(initial: ApplicationAssembly) {
       selection: { nodes: [], edges: [] },
       toasts: [],
       fitNonce: 0,
-      showGrid: true,
-      showLabels: true,
-      cableStyle: "line",
-      snap: false,
+      showGrid: view.showGrid ?? true,
+      showLabels: view.showLabels ?? true,
+      cableStyle: view.cableStyle ?? "line",
+      routing: view.routing ?? "curved",
+      showCategory: view.showCategory ?? true,
+      snap: view.snap ?? false,
       importErrors: null,
       menu: null,
       clipboard: null,
@@ -239,6 +245,8 @@ export function createStudioStore(initial: ApplicationAssembly) {
       setShowGrid: (v) => set({ showGrid: v }),
       setShowLabels: (v) => set({ showLabels: v }),
       setCableStyle: (v) => set({ cableStyle: v }),
+      setRouting: (v) => set({ routing: v }),
+      setShowCategory: (v) => set({ showCategory: v }),
       setSnap: (v) => set({ snap: v }),
       setImportErrors: (e) => set({ importErrors: e }),
     };

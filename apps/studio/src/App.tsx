@@ -3,7 +3,7 @@ import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { sampleCommerceStack } from "@apelora/appliance-catalog";
 import { createStudioStore } from "./features/editor/store";
 import { StudioContext, useStudioApi } from "./features/editor/context";
-import { loadAssembly, loadTheme, saveAssembly, saveTheme } from "./features/editor/persistence";
+import { loadAssembly, loadTheme, loadView, saveAssembly, saveTheme, saveView } from "./features/editor/persistence";
 import { Header } from "./components/chrome/Header";
 import { Toasts } from "./components/chrome/Toasts";
 import { ApplianceCatalog } from "./components/catalog/ApplianceCatalog";
@@ -50,7 +50,7 @@ function Shortcuts() {
 export function App() {
   const { store, loadError } = useMemo(() => {
     const r = loadAssembly();
-    return { store: createStudioStore(r.assembly ?? sampleCommerceStack()), loadError: r.error };
+    return { store: createStudioStore(r.assembly ?? sampleCommerceStack(), loadView()), loadError: r.error };
   }, []);
   const [theme, setTheme] = useState(loadTheme);
   if (import.meta.env.DEV) (window as unknown as { __studio?: unknown }).__studio = store;
@@ -61,6 +61,7 @@ export function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsub = store.subscribe((s, prev) => {
+      if (s.showGrid !== prev.showGrid || s.showLabels !== prev.showLabels || s.cableStyle !== prev.cableStyle || s.routing !== prev.routing || s.showCategory !== prev.showCategory || s.snap !== prev.snap) saveView({ showGrid: s.showGrid, showLabels: s.showLabels, cableStyle: s.cableStyle, routing: s.routing, showCategory: s.showCategory, snap: s.snap });
       if (s.assembly === prev.assembly) return;
       setSaved(false);
       clearTimeout(timer);

@@ -346,6 +346,45 @@ test.describe("configuration forms", () => {
   });
 });
 
+test.describe("category colours and cable routing", () => {
+  test("category accent on node headers, class footer, catalog; toggle and persistence", async ({ page }) => {
+    await open(page);
+    const hdr = (id: string) => node(page, id).locator(".apl-node-header");
+    const shadow = (id: string) => hdr(id).evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(await shadow("nginx-01")).not.toBe(await shadow("postgresql-01")); // web vs database accent
+    expect(await shadow("nginx-01")).toBe(await shadow("nginx-02"));
+    await expect(node(page, "nginx-01").getByTestId("node-class")).toHaveText("NGINX");
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=nginx]")).toBeVisible();
+    // toggle off via the canvas menu; survives reload
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    await page.mouse.click(canvas.x + 80, canvas.y + 80, { button: "right" });
+    await page.getByTestId("menu-category").click();
+    await expect(node(page, "nginx-01").getByTestId("node-class")).toBeHidden();
+    expect(await shadow("nginx-01")).toBe("none");
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.view.v1") ?? "")).toContain('"showCategory":false');
+    await page.reload();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await expect(node(page, "nginx-01").getByTestId("node-class")).toBeHidden();
+  });
+
+  test("right-angle routing: cables use straight segments, stay anchored, and the choice persists", async ({ page }) => {
+    await open(page);
+    const d = () => page.locator(".react-flow__edge[data-id=conn-02] path.react-flow__edge-path").getAttribute("d");
+    expect(await d()).toContain("C"); // curved (bezier)
+    await page.getByTestId("toggle-routing").click();
+    const angled = (await d())!;
+    expect(angled).not.toContain("C");
+    expect(angled).toMatch(/L/);
+    await expectEdgesAnchored(page);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.view.v1") ?? "")).toContain('"routing":"angled"');
+    await page.reload();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    expect((await d())!).not.toContain("C");
+    await page.getByTestId("toggle-routing").click();
+    expect(await d()).toContain("C");
+  });
+});
+
 test.describe("transitions", () => {
   test("menus, dialogs, plugs and cables animate; reduced motion disables them", async ({ page }) => {
     await open(page);

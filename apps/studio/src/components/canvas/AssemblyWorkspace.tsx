@@ -54,6 +54,8 @@ export function AssemblyWorkspace() {
   const showGrid = useStudio((s) => s.showGrid);
   const showLabels = useStudio((s) => s.showLabels);
   const cableStyle = useStudio((s) => s.cableStyle);
+  const routing = useStudio((s) => s.routing);
+  const showCategory = useStudio((s) => s.showCategory);
   const customClasses = useCustomCatalog((s) => s.classes);
   const snap = useStudio((s) => s.snap);
   const fitNonce = useStudio((s) => s.fitNonce);
@@ -102,6 +104,7 @@ export function AssemblyWorkspace() {
         data: {
           name: a.name,
           className: cls?.displayName ?? a.classRef.name,
+          category: cls?.category ?? "Custom",
           icon: cls ? logoUrl(cls.iconAssetPath) : undefined,
           inputs: a.ports.filter((p) => p.direction === "input"),
           outputs: a.ports.filter((p) => p.direction === "output"),
@@ -127,9 +130,9 @@ export function AssemblyWorkspace() {
       targetHandle: c.target.portId,
       selected: selection.edges.includes(c.id),
       reconnectable: true,
-      data: { type: linkLabel(assembly, c.source), invalid: bad.has(c.id), ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
+      data: { type: linkLabel(assembly, c.source), invalid: bad.has(c.id), angled: routing === "angled", ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
     }));
-  }, [assembly, diagnostics, selection.edges, showLabels]);
+  }, [assembly, diagnostics, selection.edges, showLabels, routing]);
 
   const onNodesChange = useCallback((changes: NodeChange<ApplianceFlowNode>[]) => {
     const s = api.getState();
@@ -195,7 +198,7 @@ export function AssemblyWorkspace() {
   const zoom = useRFStore((s) => s.transform[2]);
 
   return (
-    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-cable={cableStyle} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
+    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-cable={cableStyle} data-category={showCategory ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
       <CanvasStrip zoom={zoom} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow<ApplianceFlowNode, CableFlowEdge>
