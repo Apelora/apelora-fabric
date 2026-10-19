@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import {
-  addAppliance, addPort, connect, reconnect, alignNodes, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, alignNodes, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -45,6 +45,8 @@ export interface StudioState {
   disconnectPortCables: (id: string, portId: string) => void;
   disconnectAllCables: (id: string) => void;
   align: (mode: AlignMode) => void;
+  setCfg: (id: string, key: string, value: ConfigValue | undefined) => void;
+  resetCfg: (id: string) => void;
 
   toast: (kind: Toast["kind"], text: string) => void;
   dismissToast: (id: number) => void;
@@ -146,6 +148,8 @@ export function createStudioStore(initial: ApplicationAssembly) {
       disconnectPortCables: (id, portId) => commit(disconnectPort(get().assembly, id, portId)),
       disconnectAllCables: (id) => commit(disconnectAppliance(get().assembly, id)),
       align: (mode) => commit(alignNodes(get().assembly, get().selection.nodes, mode)),
+      setCfg: (id, key, value) => commit(setConfig(get().assembly, id, key, value)),
+      resetCfg: (id) => commit(resetConfig(get().assembly, id)),
 
       toast: (kind, text) => {
         const id = toastSeq++;

@@ -11,6 +11,7 @@ import { AssemblyWorkspace } from "./components/canvas/AssemblyWorkspace";
 import { renameSelected } from "./features/editor/menus";
 import { PropertiesInspector } from "./components/inspector/PropertiesInspector";
 import { ApplianceDesigner } from "./components/designer/ApplianceDesigner";
+import { ms } from "./features/editor/motion";
 
 function Shortcuts() {
   const api = useStudioApi();
@@ -36,9 +37,9 @@ function Shortcuts() {
         const r = el?.getBoundingClientRect();
         if (r) st.openMenu({ x: r.left + r.width / 2, y: r.top + r.height / 2, keyboard: true, target: id ? { kind: "node", id } : { kind: "pane", flow: screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) } });
       }
-      else if (!mod && (e.key === "+" || e.key === "=")) void zoomIn({ duration: 120 });
-      else if (!mod && e.key === "-") void zoomOut({ duration: 120 });
-      else if (!mod && k === "f") void fitView({ padding: 0.2, maxZoom: 1.2, duration: 250 });
+      else if (!mod && (e.key === "+" || e.key === "=")) void zoomIn({ duration: ms(120) });
+      else if (!mod && e.key === "-") void zoomOut({ duration: ms(120) });
+      else if (!mod && k === "f") void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

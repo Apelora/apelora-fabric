@@ -2,6 +2,7 @@ import { allClasses, lookupClass } from "@apelora/appliance-catalog";
 import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, type AlignMode } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
+import { ms } from "./motion";
 
 export type MenuItem =
   | { type: "header"; label: string }
@@ -20,9 +21,9 @@ const sep: MenuItem = { type: "separator" };
 /** Focuses a field in the inspector once React has rendered the selection. */
 function focusField(selector: string) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    const el = document.querySelector<HTMLInputElement>(selector);
+    const el = document.querySelector<HTMLInputElement | HTMLSelectElement>(selector);
     el?.focus();
-    el?.select();
+    if (el && "select" in el && typeof el.select === "function") el.select();
   }));
 }
 export const renameSelected = () => focusField("[data-testid=instance-name]");
@@ -49,7 +50,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
               item("align-cx", "Centre horizontally", align("center-x")), item("align-cy", "Centre vertically", align("center-y")),
             ],
           }),
-          item("zoom", "Zoom to selection", () => rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.5, maxZoom: 1.4, duration: 250 })),
+          item("zoom", "Zoom to selection", () => rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.5, maxZoom: 1.4, duration: ms(250) })),
           sep,
           item("delete", `Delete ${ids.length} appliances`, () => s().deleteElements(ids, []), { shortcut: "Del", danger: true }),
         ],
@@ -60,10 +61,14 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
     const cls = lookupClass(app.classRef.name, app.classRef.version);
     const layout = a.editor.nodes.find((n) => n.id === app.id);
     const cables = a.spec.connections.filter((c) => c.source.applianceId === app.id || c.target.applianceId === app.id).length;
+    const hasProps = (cls?.properties?.length ?? 0) > 0;
+    const overrides = Object.keys(app.config ?? {}).length;
     return {
       title: `${app.name} · ${cls?.displayName ?? app.classRef.name}`,
       items: [
         item("rename", "Rename…", () => renameSelected(), { shortcut: "F2" }),
+        item("configure", "Configure…", () => focusField("[data-testid=config-form] input, [data-testid=config-form] select"), { disabled: !hasProps }),
+        item("reset-config", overrides ? `Reset configuration (${overrides} changed)` : "Reset configuration", () => s().resetCfg(app.id), { disabled: overrides === 0 }),
         item("duplicate", "Duplicate", () => s().duplicateSelection(), { shortcut: "Ctrl+D" }),
         item("copy", "Copy", () => s().copySelection(), { shortcut: "Ctrl+C" }),
         sep,
@@ -72,9 +77,9 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         }),
         item("reset-size", "Reset size", () => s().resetSize(app.id), { disabled: !layout?.custom }),
         item("disconnect", cables ? `Unplug all cables (${cables})` : "Unplug all cables", () => s().disconnectAllCables(app.id), { disabled: cables === 0 }),
-        item("zoom", "Zoom to appliance", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: 250 })),
+        item("zoom", "Zoom to appliance", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: ms(250) })),
         sep,
-        item("save-class", "Save as custom appliance…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box"))),
+        item("save-class", "Save as custom appliance…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))),
         ...(cls?.custom ? [item("edit-class", "Edit appliance class…", () => useCustomCatalog.getState().openDesigner(draftFromClass(cls, true)))] : []),
         sep,
         item("delete", "Delete", () => s().deleteElements([app.id], []), { shortcut: "Del", danger: true }),
@@ -143,7 +148,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       item("undo", "Undo", () => s().undo(), { shortcut: "Ctrl+Z", disabled: s().past.length === 0 }),
       item("redo", "Redo", () => s().redo(), { shortcut: "Ctrl+Shift+Z", disabled: s().future.length === 0 }),
       sep,
-      item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: 250 }), { shortcut: "F" }),
+      item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), { shortcut: "F" }),
       item("grid", "Dotted grid", () => s().setShowGrid(!s().showGrid), { checked: s().showGrid }),
       item("labels", "Port and link labels", () => s().setShowLabels(!s().showLabels), { checked: s().showLabels }),
       item("cable", "Thick patch-cable look", () => s().setCableStyle(s().cableStyle === "line" ? "cable" : "line"), { checked: s().cableStyle === "cable" }),

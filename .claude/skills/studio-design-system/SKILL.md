@@ -30,3 +30,7 @@ description: Apply the Apelora Studio visual design contract with Tailwind CSS 4
 
 - `npm run typecheck && npm run lint && npx playwright test` pass (the visual-contract specs assert catalog/inspector white, canvas `rgb(247,247,248)`, 12px radius, panel widths).
 - Screenshot at 1440×900 and 1280×800 reviewed (`SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts`).
+
+## Motion
+
+Use the tokens in `styles/index.css` (`--apl-dur-fast/--apl-dur/--apl-dur-slow`, `--apl-ease`) and `features/editor/motion.ts` (`ms()` for programmatic durations). Animate opacity/translate only where geometry is measured (nodes); every animation must collapse under `prefers-reduced-motion`. The full table is in `docs/architecture/STUDIO-UI-SPEC.md`.

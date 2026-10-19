@@ -1,10 +1,12 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, setCustomClasses } from "@apelora/appliance-catalog";
-import { ApplianceClassSchema, slug, type ApplianceClass, type Port } from "@apelora/assembly-model";
+import { ApplianceClassSchema, effectiveValue, slug, validateProperty, type ApplianceClass, type ConfigValue, type Port, type Property } from "@apelora/assembly-model";
 
 const KEY = "apelora.studio.catalog.v1";
 
 export interface DraftPort { key: string; name: string; direction: Port["direction"]; type: Port["type"]; optional: boolean; multiplicity: Port["multiplicity"]; description: string }
+export interface DraftProp { key: string; /** Stable id kept when editing, so saved configuration values keep matching. */ id?: string; label: string; type: Property["type"]; default: string; required: boolean; group: string; description: string; options: string; min: string; max: string }
+
 export interface Draft {
   /** Set when editing an existing custom class. */
   editingId?: string;
@@ -15,6 +17,7 @@ export interface Draft {
   cpu: number;
   memoryMiB: number;
   ports: DraftPort[];
+  properties: DraftProp[];
 }
 
 function load(): ApplianceClass[] {
@@ -64,6 +67,18 @@ export const GENERIC_NAME_HINT = "e.g. cache-node";
 
 let keySeq = 1;
 export const newPortKey = () => `p${keySeq++}`;
+export const newPropKey = () => `c${keySeq++}`;
+
+export function emptyProp(): DraftProp {
+  return { key: newPropKey(), label: "", type: "string", default: "", required: false, group: "", description: "", options: "", min: "", max: "" };
+}
+
+function toDraftProps(list: readonly Property[] | undefined, config?: Readonly<Record<string, ConfigValue>>): DraftProp[] {
+  return (list ?? []).map((p) => ({
+    key: newPropKey(), id: p.id, label: p.label, type: p.type, default: String(effectiveValue(p, config) ?? ""), required: p.required,
+    group: p.group ?? "", description: p.description ?? "", options: (p.options ?? []).join(", "), min: p.min === undefined ? "" : String(p.min), max: p.max === undefined ? "" : String(p.max),
+  }));
+}
 
 export function emptyDraft(): Draft {
   return {
@@ -72,6 +87,7 @@ export function emptyDraft(): Draft {
       { key: newPortKey(), name: "in", direction: "input", type: "tcp", optional: false, multiplicity: "many", description: "" },
       { key: newPortKey(), name: "out", direction: "output", type: "tcp", optional: true, multiplicity: "many", description: "" },
     ],
+    properties: [],
   };
 }
 
@@ -85,13 +101,15 @@ export function draftFromClass(c: ApplianceClass, editing: boolean): Draft {
     cpu: c.resources.cpu,
     memoryMiB: c.resources.memoryMiB,
     ports: c.ports.map((p) => ({ key: newPortKey(), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
+    properties: toDraftProps(c.properties),
   };
 }
 
-export function draftFromPorts(name: string, ports: readonly Port[], res: { cpu: number; memoryMiB: number }, icon: string): Draft {
+export function draftFromPorts(name: string, ports: readonly Port[], res: { cpu: number; memoryMiB: number }, icon: string, props?: readonly Property[], config?: Readonly<Record<string, ConfigValue>>): Draft {
   return {
     name: `${name}-class`, category: "Custom", summary: "", icon, cpu: res.cpu, memoryMiB: res.memoryMiB,
     ports: ports.map((p) => ({ key: newPortKey(), name: p.name, direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, description: p.description ?? "" })),
+    properties: toDraftProps(props, config),
   };
 }
 
@@ -114,6 +132,29 @@ export function classFromDraft(d: Draft): { ok: true; cls: ApplianceClass } | { 
     return { id, name: n || "port", direction: p.direction, type: p.type, optional: p.optional, multiplicity: p.multiplicity, ...(p.description.trim() ? { description: p.description.trim().slice(0, 160) } : {}) };
   });
   if (ports.length > 24) errors.push("At most 24 ports are supported.");
+  const propIds = new Set<string>();
+  const properties: Property[] = d.properties.map((p) => {
+    const label = p.label.trim();
+    if (!label) errors.push("Every configuration field needs a label.");
+    const base = p.id ?? slug(label || "field");
+    let id = base;
+    let i = 2;
+    while (propIds.has(id)) id = `${base}-${i++}`;
+    propIds.add(id);
+    const options = p.type === "enum" ? p.options.split(",").map((o) => o.trim()).filter(Boolean) : undefined;
+    if (p.type === "enum" && (!options || options.length < 2)) errors.push(`"${label || "field"}": list at least two options, separated by commas.`);
+    const num = (v: string) => (v.trim() === "" ? undefined : Number(v));
+    const min = p.type === "int" ? num(p.min) : undefined;
+    const max = p.type === "int" ? num(p.max) : undefined;
+    if ((min !== undefined && !Number.isFinite(min)) || (max !== undefined && !Number.isFinite(max))) errors.push(`"${label || "field"}": min and max must be numbers.`);
+    if (min !== undefined && max !== undefined && min > max) errors.push(`"${label || "field"}": min is greater than max.`);
+    let def: ConfigValue | undefined;
+    const raw = p.default.trim();
+    if (raw !== "") def = p.type === "int" ? Number(raw) : p.type === "bool" ? raw === "true" : raw;
+    const built: Property = { id, label: label || "field", type: p.type, required: p.required, ...(def !== undefined ? { default: def } : {}), ...(p.group.trim() ? { group: p.group.trim().slice(0, 32) } : {}), ...(p.description.trim() ? { description: p.description.trim().slice(0, 160) } : {}), ...(options ? { options } : {}), ...(min !== undefined && Number.isFinite(min) ? { min } : {}), ...(max !== undefined && Number.isFinite(max) ? { max } : {}) };
+    if (def !== undefined || p.required) { const bad = validateProperty(built, def); if (bad && label) errors.push(`"${label}" default: ${bad.message}`); }
+    return built;
+  });
   if (!(d.cpu >= 1)) errors.push("vCPU must be at least 1.");
   if (!(d.memoryMiB >= 64)) errors.push("Memory must be at least 64 MiB.");
   if (errors.length) return { ok: false, errors };
@@ -122,7 +163,7 @@ export function classFromDraft(d: Draft): { ok: true; cls: ApplianceClass } | { 
   if (!d.editingId) { let i = 2; const base = id; while (allClasses().some((c) => c.id === id)) id = `${base}-${i++}`; }
   const r = ApplianceClassSchema.safeParse({
     id, version: "1.0.0", displayName: name.slice(0, 48), category: d.category, summary: d.summary.trim().slice(0, 200), iconAssetPath: d.icon,
-    runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports, resources: { cpu: d.cpu, memoryMiB: d.memoryMiB }, custom: true,
+    runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports, resources: { cpu: d.cpu, memoryMiB: d.memoryMiB }, ...(properties.length ? { properties } : {}), custom: true,
   });
   return r.success ? { ok: true, cls: r.data } : { ok: false, errors: r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`) };
 }

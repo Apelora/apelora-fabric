@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { GENERIC_ICONS, logoUrl } from "@apelora/appliance-catalog";
 import { CATEGORIES, NODE, PORT_TYPES, minApplianceHeight, portCenterY, type Category } from "@apelora/assembly-model";
-import { classFromDraft, newPortKey, useCustomCatalog, type Draft, type DraftPort } from "../../features/catalog/customCatalog";
+import { classFromDraft, emptyProp, newPortKey, useCustomCatalog, type Draft, type DraftPort, type DraftProp } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { Jack } from "../canvas/Jack";
 import { IconPlus, IconTrash, IconUp, IconDown } from "../icons";
@@ -37,7 +37,8 @@ export function ApplianceDesigner() {
   const assembly = useStudio((s) => s.assembly);
   const [d, setD] = useState<Draft | null>(draft);
   const [errors, setErrors] = useState<string[]>([]);
-  useEffect(() => { setD(draft); setErrors([]); }, [draft]);
+  const [tab, setTab] = useState<"ports" | "config">("ports");
+  useEffect(() => { setD(draft); setErrors([]); setTab("ports"); }, [draft]);
   const store = useCustomCatalog;
 
   const inUse = useMemo(() => !!d?.editingId && assembly.spec.appliances.some((a) => a.classRef.name === d.editingId), [d?.editingId, assembly]);
@@ -100,6 +101,38 @@ export function ApplianceDesigner() {
     </section>
   );
 
+  const setProp = (key: string, p: Partial<DraftProp>) => patch({ properties: d.properties.map((x) => (x.key === key ? { ...x, ...p } : x)) });
+  const configSection = (
+    <section aria-label="Configuration fields" data-testid="designer-config">
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-[11px] text-base-content/60">Fields users fill in on each instance (shown in the inspector). Secrets hold a reference name only.</p>
+        <button type="button" className="btn btn-ghost btn-xs" data-testid="designer-add-prop" onClick={() => patch({ properties: [...d.properties, emptyProp()] })}><IconPlus size={12} />Add field</button>
+      </div>
+      <ul className="flex flex-col gap-1.5">
+        {d.properties.map((p) => (
+          <li key={p.key} className="rounded-box border border-base-300 p-1.5" data-testid="designer-prop">
+            <div className="flex items-center gap-1">
+              <input className="input input-xs min-w-0 flex-1" aria-label="Field label" placeholder="label, e.g. Max connections" maxLength={48} value={p.label} onChange={(e) => setProp(p.key, { label: e.target.value })} />
+              <select className="select select-xs w-24" aria-label="Field type" value={p.type} onChange={(e) => setProp(p.key, { type: e.target.value as DraftProp["type"] })}>{["string", "int", "bool", "enum", "secret"].map((t) => <option key={t}>{t}</option>)}</select>
+              <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Delete field" onClick={() => patch({ properties: d.properties.filter((x) => x.key !== p.key) })}><IconTrash size={12} /></button>
+            </div>
+            <div className="mt-1 grid grid-cols-2 gap-1">
+              {p.type === "bool"
+                ? <select className="select select-xs" aria-label="Default" value={p.default} onChange={(e) => setProp(p.key, { default: e.target.value })}><option value="">(no default)</option><option value="true">on</option><option value="false">off</option></select>
+                : <input className="input input-xs" aria-label="Default value" placeholder={p.type === "secret" ? "default reference name" : "default value"} value={p.default} onChange={(e) => setProp(p.key, { default: e.target.value })} />}
+              <input className="input input-xs" aria-label="Group" placeholder="group (optional)" maxLength={32} value={p.group} onChange={(e) => setProp(p.key, { group: e.target.value })} />
+              {p.type === "enum" && <input className="input input-xs col-span-2" aria-label="Options" placeholder="options, comma separated: a, b, c" value={p.options} onChange={(e) => setProp(p.key, { options: e.target.value })} />}
+              {p.type === "int" && <><input className="input input-xs" aria-label="Minimum" placeholder="min" value={p.min} onChange={(e) => setProp(p.key, { min: e.target.value })} /><input className="input input-xs" aria-label="Maximum" placeholder="max" value={p.max} onChange={(e) => setProp(p.key, { max: e.target.value })} /></>}
+              <input className="input input-xs col-span-2" aria-label="Description" placeholder="help text (optional)" maxLength={160} value={p.description} onChange={(e) => setProp(p.key, { description: e.target.value })} />
+            </div>
+            <label className="mt-1 flex items-center gap-1 text-[11px]"><input type="checkbox" className="checkbox checkbox-xs" checked={p.required} onChange={(e) => setProp(p.key, { required: e.target.checked })} />required</label>
+          </li>
+        ))}
+        {d.properties.length === 0 && <li className="text-xs text-base-content/50">No configuration fields yet.</li>}
+      </ul>
+    </section>
+  );
+
   return (
     <dialog className="modal modal-open" data-testid="designer" aria-labelledby="designer-title">
       <div className="modal-box flex max-h-[92vh] w-full max-w-4xl flex-col p-0">
@@ -130,9 +163,12 @@ export function ApplianceDesigner() {
             </fieldset>
             <Preview d={d} />
           </div>
-          <div className="flex flex-col gap-4">
-            {section("input", "Inputs (left jacks)")}
-            {section("output", "Outputs (right plugs)")}
+          <div className="flex flex-col gap-3">
+            <div role="tablist" className="tabs tabs-border">
+              <button role="tab" type="button" aria-selected={tab === "ports"} className={`tab ${tab === "ports" ? "tab-active" : ""}`} data-testid="designer-tab-ports" onClick={() => setTab("ports")}>Ports ({d.ports.length})</button>
+              <button role="tab" type="button" aria-selected={tab === "config"} className={`tab ${tab === "config" ? "tab-active" : ""}`} data-testid="designer-tab-config" onClick={() => setTab("config")}>Configuration ({d.properties.length})</button>
+            </div>
+            {tab === "ports" ? <div className="flex flex-col gap-4">{section("input", "Inputs (left jacks)")}{section("output", "Outputs (right plugs)")}</div> : configSection}
           </div>
         </div>
         {errors.length > 0 && <ul className="mx-5 mb-2 list-disc rounded-box border border-error/40 bg-error/5 py-2 pl-7 pr-3 text-xs text-error" role="alert" data-testid="designer-errors">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}

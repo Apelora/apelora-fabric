@@ -7,6 +7,7 @@ import {
   DENSITIES,
   LAYOUT_VERSION,
   PORT_TYPES,
+  PROPERTY_TYPES,
 } from "./constants";
 
 const portId = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/, "port id must be kebab-case");
@@ -21,6 +22,22 @@ export const PortSchema = z.object({
   optional: z.boolean(),
   multiplicity: z.enum(["one", "many"]),
   description: z.string().max(160).optional(),
+});
+
+const configValue = z.union([z.string().max(512), z.number().refine(Number.isFinite, "must be finite"), z.boolean()]);
+
+/** A typed, user-editable configuration field declared by an appliance class. Secrets hold a reference name, never the secret. */
+export const PropertySchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/, "property id must be lowercase letters, digits, - or _"),
+  label: z.string().min(1).max(48),
+  type: z.enum(PROPERTY_TYPES),
+  default: configValue.optional(),
+  required: z.boolean(),
+  description: z.string().max(160).optional(),
+  group: z.string().max(32).optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  options: z.array(z.string().min(1).max(48)).max(24).optional(),
 });
 
 export const ResourcesSchema = z.object({
@@ -39,6 +56,7 @@ export const ApplianceClassSchema = z.object({
   architectures: z.array(z.enum(ARCHITECTURES)).min(1),
   ports: z.array(PortSchema),
   resources: ResourcesSchema,
+  properties: z.array(PropertySchema).max(40).optional(),
   custom: z.boolean().optional(),
 });
 
@@ -48,6 +66,8 @@ export const ApplianceInstanceSchema = z.object({
   classRef: z.object({ name: entityId, version: z.string().min(1) }),
   resources: ResourcesSchema,
   ports: z.array(PortSchema),
+  /** Overrides of class property defaults; only changed values are stored. */
+  config: z.record(z.string(), configValue).optional(),
 });
 
 const EndpointSchema = z.object({ applianceId: entityId, portId });
@@ -87,6 +107,8 @@ export const ApplicationAssemblySchema = z.object({
 export type Port = z.infer<typeof PortSchema>;
 export type PortDirection = Port["direction"];
 export type PortType = Port["type"];
+export type Property = z.infer<typeof PropertySchema>;
+export type ConfigValue = z.infer<typeof configValue>;
 export type Resources = z.infer<typeof ResourcesSchema>;
 export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;

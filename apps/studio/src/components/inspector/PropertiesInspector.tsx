@@ -6,6 +6,7 @@ import { IconDown, IconTrash, IconUp, IconPlus, IconBox } from "../icons";
 import { draftFromPorts, useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useMemo } from "react";
 import { effectiveSize } from "@apelora/assembly-model";
+import { ConfigForm } from "./ConfigForm";
 
 function NumberField({ label, value, min, step, onCommit, testId }: { label: string; value: number; min: number; step: number; onCommit: (n: number) => void; testId: string }) {
   return (
@@ -98,6 +99,7 @@ export function PropertiesInspector() {
             <NumberField label="Memory MiB" value={app.resources.memoryMiB} min={64} step={64} testId="res-mem" onCommit={(n) => api.getState().setRes(app.id, { memoryMiB: n })} />
           </div>
         </section>
+        <ConfigForm app={app} />
         <PortSection appId={app.id} ports={app.ports} direction="input" />
         <PortSection appId={app.id} ports={app.ports} direction="output" />
         <section>
@@ -110,7 +112,7 @@ export function PropertiesInspector() {
             <ul className="flex flex-col gap-1">{mine.map((d, i) => <li key={i} className="text-xs"><span className={`badge badge-xs mr-1 ${d.severity === "error" ? "badge-error" : "badge-warning"}`}>{d.severity}</span>{d.message}{d.hint && <span className="block pl-1 text-base-content/60">{d.hint}</span>}</li>)}</ul>
           </section>
         )}
-        <button className="btn btn-sm btn-outline" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box"))}><IconBox size={14} />Save as custom appliance…</button>
+        <button className="btn btn-sm btn-outline" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom appliance…</button>
         <button className="btn btn-sm btn-outline" data-testid="delete-appliance" onClick={() => api.getState().deleteElements([app.id], [])}><IconTrash size={14} />Delete appliance</button>
       </div>
     );

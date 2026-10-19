@@ -3,6 +3,7 @@ import { useReactFlow } from "@xyflow/react";
 import type { Diagnostic } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
 import { IconAlert, IconCheck, IconChevron } from "../icons";
+import { ms } from "../../features/editor/motion";
 
 export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) {
   const api = useStudioApi();
@@ -14,7 +15,7 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
   const focus = (d: Diagnostic) => {
     if (!d.applianceId) return;
     api.getState().selectNode(d.applianceId);
-    void fitView({ nodes: [{ id: d.applianceId }], padding: 0.8, maxZoom: 1.2, duration: 250 });
+    void fitView({ nodes: [{ id: d.applianceId }], padding: 0.8, maxZoom: 1.2, duration: ms(250) });
   };
 
   return (

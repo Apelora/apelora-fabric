@@ -1,6 +1,7 @@
 import { useReactFlow } from "@xyflow/react";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { IconFit, IconFocus, IconGrid, IconMagnet, IconMinus, IconPlus } from "../icons";
+import { ms } from "../../features/editor/motion";
 
 export function CanvasStrip({ zoom }: { zoom: number }) {
   const api = useStudioApi();
@@ -34,11 +35,11 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
           <button className={`btn btn-xs join-item ${snap ? "btn-active" : ""}`} aria-pressed={snap} title="Snap to grid" aria-label="Snap to grid" onClick={() => api.getState().setSnap(!snap)}><IconMagnet size={14} /></button>
         </div>
         <div className="join" role="group" aria-label="Zoom">
-          <button className="btn btn-xs join-item" title="Zoom out (−)" aria-label="Zoom out" onClick={() => void zoomOut({ duration: 150 })}><IconMinus size={14} /></button>
+          <button className="btn btn-xs join-item" title="Zoom out (−)" aria-label="Zoom out" onClick={() => void zoomOut({ duration: ms(150) })}><IconMinus size={14} /></button>
           <span className="btn btn-xs join-item pointer-events-none w-12 font-normal tabular-nums" data-testid="zoom-level" aria-live="polite">{Math.round(zoom * 100)}%</span>
-          <button className="btn btn-xs join-item" title="Zoom in (+)" aria-label="Zoom in" onClick={() => void zoomIn({ duration: 150 })}><IconPlus size={14} /></button>
-          <button className="btn btn-xs join-item" title="Fit to view (F)" aria-label="Fit to view" onClick={() => void fitView({ padding: 0.2, maxZoom: 1.2, duration: 250 })}><IconFit size={14} /></button>
-          <button className="btn btn-xs join-item" title="Zoom to selection" aria-label="Zoom to selection" disabled={selected.length === 0} onClick={() => void fitView({ nodes: selected.map((id) => ({ id })), padding: 0.6, maxZoom: 1.5, duration: 250 })}><IconFocus size={14} /></button>
+          <button className="btn btn-xs join-item" title="Zoom in (+)" aria-label="Zoom in" onClick={() => void zoomIn({ duration: ms(150) })}><IconPlus size={14} /></button>
+          <button className="btn btn-xs join-item" title="Fit to view (F)" aria-label="Fit to view" onClick={() => void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) })}><IconFit size={14} /></button>
+          <button className="btn btn-xs join-item" title="Zoom to selection" aria-label="Zoom to selection" disabled={selected.length === 0} onClick={() => void fitView({ nodes: selected.map((id) => ({ id })), padding: 0.6, maxZoom: 1.5, duration: ms(250) })}><IconFocus size={14} /></button>
         </div>
       </div>
     </div>

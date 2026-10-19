@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack } from "./index";
 import {
-  addAppliance, addPort, alignNodes, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
+  addAppliance, addPort, alignNodes, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
 
@@ -169,5 +169,40 @@ describe("context-menu operations", () => {
     expect(new Set(l.editor.nodes.map((n) => n.x)).size).toBe(1);
     const t = alignNodes(a, ids, "top");
     expect(new Set(t.editor.nodes.map((n) => n.y)).size).toBe(1);
+  });
+});
+
+describe("configuration properties", () => {
+  const pg = lookupClass("postgresql", "1.0.0")!;
+  const prop = (id: string) => pg.properties!.find((p) => p.id === id)!;
+  it("validates each type with an actionable hint", () => {
+    expect(validateProperty(prop("max-connections"), 100)).toBeNull();
+    expect(validateProperty(prop("max-connections"), 5)?.message).toMatch(/at least 10/);
+    expect(validateProperty(prop("max-connections"), 12.5)?.message).toMatch(/whole number/);
+    expect(validateProperty(prop("version"), "99")?.hint).toMatch(/15, 16, 17/);
+    expect(validateProperty(prop("database"), "")?.message).toMatch(/required/);
+    expect(validateProperty(prop("password-secret"), "Hunter2 password!")?.hint).toMatch(/Never paste/);
+    expect(validateProperty(prop("password-secret"), "db-password")).toBeNull();
+  });
+  it("stores only overrides; defaults apply otherwise; reset removes them", () => {
+    let a = sampleCommerceStack();
+    const id = a.spec.appliances.find((x) => x.classRef.name === "postgresql")!.id;
+    expect(effectiveValue(prop("version"), a.spec.appliances.find((x) => x.id === id)!.config)).toBe("17");
+    a = setConfig(a, id, "version", "16");
+    expect(a.spec.appliances.find((x) => x.id === id)!.config).toEqual({ version: "16" });
+    a = setConfig(a, id, "version", undefined);
+    expect(a.spec.appliances.find((x) => x.id === id)!.config).toBeUndefined();
+    a = resetConfig(setConfig(a, id, "database", "shop"), id);
+    expect(a.spec.appliances.find((x) => x.id === id)!.config).toBeUndefined();
+  });
+  it("assembly validation reports invalid configuration and round-trips it", () => {
+    let a = sampleCommerceStack();
+    const id = a.spec.appliances.find((x) => x.classRef.name === "postgresql")!.id;
+    a = setConfig(a, id, "max-connections", 3);
+    expect(validateAssembly(a, lookup).some((d) => d.code === "config-invalid" && d.applianceId === id)).toBe(true);
+    a = setConfig(a, id, "max-connections", 250);
+    expect(validateAssembly(a, lookup)).toEqual([]);
+    const r = parseAssembly(serializeAssembly(a));
+    expect(r.ok && r.assembly.spec.appliances.find((x) => x.id === id)!.config).toEqual({ "max-connections": 250 });
   });
 });

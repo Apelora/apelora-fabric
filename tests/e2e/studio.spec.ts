@@ -196,7 +196,7 @@ test.describe("context menus", () => {
     await expect(menu(page)).toBeVisible();
     await expect(item(page, "rename")).toBeFocused();
     await page.keyboard.press("ArrowDown");
-    await expect(item(page, "duplicate")).toBeFocused();
+    await expect(item(page, "configure")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(menu(page)).toHaveCount(0);
     await page.keyboard.press("Control+d");
@@ -207,6 +207,164 @@ test.describe("context menus", () => {
     await expect(menu(page)).toBeVisible();
     await page.mouse.click(10, 500); // outside
     await expect(menu(page)).toHaveCount(0);
+  });
+});
+
+test.describe("configuration forms", () => {
+  const field = (page: import("@playwright/test").Page, id: string) => page.locator(`[data-testid=cfg-field][data-prop-id="${id}"]`);
+  const cfg = async (page: import("@playwright/test").Page, appId: string) => (await assemblyState(page)).spec.appliances.find((a) => a.id === appId)!.config;
+
+  test("typed fields: int, enum, bool, string, secret with validation, reset and persistence", async ({ page }) => {
+    await open(page);
+    await node(page, "postgresql-01").click();
+    await expect(page.getByTestId("config-form")).toBeVisible();
+    await expect(page.getByTestId("cfg-group")).toHaveCount(3);
+    expect(await cfg(page, "postgresql-01")).toBeUndefined(); // defaults only, nothing stored
+    // enum
+    await page.getByTestId("cfg-version").selectOption("16");
+    expect(await cfg(page, "postgresql-01")).toEqual({ version: "16" });
+    await expect(field(page, "version")).toHaveAttribute("data-modified", "true");
+    // picking the default again removes the override
+    await page.getByTestId("cfg-version").selectOption("17");
+    expect(await cfg(page, "postgresql-01")).toBeUndefined();
+    // int with range validation (the Limits and Access groups start collapsed)
+    await page.locator("[data-testid=cfg-group][data-group=Limits] summary").click();
+    await page.locator("[data-testid=cfg-group][data-group=Access] summary").click();
+    await page.getByTestId("cfg-max-connections").fill("5");
+    await page.getByTestId("cfg-max-connections").press("Enter");
+    await expect(field(page, "max-connections").getByTestId("cfg-error")).toContainText("at least 10");
+    await expect(page.getByTestId("error-count")).toBeVisible();
+    await expect(node(page, "postgresql-01")).toHaveAttribute("data-status", "error");
+    await page.getByTestId("cfg-max-connections").fill("250");
+    await page.getByTestId("cfg-max-connections").press("Enter");
+    await expect(field(page, "max-connections").getByTestId("cfg-error")).toHaveCount(0);
+    await expect(node(page, "postgresql-01")).toHaveAttribute("data-status", "ok");
+    // required string cannot be emptied silently (falls back to default); secret accepts references only
+    await page.getByTestId("cfg-password-secret").fill("My Real Password!");
+    await page.getByTestId("cfg-password-secret").press("Enter");
+    await expect(field(page, "password-secret").getByTestId("cfg-error")).toContainText("Never paste");
+    await page.getByTestId("cfg-password-secret").fill("shop-db-password");
+    await page.getByTestId("cfg-password-secret").press("Enter");
+    expect(await cfg(page, "postgresql-01")).toEqual({ "max-connections": 250, "password-secret": "shop-db-password" });
+    // survives reload; reset one, reset all
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("shop-db-password");
+    await page.reload();
+    await page.waitForSelector("[data-testid=appliance-node]");
+    await node(page, "postgresql-01").click();
+    await expect(page.getByTestId("cfg-max-connections")).toHaveValue("250");
+    await page.getByTestId("cfg-reset-max-connections").click();
+    expect(await cfg(page, "postgresql-01")).toEqual({ "password-secret": "shop-db-password" });
+    await page.getByTestId("cfg-reset-all").click();
+    expect(await cfg(page, "postgresql-01")).toBeUndefined();
+  });
+
+  test("bool toggle and string field; configuration is exported and imported", async ({ page }) => {
+    await open(page);
+    await node(page, "nginx-01").click();
+    await page.getByTestId("cfg-gzip").uncheck();
+    await page.getByTestId("cfg-server-name").fill("shop.example.test");
+    await page.getByTestId("cfg-server-name").press("Enter");
+    expect(await cfg(page, "nginx-01")).toEqual({ gzip: false, "server-name": "shop.example.test" });
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    expect(JSON.parse(text).spec.appliances.find((a: { id: string }) => a.id === "nginx-01").config).toEqual({ gzip: false, "server-name": "shop.example.test" });
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await page.waitForSelector("[data-testid=appliance-node]");
+    expect(await cfg(page, "nginx-01")).toEqual({ gzip: false, "server-name": "shop.example.test" });
+  });
+
+  test("context menu: Configure… focuses the form, Reset configuration restores defaults", async ({ page }) => {
+    await open(page);
+    await node(page, "haproxy-01").click();
+    await page.getByTestId("cfg-algorithm").selectOption("leastconn");
+    await node(page, "haproxy-01").click({ button: "right" });
+    await expect(page.getByTestId("menu-reset-config")).toContainText("1 changed");
+    await page.getByTestId("menu-configure").click();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.closest("[data-testid=config-form]") !== null)).toBe(true);
+    await node(page, "haproxy-01").click({ button: "right" });
+    await page.getByTestId("menu-reset-config").click();
+    expect(await cfg(page, "haproxy-01")).toBeUndefined();
+    await node(page, "gateway-01").click({ button: "right" });
+    await expect(page.getByTestId("menu-reset-config")).toBeDisabled();
+  });
+
+  test("designer: define configuration fields, reject bad defaults, create, configure an instance", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("designer-name").fill("Job runner");
+    await page.getByTestId("designer-tab-config").click();
+    // enum field with too few options is rejected
+    await page.getByTestId("designer-add-prop").click();
+    const p1 = page.getByTestId("designer-prop").nth(0);
+    await p1.getByLabel("Field label").fill("Mode");
+    await p1.getByLabel("Field type").selectOption("enum");
+    await p1.getByLabel("Options").fill("fast");
+    await page.getByTestId("designer-save").click();
+    await expect(page.getByTestId("designer-errors")).toContainText("at least two options");
+    await p1.getByLabel("Options").fill("fast, safe");
+    await p1.getByLabel("Default value").fill("safe");
+    await page.getByTestId("designer-add-prop").click();
+    const p2 = page.getByTestId("designer-prop").nth(1);
+    await p2.getByLabel("Field label").fill("Workers");
+    await p2.getByLabel("Field type").selectOption("int");
+    await p2.getByLabel("Minimum").fill("1");
+    await p2.getByLabel("Maximum").fill("8");
+    await p2.getByLabel("Default value").fill("20"); // outside the range
+    await page.getByTestId("designer-save").click();
+    await expect(page.getByTestId("designer-errors")).toContainText("at most 8");
+    await p2.getByLabel("Default value").fill("4");
+    await p2.locator("input[type=checkbox]").check();
+    await page.getByTestId("designer-save").click();
+    await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-job-runner]")).toBeVisible();
+    await page.locator("[data-testid=catalog-tile][data-class-id=custom-job-runner]").click();
+    await expect(page.getByTestId("cfg-mode")).toHaveValue("safe");
+    await expect(page.getByTestId("cfg-workers")).toHaveValue("4");
+    await page.getByTestId("cfg-workers").fill("9");
+    await page.getByTestId("cfg-workers").press("Enter");
+    await expect(field(page, "workers").getByTestId("cfg-error")).toContainText("at most 8");
+  });
+
+  test("save as custom appliance carries the configured values as new defaults", async ({ page }) => {
+    await open(page);
+    await page.locator("[data-testid=catalog-tile][data-class-id=redis]").click();
+    const id = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("redis"))!.id;
+    await page.getByTestId("cfg-maxmemory").fill("2048");
+    await page.getByTestId("cfg-maxmemory").press("Enter");
+    await page.getByTestId("save-as-class").click();
+    await page.getByTestId("designer-name").fill("Big cache");
+    await page.getByTestId("designer-tab-config").click();
+    await expect(page.getByTestId("designer-prop").first().getByLabel("Default value")).toHaveValue("2048");
+    await page.getByTestId("designer-save").click();
+    await page.locator("[data-testid=catalog-tile][data-class-id=custom-big-cache]").click();
+    const id2 = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("custom-big-cache"))!.id;
+    await node(page, id2).click();
+    await expect(page.getByTestId("cfg-maxmemory")).toHaveValue("2048");
+    void id;
+  });
+});
+
+test.describe("transitions", () => {
+  test("menus, dialogs, plugs and cables animate; reduced motion disables them", async ({ page }) => {
+    await open(page);
+    await node(page, "nginx-01").click({ button: "right" });
+    const anim = (sel: string) => page.locator(sel).first().evaluate((el) => { const c = getComputedStyle(el); return { name: c.animationName, dur: c.animationDuration }; });
+    expect((await anim("[data-testid=context-menu]")).name).toContain("apl-pop");
+    expect((await anim("[data-testid=plug-head]")).name).toContain("apl-plug-in");
+    expect((await anim(".react-flow__edge .apl-cable")).name).toContain("apl-draw");
+    await page.keyboard.press("Escape");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await node(page, "nginx-01").click({ button: "right" });
+    const d = await anim("[data-testid=context-menu]");
+    expect(parseFloat(d.dur)).toBeLessThan(0.001); // 0.01ms → seconds
+    // zoom-to-fit is instant under reduced motion: no intermediate viewport frames
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    const z0 = (await viewport(page)).zoom;
+    await page.getByRole("button", { name: "Zoom in" }).click();
+    expect((await viewport(page)).zoom).toBeGreaterThan(z0);
   });
 });
 

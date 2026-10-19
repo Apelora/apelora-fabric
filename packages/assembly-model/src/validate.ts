@@ -1,4 +1,5 @@
 import { portTypesCompatible } from "./compat";
+import { effectiveValue, validateProperty } from "./config";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, Endpoint, Port } from "./schema";
 
 export type Severity = "error" | "warning";
@@ -66,6 +67,10 @@ export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLoo
     for (const p of a.ports) {
       if (portIds.has(p.id)) out.push({ severity: "error", code: "duplicate-port", message: `${a.name} has two ports with id "${p.id}".`, hint: "Port ids must be unique per appliance.", applianceId: a.id, portId: p.id });
       portIds.add(p.id);
+    }
+    for (const prop of cls?.properties ?? []) {
+      const problem = validateProperty(prop, effectiveValue(prop, a.config));
+      if (problem) out.push({ severity: "error", code: "config-invalid", message: `${a.name}: ${problem.message}`, hint: problem.hint, applianceId: a.id });
     }
     if (a.resources.cpu > 32 || a.resources.memoryMiB > 131072)
       out.push({ severity: "warning", code: "resources-high", message: `${a.name} requests ${a.resources.cpu} vCPU / ${a.resources.memoryMiB} MiB.`, hint: "Check the request against your target hosts.", applianceId: a.id });

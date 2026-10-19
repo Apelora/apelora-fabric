@@ -29,3 +29,4 @@ export const CATEGORIES = [
 
 export const ARCHITECTURES = ["x86_64", "aarch64"] as const;
 export const DENSITIES = ["compact", "comfortable", "expanded"] as const;
+export const PROPERTY_TYPES = ["string", "int", "bool", "enum", "secret"] as const;

@@ -31,3 +31,7 @@ The manifest is the contract shared by Studio (TypeScript), Controller and Node 
 - Fixtures and schema tests pass
 - Existing catalog entries still validate
 - `docs/` updated if the shape changed
+
+## Configuration properties
+
+Classes may declare `properties` (typed fields: string, int, bool, enum, secret; default, required, min/max, options, group, description). Instances store only overrides in `config`. `secret` fields hold a reference name, never the secret. Property ids are stable identifiers; never derive them again from a renamed label. Validation lives in `packages/assembly-model/src/config.ts`.

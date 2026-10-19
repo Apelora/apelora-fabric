@@ -14,7 +14,7 @@ export function CableEdge({ id, sourceX, sourceY, targetX, targetY, sourcePositi
   return (
     <>
       <path d={path} fill="none" className="apl-cable-outline" style={{ stroke: data?.invalid ? "var(--color-error)" : cableOutline(type) }} />
-      <BaseEdge id={id} path={path} interactionWidth={18} className={`apl-cable ${data?.invalid ? "apl-cable-invalid" : ""}`} style={{ stroke: color }} />
+      <BaseEdge id={id} path={path} pathLength={1} interactionWidth={18} className={`apl-cable ${data?.invalid ? "apl-cable-invalid" : ""}`} style={{ stroke: color }} />
       <path d={`M ${tx - 9} ${targetY - 2.6} L ${tx - 2.5} ${targetY} L ${tx - 9} ${targetY + 2.6} Z`} fill={color} className="apl-cable-arrow" />
       {data?.label && (
         <EdgeLabelRenderer>

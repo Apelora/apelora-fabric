@@ -143,6 +143,81 @@
       ],
       "additionalProperties": false
     },
+    "properties": {
+      "maxItems": 40,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,47}$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 48
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "int",
+              "bool",
+              "enum",
+              "secret"
+            ]
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "group": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "options": {
+            "maxItems": 24,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 48
+            }
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "type",
+          "required"
+        ],
+        "additionalProperties": false
+      }
+    },
     "custom": {
       "type": "boolean"
     }

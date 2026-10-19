@@ -14,6 +14,7 @@ import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
 import { ValidationPanel } from "../validation/ValidationPanel";
 import { ContextMenu } from "./ContextMenu";
+import { ms } from "../../features/editor/motion";
 
 const nodeTypes = { appliance: ApplianceNode };
 const edgeTypes = { cable: CableEdge };
@@ -73,7 +74,7 @@ export function AssemblyWorkspace() {
     return () => cancelAnimationFrame(raf);
   }, [fitView]);
   useEffect(() => {
-    if (fitNonce > 0) { const t = setTimeout(() => void fitView({ padding: 0.2, maxZoom: 1.2, duration: 250 }), 60); return () => clearTimeout(t); }
+    if (fitNonce > 0) { const t = setTimeout(() => void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), 60); return () => clearTimeout(t); }
   }, [fitNonce, fitView]);
 
   const diagnostics = useMemo(() => diagnosticsFor(assembly), [assembly]);

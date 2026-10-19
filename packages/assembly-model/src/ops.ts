@@ -1,7 +1,7 @@
 import { API_VERSION, ASSEMBLY_KIND, LAYOUT_VERSION } from "./constants";
 import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
-import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
+import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
 export function slug(input: string): string {
   const s = input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -286,4 +286,20 @@ export function alignNodes(a: ApplicationAssembly, ids: readonly string[], mode:
       }),
     },
   };
+}
+
+/** Sets one configuration override; `undefined` removes it so the class default applies again. */
+export function setConfig(a: ApplicationAssembly, applianceId: string, key: string, value: ConfigValue | undefined): ApplicationAssembly {
+  return updateAppliance(a, applianceId, (x) => {
+    const next = { ...(x.config ?? {}) };
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+    const { config: _old, ...rest } = x;
+    void _old;
+    return Object.keys(next).length ? { ...rest, config: next } : rest;
+  });
+}
+
+export function resetConfig(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
+  return updateAppliance(a, applianceId, (x) => { const { config: _old, ...rest } = x; void _old; return rest; });
 }

@@ -83,7 +83,7 @@ export function ApplianceCatalog() {
                 <span className="truncate">{cat}</span>
                 <span className="ml-1 flex items-center gap-1 font-normal normal-case tracking-normal text-base-content/50">{items.length}<span className={`inline-block transition-transform ${open ? "rotate-90" : ""}`}>›</span></span>
               </button>
-              {open && <div className="grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
+              {open && <div className="apl-catalog-grid grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
             </div>
           );
         })}

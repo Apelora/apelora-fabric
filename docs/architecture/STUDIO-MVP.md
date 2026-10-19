@@ -2,6 +2,8 @@
 
 Status: implemented as milestone M1/M2/M3 in `apps/studio`; backend work has **not** started.
 
+See also [STUDIO-UI-SPEC.md](STUDIO-UI-SPEC.md) for the interface specification (layout, interactions, configuration forms, designer, motion, accessibility).
+
 ## Scope
 
 A browser application to compose, validate, inspect, version and export application assemblies from a catalog of virtual appliances. Everything is local: state lives in memory and `localStorage`; nothing is deployed.

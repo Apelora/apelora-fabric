@@ -25,6 +25,11 @@
 }
 
 :root {
+  /* Motion tokens (mirrored in features/editor/motion.ts) */
+  --apl-dur-fast: 120ms;
+  --apl-dur: 180ms;
+  --apl-dur-slow: 260ms;
+  --apl-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
   --apl-canvas: #f7f7f8;
   --apl-canvas-border: #e5e5e7;
   --apl-canvas-strip: #f1f1f3;
@@ -114,7 +119,7 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-canvas-frame[data-cable="cable"] .react-flow__edge.selected .apl-cable-outline { stroke-width: 5.6; }
 .react-flow__edge:hover .apl-cable-outline, .react-flow__edge.selected .apl-cable-outline { filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-base-content) 35%, transparent)); }
 .react-flow__edge .apl-cable-outline { stroke-linecap: round; transition: filter 120ms ease; }
-.apl-cable-invalid { stroke-dasharray: 6 4; }
+.apl-cable-invalid { stroke-dasharray: 0.03 0.02; }
 .react-flow__connection-path { stroke: var(--color-base-content); stroke-width: 2; stroke-dasharray: 4 3; }
 .apl-link-label {
   position: absolute; pointer-events: none; font-size: 9px; line-height: 1; padding: 2px 4px; border-radius: 4px;
@@ -130,6 +135,29 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-plug-count[data-side="input"] { left: -9px; }
 .apl-plug-count[data-side="output"] { right: -9px; }
 
+/* ---- transitions and enter animations ---- */
+@keyframes apl-pop { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes apl-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes apl-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes apl-drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes apl-draw { from { stroke-dasharray: 1; stroke-dashoffset: 1; } to { stroke-dasharray: 1; stroke-dashoffset: 0; } }
+@keyframes apl-plug-in-left { from { translate: -6px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+@keyframes apl-plug-in-right { from { translate: 6px 0; opacity: 0; } to { translate: 0 0; opacity: 1; } }
+
+[data-testid="context-menu"], [data-testid="context-submenu"] { transform-origin: top left; animation: apl-pop var(--apl-dur-fast) var(--apl-ease); }
+.modal-open .modal-box { animation: apl-pop var(--apl-dur) var(--apl-ease); }
+.modal-open .modal-backdrop { animation: apl-fade var(--apl-dur) ease; }
+.toast > .alert { animation: apl-rise var(--apl-dur) var(--apl-ease); }
+.apl-node { animation: apl-fade var(--apl-dur) ease; transition: border-color var(--apl-dur-fast) ease, box-shadow var(--apl-dur-fast) ease; }
+.apl-plug[data-side="input"] { animation: apl-plug-in-left var(--apl-dur) var(--apl-ease); }
+.apl-plug[data-side="output"] { animation: apl-plug-in-right var(--apl-dur) var(--apl-ease); }
+.react-flow__edge .apl-cable, .react-flow__edge .apl-cable-outline { animation: apl-draw var(--apl-dur-slow) ease-out; }
+.react-flow__edge .apl-cable { transition: stroke-width var(--apl-dur-fast) ease; }
+.apl-link-label, .apl-cable-arrow { animation: apl-fade var(--apl-dur-slow) ease; }
+.apl-catalog-grid { animation: apl-drop var(--apl-dur-fast) var(--apl-ease); }
+.apl-details[open] > div { animation: apl-drop var(--apl-dur-fast) var(--apl-ease); }
+[data-testid="diagnostics"], [data-testid="inspector-appliance"], [data-testid="inspector-connection"], [data-testid="inspector-assembly"] { animation: apl-fade var(--apl-dur-fast) ease; }
+
 @media (prefers-reduced-motion: reduce) {
-  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
