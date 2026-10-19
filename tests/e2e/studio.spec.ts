@@ -1,14 +1,16 @@
 import { readFileSync } from "node:fs";
 import { APPLIANCE_CLASSES } from "../../packages/appliance-catalog/src/classes";
 import { test } from "@playwright/test";
-import { addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
+import { openProps, addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
 
 const rgb = (page: import("@playwright/test").Page, sel: string, prop = "backgroundColor") => (prop === "backgroundColor" ? resolvedColor(page, sel) : page.locator(sel).first().evaluate((el, p) => getComputedStyle(el)[p as "color"], prop));
 
 test.describe("visual contract", () => {
-  test("white catalog and inspector around a distinct light-gray framed canvas", async ({ page }) => {
+  test("white catalog and properties window around a distinct light-gray framed canvas; no always-on inspector", async ({ page }) => {
     await open(page);
+    await expect(page.getByTestId("inspector")).toHaveCount(0); // properties are opened on demand
     expect(await rgb(page, "[data-testid=catalog]")).toBe("rgb(255, 255, 255)");
+    await openProps(page, "nginx-01");
     expect(await rgb(page, "[data-testid=inspector]")).toBe("rgb(255, 255, 255)");
     expect(await rgb(page, "[data-testid=canvas-frame]")).toBe("rgb(247, 247, 248)");
     expect(await rgb(page, "[data-testid=canvas-frame]", "borderTopLeftRadius")).toBe("12px");
@@ -16,8 +18,13 @@ test.describe("visual contract", () => {
     expect(cat.width).toBeGreaterThanOrEqual(160);
     expect(cat.width).toBeLessThanOrEqual(200);
     const insp = await center(page.getByTestId("inspector"));
-    expect(insp.width).toBeGreaterThanOrEqual(210);
-    expect(insp.width).toBeLessThanOrEqual(270);
+    expect(insp.width).toBeGreaterThanOrEqual(380);
+    expect(insp.width).toBeLessThanOrEqual(440);
+    await page.getByTestId("props-close").click();
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+    // the canvas now spans the full width right of the catalog
+    const frame = await center(page.getByTestId("canvas-frame"));
+    expect(frame.width).toBeGreaterThan(1100);
     await expect(page.getByTestId("mock-badge")).toContainText("Design only");
   });
 
@@ -150,7 +157,7 @@ test.describe("context menus", () => {
     await page.mouse.click(p.x, p.y + 0, { button: "right" });
     await expect(menu(page)).toContainText("gateway-01.lan → haproxy-01.in");
     await item(page, "select-target").click();
-    await expect(page.getByTestId("instance-name")).toHaveValue("haproxy-01");
+    await expect(node(page, "haproxy-01")).toHaveAttribute("data-selected", "true");
     const q = await cablePoint(page, "conn-01", 0.5);
     await page.mouse.click(q.x, q.y, { button: "right" });
     await item(page, "delete").click();
@@ -173,7 +180,7 @@ test.describe("context menus", () => {
     expect(Math.abs(c.y - at.y)).toBeLessThan(3);
     // copy it, paste elsewhere via the canvas menu
     await page.keyboard.press("Control+c");
-    const at2 = { x: canvas.x + canvas.width * 0.6, y: canvas.y + canvas.height * 0.82 };
+    const at2 = { x: canvas.x + canvas.width * 0.55, y: canvas.y + canvas.height * 0.92 };
     await page.mouse.click(at2.x, at2.y, { button: "right" });
     await item(page, "paste").click();
     const st2 = await assemblyState(page);
@@ -184,7 +191,7 @@ test.describe("context menus", () => {
     // select all, view toggles
     await page.mouse.click(at.x, at.y - 60, { button: "right" });
     await item(page, "select-all").click();
-    await expect(page.getByTestId("inspector-assembly")).toContainText("appliances selected");
+    await expect(page.getByTestId("selection-info")).toContainText("selected");
     await page.mouse.click(at.x, at.y - 60, { button: "right" });
     await item(page, "labels").click();
     await expect(page.getByTestId("port-label").first()).toBeHidden();
@@ -195,15 +202,15 @@ test.describe("context menus", () => {
     await node(page, "nginx-01").click();
     await page.keyboard.press("ContextMenu");
     await expect(menu(page)).toBeVisible();
-    await expect(item(page, "rename")).toBeFocused();
+    await expect(item(page, "properties")).toBeFocused();
     await page.keyboard.press("ArrowDown");
-    await expect(item(page, "configure")).toBeFocused();
+    await expect(item(page, "rename")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(menu(page)).toHaveCount(0);
     await page.keyboard.press("Control+d");
     expect((await assemblyState(page)).spec.appliances.length).toBe(7);
     await page.keyboard.press("Control+a");
-    await expect(page.getByTestId("inspector-assembly")).toContainText("7 appliances selected");
+    await expect(page.getByTestId("selection-info")).toContainText("7 selected");
     await node(page, "gateway-01").click({ button: "right" });
     await expect(menu(page)).toBeVisible();
     await page.mouse.click(10, 500); // outside
@@ -217,7 +224,7 @@ test.describe("configuration forms", () => {
 
   test("typed fields: int, enum, bool, string, secret with validation, reset and persistence", async ({ page }) => {
     await open(page);
-    await node(page, "postgresql-01").click();
+    await openProps(page, "postgresql-01", "config");
     await expect(page.getByTestId("config-form")).toBeVisible();
     await expect(page.getByTestId("cfg-group")).toHaveCount(3);
     expect(await cfg(page, "postgresql-01")).toBeUndefined(); // defaults only, nothing stored
@@ -251,7 +258,7 @@ test.describe("configuration forms", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("shop-db-password");
     await page.reload();
     await page.waitForSelector("[data-testid=appliance-node]");
-    await node(page, "postgresql-01").click();
+    await openProps(page, "postgresql-01", "config");
     await expect(page.getByTestId("cfg-max-connections")).toHaveValue("250");
     await page.getByTestId("cfg-reset-max-connections").click();
     expect(await cfg(page, "postgresql-01")).toEqual({ "password-secret": "shop-db-password" });
@@ -261,7 +268,7 @@ test.describe("configuration forms", () => {
 
   test("bool toggle and string field; configuration is exported and imported", async ({ page }) => {
     await open(page);
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01", "config");
     await page.getByTestId("cfg-gzip").uncheck();
     await page.getByTestId("cfg-server-name").fill("shop.example.test");
     await page.getByTestId("cfg-server-name").press("Enter");
@@ -279,7 +286,7 @@ test.describe("configuration forms", () => {
 
   test("context menu: Configure… focuses the form, Reset configuration restores defaults", async ({ page }) => {
     await open(page);
-    await node(page, "haproxy-01").click();
+    await openProps(page, "haproxy-01", "config");
     await page.getByTestId("cfg-algorithm").selectOption("leastconn");
     await node(page, "haproxy-01").click({ button: "right" });
     await expect(page.getByTestId("menu-reset-config")).toContainText("1 changed");
@@ -321,6 +328,7 @@ test.describe("configuration forms", () => {
     await page.getByTestId("designer-save").click();
     await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-job-runner]")).toBeVisible();
     await page.locator("[data-testid=catalog-tile][data-class-id=custom-job-runner]").click();
+    await openProps(page, "custom-job-runner-01", "config");
     await expect(page.getByTestId("cfg-mode")).toHaveValue("safe");
     await expect(page.getByTestId("cfg-workers")).toHaveValue("4");
     await page.getByTestId("cfg-workers").fill("9");
@@ -332,8 +340,10 @@ test.describe("configuration forms", () => {
     await open(page);
     await page.locator("[data-testid=catalog-tile][data-class-id=redis]").click();
     const id = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("redis"))!.id;
+    await openProps(page, id, "config");
     await page.getByTestId("cfg-maxmemory").fill("2048");
     await page.getByTestId("cfg-maxmemory").press("Enter");
+    await page.getByTestId("props-tab-general").click();
     await page.getByTestId("save-as-class").click();
     await page.getByTestId("designer-name").fill("Big cache");
     await page.getByTestId("designer-tab-config").click();
@@ -341,7 +351,7 @@ test.describe("configuration forms", () => {
     await page.getByTestId("designer-save").click();
     await page.locator("[data-testid=catalog-tile][data-class-id=custom-big-cache]").click();
     const id2 = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("custom-big-cache"))!.id;
-    await node(page, id2).click();
+    await openProps(page, id2, "config");
     await expect(page.getByTestId("cfg-maxmemory")).toHaveValue("2048");
     void id;
   });
@@ -388,11 +398,6 @@ test.describe("category colours and cable routing", () => {
 
 test.describe("network interface and link tags", () => {
   const stubs = (page: import("@playwright/test").Page, tag?: string) => page.locator(tag ? `[data-testid=tag-stub][data-tag="${tag}"]` : "[data-testid=tag-stub]");
-  const addByClick = async (page: import("@playwright/test").Page, cls: string) => {
-    const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
-    await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).click();
-    return (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !before.includes(id))!;
-  };
 
   const dropAt = async (page: import("@playwright/test").Page, cls: string, fx: number, fy: number) => {
     const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
@@ -407,16 +412,16 @@ test.describe("network interface and link tags", () => {
       await expect(handle(page, id, "net")).toHaveAttribute("aria-label", /net \(network\).*single cable/);
       await expect(node(page, id).getByTestId("nic-led")).toHaveAttribute("data-linked", "false");
     }
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01");
     await expect(page.getByTestId("nic-status")).toHaveText("default network");
     // plug it into a Network appliance by cable
-    const net = await addByClick(page, "network");
+    const net = await dropAt(page, "network", 0.12, 0.85);
     await dragHandle(page, handle(page, net, "net"), handle(page, "nginx-01", "net"));
     await expect(node(page, "nginx-01").getByTestId("nic-led")).toHaveAttribute("data-linked", "true");
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01");
     await expect(page.getByTestId("nic-status")).toContainText(`${net} (cable)`);
     // a NIC takes one network: a second cable is refused
-    const net2 = await addByClick(page, "network");
+    const net2 = await dropAt(page, "network", 0.3, 0.88);
     const before = await edgeCount(page);
     await dragHandle(page, handle(page, net2, "net"), handle(page, "nginx-01", "net"));
     expect(await edgeCount(page)).toBe(before);
@@ -424,7 +429,7 @@ test.describe("network interface and link tags", () => {
     await dragHandle(page, handle(page, net2, "net"), handle(page, "haproxy-01", "frontend"));
     expect(await edgeCount(page)).toBe(before);
     // the net terminal cannot be deleted
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01", "ports");
     await expect(page.locator("[data-testid=port-row][data-port-id=net] [data-testid=delete-port]")).toBeDisabled();
   });
 
@@ -435,20 +440,21 @@ test.describe("network interface and link tags", () => {
     const edges = await edgeCount(page);
     await expect(handle(page, redis, "redis")).toBeVisible();
     // tag the redis input first: no source yet → warning
-    await node(page, redis).click();
+    await openProps(page, redis, "ports");
     await page.locator("[data-testid=port-row][data-port-id=redis] [data-testid=port-tag]").fill("cache");
     await page.locator("[data-testid=port-row][data-port-id=redis] [data-testid=port-tag]").press("Enter");
     await expect(stubs(page, "cache")).toHaveCount(1);
     await page.getByTestId("validation-toggle").click();
     await expect(page.getByTestId("diagnostics")).toContainText("nothing feeds it");
-    await node(page, node1).click();
+    await openProps(page, node1, "ports");
     await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").fill("cache");
     await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").press("Enter");
     await expect(stubs(page, "cache")).toHaveCount(2);
     expect(await edgeCount(page)).toBe(edges); // no cable drawn
     await expect(handle(page, node1, "cache").getByTestId("plug-head")).toHaveAttribute("data-type", "redis");
     await expect(page.getByTestId("diagnostics")).not.toContainText("nothing feeds it");
-    // hovering one stub highlights the other
+    // hovering one stub highlights the other (close the properties window first: it floats over the canvas)
+    await page.getByTestId("props-close").click();
     await stubs(page, "cache").first().hover();
     await expect(stubs(page, "cache").nth(1)).toHaveAttribute("data-hot", "true");
     // selecting the tag shows its members; convert to a cable
@@ -476,11 +482,11 @@ test.describe("network interface and link tags", () => {
     await open(page);
     const nodejs = await dropAt(page, "nodejs", 0.1, 0.8);
     const web = await dropAt(page, "nginx", 0.55, 0.8);
-    await node(page, nodejs).click();
+    await openProps(page, nodejs, "ports");
     await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").fill("link-a");
     await page.locator("[data-testid=port-row][data-port-id=cache] [data-testid=port-tag]").press("Enter");
     await expect(stubs(page, "link-a")).toHaveCount(1);
-    await node(page, web).click();
+    await openProps(page, web, "ports");
     await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").fill("link-a");
     await page.locator("[data-testid=port-row][data-port-id=http] [data-testid=port-tag]").press("Enter");
     await expect(page.getByTestId("toast").last()).toContainText(/cannot feed/);
@@ -504,7 +510,7 @@ test.describe("network interface and link tags", () => {
     await expect(stubs(page, "lan")).toHaveCount(7);
     await expect(page.getByTestId("nic-led").first()).toHaveAttribute("data-linked", "true");
     await expect(page.getByTestId("validation-panel")).toContainText("No issues");
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01");
     await expect(page.getByTestId("nic-status")).toContainText("(tag lan)");
     const dl = page.waitForEvent("download");
     await page.getByTestId("export").click();
@@ -565,6 +571,7 @@ test.describe("components", () => {
     const comp = node(page, "custom-web-tier-01");
     await expect(comp.getByTestId("component-badge")).toContainText("3");
     await expect(comp).toHaveAttribute("data-component", "true");
+    await openProps(page, "custom-web-tier-01");
     await expect(page.getByTestId("component-contents")).toContainText("haproxy-01");
     await expect(page.getByTestId("validation-panel")).toContainText("No issues");
     await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]")).toBeVisible();
@@ -610,7 +617,7 @@ test.describe("components", () => {
     await page.keyboard.press("Control+g");
     await page.getByTestId("component-name").fill("Web tier");
     await page.getByTestId("component-create").click();
-    await node(page, "custom-web-tier-01").click();
+    await openProps(page, "custom-web-tier-01");
     await expect(page.getByTestId("nic-status")).toContainText("(tag lan)");
     await expect(page.getByTestId("validation-panel")).toContainText("No issues");
     await expect(page.locator("[data-testid=tag-stub][data-tag=lan]")).toHaveCount(5); // network, gateway, component, postgres, grafana
@@ -638,6 +645,343 @@ test.describe("components", () => {
     await node(page, "custom-web-tier-01").click({ button: "right" });
     await page.getByTestId("menu-ungroup").click();
     expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+  });
+});
+
+test.describe("selection and pan tools", () => {
+  test("select tool: drag a box to select several; Shift/Ctrl-click add; pan tool and Space pan the view", async ({ page }) => {
+    await open(page);
+    await expect(page.getByTestId("tool-select")).toHaveAttribute("aria-pressed", "true");
+    const b1 = (await node(page, "nginx-01").boundingBox())!;
+    const b2 = (await node(page, "nginx-02").boundingBox())!;
+    const vp0 = await viewport(page);
+    // rubber-band from empty canvas around both web servers
+    await page.mouse.move(b1.x - 24, b1.y - 24);
+    await page.mouse.down();
+    await page.mouse.move(b2.x + b2.width + 24, b2.y + b2.height + 24, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.getByTestId("selection-info")).toHaveText("2 selected");
+    await expect(node(page, "nginx-01")).toHaveAttribute("data-selected", "true");
+    await expect(node(page, "nginx-02")).toHaveAttribute("data-selected", "true");
+    await expect(node(page, "haproxy-01")).toHaveAttribute("data-selected", "false");
+    expect(await viewport(page)).toEqual(vp0); // selecting did not pan
+    // Shift-click and Ctrl-click add to the selection
+    await node(page, "haproxy-01").click({ modifiers: ["Shift"] });
+    await expect(page.getByTestId("selection-info")).toHaveText("3 selected");
+    await node(page, "grafana-01").click({ modifiers: ["Control"] });
+    await expect(page.getByTestId("selection-info")).toHaveText("4 selected");
+    await page.mouse.click(b1.x - 60, b1.y - 60); // empty canvas clears
+    await expect(page.getByTestId("selection-info")).toHaveCount(0);
+
+    // pan tool: dragging empty canvas moves the view
+    await page.getByTestId("tool-pan").click();
+    await expect(page.getByTestId("tool-pan")).toHaveAttribute("aria-pressed", "true");
+    await page.mouse.move(b1.x - 60, b1.y - 60);
+    await page.mouse.down();
+    await page.mouse.move(b1.x + 20, b1.y + 10, { steps: 6 });
+    await page.mouse.up();
+    const panned = await viewport(page);
+    expect(panned.x).toBeGreaterThan(vp0.x + 40);
+    // keyboard: V selects, H pans, Space pans temporarily
+    await page.keyboard.press("v");
+    await expect(page.getByTestId("tool-select")).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("h");
+    await expect(page.getByTestId("tool-pan")).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("v");
+    await page.keyboard.down("Space");
+    await page.mouse.move(b1.x - 60, b1.y - 60);
+    await page.mouse.down();
+    await page.mouse.move(b1.x - 20, b1.y - 40, { steps: 5 });
+    await page.mouse.up();
+    await page.keyboard.up("Space");
+    expect((await viewport(page)).x).toBeGreaterThan(panned.x + 20);
+    await expect(page.getByTestId("selection-info")).toHaveCount(0);
+  });
+});
+
+test.describe("properties window", () => {
+  test("opens on demand (double-click, Enter, context menu), not as a permanent sidebar; tabs; drag; Esc; follows deletion", async ({ page }) => {
+    await open(page);
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+    await node(page, "nginx-01").click(); // selecting alone does not open it
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("props-title")).toHaveText("nginx-01");
+    await page.getByTestId("props-close").click();
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+
+    await node(page, "postgresql-01").click({ button: "right" });
+    await expect(page.getByTestId("menu-properties")).toBeVisible();
+    await expect(page.getByTestId("context-menu").getByRole("menuitem").first()).toContainText("Properties");
+    await page.getByTestId("menu-properties").click();
+    await expect(page.getByTestId("props-title")).toHaveText("postgresql-01");
+    await expect(page.getByTestId("inspector")).toContainText("PostgreSQL");
+
+    // tabs: general, configuration (n), ports (n), issues
+    await expect(page.getByTestId("props-tab-config")).toContainText("(4)");
+    await page.getByTestId("props-tab-config").click();
+    await expect(page.getByTestId("config-form")).toBeVisible();
+    await page.getByTestId("props-tab-ports").click();
+    await expect(page.getByTestId("port-row")).toHaveCount(3);
+    await page.getByTestId("props-tab-issues").click();
+    await expect(page.getByTestId("no-issues")).toBeVisible();
+    await page.getByTestId("props-tab-general").click();
+    await expect(page.getByTestId("instance-name")).toHaveValue("postgresql-01");
+
+    // it stays within the viewport and is draggable; the new position is remembered
+    const box = (await page.getByTestId("inspector").boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(900 + 1);
+    const hdr = (await page.getByTestId("props-header").boundingBox())!;
+    await page.mouse.move(hdr.x + 60, hdr.y + 14);
+    await page.mouse.down();
+    await page.mouse.move(hdr.x + 60 - 300, hdr.y + 14 + 60, { steps: 6 });
+    await page.mouse.up();
+    const moved = (await page.getByTestId("inspector").boundingBox())!;
+    expect(moved.x).toBeLessThan(box.x - 250);
+    // the canvas stays usable while it is open: clicking another appliance selects it, the window stays on its target
+    await node(page, "gateway-01").click();
+    await expect(node(page, "gateway-01")).toHaveAttribute("data-selected", "true");
+    await expect(page.getByTestId("props-title")).toHaveText("postgresql-01");
+    // double-click retargets it
+    await node(page, "grafana-01").dblclick();
+    await expect(page.getByTestId("props-title")).toHaveText("grafana-01");
+    const again = (await page.getByTestId("inspector").boundingBox())!;
+    expect(Math.abs(again.x - moved.x)).toBeLessThan(3); // remembered position
+    // Esc closes; the window also closes when its appliance is deleted
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+    await openProps(page, "grafana-01");
+    await page.getByTestId("delete-appliance").click();
+    await expect(page.getByTestId("inspector")).toHaveCount(0);
+  });
+
+  test("cable, tag and assembly properties windows", async ({ page }) => {
+    await open(page);
+    const pt = await cablePoint(page, "conn-01", 0.5);
+    await page.mouse.dblclick(pt.x, pt.y);
+    await expect(page.getByTestId("inspector-connection")).toContainText("gateway-01");
+    await page.getByTestId("props-close").click();
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    await page.mouse.click(canvas.x + 60, canvas.y + 60, { button: "right" });
+    await page.getByTestId("menu-assembly-props").click();
+    await expect(page.getByTestId("inspector-assembly")).toContainText("Appliances");
+    await expect(page.getByTestId("inspector-assembly")).toContainText("6");
+  });
+});
+
+test.describe("zones and shapes", () => {
+  const shapeBox = async (page: import("@playwright/test").Page, id: string) => (await page.locator(`[data-testid=shape-node][data-shape-id="${id}"]`).boundingBox())!;
+  const shapes = async (page: import("@playwright/test").Page) => (await assemblyState(page)).editor.shapes ?? [];
+  const wrapWebTier = async (page: import("@playwright/test").Page, kind = "rect") => {
+    await node(page, "haproxy-01").click();
+    await node(page, "nginx-01").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ button: "right" });
+    await page.getByTestId("menu-wrap").click();
+    await page.getByTestId(`menu-wrap-${kind}`).click();
+  };
+
+  test("add the four shapes from the Zones menu; each is selectable and editable", async ({ page }) => {
+    await open(page);
+    for (const kind of ["rect", "ellipse", "rounded", "triangle"]) {
+      await page.getByTestId("shapes-button").click();
+      await page.getByTestId(`add-shape-${kind}`).click();
+      await expect(page.locator(`[data-testid=shape-node][data-kind=${kind}]`)).toHaveCount(1);
+    }
+    const sh = await shapes(page);
+    expect(sh.map((x) => x.kind)).toEqual(["rect", "ellipse", "rounded", "triangle"]);
+    expect(new Set(sh.map((x) => x.fill)).size).toBe(4); // modern palette cycles through hues
+    expect(sh.find((x) => x.kind === "rounded")!.radius).toBeGreaterThan(0);
+    // the label is a handle: double-clicking it opens the shape editor
+    await page.locator("[data-testid=shape-node][data-kind=triangle] [data-testid=shape-label]").dblclick();
+    await expect(page.getByTestId("inspector")).toHaveAttribute("data-kind", "shape");
+    await expect(page.getByTestId("shape-kind").locator("[data-kind=triangle]")).toHaveAttribute("aria-checked", "true");
+  });
+
+  test("wrap a selection in a zone: sits behind appliances, wraps them, opens the label editor; cables stay clickable", async ({ page }) => {
+    await open(page);
+    await wrapWebTier(page, "rounded");
+    await expect(page.getByTestId("shape-label-input")).toBeVisible();
+    await page.getByTestId("shape-label-input").fill("Web tier");
+    await expect(page.getByTestId("shape-label")).toHaveText("Web tier");
+    const z = await shapeBox(page, "shape-01");
+    for (const id of ["haproxy-01", "nginx-01", "nginx-02"]) {
+      const b = (await node(page, id).boundingBox())!;
+      expect(b.x).toBeGreaterThan(z.x); expect(b.y).toBeGreaterThan(z.y);
+      expect(b.x + b.width).toBeLessThan(z.x + z.width); expect(b.y + b.height).toBeLessThan(z.y + z.height);
+    }
+    // behind: the topmost element over an appliance is the appliance, not the zone
+    const top = await page.evaluate(() => { const n = document.querySelector("[data-testid=appliance-node][data-node-id=haproxy-01]")!.getBoundingClientRect(); return document.elementFromPoint(n.x + n.width / 2, n.y + n.height - 8)?.closest("[data-testid=appliance-node]")?.getAttribute("data-node-id") ?? "zone"; });
+    expect(top).toBe("haproxy-01");
+    // a cable inside the zone is still reachable (the interior does not capture clicks)
+    const pt = await cablePoint(page, "conn-02", 0.5);
+    await page.mouse.click(pt.x, pt.y, { button: "right" });
+    await expect(page.getByTestId("menu-to-tag")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expectEdgesAnchored(page);
+  });
+
+  test("style editing: fill and border colours, opacity, width, style, corner radius, shape kind; one undo per control", async ({ page }) => {
+    await open(page);
+    await wrapWebTier(page, "rounded");
+    await page.getByTestId("props-tab-style").click();
+    await page.locator("[data-testid=shape-fill] [data-color='#14b8a6']").click();
+    let sh = (await shapes(page))[0]!;
+    expect(sh.fill).toBe("#14b8a6");
+    await page.locator("[data-testid=shape-stroke] [data-color='#f43f5e']").click();
+    await page.getByTestId("shape-stroke-width").fill("4");
+    await page.locator("[data-testid=shape-stroke-style] [data-value=dotted]").click();
+    await page.getByTestId("shape-fill-opacity").fill("40");
+    await page.getByTestId("shape-radius").fill("40");
+    sh = (await shapes(page))[0]!;
+    expect(sh).toMatchObject({ stroke: "#f43f5e", strokeWidth: 4, strokeStyle: "dotted", fillOpacity: 0.4, radius: 40 });
+    // the SVG reflects it
+    const svg = page.locator("[data-testid=shape-node] rect").first();
+    await expect(svg).toHaveAttribute("fill", "#14b8a6");
+    await expect(svg).toHaveAttribute("stroke-width", "4");
+    await expect(svg).toHaveAttribute("rx", "40");
+    // slider drags merge into a single undo step
+    const before = (await shapes(page))[0]!.fillOpacity;
+    await page.getByTestId("shape-fill-opacity").fill("10");
+    await page.getByTestId("shape-fill-opacity").fill("20");
+    await page.getByTestId("shape-fill-opacity").fill("30");
+    await page.getByTestId("undo").click();
+    expect((await shapes(page))[0]!.fillOpacity).toBe(before);
+    // switching shape kind keeps the style; the radius control only exists for rounded squares
+    await page.locator("[data-testid=shape-kind] [data-kind=triangle]").click();
+    await expect(page.locator("[data-testid=shape-node] polygon").first()).toBeVisible();
+    await expect(page.getByTestId("shape-radius")).toHaveCount(0);
+    await page.locator("[data-testid=shape-kind] [data-kind=ellipse]").click();
+    await expect(page.locator("[data-testid=shape-node] ellipse").first()).toBeVisible();
+    // custom colour input
+    await page.locator("[data-testid=shape-fill] input[type=color]").fill("#112233");
+    expect((await shapes(page))[0]!.fill).toBe("#112233");
+    // label tab
+    await page.getByTestId("props-tab-label").click();
+    await page.locator("[data-testid=shape-label-pos] [data-value=bottom]").click();
+    await page.getByTestId("shape-font-size").fill("20");
+    expect((await shapes(page))[0]).toMatchObject({ labelPos: "bottom", fontSize: 20 });
+    // layout tab
+    await page.getByTestId("props-tab-layout").click();
+    await expect(page.getByTestId("shape-contents")).toContainText("appliance");
+  });
+
+  test("dragging a zone carries the appliances inside; a locked zone stays put", async ({ page }) => {
+    await open(page);
+    await wrapWebTier(page, "rect");
+    const before = await assemblyState(page);
+    const pos = (id: string) => before.editor.nodes.find((n) => n.id === id)!;
+    const lab = (await page.getByTestId("shape-label").boundingBox())!;
+    await page.mouse.move(lab.x + 20, lab.y + lab.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(lab.x + 20 + 90, lab.y + lab.height / 2 + 40, { steps: 8 });
+    await page.mouse.up();
+    const after = await assemblyState(page);
+    const z0 = before.editor.shapes![0]!;
+    const z1 = after.editor.shapes![0]!;
+    const dx = z1.x - z0.x;
+    const dy = z1.y - z0.y;
+    expect(dx).toBeGreaterThan(40);
+    for (const id of ["haproxy-01", "nginx-01", "nginx-02"]) {
+      const n = after.editor.nodes.find((x) => x.id === id)!;
+      expect(n.x - pos(id).x).toBe(dx);
+      expect(n.y - pos(id).y).toBe(dy);
+    }
+    for (const id of ["gateway-01", "postgresql-01", "grafana-01"]) expect(after.editor.nodes.find((x) => x.id === id)).toMatchObject({ x: pos(id).x, y: pos(id).y });
+    await expectEdgesAnchored(page);
+    await page.getByTestId("undo").click(); // the whole drag is one undo step
+    const undone = await assemblyState(page);
+    expect(undone.editor.shapes![0]!.x).toBe(z0.x);
+    expect(undone.editor.nodes.find((n) => n.id === "nginx-01")!.x).toBe(pos("nginx-01").x);
+    // lock it: dragging no longer moves it
+    await page.getByTestId("props-tab-layout").click();
+    await page.getByTestId("shape-locked").check();
+    const lab2 = (await page.getByTestId("shape-label").boundingBox())!;
+    await page.mouse.move(lab2.x + 30, lab2.y + lab2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(lab2.x + 130, lab2.y + lab2.height / 2 + 50, { steps: 6 });
+    await page.mouse.up();
+    expect((await assemblyState(page)).editor.shapes![0]!.x).toBe(z0.x);
+  });
+
+  test("shape context menu: edit, label, shape kind, colour, border style, select contents, order, duplicate, lock, delete", async ({ page }) => {
+    test.setTimeout(60_000);
+    await open(page);
+    await wrapWebTier(page, "rect");
+    await page.getByTestId("props-close").click();
+    const lab = page.locator("[data-testid=shape-label]");
+    await lab.click({ button: "right" });
+    await expect(page.getByTestId("context-menu")).toContainText("Zone");
+    for (const id of ["properties", "rename", "shape-kind", "fill", "border-colour", "border-style", "select-contents", "front", "back", "duplicate", "lock", "delete"]) await expect(page.getByTestId(`menu-${id}`)).toBeVisible();
+    await expect(page.getByTestId("menu-select-contents")).toContainText("(3)");
+    await page.getByTestId("menu-fill").click();
+    await page.getByTestId("menu-fill-violet").click();
+    expect((await shapes(page))[0]).toMatchObject({ fill: "#8b5cf6", stroke: "#8b5cf6" });
+    await lab.click({ button: "right" });
+    await page.getByTestId("menu-border-style").click();
+    await page.getByTestId("menu-style-dashed").click();
+    expect((await shapes(page))[0]!.strokeStyle).toBe("dashed");
+    await lab.click({ button: "right" });
+    await page.getByTestId("menu-select-contents").click();
+    await expect(page.getByTestId("selection-info")).toContainText("selected");
+    await lab.click({ button: "right" });
+    await page.getByTestId("menu-duplicate").click();
+    expect(await shapes(page)).toHaveLength(2);
+    await page.locator("[data-testid=shape-label]").last().click({ button: "right" });
+    await page.getByTestId("menu-back").click();
+    await page.locator("[data-testid=shape-label]").last().click({ button: "right" });
+    await page.getByTestId("menu-lock").click();
+    await expect(page.locator("[data-testid=shape-node][data-locked=true]")).toHaveCount(1);
+    await page.locator("[data-testid=shape-label]").first().click({ button: "right" });
+    await page.getByTestId("menu-rename").click();
+    await expect(page.getByTestId("shape-label-input")).toBeFocused();
+    await page.keyboard.press("Escape");
+    await page.locator("[data-testid=shape-label]").first().click({ button: "right" });
+    await page.getByTestId("menu-delete").click();
+    expect(await shapes(page)).toHaveLength(1);
+    // change the remaining zone to a triangle (its label then sits among the appliances, so do this last)
+    await page.locator("[data-testid=shape-label]").first().click({ button: "right" });
+    await page.getByTestId("menu-shape-kind").click();
+    await page.getByTestId("menu-kind-triangle").click();
+    expect((await shapes(page))[0]!.kind).toBe("triangle");
+  });
+
+  test("canvas menu adds a zone at the pointer; Delete removes a selected zone; undo restores; export, import and density keep zones", async ({ page }) => {
+    await open(page);
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    const at = { x: canvas.x + 110, y: canvas.y + 90 };
+    await page.mouse.click(at.x, at.y, { button: "right" });
+    await page.getByTestId("menu-add-shape").click();
+    await page.getByTestId("menu-shape-ellipse").click();
+    const b = await shapeBox(page, "shape-01");
+    expect(Math.abs(b.x + b.width / 2 - at.x)).toBeLessThan(3);
+    expect(Math.abs(b.y + b.height / 2 - at.y)).toBeLessThan(3);
+    await page.getByTestId("shapes-button").click();
+    await page.getByTestId("add-shape-triangle").click();
+    expect(await shapes(page)).toHaveLength(2);
+    await page.keyboard.press("Delete"); // the selected (newest) zone
+    expect(await shapes(page)).toHaveLength(1);
+    await page.getByTestId("undo").click();
+    expect(await shapes(page)).toHaveLength(2);
+    // export / import round trip
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("export").click();
+    const text = readFileSync((await (await dl).path())!, "utf8");
+    expect(JSON.parse(text).editor.shapes).toHaveLength(2);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    expect(await shapes(page)).toHaveLength(0);
+    await page.getByTestId("import-input").setInputFiles({ name: "z.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await expect(page.locator("[data-testid=shape-node]")).toHaveCount(2);
+    // density scales zones with the appliances
+    const w0 = (await shapes(page))[0]!.width;
+    await page.getByTestId("density-expanded").click();
+    expect((await shapes(page))[0]!.width).toBeGreaterThan(w0);
+    // hostile colours are rejected on import
+    const bad = JSON.parse(text);
+    bad.editor.shapes[0].fill = "red;x";
+    await page.getByTestId("import-input").setInputFiles({ name: "bad.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(bad)) });
+    await expect(page.getByTestId("import-errors")).toContainText("fill");
   });
 });
 
@@ -714,7 +1058,7 @@ test.describe("cables and plugs", () => {
     expect(await edgeCount(page)).toBe(before);
     await expect(page.getByTestId("toast").last()).toContainText(/already connected|only one/);
     // make it multi-link in the inspector, then connect a second cable from another port to the same jack
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01", "ports");
     await page.locator("[data-testid=port-row][data-port-id=db] [data-testid=port-multi]").check();
     await expect(handle(page, "nginx-01", "db")).toHaveAttribute("aria-label", /multiple cables/);
   });
@@ -790,8 +1134,9 @@ test.describe("custom appliances", () => {
 
   test("save an instance with extra ports as a reusable appliance; designer validates names", async ({ page }) => {
     await open(page);
-    await node(page, "grafana-01").click();
+    await openProps(page, "grafana-01", "ports");
     await addPorts(page, "output", 2);
+    await page.getByTestId("props-tab-general").click();
     await page.getByTestId("save-as-class").click();
     await page.getByTestId("designer-name").fill("");
     await page.getByTestId("designer-save").click();
@@ -913,7 +1258,7 @@ test.describe("editing", () => {
   test("adding 3–8 ports grows only the affected node; edges stay attached", async ({ page }) => {
     await open(page);
     const otherBefore = await flowSize(page, "postgresql-01");
-    await node(page, "grafana-01").click();
+    await openProps(page, "grafana-01", "ports");
     await addPorts(page, "input", 4);
     await page.waitForTimeout(150);
     let s = await flowSize(page, "grafana-01");
@@ -940,7 +1285,7 @@ test.describe("editing", () => {
 
   test("deleting a connected port removes only its connections and can be undone", async ({ page }) => {
     await open(page);
-    await node(page, "haproxy-01").click();
+    await openProps(page, "haproxy-01", "ports");
     const edges = await edgeCount(page);
     await page.locator("[data-testid=port-row][data-port-id=backend] [data-testid=delete-port]").click();
     expect(await edgeCount(page)).toBe(edges - 2);
@@ -982,7 +1327,7 @@ test.describe("editing", () => {
 
   test("property edits, delete, undo/redo and keyboard shortcuts", async ({ page }) => {
     await open(page);
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01");
     await page.getByTestId("instance-name").fill("web-front");
     await page.getByTestId("instance-name").press("Enter");
     await expect(node(page, "nginx-01").locator(".apl-node-header")).toContainText("web-front");
@@ -1003,8 +1348,10 @@ test.describe("editing", () => {
     expect((await assemblyState(page)).spec.appliances.length).toBe(5);
     await page.keyboard.press("Control+z");
     // delete a single selected edge
-    await page.evaluate(() => (window as unknown as { __studio: { getState: () => { setSelection: (s: unknown) => void } } }).__studio.getState().setSelection({ nodes: [], edges: ["conn-01"] }));
+    await page.evaluate(() => (window as unknown as { __studio: { getState: () => { setSelection: (s: unknown) => void; openProps: (t: unknown) => void } } }).__studio.getState().setSelection({ nodes: [], edges: ["conn-01"] }));
+    await page.evaluate(() => (window as unknown as { __studio: { getState: () => { openProps: (t: unknown) => void } } }).__studio.getState().openProps({ kind: "cable", id: "conn-01" }));
     await expect(page.getByTestId("inspector-connection")).toBeVisible();
+    await page.getByTestId("props-close").click();
     await page.keyboard.press("Delete");
     expect((await assemblyState(page)).spec.connections.some((c) => c.id === "conn-01")).toBe(false);
     await page.getByTestId("undo").click();
@@ -1044,7 +1391,7 @@ test.describe("assembly files", () => {
 
   test("work persists locally across reload, including layout and manual size", async ({ page }) => {
     await open(page);
-    await node(page, "nginx-01").click();
+    await openProps(page, "nginx-01");
     await page.getByTestId("instance-name").fill("persisted");
     await page.getByTestId("instance-name").press("Enter");
     await page.getByTestId("density-comfortable").click();
@@ -1083,7 +1430,8 @@ test.describe("validation and quality", () => {
     await page.getByTestId("validation-toggle").click();
     await expect(page.getByTestId("diagnostics")).toContainText("required input");
     await page.getByTestId("diagnostics").getByRole("button").first().click();
-    await expect(page.getByTestId("inspector-appliance")).toBeVisible();
+    await expect(page.getByTestId("inspector-diagnostics")).toContainText("required input");
+    await expect(page.getByTestId("props-tab-issues")).toHaveAttribute("aria-selected", "true");
   });
 
   test("keyboard: tab reaches catalog tiles with visible focus; zoom shortcuts work; reduced motion is honoured", async ({ page }) => {

@@ -100,3 +100,11 @@ export async function cablePoint(page: Page, id: string, t = 0.5) {
     return { x: pt.x * m.a + m.e, y: pt.y * m.d + m.f };
   }, { id, t });
 }
+
+/** Opens the floating properties window for an appliance (double-click) and optionally switches tab. */
+export async function openProps(page: Page, id: string, tab?: "general" | "config" | "ports" | "issues") {
+  await node(page, id).dblclick();
+  await expect(page.getByTestId("inspector")).toBeVisible();
+  await expect(page.getByTestId("props-title")).toBeVisible();
+  if (tab && tab !== "general") await page.getByTestId(`props-tab-${tab}`).click();
+}

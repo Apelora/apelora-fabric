@@ -6,10 +6,10 @@ Everything here runs in the browser against mock data. Nothing is sent to a serv
 
 | Region | Spec |
 |---|---|
-| Header (48px) | Logo + "Apelora Studio", **Mock · Design only** badge, breadcrumb + save state (≥1400px), Undo/Redo, density (Compact / Comfortable / Expanded), New ▾ (empty, sample), Import, **Export JSON** (the single primary button), theme |
-| Catalog (left, 176–192px) | Search, **New appliance**, collapsible category sections, 2-column tiles (logo + name). Tile: drag to canvas or click to add; pencil = edit custom / copy built-in |
-| Canvas frame (centre) | Light-gray `#F7F7F8`, 12px radius, 1px border. Title strip: three dots, editable assembly name, toggles (grid, labels `Aa`, cable style, snap), zoom −/%/+/fit/zoom-to-selection. Validation panel docked bottom-left |
-| Inspector (right, 224–256px) | Context-sensitive: assembly summary, appliance (name, class, size, resources, **Configuration**, ports, issues, actions), or cable |
+| Header (48px) | Logo + "Apelora Studio", **Mock · Design only** badge, breadcrumb + save state (≥1400px), Undo/Redo, density (Compact / Comfortable / Expanded), New ▾ (empty, sample, sample + network), Import, **Export JSON** (the single primary button), theme |
+| Catalog (left, 176–192px) | Search, appliance count with collapse all / expand all, **New appliance**, collapsible category sections, 2-column tiles (logo + name). Tile: drag to canvas or click to add; pencil = edit custom / copy built-in |
+| Canvas frame (everything else) | Light-gray `#F7F7F8`, 12px radius, 1px border, **full width** (there is no permanent right sidebar). Title strip: three dots, **tools** (Select, Pan), editable assembly name, **Zones** menu, selection count, toggles (grid, labels `Aa`, cable style, routing, snap), zoom −/%/+/fit/zoom-to-selection. Validation panel docked bottom-left |
+| Properties window (on demand) | A floating, draggable window opened from the context menu (**Properties…**), a double-click, or Enter. See "Properties window" below |
 
 ## 2. Appliance node
 
@@ -27,6 +27,35 @@ A **link tag** names a terminal so it is connected, with no drawn cable, to ever
 
 Select two or more appliances and choose **Group into component…** (context menu or Ctrl+G). The dialog asks for a name and lists every inner terminal; terminals that are linked to something outside the selection are pre-selected and locked (marked "linked"), others can be exposed optionally, and each exposed port gets an editable name. Creating the component replaces the selection with one appliance, re-plugs the outside cables onto its exposed ports, registers a reusable custom class (catalog ▸ Custom) and shows a stacked-card look with a `▣ N` badge. Its `net` plugs every inner appliance's NIC into the network. **Ungroup** (menu, inspector button, Ctrl+Shift+G) expands it back into independent appliances and internal cables, re-plugging the outside cables to the inner terminals. Both are single undo steps. Exports embed the component class (and any custom classes it uses); importing restores it. Component classes are edited by ungrouping; they cannot be re-opened in the designer. Tags that cross the selection boundary stay with the inner appliances.
 
+### Tools
+
+- **Select (V, default):** click selects; **drag on empty canvas draws a selection box** (partial overlap selects); Shift- or Ctrl/⌘-click adds or removes; Ctrl+A selects all; clicking empty canvas clears. The strip shows how many appliances or zones are selected.
+- **Pan (H):** dragging empty canvas moves the view. In Select mode you can pan with **Space + drag** or the **middle mouse button**; the wheel zooms.
+
+### Properties window
+
+Properties are **not** shown permanently. Open them with right-click ▸ **Properties…** (first menu item), double-click, or **Enter** on a selected appliance. The window floats near the thing it describes (and never off-screen), has a category-coloured header, can be dragged (its position is remembered), does not block the canvas, closes with ×, Esc, or when its target is deleted, and is retargeted by opening another one.
+
+| Target | Content |
+|---|---|
+| Appliance | tabs **General** (name, class, id, network, size, resources, component contents, save as custom appliance, delete) · **Configuration (n)** (typed form) · **Ports (n)** (name, type, required, multi-cable, link tag, reorder) · **Issues (n)** |
+| Cable | endpoints, protocol, convert to link tag, unplug |
+| Link tag | rename or merge, members (click to select), convert to cable, remove |
+| Zone / shape | tabs **Style** · **Label** · **Layout** (see Zones) |
+| Assembly | counts and format (canvas menu ▸ Assembly properties…) |
+
+Clicking an issue in the validation panel opens that appliance's **Issues** tab.
+
+### Zones and shapes
+
+Zones are labelled shapes drawn **behind** appliances to show sectors, trust zones or tiers. Four shapes: **square**, **circle**, **rounded square**, **triangle**.
+
+- **Create:** Zones menu in the canvas strip (adds near the view centre, fanning out so zones never stack exactly), canvas right-click ▸ Add zone (at the pointer), or select appliances and choose ▸ **Wrap in zone** (sized to contain them, then the label editor opens).
+- **Move / resize:** drag the zone's **border or label**; resize with the corner handles. The interior does not capture clicks, so cables and appliances under a zone stay usable and a selection box can start inside a zone. **Appliances inside a zone move with it**; the whole drag is one undo step. **Lock** pins a zone.
+- **Edit (right-click ▸ Edit shape…, or double-click the label):** *Style* — shape kind, fill colour (8 modern palette colours plus a custom picker), fill opacity, border colour, border width, border style (solid, dashed, dotted), corner radius (rounded only). *Label* — text, position (top-left, top, centre, bottom), font size. *Layout* — x, y, width, height, lock, contents count, bring forward / send back, duplicate, delete. Each control merges rapid edits into a single undo step.
+- **Right-click menu:** Edit shape, Edit label, Shape ▸, Colour ▸, Border colour ▸, Border style ▸, Select appliances inside, Bring forward, Send back, Duplicate, Lock, Delete.
+- Zones are view-only layout (`editor.shapes`): they never change deployment semantics. Colours are validated as `#rrggbb`, sizes are bounded, and at most 200 zones are accepted on import. They scale with the density presets and are exported and imported with the assembly.
+
 ## 3. Interactions
 
 | Action | How | Result |
@@ -35,7 +64,7 @@ Select two or more appliances and choose **Group into component…** (context me
 | Move / resize | Drag node / bottom-right grip | One undo step per gesture; size persists; density keeps manual sizes |
 | Connect | Drag from a socket to a compatible socket (either direction) | Cable created; invalid → toast with reason and hint |
 | Re-plug | Drag a cable's plug end to another socket | Validated; one undo step |
-| Select | Click · Ctrl/⌘-click · Shift-drag marquee · Ctrl+A | Inspector follows selection |
+| Select | Click · Shift/Ctrl-click · drag a box · Ctrl+A | Count shown in the canvas strip; nothing opens automatically |
 | Delete | Del/Backspace · context menu | Appliances remove their cables; cables unplug |
 | Copy / paste / duplicate | Ctrl+C / V / D, menus | Copies appliances + cables between them, fresh ids |
 | Zoom / pan | Wheel, +/−, F, drag background, buttons | Viewport transform only |
@@ -44,7 +73,7 @@ Select two or more appliances and choose **Group into component…** (context me
 
 ### Context menus (right-click, Menu key, Shift+F10)
 
-Appliance, several appliances, port, cable and canvas menus are listed in `STUDIO-MVP.md`. Appliance menu additions in this milestone: **Configure…** (focuses the configuration form) and **Reset configuration** (shows how many fields changed). Keyboard: ↑/↓/Home/End, → opens a submenu, ← or Esc closes, Enter activates.
+Appliance, several appliances, port, cable and canvas menus are listed in `STUDIO-MVP.md`. Appliance menu: **Properties…** (Enter), Rename (F2), **Configure…** (opens the Configuration tab) and **Reset configuration** (shows how many fields changed). Keyboard: ↑/↓/Home/End, → opens a submenu, ← or Esc closes, Enter activates.
 
 ## 4. Configuration forms
 

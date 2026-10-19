@@ -2,19 +2,27 @@ import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
-  addAppliance, addPort, connect, reconnect, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, connect, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
 
 export interface Toast { id: number; kind: "info" | "success" | "warning" | "error"; text: string }
-interface Selection { nodes: string[]; edges: string[] }
+interface Selection { nodes: string[]; edges: string[]; shapes?: string[] }
 
 export type MenuTarget =
   | { kind: "node"; id: string }
   | { kind: "port"; nodeId: string; portId: string }
   | { kind: "edge"; id: string }
+  | { kind: "shape"; id: string }
   | { kind: "pane"; flow: { x: number; y: number } };
+export type PropsTarget =
+  | { kind: "appliance"; id: string; tab?: "general" | "config" | "ports" | "issues" }
+  | { kind: "cable"; id: string }
+  | { kind: "tag"; id: string }
+  | { kind: "assembly" }
+  | { kind: "shape"; id: string; tab?: "style" | "label" | "layout" };
+
 export interface MenuState { x: number; y: number; target: MenuTarget; keyboard?: boolean }
 
 const MAX_HISTORY = 100;
@@ -41,7 +49,27 @@ export interface StudioState {
   selectedTag: string | null;
   hoverTag: string | null;
   groupDialog: string[] | null;
+  tool: "select" | "pan";
+  propsWin: PropsTarget | null;
+  propsPos: { x: number; y: number } | null;
 
+  addShapeAt: (kind: ShapeKind, center?: { x: number; y: number }, cascade?: boolean) => string;
+  wrapInZone: (kind: ShapeKind) => void;
+  editShape: (id: string, patch: Partial<Omit<Shape, "id">>) => void;
+  moveShapesTransient: (moves: Map<string, { x: number; y: number }>) => void;
+  resizeShapeTransient: (id: string, rect: { width: number; height: number; x?: number; y?: number }) => void;
+  deleteShapes: (ids: string[]) => void;
+  duplicateShapeAction: (id: string) => void;
+  orderShapeAction: (id: string, to: "front" | "back") => void;
+  carry: { shapeId: string; ids: string[] } | null;
+  beginCarry: (shapeId: string) => void;
+  endCarry: () => void;
+  selectShape: (id: string) => void;
+  setTool: (t: "select" | "pan") => void;
+  openProps: (t: PropsTarget) => void;
+  closeProps: () => void;
+  setPropsTab: (tab: string) => void;
+  setPropsPos: (p: { x: number; y: number }) => void;
   openGroupDialog: () => void;
   closeGroupDialog: () => void;
   groupSelection: (name: string, exposes: ExposeChoice[]) => boolean;
@@ -106,11 +134,24 @@ export interface StudioState {
 const prune = (a: ApplicationAssembly, s: Selection): Selection => ({
   nodes: s.nodes.filter((id) => a.spec.appliances.some((x) => x.id === id)),
   edges: s.edges.filter((id) => a.spec.connections.some((c) => c.id === id)),
+  shapes: (s.shapes ?? []).filter((id) => (a.editor.shapes ?? []).some((x) => x.id === id)),
 });
 
 export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pick<StudioState, "showGrid" | "showLabels" | "cableStyle" | "routing" | "showCategory" | "snap">> = {}) {
   return create<StudioState>()((set, get) => {
+    let lastKey = "";
+    let lastAt = 0;
+    /** Consecutive edits with the same key within 800 ms (typing, slider drags) become one undo step. */
+    const commitCoalesced = (key: string, next: ApplicationAssembly) => {
+      const { assembly, past, selection } = get();
+      if (next === assembly) return;
+      const now = Date.now();
+      const merge = key === lastKey && now - lastAt < 800 && past.length > 0;
+      lastKey = key; lastAt = now;
+      set({ assembly: next, past: merge ? past : [...past, assembly].slice(-MAX_HISTORY), future: [], selection: prune(next, selection) });
+    };
     const commit = (next: ApplicationAssembly) => {
+      lastKey = "";
       const { assembly, past, selection } = get();
       if (next === assembly) return;
       set({ assembly: next, past: [...past, assembly].slice(-MAX_HISTORY), future: [], selection: prune(next, selection) });
@@ -135,6 +176,46 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       selectedTag: null,
       hoverTag: null,
       groupDialog: null,
+      tool: "select",
+      carry: null,
+      propsWin: null,
+      propsPos: null,
+
+      setTool: (t) => set({ tool: t }),
+      addShapeAt: (kind, center, cascade) => {
+        const a = get().assembly;
+        const w = kind === "triangle" ? 260 : 300;
+        const h = kind === "triangle" ? 220 : 200;
+        const base = center ?? { x: 300, y: 220 };
+        // Zones added from the toolbar fan out so they never sit exactly on top of each other.
+        const off = cascade ? (a.editor.shapes?.length ?? 0) % 8 * 28 : 0;
+        const c = { x: base.x + off, y: base.y + off };
+        const r = addShape(a, kind, { x: c.x - w / 2, y: c.y - h / 2, width: w, height: h });
+        commit(r.assembly);
+        set({ selection: { nodes: [], edges: [], shapes: [r.id] }, selectedTag: null });
+        return r.id;
+      },
+      wrapInZone: (kind) => {
+        const { assembly, selection } = get();
+        const r = zoneAround(assembly, selection.nodes, kind);
+        if (!r) { get().toast("info", "Select at least one appliance to wrap in a zone."); return; }
+        commit(r.assembly);
+        set({ selection: { nodes: [], edges: [], shapes: [r.id] } });
+        get().openProps({ kind: "shape", id: r.id, tab: "label" });
+      },
+      editShape: (id, patch) => commitCoalesced(`shape:${id}:${Object.keys(patch).join(",")}`, updateShape(get().assembly, id, patch)),
+      moveShapesTransient: (moves) => set({ assembly: moveShapes(get().assembly, moves) }),
+      resizeShapeTransient: (id, rect) => set({ assembly: resizeShape(get().assembly, id, rect) }),
+      deleteShapes: (ids) => commit(removeShapes(get().assembly, ids)),
+      duplicateShapeAction: (id) => { const r = duplicateShape(get().assembly, id); if (!r) return; commit(r.assembly); set({ selection: { nodes: [], edges: [], shapes: [r.id] } }); },
+      orderShapeAction: (id, to) => commit(orderShape(get().assembly, id, to)),
+      beginCarry: (shapeId) => set({ carry: { shapeId, ids: shapeContents(get().assembly, shapeId) } }),
+      endCarry: () => set({ carry: null }),
+      selectShape: (id) => set({ selection: { nodes: [], edges: [], shapes: [id] }, selectedTag: null }),
+      openProps: (t) => set({ propsWin: t, menu: null }),
+      closeProps: () => set({ propsWin: null }),
+      setPropsTab: (tab) => { const w = get().propsWin; if (w && (w.kind === "appliance" || w.kind === "shape")) set({ propsWin: { ...w, tab } as PropsTarget }); },
+      setPropsPos: (p) => set({ propsPos: p }),
 
       openGroupDialog: () => {
         const ids = get().selection.nodes;
@@ -197,7 +278,9 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       openMenu: (m) => {
         const { selection } = get();
         // Right-clicking something outside the current selection selects it first.
-        if (m.target.kind === "node" || m.target.kind === "port") {
+        if (m.target.kind === "shape") {
+          if (!(selection.shapes ?? []).includes(m.target.id)) set({ selection: { nodes: [], edges: [], shapes: [m.target.id] } });
+        } else if (m.target.kind === "node" || m.target.kind === "port") {
           const id = m.target.kind === "node" ? m.target.id : m.target.nodeId;
           if (!selection.nodes.includes(id)) set({ selection: { nodes: [id], edges: [] } });
         } else if (m.target.kind === "edge" && !selection.edges.includes(m.target.id)) set({ selection: { nodes: [], edges: [m.target.id] } });
@@ -241,7 +324,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       },
       dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
       setSelection: (s) => set((st) => ({ selection: { ...st.selection, ...s }, selectedTag: null })),
-      selectNode: (id) => set({ selection: { nodes: [id], edges: [] }, selectedTag: null }),
+      selectNode: (id) => set({ selection: { nodes: [id], edges: [], shapes: [] }, selectedTag: null }),
 
       commit,
       beginGesture: () => set({ gestureStart: get().assembly }),
@@ -281,6 +364,9 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       },
       deleteElements: (nodeIds, edgeIds) => {
         let a = get().assembly;
+        const shapeIds = nodeIds.filter((id) => id.startsWith("shape-"));
+        nodeIds = nodeIds.filter((id) => !id.startsWith("shape-"));
+        if (shapeIds.length) a = removeShapes(a, shapeIds);
         if (edgeIds.length) a = disconnect(a, edgeIds);
         if (nodeIds.length) a = removeAppliances(a, nodeIds);
         commit(a);

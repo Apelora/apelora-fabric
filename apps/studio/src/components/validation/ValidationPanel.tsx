@@ -15,6 +15,7 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
   const focus = (d: Diagnostic) => {
     if (!d.applianceId) return;
     api.getState().selectNode(d.applianceId);
+    api.getState().openProps({ kind: "appliance", id: d.applianceId, tab: "issues" });
     void fitView({ nodes: [{ id: d.applianceId }], padding: 0.8, maxZoom: 1.2, duration: ms(250) });
   };
 

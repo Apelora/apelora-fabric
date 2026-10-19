@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  Background, BackgroundVariant, ConnectionMode, ReactFlow, useReactFlow, useStore as useRFStore,
+  Background, BackgroundVariant, ConnectionMode, ReactFlow, SelectionMode, useReactFlow, useStore as useRFStore,
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
@@ -10,13 +10,15 @@ import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { ApplianceNode, type ApplianceFlowNode } from "./ApplianceNode";
+import { ShapeNode, type ShapeFlowNode } from "./ShapeNode";
 import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
 import { ValidationPanel } from "../validation/ValidationPanel";
 import { ContextMenu } from "./ContextMenu";
 import { ms } from "../../features/editor/motion";
 
-const nodeTypes = { appliance: ApplianceNode };
+const nodeTypes = { appliance: ApplianceNode, shape: ShapeNode };
+type AnyFlowNode = ApplianceFlowNode | ShapeFlowNode;
 const edgeTypes = { cable: CableEdge };
 
 /** How many cables are plugged into each port of an appliance, and the protocol of the first one. */
@@ -67,6 +69,7 @@ export function AssemblyWorkspace() {
   const showLabels = useStudio((s) => s.showLabels);
   const cableStyle = useStudio((s) => s.cableStyle);
   const routing = useStudio((s) => s.routing);
+  const tool = useStudio((s) => s.tool);
   const showCategory = useStudio((s) => s.showCategory);
   const customClasses = useCustomCatalog((s) => s.classes);
   const snap = useStudio((s) => s.snap);
@@ -93,7 +96,20 @@ export function AssemblyWorkspace() {
 
   const diagnostics = useMemo(() => diagnosticsFor(assembly), [assembly]);
 
-  const nodes = useMemo<ApplianceFlowNode[]>(() => {
+  const shapeNodes = useMemo<ShapeFlowNode[]>(() => (assembly.editor.shapes ?? []).map((sh) => ({
+    id: sh.id,
+    type: "shape" as const,
+    position: { x: sh.x, y: sh.y },
+    width: sh.width,
+    height: sh.height,
+    measured: { width: sh.width, height: sh.height },
+    zIndex: -1,
+    draggable: !sh.locked,
+    selected: (selection.shapes ?? []).includes(sh.id),
+    data: { shape: sh, inside: 0 },
+  })), [assembly.editor.shapes, selection.shapes]);
+
+  const applianceNodes = useMemo<ApplianceFlowNode[]>(() => {
     const layout = new Map(assembly.editor.nodes.map((n) => [n.id, n]));
     return assembly.spec.appliances.flatMap((a) => {
       const l = layout.get(a.id);
@@ -132,6 +148,7 @@ export function AssemblyWorkspace() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assembly, diagnostics, selection.nodes, customClasses]);
+  const nodes = useMemo<AnyFlowNode[]>(() => [...shapeNodes, ...applianceNodes], [shapeNodes, applianceNodes]);
 
   const edges = useMemo<CableFlowEdge[]>(() => {
     const bad = new Set(diagnostics.filter((d) => d.connectionId).map((d) => d.connectionId));
@@ -148,22 +165,42 @@ export function AssemblyWorkspace() {
     }));
   }, [assembly, diagnostics, selection.edges, showLabels, routing]);
 
-  const onNodesChange = useCallback((changes: NodeChange<ApplianceFlowNode>[]) => {
+  const onNodesChange = useCallback((changes: NodeChange<AnyFlowNode>[]) => {
     const s = api.getState();
     const moves = new Map<string, { x: number; y: number }>();
+    const shapeMoves = new Map<string, { x: number; y: number }>();
     let selNodes = s.selection.nodes;
+    let selShapes = s.selection.shapes ?? [];
     let selChanged = false;
     for (const ch of changes) {
-      if (ch.type === "position" && ch.position) moves.set(ch.id, ch.position);
-      else if (ch.type === "dimensions" && ch.dimensions && (ch.resizing || ch.setAttributes)) {
-        s.resizeTransient(ch.id, ch.dimensions);
+      const isShape = ch.type !== "add" && ch.type !== "replace" && ch.type !== "remove" ? ch.id.startsWith("shape-") : false;
+      if (ch.type === "position" && ch.position) {
+        if (isShape) {
+          shapeMoves.set(ch.id, ch.position);
+          // Appliances inside a dragged zone travel with it.
+          const cur = (s.assembly.editor.shapes ?? []).find((x) => x.id === ch.id);
+          const carry = s.carry;
+          if (cur && carry?.shapeId === ch.id) {
+            const dx = ch.position.x - cur.x;
+            const dy = ch.position.y - cur.y;
+            for (const nid of carry.ids) { const n = s.assembly.editor.nodes.find((x) => x.id === nid); if (n && !moves.has(nid)) moves.set(nid, { x: n.x + dx, y: n.y + dy }); }
+          }
+        } else moves.set(ch.id, ch.position);
+      } else if (ch.type === "dimensions" && ch.dimensions && (ch.resizing || ch.setAttributes)) {
+        if (isShape) {
+          const pos = changes.find((c) => c.type === "position" && c.id === ch.id);
+          s.resizeShapeTransient(ch.id, { width: ch.dimensions.width, height: ch.dimensions.height, ...(pos && pos.type === "position" && pos.position ? { x: pos.position.x, y: pos.position.y } : {}) });
+        }
+        else s.resizeTransient(ch.id, ch.dimensions);
       } else if (ch.type === "select") {
         selChanged = true;
-        selNodes = ch.selected ? [...new Set([...selNodes, ch.id])] : selNodes.filter((x) => x !== ch.id);
+        if (isShape) selShapes = ch.selected ? [...new Set([...selShapes, ch.id])] : selShapes.filter((x) => x !== ch.id);
+        else selNodes = ch.selected ? [...new Set([...selNodes, ch.id])] : selNodes.filter((x) => x !== ch.id);
       }
     }
+    if (shapeMoves.size) s.moveShapesTransient(shapeMoves);
     if (moves.size) s.moveTransient(moves);
-    if (selChanged) s.setSelection({ nodes: selNodes });
+    if (selChanged) s.setSelection({ nodes: selNodes, shapes: selShapes });
   }, [api]);
 
   const onEdgesChange = useCallback((changes: EdgeChange<CableFlowEdge>[]) => {
@@ -212,10 +249,10 @@ export function AssemblyWorkspace() {
   const zoom = useRFStore((s) => s.transform[2]);
 
   return (
-    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-cable={cableStyle} data-category={showCategory ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
+    <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-tool={tool} data-cable={cableStyle} data-category={showCategory ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
       <CanvasStrip zoom={zoom} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
-        <ReactFlow<ApplianceFlowNode, CableFlowEdge>
+        <ReactFlow<AnyFlowNode, CableFlowEdge>
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
@@ -228,15 +265,23 @@ export function AssemblyWorkspace() {
           onConnect={onConnect}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
-          onNodeDragStart={() => api.getState().beginGesture()}
-          onNodeDragStop={() => api.getState().endGesture()}
+          onNodeDragStart={(_e, n) => { api.getState().beginGesture(); if (n.type === "shape") api.getState().beginCarry(n.id); }}
+          onNodeDragStop={() => { api.getState().endGesture(); api.getState().endCarry(); }}
           onDelete={({ nodes: n, edges: e }) => api.getState().deleteElements(n.map((x) => x.id), e.map((x) => x.id))}
-          onPaneClick={() => { api.getState().closeMenu(); api.getState().setSelection({ nodes: [], edges: [] }); }}
-          onNodeContextMenu={(e, n) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "node", id: n.id } }); }}
+          onPaneClick={() => { api.getState().closeMenu(); api.getState().setSelection({ nodes: [], edges: [], shapes: [] }); }}
+          onNodeContextMenu={(e, n) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: n.type === "shape" ? { kind: "shape", id: n.id } : { kind: "node", id: n.id } }); }}
           onEdgeContextMenu={(e, ed) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "edge", id: ed.id } }); }}
           onPaneContextMenu={(e) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "pane", flow: screenToFlowPosition({ x: e.clientX, y: e.clientY }) } }); }}
           connectionMode={ConnectionMode.Loose}
           deleteKeyCode={["Backspace", "Delete"]}
+          elevateNodesOnSelect={false}
+          selectionOnDrag={tool === "select"}
+          panOnDrag={tool === "pan" ? true : [1]}
+          selectionMode={SelectionMode.Partial}
+          multiSelectionKeyCode={["Control", "Meta", "Shift"]}
+          panActivationKeyCode="Space"
+          onNodeDoubleClick={(_e, n) => api.getState().openProps(n.type === "shape" ? { kind: "shape", id: n.id } : { kind: "appliance", id: n.id })}
+          onEdgeDoubleClick={(_e, ed) => api.getState().openProps({ kind: "cable", id: ed.id })}
           snapToGrid={snap}
           snapGrid={[8, 8]}
           minZoom={0.2}

@@ -1,5 +1,5 @@
 import { test } from "@playwright/test";
-import { addPorts, node, open } from "./helpers";
+import { addPorts, node, open, openProps } from "./helpers";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 test.skip(!process.env.SCREENSHOTS, "screenshots are generated on demand");
@@ -11,9 +11,9 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     const out = (n: string) => `docs/screenshots/${n}-${w}x${h}.png`;
     await page.screenshot({ path: out("01-commerce-stack") });
 
-    await node(page, "haproxy-01").click();
-    await page.getByTestId("catalog-search").hover();
-    await page.screenshot({ path: out("02-selected-inspector") });
+    await openProps(page, "haproxy-01");
+    await page.screenshot({ path: out("02-properties-window") });
+    await page.getByTestId("props-close").click();
 
     await node(page, "nginx-01").click({ button: "right" });
     await page.screenshot({ path: out("10-context-menu-appliance") });
@@ -26,14 +26,15 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("menu-add").hover();
     await page.screenshot({ path: out("12-context-menu-canvas") });
     await page.keyboard.press("Escape");
-    await node(page, "postgresql-01").click();
+    await openProps(page, "postgresql-01", "config");
     await page.locator("[data-testid=cfg-group][data-group=Limits] summary").click();
     await page.getByTestId("cfg-max-connections").fill("5");
     await page.getByTestId("cfg-max-connections").press("Enter");
     await page.screenshot({ path: out("13-configuration-form") });
     await page.getByTestId("cfg-max-connections").fill("250");
     await page.getByTestId("cfg-max-connections").press("Enter");
-    await node(page, "grafana-01").click();
+    await page.getByTestId("props-close").click();
+    await openProps(page, "grafana-01", "ports");
     await addPorts(page, "input", 5);
     await page.waitForTimeout(200);
     await page.screenshot({ path: out("03-ports-grow-node") });
@@ -82,6 +83,24 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.screenshot({ path: out("17-component") });
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample").click();
+    await page.waitForTimeout(400);
+    // zones: wrap the web tier, add a circle and a triangle sector, label and colour them
+    await node(page, "haproxy-01").click();
+    await node(page, "nginx-01").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ button: "right" });
+    await page.getByTestId("menu-wrap").click();
+    await page.getByTestId("menu-wrap-rounded").click();
+    await page.getByTestId("shape-label-input").fill("Web tier");
+    await page.getByTestId("props-tab-style").click();
+    await page.locator("[data-testid=shape-fill] [data-color='#3b82f6']").click();
+    await page.screenshot({ path: out("19-zone-style-editor") });
+    await page.getByTestId("props-close").click();
+    await page.getByTestId("canvas").click({ button: "right", position: { x: 60, y: 60 } });
+    await page.getByTestId("menu-add-shape").hover();
+    await page.screenshot({ path: out("20-canvas-menu-add-zone") });
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(150);
     await page.getByTestId("density-expanded").click();
     await page.waitForTimeout(400);
     await page.screenshot({ path: out("05-expanded-density") });

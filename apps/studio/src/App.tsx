@@ -9,7 +9,7 @@ import { Toasts } from "./components/chrome/Toasts";
 import { ApplianceCatalog } from "./components/catalog/ApplianceCatalog";
 import { AssemblyWorkspace } from "./components/canvas/AssemblyWorkspace";
 import { renameSelected } from "./features/editor/menus";
-import { PropertiesInspector } from "./components/inspector/PropertiesInspector";
+import { PropertiesWindow } from "./components/inspector/PropertiesWindow";
 import { ApplianceDesigner } from "./components/designer/ApplianceDesigner";
 import { ComponentDialog } from "./components/designer/ComponentDialog";
 import { ms } from "./features/editor/motion";
@@ -30,7 +30,7 @@ function Shortcuts() {
       else if (mod && k === "g") { e.preventDefault(); if (e.shiftKey) api.getState().ungroupSelection(); else api.getState().openGroupDialog(); }
       else if (mod && k === "d") { e.preventDefault(); api.getState().duplicateSelection(); }
       else if (mod && k === "a") { e.preventDefault(); api.getState().selectAll(); }
-      else if (e.key === "F2") { e.preventDefault(); if (api.getState().selection.nodes.length === 1) renameSelected(); }
+      else if (e.key === "F2") { e.preventDefault(); if (api.getState().selection.nodes.length === 1) renameSelected(api); }
       else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
         e.preventDefault();
         const st = api.getState();
@@ -39,6 +39,9 @@ function Shortcuts() {
         const r = el?.getBoundingClientRect();
         if (r) st.openMenu({ x: r.left + r.width / 2, y: r.top + r.height / 2, keyboard: true, target: id ? { kind: "node", id } : { kind: "pane", flow: screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) } });
       }
+      else if (!mod && !e.shiftKey && k === "v") api.getState().setTool("select");
+      else if (!mod && !e.shiftKey && k === "h") api.getState().setTool("pan");
+      else if (!mod && e.key === "Enter") { const st = api.getState(); if (st.selection.nodes.length === 1 && !st.menu) { e.preventDefault(); st.openProps({ kind: "appliance", id: st.selection.nodes[0]! }); } }
       else if (!mod && (e.key === "+" || e.key === "=")) void zoomIn({ duration: ms(120) });
       else if (!mod && e.key === "-") void zoomOut({ duration: ms(120) });
       else if (!mod && k === "f") void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) });
@@ -83,10 +86,10 @@ export function App() {
             <main className="flex min-w-0 flex-1 p-3">
               <AssemblyWorkspace />
             </main>
-            <PropertiesInspector />
           </div>
         </div>
         <Toasts />
+        <PropertiesWindow />
         <ApplianceDesigner />
         <ComponentDialog />
       </ReactFlowProvider>

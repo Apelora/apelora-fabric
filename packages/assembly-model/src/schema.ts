@@ -7,7 +7,10 @@ import {
   DENSITIES,
   LAYOUT_VERSION,
   PORT_TYPES,
+  LABEL_POSITIONS,
   PROPERTY_TYPES,
+  SHAPE_KINDS,
+  STROKE_STYLES,
 } from "./constants";
 
 const portId = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/, "port id must be kebab-case");
@@ -70,6 +73,28 @@ export const LinkTagSchema = z.object({
   endpoint: EndpointSchema,
 });
 
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "color must be #rrggbb");
+
+/** A zone/sector drawn behind appliances. View-only: it never affects deployment semantics. */
+export const ShapeSchema = z.object({
+  id: z.string().regex(/^shape-[a-z0-9-]{1,40}$/, "shape id must look like shape-01"),
+  kind: z.enum(SHAPE_KINDS),
+  x: finite,
+  y: finite,
+  width: finite.pipe(z.number().min(40).max(6000)),
+  height: finite.pipe(z.number().min(30).max(6000)),
+  label: z.string().max(60),
+  labelPos: z.enum(LABEL_POSITIONS),
+  fontSize: z.number().min(8).max(36),
+  fill: hexColor,
+  fillOpacity: z.number().min(0).max(1),
+  stroke: hexColor,
+  strokeWidth: z.number().min(0).max(10),
+  strokeStyle: z.enum(STROKE_STYLES),
+  radius: z.number().min(0).max(120),
+  locked: z.boolean(),
+});
+
 export const EditorNodeSchema = z.object({
   id: entityId,
   x: finite,
@@ -117,6 +142,7 @@ export const ApplicationAssemblySchema = z.object({
     layoutVersion: z.literal(LAYOUT_VERSION),
     density: z.enum(DENSITIES),
     nodes: z.array(EditorNodeSchema),
+    shapes: z.array(ShapeSchema).max(200).optional(),
   }),
   /** Definitions of custom appliance classes used by this assembly, so exports are self-contained. */
   catalog: z.object({ classes: z.array(ApplianceClassSchema) }).optional(),
@@ -134,6 +160,8 @@ export type Connection = z.infer<typeof ConnectionSchema>;
 export type Composition = z.infer<typeof CompositionSchema>;
 export type Endpoint = Connection["source"];
 export type LinkTag = z.infer<typeof LinkTagSchema>;
+export type Shape = z.infer<typeof ShapeSchema>;
+export type ShapeKind = Shape["kind"];
 export type EditorNode = z.infer<typeof EditorNodeSchema>;
 export type ApplicationAssembly = z.infer<typeof ApplicationAssemblySchema>;
 export type Density = ApplicationAssembly["editor"]["density"];

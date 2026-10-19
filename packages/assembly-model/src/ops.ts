@@ -101,6 +101,7 @@ export function setDensity(a: ApplicationAssembly, density: Density): Applicatio
     editor: {
       ...a.editor,
       density,
+      shapes: a.editor.shapes?.map((sh) => ({ ...sh, x: Math.round(sh.x * fx), y: Math.round(sh.y * fy), width: Math.round(sh.width * fx), height: Math.round(sh.height * fy) })),
       // Positions scale with the preset so spacing between nodes is preserved. Nodes without a manual
       // size follow the preset; manually resized nodes keep their size.
       nodes: a.editor.nodes.map((n) => ({

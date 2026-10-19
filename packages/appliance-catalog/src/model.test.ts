@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
 import {
   ApplianceClassSchema as ClassSchema, CATEGORIES, PORT_TYPES, effectiveValue as effVal, validateProperty as valProp, minHeightForPorts, portTypesCompatible,
+  addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, shapeContents, updateShape, zoneAround, SHAPE_PALETTE, ShapeSchema,
   addAppliance, addPort, alignNodes, ensureNics, groupAppliances, groupCandidates, ungroupAppliance, usedCustomClasses, ApplianceClassSchema, type ApplianceClass, cableToTag, explainTag, removeAppliances as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
@@ -434,5 +435,65 @@ describe("catalog quality", () => {
   });
   it("requested favourites exist: Kafka, HAProxy, Apache httpd, CouchDB, Redis, MongoDB, MySQL, Cassandra", () => {
     for (const id of ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "elasticsearch", "traefik", "envoy"]) expect(lookupClass(id, "1.0.0"), id).toBeDefined();
+  });
+});
+
+describe("zones and shapes", () => {
+  it("adds the four shape kinds with valid defaults and unique ids", () => {
+    let a = createEmptyAssembly("t");
+    const ids: string[] = [];
+    for (const kind of ["rect", "ellipse", "rounded", "triangle"] as const) {
+      const r = addShape(a, kind, { x: 10, y: 20, width: 200, height: 120 });
+      a = r.assembly; ids.push(r.id);
+    }
+    expect(new Set(ids).size).toBe(4);
+    const shapes = a.editor.shapes!;
+    for (const s of shapes) expect(ShapeSchema.safeParse(s).success, s.id).toBe(true);
+    expect(shapes.find((s) => s.kind === "rounded")!.radius).toBeGreaterThan(0);
+    expect(new Set(shapes.map((s) => s.fill)).size).toBeGreaterThan(1); // palette cycles
+    expect(SHAPE_PALETTE.length).toBeGreaterThanOrEqual(8);
+  });
+  it("wraps a selection in a zone big enough to contain it, and reports its contents", () => {
+    const a = sampleCommerceStack();
+    const ids = a.spec.appliances.filter((x) => ["haproxy", "nginx"].includes(x.classRef.name)).map((x) => x.id);
+    for (const kind of ["rect", "ellipse", "rounded", "triangle"] as const) {
+      const z = zoneAround(a, ids, kind)!;
+      const inside = shapeContents(z.assembly, z.id);
+      // a triangle is wider than the selection, so it may also cover neighbours; the others must match exactly
+      if (kind === "triangle") expect(inside).toEqual(expect.arrayContaining(ids));
+      else expect(inside.sort(), kind).toEqual([...ids].sort());
+    }
+    // an appliance outside the zone is not carried
+    const z = zoneAround(a, ids, "rect")!;
+    expect(shapeContents(z.assembly, z.id)).not.toContain(a.spec.appliances.find((x) => x.classRef.name === "grafana")!.id);
+  });
+  it("updates, moves, resizes, orders, duplicates and removes; round-trips through JSON; density scales", () => {
+    let a = createEmptyAssembly("t");
+    const r1 = addShape(a, "rect", { x: 0, y: 0, width: 100, height: 80 }); a = r1.assembly;
+    const r2 = addShape(a, "ellipse", { x: 50, y: 50, width: 100, height: 80 }); a = r2.assembly;
+    a = updateShape(a, r1.id, { label: "DMZ", fill: "#3b82f6", strokeStyle: "dashed", fillOpacity: 0.3 });
+    a = moveShapes(a, new Map([[r1.id, { x: 12.4, y: 9.6 }]]));
+    a = resizeShape(a, r1.id, { width: 20, height: 10 }); // clamped to the minimum
+    expect(a.editor.shapes![0]).toMatchObject({ label: "DMZ", x: 12, y: 10, width: 40, height: 30 });
+    a = orderShape(a, r1.id, "front");
+    expect(a.editor.shapes!.map((s) => s.id)).toEqual([r2.id, r1.id]);
+    const d = duplicateShape(a, r1.id)!;
+    expect(d.assembly.editor.shapes).toHaveLength(3);
+    const parsed = parseAssembly(serializeAssembly(d.assembly));
+    expect(parsed.ok && parsed.assembly.editor.shapes).toHaveLength(3);
+    const dense = setDensity(d.assembly, "expanded");
+    expect(dense.editor.shapes![2]!.width).toBeGreaterThan(d.assembly.editor.shapes![2]!.width);
+    expect(removeShapes(d.assembly, [r1.id, r2.id]).editor.shapes).toHaveLength(1);
+    expect(removeShapes(removeShapes(d.assembly, [r1.id, r2.id]), [d.id]).editor.shapes).toBeUndefined();
+  });
+  it("rejects hostile colours and sizes on import", () => {
+    let a = createEmptyAssembly("t");
+    a = addShape(a, "rect", { x: 0, y: 0, width: 100, height: 80 }).assembly;
+    const bad = JSON.parse(serializeAssembly(a));
+    bad.editor.shapes[0].fill = "red; background:url(javascript:alert(1))";
+    expect(parseAssembly(JSON.stringify(bad)).ok).toBe(false);
+    const huge = JSON.parse(serializeAssembly(a));
+    huge.editor.shapes[0].width = 9_999_999;
+    expect(parseAssembly(JSON.stringify(huge)).ok).toBe(false);
   });
 });

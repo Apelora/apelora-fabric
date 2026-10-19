@@ -63,6 +63,13 @@ body { overflow: hidden; }
 .apl-canvas-frame .react-flow { background: var(--apl-canvas); --xy-background-pattern-dots-color-default: var(--apl-dot); }
 .apl-canvas-frame .react-flow__attribution { display: none; }
 
+/* ---- tools ---- */
+.apl-canvas-frame[data-tool="pan"] .react-flow__pane { cursor: grab; }
+.apl-canvas-frame[data-tool="pan"] .react-flow__pane.dragging { cursor: grabbing; }
+.apl-canvas-frame[data-tool="select"] .react-flow__pane { cursor: default; }
+.react-flow__selection { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); border: 1px solid color-mix(in oklab, var(--color-base-content) 45%, transparent); border-radius: 3px; }
+.react-flow__nodesselection-rect { border: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent); border-radius: 4px; background: transparent; }
+
 /* ---- appliance node ---- */
 .react-flow__node-appliance { padding: 0; border: 0; background: none; border-radius: 8px; width: auto; }
 .apl-node {
@@ -188,3 +195,22 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }
+
+/* ---- zones and shapes ---- */
+.react-flow__node-shape { padding: 0; border: 0; background: none; pointer-events: none !important; }
+.apl-shape { position: relative; pointer-events: none; }
+.apl-shape .apl-shape-hit { pointer-events: stroke; cursor: grab; }
+.apl-shape[data-locked="true"] .apl-shape-hit { cursor: default; }
+.apl-shape-label {
+  position: absolute; max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; font-weight: 600;
+  color: color-mix(in oklab, var(--color-base-content) 78%, transparent); cursor: grab; pointer-events: auto; padding: 2px 4px; border-radius: 4px; user-select: none;
+}
+.apl-shape-label[data-pos="top-left"] { left: 10px; top: 8px; }
+.apl-shape-label[data-pos="top"] { left: 50%; top: 8px; transform: translateX(-50%); }
+.apl-shape-label[data-pos="center"] { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.apl-shape-label[data-pos="bottom"] { left: 50%; bottom: 8px; transform: translateX(-50%); }
+.apl-shape-label[data-kind="triangle"][data-pos="center"] { top: 62%; }
+.apl-shape-label[data-kind="triangle"][data-pos="top-left"], .apl-shape-label[data-kind="triangle"][data-pos="top"] { top: 30%; left: 50%; transform: translateX(-50%); }
+.apl-shape[data-selected="true"] .apl-shape-label { background: color-mix(in oklab, var(--color-base-content) 8%, transparent); }
+.apl-shape[data-locked="true"] .apl-shape-label { cursor: default; }
+.apl-props { animation: apl-pop var(--apl-dur) var(--apl-ease); transform-origin: top left; }

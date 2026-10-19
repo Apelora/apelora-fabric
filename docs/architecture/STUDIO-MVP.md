@@ -52,6 +52,10 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 - **Appliance Designer** (New appliance, or the pencil on a tile, or "Save as custom appliance…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
 - Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.
 
+## Tools, properties window, zones
+
+Select/Pan tool modes (`tool` in the store; React Flow `selectionOnDrag`/`panOnDrag`), an on-demand floating properties window (`PropertiesWindow.tsx`, store `propsWin`/`propsPos`) replacing the old sidebar, and zones (`editor.shapes`, `packages/assembly-model/src/shapes.ts`, `ShapeNode.tsx`, `ShapeProperties.tsx`). Shapes are React Flow nodes with `zIndex: -1` and `elevateNodesOnSelect` off so they stay behind appliances; only their border and label take pointer events. Dragging a zone moves the appliances whose centre lies inside it (`shapeContents`, `carry` in the store). Style edits use `commitCoalesced` so slider drags and typing form one undo step. Specified in `STUDIO-UI-SPEC.md`.
+
 ## Context menus and shortcuts
 
 Right-click (or the Menu key / Shift+F10 on a selection) opens a context menu; arrow keys, Enter, Right/Left (submenus) and Escape work, and it closes on outside click, scroll or resize. Right-clicking something outside the current selection selects it first.

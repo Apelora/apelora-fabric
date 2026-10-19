@@ -48,7 +48,7 @@ function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; 
       <Jack kind={side} />
       {(link || tag) && <PlugHead side={side} type={link?.type ?? tag!.type} count={link?.count ?? 1} />}
       {port.id === "net" && <span className="apl-nic-led" data-testid="nic-led" data-side={side} data-linked={!!(link || tag)} aria-hidden="true" />}
-      {tag && <TagStub side={side} tag={tag} hot={hot} onSelect={() => api.getState().selectTag(tag.name)} onHover={(v) => api.getState().setHoverTag(v ? tag.name : null)} />}
+      {tag && <TagStub side={side} tag={tag} hot={hot} onSelect={() => { api.getState().selectTag(tag.name); api.getState().openProps({ kind: "tag", id: tag.name }); }} onHover={(v) => api.getState().setHoverTag(v ? tag.name : null)} />}
       <span className="apl-port-label" data-testid="port-label" aria-hidden="true">{port.name}</span>
       <span className="apl-port-tip" aria-hidden="true">{label}</span>
     </Handle>
