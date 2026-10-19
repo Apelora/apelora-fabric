@@ -115,7 +115,7 @@ test.describe("context menus", () => {
   test("multi-selection menu: align and delete", async ({ page }) => {
     await open(page);
     await node(page, "nginx-01").click();
-    await node(page, "grafana-01").click({ modifiers: ["Control"] });
+    await node(page, "grafana-01").click({ modifiers: ["ControlOrMeta"] });
     await node(page, "grafana-01").click({ button: "right" });
     await expect(menu(page)).toContainText("2 appliances selected");
     await item(page, "align").click();
@@ -544,8 +544,8 @@ test.describe("network interface and link tags", () => {
 test.describe("components", () => {
   const webTier = async (page: import("@playwright/test").Page) => {
     await node(page, "haproxy-01").click();
-    await node(page, "nginx-01").click({ modifiers: ["Control"] });
-    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-01").click({ modifiers: ["ControlOrMeta"] });
+    await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
   };
 
   test("group three appliances into a component: dialog, re-plugged cables, badge, catalog tile; ungroup restores", async ({ page }) => {
@@ -669,7 +669,7 @@ test.describe("selection and pan tools", () => {
     // Shift-click and Ctrl-click add to the selection
     await node(page, "haproxy-01").click({ modifiers: ["Shift"] });
     await expect(page.getByTestId("selection-info")).toHaveText("3 selected");
-    await node(page, "grafana-01").click({ modifiers: ["Control"] });
+    await node(page, "grafana-01").click({ modifiers: ["ControlOrMeta"] });
     await expect(page.getByTestId("selection-info")).toHaveText("4 selected");
     await page.mouse.click(b1.x - 60, b1.y - 60); // empty canvas clears
     await expect(page.getByTestId("selection-info")).toHaveCount(0);
@@ -770,6 +770,22 @@ test.describe("properties window", () => {
   });
 });
 
+test.describe("selection modifiers", () => {
+  test("Shift/Ctrl/Cmd-click adds even when the key goes down in the same instant as the click; plain click resets", async ({ page }) => {
+    await open(page);
+    const info = page.getByTestId("selection-info");
+    await node(page, "nginx-01").click();
+    await node(page, "nginx-02").click({ modifiers: ["Shift"] });
+    await expect(info).toHaveText("2 selected");
+    await node(page, "grafana-01").click({ modifiers: ["ControlOrMeta"] });
+    await expect(info).toHaveText("3 selected");
+    await node(page, "grafana-01").click({ modifiers: ["ControlOrMeta"] });
+    await expect(info).toHaveText("2 selected");
+    await node(page, "postgresql-01").click();
+    await expect(info).toHaveText("1 selected");
+  });
+});
+
 test.describe("cable colour", () => {
   const stroke = (page: import("@playwright/test").Page, id: string) =>
     page.locator(`.react-flow__edge[data-id="${id}"] path.react-flow__edge-path`).evaluate((el) => getComputedStyle(el).stroke);
@@ -821,8 +837,8 @@ test.describe("zones and shapes", () => {
   const shapes = async (page: import("@playwright/test").Page) => (await assemblyState(page)).editor.shapes ?? [];
   const wrapWebTier = async (page: import("@playwright/test").Page, kind = "rect") => {
     await node(page, "haproxy-01").click();
-    await node(page, "nginx-01").click({ modifiers: ["Control"] });
-    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-01").click({ modifiers: ["ControlOrMeta"] });
+    await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
     await node(page, "nginx-02").click({ button: "right" });
     await page.getByTestId("menu-wrap").click();
     await page.getByTestId(`menu-wrap-${kind}`).click();

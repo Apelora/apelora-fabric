@@ -29,3 +29,10 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - https://linuxcontainers.org/incus/docs/main/
 - https://github.com/lxc/incus
 - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+## Apelora specifics
+
+- CI gates in place: `.github/workflows/ci.yml` (frontend, rust, e2e) and `.github/workflows/upstream-check.yml` (weekly Incus pin verification and update PRs). Dependabot covers GitHub Actions, npm and Cargo weekly.
+- Generated files (JSON Schemas, `docs/architecture/CATALOG.md`) are checked for drift in CI; regenerate with `npm run schema` / `npm run catalog:doc`.
+- Real-Incus integration tests will run only against a designated disposable cluster, outside pull-request CI.
+

@@ -5,7 +5,8 @@ export default defineConfig({
   outputDir: "test-results",
   fullyParallel: false,
   workers: 1,
-  reporter: [["list"]],
+  forbidOnly: !!process.env.CI,
+  reporter: process.env.CI ? [["list"], ["github"]] : [["list"]],
   use: { baseURL: "http://127.0.0.1:5173", trace: "retain-on-failure" },
   projects: [
     { name: "chromium-1440", testIgnore: /fabric-console\.spec\.ts/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },

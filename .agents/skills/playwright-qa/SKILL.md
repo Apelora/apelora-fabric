@@ -22,6 +22,13 @@ Playwright MCP is configured for Chromium in `.mcp.json` (restart Claude Code af
 3. Assert: no console errors, no requests to non-localhost hosts.
 4. Wait on conditions (`expect.poll`, locators), not fixed sleeps, except for short animation settling.
 5. Never report a test as passed unless it ran; report skipped/blocked checks and why.
+6. **Cross-platform modifiers.** For additive selection use `click({ modifiers: ["ControlOrMeta"] })` and `keyboard.press("ControlOrMeta+…")`. A plain `Control`-click is a right-click on macOS, so such tests pass on Linux CI and fail on Mac.
+7. **Prove a regression test.** Before keeping an app fix, show the new test fails without it (e.g. `git stash` the fix, rerun). If the test passes without the fix, the fix is unproven: revert it and keep the test as coverage only.
+8. Fabric Console specs live in `tests/e2e/fabric-console.spec.ts` (project `console-1440`, base URL `:5174`); mock the API with `page.route("**/api/v1/…")` so tests never depend on a running backend.
+
+## CI (`.github/workflows/ci.yml`)
+
+Every push and pull request runs three jobs: **frontend** (npm ci, typecheck, lint, unit tests, build, and a check that `npm run schema` / `npm run catalog:doc` leave no diff), **rust** (fmt, clippy `-D warnings`, test, all `--locked`, toolchain from `rust-toolchain.toml`) and **e2e** (Playwright Chromium, both projects; traces uploaded as an artifact on failure). `forbidOnly` is on in CI. No secrets or Incus credentials exist in CI; never add live-infrastructure tests there.
 
 ## Required coverage (see `docs/architecture/STUDIO-MVP.md`)
 
