@@ -9,6 +9,18 @@ const COLORS: Record<string, string> = {
   amqp: "oklch(68% 0.15 60)",
   s3: "oklch(55% 0.14 310)",
   metrics: "oklch(60% 0.13 150)",
+  kafka: "oklch(48% 0.04 260)",
+  pulsar: "oklch(58% 0.12 235)",
+  mqtt: "oklch(62% 0.14 320)",
+  nats: "oklch(62% 0.12 170)",
+  mongodb: "oklch(58% 0.14 145)",
+  cassandra: "oklch(60% 0.11 215)",
+  memcached: "oklch(62% 0.12 125)",
+  grpc: "oklch(60% 0.12 200)",
+  ldap: "oklch(60% 0.10 40)",
+  smtp: "oklch(64% 0.12 80)",
+  syslog: "oklch(55% 0.06 100)",
+  nfs: "oklch(58% 0.10 70)",
 };
 export const cableColor = (type: string): string => COLORS[type] ?? COLORS.tcp!;
 export const cableOutline = (type: string): string => `color-mix(in oklab, ${cableColor(type)} 55%, black)`;

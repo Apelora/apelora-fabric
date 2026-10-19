@@ -1,6 +1,6 @@
 import type { Port, PortType } from "./schema";
 
-const LAYER4: ReadonlySet<PortType> = new Set(["http", "tcp", "postgres", "mysql", "redis", "amqp", "s3", "metrics"]);
+const LAYER4: ReadonlySet<PortType> = new Set(["http", "tcp", "postgres", "mysql", "redis", "amqp", "s3", "metrics", "kafka", "pulsar", "mqtt", "nats", "mongodb", "cassandra", "memcached", "grpc", "ldap", "smtp", "syslog", "nfs"]);
 
 /** A logical output of type `from` may feed an input of type `to`. */
 export function portTypesCompatible(from: PortType, to: PortType): boolean {

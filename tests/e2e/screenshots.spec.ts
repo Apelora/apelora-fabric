@@ -53,6 +53,20 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("designer-prop").first().getByLabel("Field type").selectOption("int");
     await page.screenshot({ path: out("14-designer-configuration") });
     await page.getByTestId("designer-save").click();
+    // port placement showcase: new appliances side by side
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    const cv2 = (await page.getByTestId("canvas").boundingBox())!;
+    const showcase = ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "traefik", "elasticsearch", "keycloak", "mosquitto"];
+    for (const [idx, cls] of showcase.entries()) {
+      await page.locator(`[data-testid=catalog-search]`).fill(cls === "apache" ? "httpd" : cls);
+      await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 90 + (idx % 4) * 215, y: 80 + Math.floor(idx / 4) * 205 } });
+    }
+    await page.getByTestId("catalog-search").fill("");
+    await page.getByRole("button", { name: "Fit to view" }).click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: out("18-new-appliances-port-placement") });
+    void cv2;
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample-network").click();
     await page.waitForTimeout(500);

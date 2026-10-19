@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { APPLIANCE_CLASSES } from "../../packages/appliance-catalog/src/classes";
 import { test } from "@playwright/test";
 import { addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
 
@@ -811,11 +812,13 @@ test.describe("catalog", () => {
   test("sections collapse, search filters, click adds exactly one instance", async ({ page }) => {
     await open(page);
     const section = page.locator("[data-testid=catalog-section][data-category='Databases & Cache']");
-    await expect(section.getByTestId("catalog-tile")).toHaveCount(3);
+    const dbCount = APPLIANCE_CLASSES.filter((c) => c.category === "Databases & Cache").length;
+    expect(dbCount).toBeGreaterThanOrEqual(12);
+    await expect(section.getByTestId("catalog-tile")).toHaveCount(dbCount);
     await section.getByRole("button").first().click();
     await expect(section.getByTestId("catalog-tile")).toHaveCount(0);
     await section.getByRole("button").first().click();
-    await expect(section.getByTestId("catalog-tile")).toHaveCount(3);
+    await expect(section.getByTestId("catalog-tile")).toHaveCount(dbCount);
 
     await page.getByTestId("catalog-search").fill("redi");
     await expect(page.getByTestId("catalog-tile")).toHaveCount(1);
@@ -827,9 +830,14 @@ test.describe("catalog", () => {
     await expect(page.getByText("No appliances match")).toBeVisible();
   });
 
-  test("tiles show the 15 built-in appliances, grouped", async ({ page }) => {
+  test("tiles show every built-in appliance, grouped, with collapse all / expand all", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("catalog-tile")).toHaveCount(15);
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.length);
+    await expect(page.getByTestId("catalog-count")).toHaveText(`${APPLIANCE_CLASSES.length} appliances`);
+    await page.getByTestId("catalog-collapse-all").click();
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(0);
+    await page.getByTestId("catalog-expand-all").click();
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.length);
     expect(await page.getByTestId("catalog-section").count()).toBeGreaterThanOrEqual(6);
   });
 });

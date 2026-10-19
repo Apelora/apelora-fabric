@@ -67,6 +67,10 @@ export function ApplianceCatalog() {
           <IconSearch size={14} />
           <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search appliances" aria-label="Search appliances" data-testid="catalog-search" className="grow" />
         </label>
+        <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-base-content/50">
+          <span data-testid="catalog-count">{all.length} appliances</span>
+          <span><button type="button" className="link" data-testid="catalog-collapse-all" onClick={() => setCollapsed(Object.fromEntries(CATEGORIES.map((c) => [c, true])))}>collapse all</button> · <button type="button" className="link" data-testid="catalog-expand-all" onClick={() => setCollapsed({})}>expand all</button></span>
+        </div>
         <button type="button" className="btn btn-sm btn-outline mt-2 w-full" data-testid="new-appliance" onClick={() => useCustomCatalog.getState().openDesigner(emptyDraft())}><IconPlus size={14} />New appliance</button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">

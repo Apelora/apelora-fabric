@@ -5,6 +5,12 @@
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "typecheck": "tsc -p tsconfig.json" },
-  "dependencies": { "@apelora/assembly-model": "*" }
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "catalog:doc": "tsx scripts/gen-catalog-doc.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@apelora/assembly-model": "*"
+  }
 }

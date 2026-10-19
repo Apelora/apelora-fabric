@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { APPLIANCE_CLASSES, lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
 import {
+  ApplianceClassSchema as ClassSchema, CATEGORIES, PORT_TYPES, effectiveValue as effVal, validateProperty as valProp, minHeightForPorts, portTypesCompatible,
   addAppliance, addPort, alignNodes, ensureNics, groupAppliances, groupCandidates, ungroupAppliance, usedCustomClasses, ApplianceClassSchema, type ApplianceClass, cableToTag, explainTag, removeAppliances as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minApplianceHeight, movePort,
   parseAssembly, removeAppliances, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
 } from "@apelora/assembly-model";
@@ -386,5 +388,51 @@ describe("components and the network", () => {
     const inner = u.assembly.spec.appliances.filter((x) => ["haproxy", "nginx"].includes(x.classRef.name)).map((x) => x.id);
     for (const id of inner) expect((u.assembly.spec.links ?? []).find((l) => l.endpoint.applianceId === id && l.endpoint.portId === "net")?.tag).toBe("backbone");
     expect(validateAssembly(u.assembly, lookup)).toEqual([]);
+  });
+});
+
+describe("catalog quality", () => {
+  const classes = [...APPLIANCE_CLASSES];
+  it("has at least 60 appliances with unique ids", () => {
+    expect(classes.length).toBeGreaterThanOrEqual(60);
+    expect(new Set(classes.map((c) => c.id)).size).toBe(classes.length);
+  });
+  it("every class is schema-valid, in a known category, with a bundled icon", () => {
+    for (const c of classes) {
+      expect(ClassSchema.safeParse(c).success, `${c.id} schema`).toBe(true);
+      expect(CATEGORIES).toContain(c.category);
+      expect(existsSync(new URL(`../assets/logos/${c.iconAssetPath}.svg`, import.meta.url)), `${c.id} icon ${c.iconAssetPath}`).toBe(true);
+    }
+  });
+  it("follows the port placement convention", () => {
+    for (const c of classes) {
+      const ins = c.ports.filter((q) => q.direction === "input");
+      const outs = c.ports.filter((q) => q.direction === "output");
+      expect(new Set(c.ports.map((q) => q.id)).size, `${c.id} unique port ids`).toBe(c.ports.length);
+      if (c.id !== "network") expect(ins[ins.length - 1]!.id, `${c.id}: net is the last input`).toBe("net");
+      expect(ins.length, `${c.id} inputs`).toBeLessThanOrEqual(3);
+      expect(outs.length, `${c.id} outputs`).toBeLessThanOrEqual(4);
+      const monIdx = outs.findIndex((q) => q.id === "mon");
+      if (monIdx >= 0) { expect(outs[monIdx]!.type).toBe("metrics"); expect(monIdx, `${c.id}: mon is the last output`).toBe(outs.length - 1); }
+      for (const q of c.ports) { expect(PORT_TYPES).toContain(q.type); expect(q.name.length, `${c.id}.${q.id} short name`).toBeLessThanOrEqual(8); }
+      expect(minHeightForPorts(c.ports), `${c.id} height`).toBeLessThanOrEqual(60 + 18 * 4);
+    }
+  });
+  it("defaults of every configuration property satisfy their own rules", () => {
+    for (const c of classes) {
+      const ids = new Set<string>();
+      for (const pr of c.properties ?? []) {
+        expect(ids.has(pr.id), `${c.id} duplicate property ${pr.id}`).toBe(false);
+        ids.add(pr.id);
+        expect(valProp(pr, effVal(pr, undefined)), `${c.id}.${pr.id}`).toBeNull();
+      }
+    }
+  });
+  it("every metrics output can feed Prometheus", () => {
+    const prom = lookupClass("prometheus", "1.0.0")!.ports.find((q) => q.id === "scrape")!;
+    for (const c of classes) for (const q of c.ports.filter((x) => x.id === "mon")) expect(portTypesCompatible(q.type, prom.type), c.id).toBe(true);
+  });
+  it("requested favourites exist: Kafka, HAProxy, Apache httpd, CouchDB, Redis, MongoDB, MySQL, Cassandra", () => {
+    for (const id of ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "elasticsearch", "traefik", "envoy"]) expect(lookupClass(id, "1.0.0"), id).toBeDefined();
   });
 });

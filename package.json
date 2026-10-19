@@ -18,7 +18,8 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "lint": "eslint .",
-    "schema": "npm run schema -w @apelora/assembly-model"
+    "schema": "npm run schema -w @apelora/assembly-model",
+    "catalog:doc": "npm run catalog:doc -w @apelora/appliance-catalog"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

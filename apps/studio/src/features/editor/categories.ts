@@ -3,7 +3,10 @@ import type { Category } from "@apelora/assembly-model";
 /** Muted accent per category (oklch), used on node headers, tiles and section headings. */
 const HUES: Record<Category, string> = {
   "Network & Security": "oklch(62% 0.13 25)",
+  "Security & Identity": "oklch(58% 0.11 330)",
   "Load Balancing": "oklch(74% 0.13 90)",
+  "Messaging & Streaming": "oklch(62% 0.13 40)",
+  "Search & Analytics": "oklch(60% 0.11 190)",
   "Web & Application": "oklch(60% 0.13 250)",
   "Databases & Cache": "oklch(60% 0.14 355)",
   Storage: "oklch(68% 0.13 60)",
