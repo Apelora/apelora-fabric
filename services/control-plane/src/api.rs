@@ -1,52 +1,106 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! `/api/v1` routes. Every inventory response carries its source (mock or Incus) and the time
-//! it was observed, so the UI can never mistake mock data for a real cluster.
+//! `/api/v1` routes. Every route except `/health` needs an authenticated principal and names
+//! the permission it requires. Inventory responses carry their source (mock or Incus) and the
+//! time they were observed, so mock data is never mistaken for a real cluster.
 
 use std::sync::Arc;
 
-use apelora_domain::{API_VERSION, ProviderMode};
+use apelora_domain::{API_VERSION, Permission, ProviderMode, Role};
 use apelora_incus_adapter::{AdapterError, Provider};
-use axum::extract::State;
-use axum::http::StatusCode;
+use apelora_persistence::Pool;
+use axum::extract::{Request, State};
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use serde_json::{Value, json};
+
+/// How requests are authenticated.
+#[derive(Clone)]
+pub enum Auth {
+    /// Bearer API tokens checked against the database.
+    Tokens(Pool),
+    /// Development only (loopback): every request acts as a fabric admin, and `/health` says so.
+    DisabledForDevelopment,
+}
 
 #[derive(Clone)]
 pub struct AppState {
     provider: Arc<Provider>,
+    auth: Auth,
 }
 
 impl AppState {
-    pub fn new(provider: Provider) -> Self {
+    pub fn new(provider: Provider, auth: Auth) -> Self {
         Self {
             provider: Arc::new(provider),
+            auth,
         }
     }
 }
 
+/// The caller of a request.
+#[derive(Debug, Clone)]
+pub struct Principal {
+    pub name: String,
+    pub role: Role,
+}
+
 pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/api/v1/health", get(health))
+    let protected = Router::new()
+        .route("/api/v1/whoami", get(whoami))
         .route("/api/v1/cluster", get(cluster))
         .route("/api/v1/instances", get(instances))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
+        .route("/api/v1/audit", get(audit))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
+    Router::new()
+        .route("/api/v1/health", get(health))
+        .merge(protected)
         .with_state(state)
 }
 
-fn source(mode: ProviderMode) -> Value {
-    json!({ "provider": mode, "observedAt": jiff::Timestamp::now().to_string() })
+/// API errors with a stable machine code and a readable message.
+pub struct ApiError {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
 }
 
-/// Adapter failures become 502/503 responses with a stable code and a readable message.
-struct ApiError(AdapterError);
+impl ApiError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+}
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, code) = match &self.0 {
+        if self.status.is_server_error() || self.status == StatusCode::BAD_GATEWAY {
+            tracing::warn!(code = self.code, error = %self.message, "request failed");
+        }
+        let mut res = (
+            self.status,
+            Json(json!({ "error": { "code": self.code, "message": self.message } })),
+        )
+            .into_response();
+        if self.status == StatusCode::UNAUTHORIZED {
+            res.headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
+        }
+        res
+    }
+}
+
+impl From<AdapterError> for ApiError {
+    fn from(e: AdapterError) -> Self {
+        let (status, code) = match &e {
             AdapterError::NotConfigured => {
                 (StatusCode::SERVICE_UNAVAILABLE, "incus_not_configured")
             }
@@ -62,19 +116,86 @@ impl IntoResponse for ApiError {
                 (StatusCode::BAD_GATEWAY, "incus_unsupported_capability")
             }
         };
-        tracing::warn!(code, error = %self.0, "inventory request failed");
-        (
-            status,
-            Json(json!({ "error": { "code": code, "message": self.0.to_string() } })),
-        )
-            .into_response()
+        ApiError::new(status, code, e.to_string())
     }
 }
 
-impl From<AdapterError> for ApiError {
-    fn from(e: AdapterError) -> Self {
-        Self(e)
+impl From<apelora_persistence::StoreError> for ApiError {
+    fn from(e: apelora_persistence::StoreError) -> Self {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "store_unavailable",
+            e.to_string(),
+        )
     }
+}
+
+fn require(p: &Principal, perm: Permission) -> Result<(), ApiError> {
+    if p.role.allows(perm) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            format!("role {} may not {perm:?}", p.role.as_str()),
+        ))
+    }
+}
+
+async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
+    let principal = match &state.auth {
+        Auth::DisabledForDevelopment => Principal {
+            name: "development".into(),
+            role: Role::FabricAdmin,
+        },
+        Auth::Tokens(pool) => {
+            let presented = req
+                .headers()
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .map(str::trim);
+            let Some(token) = presented else {
+                return ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    "unauthenticated",
+                    "an API token is required (Authorization: Bearer <token>)",
+                )
+                .into_response();
+            };
+            match apelora_persistence::authenticate(pool, token).await {
+                Ok(Some(rec)) => match Role::parse(&rec.role) {
+                    Some(role) => Principal {
+                        name: rec.name,
+                        role,
+                    },
+                    None => {
+                        return ApiError::new(
+                            StatusCode::FORBIDDEN,
+                            "forbidden",
+                            "token has an unknown role",
+                        )
+                        .into_response();
+                    }
+                },
+                Ok(None) => {
+                    return ApiError::new(
+                        StatusCode::UNAUTHORIZED,
+                        "unauthenticated",
+                        "the API token is unknown, revoked or expired",
+                    )
+                    .into_response();
+                }
+                Err(e) => return ApiError::from(e).into_response(),
+            }
+        }
+    };
+    req.extensions_mut().insert(principal);
+    next.run(req).await
+}
+
+fn source(mode: ProviderMode) -> Value {
+    json!({ "provider": mode, "observedAt": jiff::Timestamp::now().to_string() })
 }
 
 async fn health(State(state): State<AppState>) -> Json<Value> {
@@ -85,121 +206,108 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
         }
         Err(err) => json!({ "connected": false, "error": err.to_string() }),
     };
+    let auth = match state.auth {
+        Auth::Tokens(_) => "tokens",
+        Auth::DisabledForDevelopment => "disabled-development",
+    };
     Json(json!({
         "status": "ok",
         "service": "control-plane",
         "version": env!("CARGO_PKG_VERSION"),
         "apiVersion": API_VERSION,
         "provider": mode,
+        "auth": auth,
         "incus": incus,
     }))
 }
 
-async fn cluster(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
-    let p = &state.provider;
-    let server = p.server_info().await?;
-    let members = p.cluster_members().await?;
+async fn whoami(Extension(p): Extension<Principal>) -> Json<Value> {
+    let perms: Vec<_> = [
+        Permission::ReadInventory,
+        Permission::ReadAudit,
+        Permission::ManageTokens,
+        Permission::ManageInfrastructure,
+        Permission::DesignApplications,
+        Permission::Deploy,
+    ]
+    .into_iter()
+    .filter(|x| p.role.allows(*x))
+    .collect();
+    Json(json!({ "name": p.name, "role": p.role, "permissions": perms }))
+}
+
+async fn cluster(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
+    let server = state.provider.server_info().await?;
+    let members = state.provider.cluster_members().await?;
     Ok(Json(
-        json!({ "source": source(p.mode()), "server": server, "members": members }),
+        json!({ "source": source(state.provider.mode()), "server": server, "members": members }),
     ))
 }
 
-async fn instances(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn instances(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
     let items = state.provider.instances().await?;
     Ok(Json(
         json!({ "source": source(state.provider.mode()), "items": items }),
     ))
 }
 
-async fn projects(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn projects(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
     let items = state.provider.projects().await?;
     Ok(Json(
         json!({ "source": source(state.provider.mode()), "items": items }),
     ))
 }
 
-async fn networks(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn networks(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
     let items = state.provider.networks().await?;
     Ok(Json(
         json!({ "source": source(state.provider.mode()), "items": items }),
     ))
 }
 
-async fn storage_pools(State(state): State<AppState>) -> Result<Json<Value>, ApiError> {
+async fn storage_pools(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
     let items = state.provider.storage_pools().await?;
     Ok(Json(
         json!({ "source": source(state.provider.mode()), "items": items }),
     ))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use apelora_incus_adapter::{IncusClient, MockIncus};
-    use axum::body::Body;
-    use axum::http::Request;
-    use http_body_util::BodyExt;
-    use tower::ServiceExt;
-
-    async fn call(provider: Provider, path: &str) -> (StatusCode, Value) {
-        let res = router(AppState::new(provider))
-            .oneshot(Request::get(path).body(Body::empty()).expect("request"))
-            .await
-            .expect("response");
-        let status = res.status();
-        let bytes = res.into_body().collect().await.expect("body").to_bytes();
-        (status, serde_json::from_slice(&bytes).expect("json"))
-    }
-
-    #[tokio::test]
-    async fn health_reports_mock_provider_and_no_incus_connection() {
-        let (status, body) = call(Provider::Mock(MockIncus::default()), "/api/v1/health").await;
-        assert_eq!(status, 200);
-        assert_eq!(body["provider"], "mock");
-        assert_eq!(body["incus"]["connected"], false);
-        assert_eq!(body["incus"]["serverVersion"], Value::Null);
-    }
-
-    #[tokio::test]
-    async fn inventory_endpoints_label_their_source() {
-        for path in [
-            "/api/v1/cluster",
-            "/api/v1/instances",
-            "/api/v1/projects",
-            "/api/v1/networks",
-            "/api/v1/storage-pools",
-        ] {
-            let (status, body) = call(Provider::Mock(MockIncus::default()), path).await;
-            assert_eq!(status, 200, "{path}");
-            assert_eq!(body["source"]["provider"], "mock", "{path}");
-            assert!(
-                body["source"]["observedAt"]
-                    .as_str()
-                    .is_some_and(|t| t.ends_with('Z')),
-                "{path}: {body}"
-            );
-        }
-        let (_, cluster) = call(Provider::Mock(MockIncus::default()), "/api/v1/cluster").await;
-        assert_eq!(cluster["members"].as_array().map(Vec::len), Some(3));
-        assert_eq!(cluster["members"][0]["failureDomain"], "default");
-        let (_, inst) = call(Provider::Mock(MockIncus::default()), "/api/v1/instances").await;
-        assert_eq!(inst["items"][3]["kind"], "virtual-machine");
-    }
-
-    #[tokio::test]
-    async fn unreachable_incus_is_a_502_with_a_stable_code() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        drop(listener);
-        let provider = Provider::Incus(IncusClient::plain_for_tests(&format!("http://{addr}")));
-        let (status, body) = call(provider.clone(), "/api/v1/instances").await;
-        assert_eq!(status, 502);
-        assert_eq!(body["error"]["code"], "incus_unreachable");
-        // Health stays 200 and says it is not connected, so the console can explain why.
-        let (status, body) = call(provider, "/api/v1/health").await;
-        assert_eq!(status, 200);
-        assert_eq!(body["incus"]["connected"], false);
-    }
+async fn audit(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<Value>, ApiError> {
+    require(&p, Permission::ReadAudit)?;
+    let Auth::Tokens(pool) = &state.auth else {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "store_unavailable",
+            "the audit log needs a database (DATABASE_URL)",
+        ));
+    };
+    Ok(Json(
+        json!({ "items": apelora_persistence::recent_audit(pool, 100).await? }),
+    ))
 }
+
+#[cfg(test)]
+mod tests;

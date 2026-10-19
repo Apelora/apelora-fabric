@@ -11,6 +11,9 @@ use uuid::Uuid;
 
 pub use sqlx::PgPool as Pool;
 
+mod tokens;
+pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
+
 /// Embedded migrations (`crates/persistence/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -277,6 +280,27 @@ pub async fn job_status(pool: &PgPool, id: Uuid) -> Result<(String, i32, Option<
         row.get("attempts"),
         row.get("last_error"),
     ))
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, FromRow)]
+pub struct AuditEvent {
+    pub id: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    pub at: time::OffsetDateTime,
+    pub actor: String,
+    pub action: String,
+    pub target: String,
+    pub detail: Value,
+}
+
+/// Most recent audit events first.
+pub async fn recent_audit(pool: &PgPool, limit: i64) -> Result<Vec<AuditEvent>> {
+    Ok(sqlx::query_as::<_, AuditEvent>(
+        "SELECT id, at, actor, action, target, detail FROM audit_events ORDER BY id DESC LIMIT $1",
+    )
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?)
 }
 
 pub async fn audit(

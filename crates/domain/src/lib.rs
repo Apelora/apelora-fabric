@@ -118,8 +118,83 @@ pub struct ServerInfo {
     pub auth: String,
 }
 
+/// Who may do what. Every API route names the permission it needs; roles map to permissions
+/// here and nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Role {
+    /// Manages the platform: members, networks, storage, tokens.
+    FabricAdmin,
+    /// Runs workloads: deploys and operates applications.
+    Operator,
+    /// Designs applications in Studio; cannot change infrastructure.
+    StudioDesigner,
+    /// Reads everything, changes nothing.
+    Auditor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Permission {
+    ReadInventory,
+    ReadAudit,
+    ManageTokens,
+    ManageInfrastructure,
+    DesignApplications,
+    Deploy,
+}
+
+impl Role {
+    pub const ALL: [Role; 4] = [
+        Role::FabricAdmin,
+        Role::Operator,
+        Role::StudioDesigner,
+        Role::Auditor,
+    ];
+
+    pub fn allows(self, p: Permission) -> bool {
+        use Permission::*;
+        match self {
+            Role::FabricAdmin => true,
+            Role::Operator => matches!(p, ReadInventory | DesignApplications | Deploy),
+            Role::StudioDesigner => matches!(p, ReadInventory | DesignApplications),
+            Role::Auditor => matches!(p, ReadInventory | ReadAudit),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::FabricAdmin => "fabric-admin",
+            Role::Operator => "operator",
+            Role::StudioDesigner => "studio-designer",
+            Role::Auditor => "auditor",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Role> {
+        Role::ALL.into_iter().find(|r| r.as_str() == s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn roles_follow_least_privilege() {
+        use super::{Permission::*, Role};
+        assert!(Role::FabricAdmin.allows(ManageTokens));
+        assert!(!Role::Operator.allows(ManageInfrastructure));
+        assert!(
+            !Role::StudioDesigner.allows(Deploy),
+            "designers cannot change running infrastructure"
+        );
+        assert!(Role::Auditor.allows(ReadAudit) && !Role::Auditor.allows(DesignApplications));
+        for r in Role::ALL {
+            assert!(r.allows(ReadInventory));
+            assert_eq!(Role::parse(r.as_str()), Some(r));
+        }
+        assert_eq!(Role::parse("root"), None);
+    }
+
     use super::*;
 
     fn json<T: Serialize>(v: T) -> String {

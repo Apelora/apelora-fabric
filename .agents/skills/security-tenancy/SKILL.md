@@ -29,3 +29,11 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - https://linuxcontainers.org/incus/docs/main/
 - https://github.com/lxc/incus
 - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+## Apelora implementation (Phase 03)
+
+- Roles and permissions are defined once in `crates/domain` (`Role::allows`): fabric-admin (all), operator (read, design, deploy), studio-designer (read, design), auditor (read, audit). Every API route calls `require(principal, Permission::…)`; add new permissions there, never ad hoc checks.
+- API tokens: `apl_` + 64 hex chars from the OS random source; only SHA-256 hashes are stored (`api_tokens`), with expiry and revocation; shown once by `apelora-control-plane token create --name <n> --role <r> [--expires-days <d>]`; `token list`, `token revoke <id>`; token actions are audited.
+- With `DATABASE_URL` every route except `/api/v1/health` requires `Authorization: Bearer <token>` (401 with `WWW-Authenticate: Bearer`; 403 `forbidden` for a missing permission). Without a database the API runs with authentication disabled *only on loopback* and says so in `/health` (`auth: disabled-development`); it refuses to bind elsewhere.
+- Fabric Console keeps the token in `sessionStorage` (this tab only), never `localStorage`; it never talks to Incus.
+- Next: OIDC sign-in for people (tokens remain for automation), project-scoped permissions.

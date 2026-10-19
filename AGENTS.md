@@ -36,6 +36,7 @@ npm run dev              # Studio at http://127.0.0.1:5173
 npm run dev:console      # Fabric Console at http://127.0.0.1:5174 (proxies /api to 127.0.0.1:8080)
 cargo run -p apelora-control-plane   # API at http://127.0.0.1:8080 (mock provider)
 docker compose -f infra/dev/compose.yaml up -d   # PostgreSQL 18 on 127.0.0.1:15432 for Rust tests and the worker
+DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --role fabric-admin   # API token (shown once)
 npm run typecheck && npm run lint && npm test && npm run build
 npm run test:e2e         # Playwright (needs: npx playwright install chromium)
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace

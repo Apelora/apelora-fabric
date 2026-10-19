@@ -69,6 +69,35 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("member-row")).toHaveCount(0);
   });
 
+  test("token mode: asks for a token, sends it as a Bearer header, keeps it only for the tab", async ({ page }) => {
+    const good = "apl_" + "a".repeat(64);
+    const guard = (body: unknown) => (route: import("@playwright/test").Route) =>
+      route.request().headers()["authorization"] === `Bearer ${good}`
+        ? route.fulfill({ json: body })
+        : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "an API token is required (Authorization: Bearer <token>)" } } });
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("mock", false), auth: "tokens" } }));
+    await page.route("**/api/v1/cluster", guard(cluster("mock", ["mock-member-01"])));
+    await page.route("**/api/v1/instances", guard(instances("mock")));
+    await page.goto("/");
+    await expect(page.getByTestId("status")).toContainText("API tokens required");
+    const form = page.getByTestId("sign-in");
+    await expect(form).toContainText("an API token is required");
+    await expect(page.getByTestId("member-row")).toHaveCount(0);
+    await expect(page.locator(".btn-primary")).toHaveCount(1);
+    await page.getByTestId("token-input").fill(good);
+    await form.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByTestId("member-row")).toHaveCount(1);
+    await expect(form).toHaveCount(0);
+    expect(await page.evaluate(() => [sessionStorage.getItem("apelora.apiToken"), localStorage.getItem("apelora.apiToken")])).toEqual([good, null]);
+  });
+
+  test("development mode says authentication is disabled", async ({ page }) => {
+    await api(page, { "/api/v1/health": { json: { ...health("mock", false), auth: "disabled-development" } }, "/api/v1/cluster": { json: cluster("mock", ["mock-member-01"]) }, "/api/v1/instances": { json: instances("mock") } });
+    await page.goto("/");
+    await expect(page.getByTestId("status")).toContainText("Disabled (development only)");
+    await expect(page.getByTestId("sign-in")).toHaveCount(0);
+  });
+
   test("shell follows the Studio visual contract", async ({ page }) => {
     await page.route("**/api/v1/health", (route) => route.abort());
     await page.goto("/");
