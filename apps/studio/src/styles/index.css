@@ -33,19 +33,22 @@
   --apl-canvas: #f7f7f8;
   --apl-canvas-border: #e5e5e7;
   --apl-canvas-strip: #f1f1f3;
-  --apl-dot: #d9d9de;
+  --apl-grid: #ebebee;
+  --apl-grid-major: #d6d6db;
 }
 [data-theme="night"] {
   --apl-canvas: oklch(23% 0.03 260);
   --apl-canvas-border: oklch(32% 0.03 260);
   --apl-canvas-strip: oklch(26% 0.03 260);
-  --apl-dot: oklch(38% 0.03 260);
+  --apl-grid: oklch(27% 0.03 260);
+  --apl-grid-major: oklch(33% 0.03 260);
 }
 [data-theme="winter"] {
   --apl-canvas: #eef3f9;
   --apl-canvas-border: #dbe4ef;
   --apl-canvas-strip: #e6edf6;
-  --apl-dot: #c9d5e4;
+  --apl-grid: #e1e9f3;
+  --apl-grid-major: #cbd7e6;
 }
 
 html, body, #root { height: 100%; }
@@ -60,7 +63,9 @@ body { overflow: hidden; }
   overflow: hidden;
 }
 .apl-canvas-strip { background: var(--apl-canvas-strip); border-bottom: 1px solid var(--apl-canvas-border); }
-.apl-canvas-frame .react-flow { background: var(--apl-canvas); --xy-background-pattern-dots-color-default: var(--apl-dot); }
+.apl-canvas-frame .react-flow { background: var(--apl-canvas); }
+.apl-grid-minor .react-flow__background-pattern { stroke: var(--apl-grid); }
+.apl-grid-major .react-flow__background-pattern { stroke: var(--apl-grid-major); }
 .apl-canvas-frame .react-flow__attribution { display: none; }
 
 /* ---- tools ---- */

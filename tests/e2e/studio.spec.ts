@@ -88,10 +88,11 @@ test.describe("context menus", () => {
     await item(page, "rename").click();
     await expect(page.getByTestId("instance-name")).toBeFocused();
     // add an input port via the submenu
+    const portsBefore = (await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length;
     await node(page, "nginx-01").click({ button: "right" });
     await item(page, "add-port").click();
     await page.getByTestId("menu-add-input").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(4);
+    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(portsBefore + 1);
     // duplicate: new appliance, no cables copied for a single node
     const before = await assemblyState(page);
     await node(page, "nginx-01").click({ button: "right" });
@@ -1038,8 +1039,8 @@ test.describe("terminals and labels", () => {
   test("every port shows a short text label; labels never cover the logo; jacks are RJ45-style and toggle off", async ({ page }) => {
     await open(page);
     const n = node(page, "nginx-01");
-    await expect(n.getByTestId("port-label")).toHaveText(["in", "net", "db"]);
-    await expect(node(page, "haproxy-01").getByTestId("port-label")).toHaveText(["in", "net", "out"]);
+    await expect(n.getByTestId("port-label")).toHaveText(["in", "net", "db", "up"]);
+    await expect(node(page, "haproxy-01").getByTestId("port-label")).toHaveText(["in", "net", "out", "mon"]);
     const logo = (await n.getByTestId("node-logo").boundingBox())!;
     for (const l of await page.getByTestId("port-label").all()) {
       const b = (await l.boundingBox())!;
@@ -1048,7 +1049,7 @@ test.describe("terminals and labels", () => {
       expect(b.x + b.width <= logo.x + 0.5 || b.x >= logo.x + logo.width - 0.5, "label must not overlap the logo").toBe(true);
     }
     await expect(n.locator(".apl-jack[data-kind=input]")).toHaveCount(2); // in + net
-    await expect(n.locator(".apl-jack[data-kind=output]")).toHaveCount(1);
+    await expect(n.locator(".apl-jack[data-kind=output]")).toHaveCount(2); // db + up
     // link labels carry the protocol
     await expect(page.getByTestId("link-label").first()).toBeVisible();
     await page.getByTestId("toggle-labels").click();
@@ -1527,5 +1528,31 @@ test.describe("validation and quality", () => {
     await page.waitForTimeout(500);
     expect(errors).toEqual([]);
     expect(external).toEqual([]);
+  });
+});
+
+test.describe("canvas grid", () => {
+  test("grid is a visible line grid aligned to the snap step; the toolbar button hides and shows it", async ({ page }) => {
+    await open(page);
+    const btn = page.getByRole("button", { name: "Toggle grid" });
+    const layers = page.locator(".react-flow__background");
+    await expect(btn).toHaveAttribute("aria-pressed", "true");
+    await expect(layers).toHaveCount(2); // minor + major lines
+    const { zoom } = await viewport(page);
+    const minor = page.locator(".react-flow__background.apl-grid-minor pattern");
+    const major = page.locator(".react-flow__background.apl-grid-major pattern");
+    expect(Number(await minor.getAttribute("width")) / zoom).toBeCloseTo(16, 1); // 2 × the 8-unit snap step
+    expect(Number(await major.getAttribute("width")) / zoom).toBeCloseTo(128, 1); // one node width
+    await expect(page.locator(".apl-grid-minor .react-flow__background-pattern.lines").first()).toBeAttached();
+    // lines must stand out from the canvas: compare luminance of stroke vs canvas background
+    const lum = (c: string) => { const [r, g, b] = c.match(/[\d.]+/g)!.map(Number); return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!; };
+    const canvas = await resolvedColor(page, ".apl-canvas-frame .react-flow");
+    const stroke = await page.locator(".apl-grid-major .react-flow__background-pattern").first().evaluate((el) => getComputedStyle(el).stroke);
+    expect(lum(canvas) - lum(stroke)).toBeGreaterThan(20);
+    await btn.click();
+    await expect(btn).toHaveAttribute("aria-pressed", "false");
+    await expect(layers).toHaveCount(0);
+    await btn.click();
+    await expect(layers).toHaveCount(2);
   });
 });

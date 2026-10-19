@@ -302,7 +302,9 @@ export function AssemblyWorkspace() {
           maxZoom={2.5}
           proOptions={{ hideAttribution: true }}
         >
-          {showGrid && <Background variant={BackgroundVariant.Dots} gap={20} size={1} />}
+          {/* Minor lines every 16 units (2 × the snap step), major lines every 128 (one compact node width). */}
+          {showGrid && <Background id="grid-minor" className="apl-grid-minor" variant={BackgroundVariant.Lines} gap={16} lineWidth={1} />}
+          {showGrid && <Background id="grid-major" className="apl-grid-major" variant={BackgroundVariant.Lines} gap={128} lineWidth={1} />}
         </ReactFlow>
         {assembly.spec.appliances.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-base-content/50">Drag an appliance from the catalog onto the canvas</div>
