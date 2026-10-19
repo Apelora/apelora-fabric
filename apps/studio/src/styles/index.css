@@ -214,3 +214,6 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-shape[data-selected="true"] .apl-shape-label { background: color-mix(in oklab, var(--color-base-content) 8%, transparent); }
 .apl-shape[data-locked="true"] .apl-shape-label { cursor: default; }
 .apl-props { animation: apl-pop var(--apl-dur) var(--apl-ease); transform-origin: top left; }
+
+/* Logos that are dark by design stay readable on dark themes: give them a light chip. */
+:root[data-theme="night"] .apl-logo { background: #f1f5f9; border-radius: 6px; padding: 2px; box-sizing: border-box; }

@@ -4,12 +4,12 @@ import {
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
-import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, countPorts, portOf, tagNet, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
+import { DENSITY_SIZE, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
-import { ApplianceNode, type ApplianceFlowNode } from "./ApplianceNode";
+import { ApplianceNode, type ApplianceFlowNode, type ApplianceNodeData } from "./ApplianceNode";
 import { ShapeNode, type ShapeFlowNode } from "./ShapeNode";
 import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
@@ -94,7 +94,9 @@ export function AssemblyWorkspace() {
     if (fitNonce > 0) { const t = setTimeout(() => void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), 60); return () => clearTimeout(t); }
   }, [fitNonce, fitView]);
 
-  const diagnostics = useMemo(() => diagnosticsFor(assembly), [assembly]);
+  // Validation only depends on the spec, so dragging nodes (which only changes the layout) does not re-run it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const diagnostics = useMemo(() => diagnosticsFor(assembly), [assembly.spec, customClasses]);
 
   const shapeNodes = useMemo<ShapeFlowNode[]>(() => (assembly.editor.shapes ?? []).map((sh) => ({
     id: sh.id,
@@ -109,45 +111,56 @@ export function AssemblyWorkspace() {
     data: { shape: sh, inside: 0 },
   })), [assembly.editor.shapes, selection.shapes]);
 
+  // Per-appliance data that comes from the spec (ports, links, tags, status). Recomputed only when the spec changes.
+  const specData = useMemo(() => {
+    const byApp = new Map<string, Diagnostic[]>();
+    for (const d of diagnostics) if (d.applianceId) byApp.set(d.applianceId, [...(byApp.get(d.applianceId) ?? []), d]);
+    const out = new Map<string, Record<string, unknown>>();
+    for (const a of assembly.spec.appliances) {
+      const mine = byApp.get(a.id) ?? [];
+      const hard = mine.some((d) => d.severity === "error" && d.code !== "required-port-unconnected");
+      const cls = lookupClass(a.classRef.name, a.classRef.version);
+      out.set(a.id, {
+        name: a.name,
+        className: cls?.displayName ?? a.classRef.name,
+        category: cls?.category ?? "Custom",
+        inner: cls?.composition?.appliances.length ?? 0,
+        icon: cls ? logoUrl(cls.iconAssetPath) : undefined,
+        inputs: a.ports.filter((p) => p.direction === "input"),
+        outputs: a.ports.filter((p) => p.direction === "output"),
+        minHeight: minHeightForPorts(a.ports),
+        status: hard ? "error" : mine.length ? "warning" : "ok",
+        links: linksFor(assembly, a.id),
+        tags: tagsFor(assembly, a.id),
+      });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assembly.spec, diagnostics, customClasses]);
+
+  // React Flow skips work for nodes whose object is unchanged, so reuse each node object while its inputs are the same.
+  const nodeCache = useRef(new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ApplianceFlowNode }>());
   const applianceNodes = useMemo<ApplianceFlowNode[]>(() => {
     const layout = new Map(assembly.editor.nodes.map((n) => [n.id, n]));
-    return assembly.spec.appliances.flatMap((a) => {
+    const next = new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ApplianceFlowNode }>();
+    const list = assembly.spec.appliances.flatMap((a) => {
       const l = layout.get(a.id);
-      if (!l) return [];
+      const base = specData.get(a.id);
+      if (!l || !base) return [];
       const size = effectiveSize(l, a.ports, assembly.editor.density);
-      const mine = diagnostics.filter((d) => d.applianceId === a.id);
-      const hard = mine.some((d) => d.severity === "error" && d.code !== "required-port-unconnected");
-      const status = hard ? "error" : mine.length ? "warning" : "ok";
-      const cls = lookupClass(a.classRef.name, a.classRef.version);
-      const { inputs: ni, outputs: no } = countPorts(a.ports);
-      void ni; void no;
-      return [{
-        id: a.id,
-        type: "appliance" as const,
-        position: { x: l.x, y: l.y },
-        width: size.width,
-        measured: { width: size.width, height: size.height },
-        height: size.height,
-        selected: selection.nodes.includes(a.id),
-        data: {
-          name: a.name,
-          className: cls?.displayName ?? a.classRef.name,
-          category: cls?.category ?? "Custom",
-          inner: cls?.composition?.appliances.length ?? 0,
-          icon: cls ? logoUrl(cls.iconAssetPath) : undefined,
-          inputs: a.ports.filter((p) => p.direction === "input"),
-          outputs: a.ports.filter((p) => p.direction === "output"),
-          width: size.width,
-          height: size.height,
-          minHeight: minHeightForPorts(a.ports),
-          status,
-          links: linksFor(assembly, a.id),
-          tags: tagsFor(assembly, a.id),
-        },
-      }];
+      const sel = selection.nodes.includes(a.id);
+      const hit = nodeCache.current.get(a.id);
+      if (hit && hit.base === base && hit.x === l.x && hit.y === l.y && hit.w === size.width && hit.h === size.height && hit.sel === sel) { next.set(a.id, hit); return [hit.node]; }
+      const node: ApplianceFlowNode = {
+        id: a.id, type: "appliance" as const, position: { x: l.x, y: l.y }, width: size.width, height: size.height, measured: { width: size.width, height: size.height }, selected: sel,
+        data: { ...base, width: size.width, height: size.height } as ApplianceNodeData,
+      };
+      next.set(a.id, { base, x: l.x, y: l.y, w: size.width, h: size.height, sel, node });
+      return [node];
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assembly, diagnostics, selection.nodes, customClasses]);
+    nodeCache.current = next;
+    return list;
+  }, [assembly.spec, assembly.editor.nodes, assembly.editor.density, specData, selection.nodes]);
   const nodes = useMemo<AnyFlowNode[]>(() => [...shapeNodes, ...applianceNodes], [shapeNodes, applianceNodes]);
 
   const edges = useMemo<CableFlowEdge[]>(() => {
@@ -163,7 +176,8 @@ export function AssemblyWorkspace() {
       reconnectable: true,
       data: { type: linkLabel(assembly, c.source), invalid: bad.has(c.id), angled: routing === "angled", ...(showLabels ? { label: linkLabel(assembly, c.source) } : {}) },
     }));
-  }, [assembly, diagnostics, selection.edges, showLabels, routing]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assembly.spec, diagnostics, selection.edges, showLabels, routing]);
 
   const onNodesChange = useCallback((changes: NodeChange<AnyFlowNode>[]) => {
     const s = api.getState();

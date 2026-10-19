@@ -985,6 +985,33 @@ test.describe("zones and shapes", () => {
   });
 });
 
+test.describe("responsive and themes", () => {
+  test("narrow window: header wraps instead of overflowing; Export and theme stay reachable", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 700 });
+    await open(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    for (const id of ["export", "import", "new-menu", "undo"]) {
+      const b = (await page.getByTestId(id).boundingBox())!;
+      expect(b.x + b.width, id).toBeLessThanOrEqual(900);
+    }
+    const theme = (await page.locator("select[aria-label=Theme]").boundingBox())!;
+    expect(theme.x + theme.width).toBeLessThanOrEqual(900);
+    await expect(page.getByTestId("canvas-frame")).toBeVisible();
+  });
+
+  test("dark theme: logos get a light chip so dark brand marks stay visible", async ({ page }) => {
+    await open(page);
+    await page.locator("select[aria-label=Theme]").selectOption("night");
+    const bg = await page.locator("[data-testid=catalog-tile] .apl-logo").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+    const nodeLogo = await node(page, "nginx-01").getByTestId("node-logo").evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(nodeLogo).not.toBe("rgba(0, 0, 0, 0)");
+    await page.locator("select[aria-label=Theme]").selectOption("light");
+    const light = await node(page, "nginx-01").getByTestId("node-logo").evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(light).toBe("rgba(0, 0, 0, 0)");
+  });
+});
+
 test.describe("transitions", () => {
   test("menus, dialogs, plugs and cables animate; reduced motion disables them", async ({ page }) => {
     await open(page);

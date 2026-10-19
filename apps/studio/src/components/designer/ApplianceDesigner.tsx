@@ -155,7 +155,7 @@ export function ApplianceDesigner() {
               <div className="grid grid-cols-5 gap-1.5" role="radiogroup" aria-label="Icon">
                 {GENERIC_ICONS.map((i) => (
                   <button key={i} type="button" role="radio" aria-checked={d.icon === i} aria-label={i.replace("generic-", "")} className={`flex h-9 items-center justify-center rounded-box border ${d.icon === i ? "border-base-content bg-base-200" : "border-base-300 hover:bg-base-200"}`} onClick={() => patch({ icon: i })}>
-                    <img src={logoUrl(i)} alt="" className="size-5" />
+                    <img src={logoUrl(i)} alt="" className="apl-logo size-5" />
                   </button>
                 ))}
               </div>

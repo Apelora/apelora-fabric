@@ -44,7 +44,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   };
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-base-300 bg-base-100 px-3" data-testid="header">
+    <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-base-300 bg-base-100 px-3 py-1" data-testid="header">
       <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
         <img src="/logo.svg" alt="" className="size-6 rounded" />
         <span className="text-sm font-semibold">Apelora Studio</span>
@@ -54,7 +54,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
         <span>Assemblies</span><span>/</span><span className="max-w-40 truncate text-base-content" data-testid="breadcrumb-name">{name}</span>
         <span className="ml-2" data-testid="save-state">{saved ? "Saved locally" : "Saving…"}</span>
       </nav>
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
         <div className="join" role="group" aria-label="History">
           <button className="btn btn-sm join-item" title="Undo (Ctrl+Z)" aria-label="Undo" data-testid="undo" disabled={!canUndo} onClick={() => api.getState().undo()}><IconUndo /></button>
           <button className="btn btn-sm join-item" title="Redo (Ctrl+Shift+Z)" aria-label="Redo" data-testid="redo" disabled={!canRedo} onClick={() => api.getState().redo()}><IconRedo /></button>

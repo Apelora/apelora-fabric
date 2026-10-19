@@ -77,7 +77,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
       </div>
       <div className="relative flex items-center justify-center" style={{ height: data.height - NODE.header - 2 }}>
-        {data.icon ? <img src={data.icon} alt="" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
+        {data.icon ? <img src={data.icon} alt="" className="apl-logo" width={NODE.logo} height={NODE.logo} style={{ width: NODE.logo, height: NODE.logo }} draggable={false} data-testid="node-logo" /> : <div className="rounded bg-base-300" style={{ width: NODE.logo, height: NODE.logo }} />}
         <span className="apl-node-class" data-testid="node-class">{data.className}</span>
       </div>
       {data.inputs.map((p, i) => <PortHandle key={p.id} nodeId={id} port={p} index={i} side="input" link={data.links[p.id]} tag={data.tags[p.id]} />)}

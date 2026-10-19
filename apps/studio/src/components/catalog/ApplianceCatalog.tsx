@@ -23,7 +23,7 @@ function Tile({ cls, onAdd, onEdit }: { cls: ApplianceClass; onAdd: (c: Applianc
       onClick={() => onAdd(cls)}
       className="apl-tile-accent flex h-[72px] w-full cursor-grab flex-col items-center justify-center gap-1.5 rounded-box border border-base-300 bg-base-100 p-1 text-[11px] leading-tight transition-colors hover:border-base-content/30 hover:bg-base-200 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-base-content active:cursor-grabbing"
     >
-      {url ? <img src={url} alt="" width={28} height={28} className="size-7" draggable={false} /> : <span className="size-7 rounded bg-base-300" />}
+      {url ? <img src={url} alt="" width={28} height={28} className="apl-logo size-7" draggable={false} /> : <span className="size-7 rounded bg-base-300" />}
       <span className="w-full truncate text-center">{cls.displayName}</span>
     </button>
     {!cls.composition && <button
