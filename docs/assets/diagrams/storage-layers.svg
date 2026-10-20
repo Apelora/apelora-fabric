@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="sl-title sl-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="sl-title">Storage for modules, layer by layer</title>
+  <desc id="sl-desc">Modules in a design ask for volumes by name, size and class. Apelora's volume classes are policies: data-local exists today; scratch, data-replicated and backup-target are planned. The control plane maps each class to an Incus storage pool that an administrator configured. Today data-local maps to each server's own pool, where every instance gets its own volume; a shared pool for data-replicated is planned. Each pool sits on the disks of its server.</desc>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only -->
+  <defs>
+    <linearGradient id="sl-teal-strong" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19B3A3"/><stop offset="1" stop-color="#0F8C80"/></linearGradient>
+    <linearGradient id="sl-teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6FAF7"/><stop offset="1" stop-color="#CDEFEA"/></linearGradient>
+    <linearGradient id="sl-green-body" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3FA56B"/><stop offset="0.2" stop-color="#7CCB9B"/><stop offset="0.55" stop-color="#4DB37A"/><stop offset="0.85" stop-color="#6FC28F"/><stop offset="1" stop-color="#2F8A57"/></linearGradient>
+    <linearGradient id="sl-metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9CED6"/><stop offset="1" stop-color="#9AA2AE"/></linearGradient>
+    <radialGradient id="sl-floor" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#000" stop-opacity="0.18"/><stop offset="0.7" stop-color="#000" stop-opacity="0.06"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+  </defs>
+  <style>
+    .t { fill: #1F2328; }
+    .m { fill: #57606A; }
+    .w { fill: #FFFFFF; }
+    .h1 { font-size: 26px; font-weight: 700; }
+    .h2 { font-size: 15px; font-weight: 700; }
+    .b { font-size: 13px; }
+    .s { font-size: 11.5px; }
+    .line { stroke: #8C959F; stroke-width: 1.5; fill: none; }
+    .plan { stroke: #8C959F; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  </style>
+
+  <rect width="1200" height="760" fill="#FFFFFF"/>
+  <text x="600" y="46" text-anchor="middle" class="t h1">Storage for modules, layer by layer</text>
+
+  <!-- Modules -->
+  <g id="sl-modules">
+    <text x="120" y="92" class="t h2">Modules in a design</text>
+    <rect x="120" y="104" width="300" height="64" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <rect x="120" y="104" width="6" height="64" rx="3" fill="#B9A3E3"/>
+    <text x="140" y="130" class="t h2">db (PostgreSQL)</text>
+    <text x="140" y="152" class="m s">data, 20 GiB, at /var/lib/postgresql</text>
+    <rect x="450" y="104" width="300" height="64" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <rect x="450" y="104" width="6" height="64" rx="3" fill="#F2A93B"/>
+    <text x="470" y="130" class="t h2">queue (message broker)</text>
+    <text x="470" y="152" class="m s">spool, 5 GiB, at /var/spool/queue</text>
+    <rect x="780" y="104" width="300" height="64" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <rect x="780" y="104" width="6" height="64" rx="3" fill="#6B8FC9"/>
+    <text x="800" y="130" class="t h2">web (NGINX, 3 replicas)</text>
+    <text x="800" y="152" class="m s">stateless: keeps no volume</text>
+  </g>
+
+  <path class="line" d="M300 168 V244"/>
+  <path class="line" d="M600 168 V186 H330 V244"/>
+
+  <!-- Volume classes -->
+  <g id="sl-classes">
+    <rect x="120" y="204" width="960" height="118" rx="12" fill="url(#sl-teal-strong)"/>
+    <text x="144" y="230" class="w h2">Volume classes</text>
+    <text x="1056" y="230" text-anchor="end" class="w s" fill-opacity="0.9">Apelora's policies: a design picks a class and a size, never a pool</text>
+    <rect x="144" y="244" width="214" height="62" rx="8" fill="#FFFFFF"/>
+    <text x="251" y="270" text-anchor="middle" class="t h2">data-local</text>
+    <text x="251" y="290" text-anchor="middle" class="m s">one writer, on its server</text>
+    <rect x="378" y="244" width="214" height="62" rx="8" fill="#E9F7F5" stroke="#FFFFFF" stroke-dasharray="5 4"/>
+    <text x="485" y="270" text-anchor="middle" class="t h2">scratch</text>
+    <text x="485" y="290" text-anchor="middle" class="m s">planned: disposable space</text>
+    <rect x="612" y="244" width="214" height="62" rx="8" fill="#E9F7F5" stroke="#FFFFFF" stroke-dasharray="5 4"/>
+    <text x="719" y="270" text-anchor="middle" class="t h2">data-replicated</text>
+    <text x="719" y="290" text-anchor="middle" class="m s">planned: survives a server loss</text>
+    <rect x="846" y="244" width="210" height="62" rx="8" fill="#E9F7F5" stroke="#FFFFFF" stroke-dasharray="5 4"/>
+    <text x="951" y="270" text-anchor="middle" class="t h2">backup-target</text>
+    <text x="951" y="290" text-anchor="middle" class="m s">planned: receives backups</text>
+  </g>
+
+  <!-- Mapping -->
+  <g id="sl-mapping">
+    <rect x="370" y="344" width="460" height="40" rx="20" fill="url(#sl-teal)" stroke="#5CC8BB"/>
+    <text x="600" y="369" text-anchor="middle" class="t b">Control plane: class to pool, set by an administrator</text>
+  </g>
+  <path class="line" d="M251 306 V364 H370"/>
+  <path class="plan" d="M719 306 V344"/>
+
+  <!-- Incus pools -->
+  <g id="sl-pools">
+    <rect x="120" y="406" width="960" height="232" rx="12" fill="#FBFBFC" stroke="#B9C0C9" stroke-dasharray="6 5"/>
+    <text x="250" y="432" class="t h2">Incus storage pools</text>
+
+    <path class="line" d="M600 384 V398 M600 398 H218 V458 M600 398 V458 M600 398 H448 M448 398 V458"/>
+    <g id="sl-pool-1">
+      <text x="218" y="468" text-anchor="middle" class="t s">Server 1</text>
+      <rect x="153" y="486" width="130" height="66" fill="url(#sl-green-body)"/>
+      <ellipse cx="218" cy="552" rx="65" ry="10" fill="#2F8A57"/>
+      <ellipse cx="218" cy="486" rx="65" ry="10" fill="#9BDAB4"/>
+      <rect x="168" y="500" width="100" height="20" rx="4" fill="#FFFFFF" fill-opacity="0.9"/>
+      <text x="218" y="514" text-anchor="middle" class="t s">shop-db-data</text>
+      <text x="218" y="580" text-anchor="middle" class="m s">local pool</text>
+    </g>
+    <g id="sl-pool-2">
+      <text x="448" y="468" text-anchor="middle" class="t s">Server 2</text>
+      <rect x="383" y="486" width="130" height="66" fill="url(#sl-green-body)"/>
+      <ellipse cx="448" cy="552" rx="65" ry="10" fill="#2F8A57"/>
+      <ellipse cx="448" cy="486" rx="65" ry="10" fill="#9BDAB4"/>
+      <rect x="388" y="500" width="120" height="20" rx="4" fill="#FFFFFF" fill-opacity="0.9"/>
+      <text x="448" y="514" text-anchor="middle" class="t s">shop-queue-spool</text>
+      <text x="448" y="580" text-anchor="middle" class="m s">local pool</text>
+    </g>
+    <g id="sl-pool-3">
+      <text x="600" y="468" text-anchor="middle" class="t s">Server 3</text>
+      <rect x="535" y="486" width="130" height="66" fill="url(#sl-green-body)"/>
+      <ellipse cx="600" cy="552" rx="65" ry="10" fill="#2F8A57"/>
+      <ellipse cx="600" cy="486" rx="65" ry="10" fill="#9BDAB4"/>
+      <text x="600" y="524" text-anchor="middle" class="w s">room for more</text>
+      <text x="600" y="580" text-anchor="middle" class="m s">local pool</text>
+    </g>
+    <g id="sl-pool-shared">
+      <rect x="732" y="458" width="324" height="140" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="5 4"/>
+      <text x="894" y="490" text-anchor="middle" class="t h2">Shared pool</text>
+      <text x="894" y="512" text-anchor="middle" class="m s">planned: reachable from every server,</text>
+      <text x="894" y="528" text-anchor="middle" class="m s">so an instance can restart elsewhere</text>
+      <text x="894" y="544" text-anchor="middle" class="m s">after its old server is fenced</text>
+    </g>
+    <text x="144" y="612" class="m s">Pools are created and sized by the administrator. Each instance gets its own volume on the server Incus placed it on;</text>
+    <text x="144" y="628" class="m s">volumes grow online, never shrink, and outlive their instance.</text>
+  </g>
+  <path class="plan" d="M719 384 V398 H894 V458"/>
+
+  <!-- Disks -->
+  <g id="sl-disks">
+    <path class="line" d="M218 638 V662 M448 638 V662 M600 638 V662"/>
+    <g>
+      <ellipse cx="218" cy="702" rx="80" ry="7" fill="url(#sl-floor)"/>
+      <rect x="153" y="662" width="130" height="34" rx="5" fill="url(#sl-metal)" stroke="#7C8592"/>
+      <rect x="163" y="670" width="70" height="18" rx="2" fill="#4B5563"/>
+      <path d="M173 673 V685 M183 673 V685 M193 673 V685 M203 673 V685 M213 673 V685 M223 673 V685" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="268" cy="679" r="3.5" fill="#3FB27F"/>
+    </g>
+    <g>
+      <ellipse cx="448" cy="702" rx="80" ry="7" fill="url(#sl-floor)"/>
+      <rect x="383" y="662" width="130" height="34" rx="5" fill="url(#sl-metal)" stroke="#7C8592"/>
+      <rect x="393" y="670" width="70" height="18" rx="2" fill="#4B5563"/>
+      <path d="M403 673 V685 M413 673 V685 M423 673 V685 M433 673 V685 M443 673 V685 M453 673 V685" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="498" cy="679" r="3.5" fill="#3FB27F"/>
+    </g>
+    <g>
+      <ellipse cx="600" cy="702" rx="80" ry="7" fill="url(#sl-floor)"/>
+      <rect x="535" y="662" width="130" height="34" rx="5" fill="url(#sl-metal)" stroke="#7C8592"/>
+      <rect x="545" y="670" width="70" height="18" rx="2" fill="#4B5563"/>
+      <path d="M555 673 V685 M565 673 V685 M575 673 V685 M585 673 V685 M595 673 V685 M605 673 V685" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="650" cy="679" r="3.5" fill="#3FB27F"/>
+    </g>
+    <text x="410" y="732" text-anchor="middle" class="m b">The disks of each server</text>
+  </g>
+
+  <!-- Legend -->
+  <g id="sl-legend">
+    <path class="line" d="M780 690 H820"/>
+    <text x="830" y="694" class="m s">built and REAL INCUS TESTED</text>
+    <path class="plan" d="M780 714 H820"/>
+    <text x="830" y="718" class="m s">planned</text>
+  </g>
+</svg>
