@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Citation metadata (Citation File Format 1.2.0). GitHub reads this file for "Cite this repository".
+cff-version: 1.2.0
+message: "If you use Apelora Fabric in your work, please cite it using these metadata."
+type: software
+title: "Apelora Fabric"
+abstract: >-
+  An open-source platform for designing, connecting, deploying and operating distributed
+  applications from reusable appliances on a cluster of Linux servers. Applications are drawn
+  in a visual designer; a Rust control plane turns the drawing into Incus instances, OVN
+  networks, access rules, service addresses and supervised replicas.
+authors:
+  - given-names: Tamir
+    family-names: Suliman
+repository-code: "https://github.com/Apelora/apelora-fabric"
+url: "https://github.com/Apelora/apelora-fabric"
+license: AGPL-3.0-only
+keywords:
+  - incus
+  - lxc
+  - ovn
+  - containers
+  - distributed-systems
+  - visual-programming
+  - infrastructure
+  - control-plane
