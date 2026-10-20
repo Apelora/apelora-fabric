@@ -1,6 +1,6 @@
 ---
 name: upstream-reference
-description: What we know about the upstream projects Apelora uses, packages as appliances, or learns from — role in Apelora, licence, interface, facts that feed the catalog and plans, practices we adopted, and each project's rules for AI-assisted contributions. Use before choosing a dependency, writing an appliance manifest, planning an integration, or contributing upstream; add an entry whenever the owner shares a new upstream repository or document.
+description: What we know about the upstream projects Apelora uses, packages as modules, or learns from — role in Apelora, licence, interface, facts that feed the catalog and plans, practices we adopted, and each project's rules for AI-assisted contributions. Use before choosing a dependency, writing a module manifest, planning an integration, or contributing upstream; add an entry whenever the owner shares a new upstream repository or document.
 ---
 
 # Upstream reference
@@ -12,7 +12,7 @@ Distilled knowledge from upstream repositories and documents the owner has share
 1. When the owner shares an upstream repo or document, add or update one entry: role, licence, how we use it, key facts, adopted practices, cautions. Note the date.
 2. Record only what changes a decision. Skip build instructions for software we do not build.
 3. Licence first: check compatibility with AGPL-3.0-only (`license-compliance`). Using something over its API or as a separately running program is different from linking or vendoring it.
-4. Product names are fine for dependencies and catalog appliances. Do not name products we only drew inspiration from; describe the concept instead.
+4. Product names are fine for dependencies and catalog modules. Do not name products we only drew inspiration from; describe the concept instead.
 
 ## Platform and infrastructure
 
@@ -38,9 +38,9 @@ Distilled knowledge from upstream repositories and documents the owner has share
 - On multi-homed hosts, answer ARP only on the receiving interface (Linux `arp_ignore`).
 - Import new platform versions/hotfixes into a controlled store before rolling them out.
 
-## Catalog appliances (facts that shape manifests)
+## Catalog modules (facts that shape manifests)
 
-| Appliance | Licence | Key concepts for settings and ports |
+| Module | Licence | Key concepts for settings and ports |
 |---|---|---|
 | **NGINX** | BSD-2-Clause | Master/worker processes (one worker per CPU); stable vs mainline branches; reverse proxy and load balancer to upstream pools; TLS, HTTP/2; rate limiting; content cache; static and dynamic modules |
 | **HAProxy** | GPL-2.0+ (LGPL-2.1 headers) | Layer-7 (http) or layer-4 (tcp) proxying; health checks; sticky sessions; timeouts; TLS termination; response compression; stats/metrics endpoint; even-numbered spring releases are long-term supported, odd-numbered autumn releases are short-lived |
@@ -48,7 +48,7 @@ Distilled knowledge from upstream repositories and documents the owner has share
 | **Keycloak** | Apache-2.0 | Realms, SSO (OIDC, SAML), user federation (LDAP), MFA, fine-grained authorisation; development vs production start mode; needs a database; hostname and proxy-header settings matter behind a proxy |
 | **InfluxDB** | MIT or Apache-2.0 | Version 3 Core: time-series database, Parquet files on local disk or object storage, SQL and InfluxQL queries, compatible 1.x/2.x write APIs, embedded Python processing engine, HTTP API on port 8181 |
 
-Running an appliance image does not link its code into ours; record the licence in the manifest's provenance anyway.
+Running a module image does not link its code into ours; record the licence in the manifest's provenance anyway.
 
 ## Toolchain and practices adopted
 

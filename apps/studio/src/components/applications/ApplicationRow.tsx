@@ -13,7 +13,7 @@ export function ApplicationRow({ app }: { app: AppView }) {
           <AppIcon icon={app.icon} size={30} />
           <div className="min-w-0">
             <a href={paths.application(app.name)} onClick={onLinkClick} className="block truncate text-sm font-semibold hover:underline" data-testid="app-name">{app.name}</a>
-            <span className="text-xs text-base-content/60" data-testid="app-appliances">{d.appliances} appliances</span>
+            <span className="text-xs text-base-content/60" data-testid="app-modules">{d.modules} modules</span>
           </div>
         </div>
       </td>

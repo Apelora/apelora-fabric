@@ -2,12 +2,12 @@ import { test, type Page, type Request } from "@playwright/test";
 import { expect, open, openProps } from "./helpers";
 
 // Deploying from the Studio, against a stubbed control plane: the Studio must only deploy
-// appliances that have a runtime, show the server's plan before changing anything, follow the
+// modules that have a runtime, show the server's plan before changing anything, follow the
 // jobs, and overlay live state without touching the design.
 const now = "2026-10-20T00:00:00Z";
 const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true } };
 const operator = { name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["apelora"] };
-const item = (appliance: string, action: string, reason = "not deployed yet") => ({ appliance, instance: `commerce-stack-${appliance}`, action, reason });
+const item = (module: string, action: string, reason = "not deployed yet") => ({ module, instance: `commerce-stack-${module}`, action, reason });
 const job = (id: string, status: string) => ({ id, kind: "instance.create", status, attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: now, updatedAt: now });
 
 async function stub(page: Page, routes: Record<string, (req: Request) => { status?: number; json?: unknown }>) {
@@ -29,7 +29,7 @@ test.describe("deploying from the Studio", () => {
     await expect(page.getByTestId("mock-badge")).toHaveText("Mock · Design only");
   });
 
-  test("plan, approve, follow the jobs and see live state per appliance", async ({ page }) => {
+  test("plan, approve, follow the jobs and see live state per module", async ({ page }) => {
     let deployed: { body: Record<string, unknown>; key: string | undefined } | null = null;
     let planBody: unknown = null;
     let done = false;
@@ -43,15 +43,15 @@ test.describe("deploying from the Studio", () => {
       "POST /api/v1/applications/commerce-stack/deployments": (req) => {
         deployed = { body: req.postDataJSON() as Record<string, unknown>, key: req.headers()["idempotency-key"] };
         return { status: 202, json: { application: "commerce-stack", revision: 1, plan: { items: [item("nginx-01", "create"), item("nginx-02", "create")], warnings: [] },
-          jobs: [{ appliance: "nginx-01", instance: "commerce-stack-nginx-01", action: "create", jobId: "j1" }, { appliance: "nginx-02", instance: "commerce-stack-nginx-02", action: "create", jobId: "j2" }] } };
+          jobs: [{ module: "nginx-01", instance: "commerce-stack-nginx-01", action: "create", jobId: "j1" }, { module: "nginx-02", instance: "commerce-stack-nginx-02", action: "create", jobId: "j2" }] } };
       },
       "GET /api/v1/jobs/j1": () => { done = true; return { json: job("j1", "succeeded") }; },
       "GET /api/v1/jobs/j2": () => ({ json: job("j2", "succeeded") }),
       "GET /api/v1/applications/commerce-stack/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: done ? [
-        { appliance: "nginx-01", instance: "commerce-stack-nginx-01", project: "apelora", status: "Running", location: "node-1" },
-        { appliance: "nginx-01", instance: "commerce-stack-nginx-01-r2", project: "apelora", status: "Stopped", location: "node-2" },
-        { appliance: "nginx-02", instance: "commerce-stack-nginx-02", project: "apelora", status: "Running", location: "node-2", health: { health: "unhealthy", since: now, detail: "port check failing" } },
-      ] : [], services: done ? [{ appliance: "nginx-01", project: "apelora", address: "198.18.100.1" }] : [] } }),
+        { module: "nginx-01", instance: "commerce-stack-nginx-01", project: "apelora", status: "Running", location: "node-1" },
+        { module: "nginx-01", instance: "commerce-stack-nginx-01-r2", project: "apelora", status: "Stopped", location: "node-2" },
+        { module: "nginx-02", instance: "commerce-stack-nginx-02", project: "apelora", status: "Running", location: "node-2", health: { health: "unhealthy", since: now, detail: "port check failing" } },
+      ] : [], services: done ? [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }] : [] } }),
     });
     await open(page);
     // Two replicas of nginx-01: nginx is stateless, so the Properties window offers replicas.
@@ -74,10 +74,10 @@ test.describe("deploying from the Studio", () => {
     await expect(dialog.getByTestId("deploy-resources").first()).toHaveText("1 CPU · 512 MiB each");
 
     await dialog.getByTestId("deploy-preview").click();
-    expect((planBody as { appliances: { appliance: string; replicas: number; availability: string; internet: string }[] }).appliances.map((a) => [a.appliance, a.replicas, a.availability, a.internet]))
+    expect((planBody as { modules: { module: string; replicas: number; availability: string; internet: string }[] }).modules.map((a) => [a.module, a.replicas, a.availability, a.internet]))
       .toEqual([["nginx-01", 2, "stateless", "web"], ["nginx-02", 1, "stateless", "none"]]);
-    expect((planBody as { connections: unknown[] }).connections, "only cables between deployed appliances").toEqual([]);
-    expect((planBody as { appliances: { spec: { config: Record<string, string> } }[] }).appliances[0]!.spec.config, "resources as Incus limits")
+    expect((planBody as { connections: unknown[] }).connections, "only cables between deployed modules").toEqual([]);
+    expect((planBody as { modules: { spec: { config: Record<string, string> } }[] }).modules[0]!.spec.config, "resources as Incus limits")
       .toEqual({ "limits.cpu": "1", "limits.memory": "512MiB" });
     await expect(dialog.getByTestId("plan-row")).toHaveCount(3);
     await expect(dialog).toContainText("single points of failure: nginx-02");

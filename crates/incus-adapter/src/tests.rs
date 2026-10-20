@@ -122,7 +122,7 @@ async fn instances_on_an_unreachable_member_are_listed_with_unknown_labels() {
         sync(json!([
             { "name": "shop-web-01", "project": "apelora", "type": "container", "status": "Error", "location": "node-2", "architecture": "aarch64", "description": "", "config": null, "expanded_config": null },
             { "name": "shop-web-01-r2", "project": "apelora", "type": "container", "status": "Running", "location": "node-1", "architecture": "aarch64", "description": "",
-              "config": { "user.apelora.managed": "true", "user.apelora.application": "shop", "user.apelora.appliance": "web-01", "user.apelora.replica": "2" }, "expanded_config": {} }
+              "config": { "user.apelora.managed": "true", "user.apelora.application": "shop", "user.apelora.module": "web-01", "user.apelora.replica": "2" }, "expanded_config": {} }
         ])),
     )]).await;
     let list = Provider::Incus(IncusClient::plain_for_tests(&base))

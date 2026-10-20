@@ -30,7 +30,7 @@ export const PortSchema = z.object({
 
 const configValue = z.union([z.string().max(512), z.number().refine(Number.isFinite, "must be finite"), z.boolean()]);
 
-/** A typed, user-editable configuration field declared by an appliance class. Secrets hold a reference name, never the secret. */
+/** A typed, user-editable configuration field declared by a module class. Secrets hold a reference name, never the secret. */
 export const PropertySchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_-]{0,47}$/, "property id must be lowercase letters, digits, - or _"),
   label: z.string().min(1).max(48),
@@ -50,8 +50,8 @@ export const ResourcesSchema = z.object({
 });
 
 /**
- * A persistent volume an appliance keeps (docs/architecture/STORAGE.md): each of its instances
- * gets its own, on the cluster member it runs on, mounted at `path`. Removing the appliance keeps
+ * A persistent volume a module keeps (docs/architecture/STORAGE.md): each of its instances
+ * gets its own, on the cluster member it runs on, mounted at `path`. Removing the module keeps
  * the volume; it is deleted on purpose in the Fabric Console. The pool is chosen by the platform.
  */
 export const MIN_VOLUME_MIB = 64;
@@ -75,7 +75,7 @@ const volumeList = z.array(VolumeSchema).max(MAX_VOLUMES).superRefine((vs, ctx) 
   seen((v) => v.path.replace(/\/+$/, ""), "mount path");
 });
 
-export const ApplianceInstanceSchema = z.object({
+export const ModuleInstanceSchema = z.object({
   id: entityId,
   name: z.string().min(1).max(48),
   classRef: z.object({ name: entityId, version: z.string().min(1) }),
@@ -91,11 +91,11 @@ export const ApplianceInstanceSchema = z.object({
   volumes: volumeList.optional(),
 });
 
-/** Outbound access to the internet, per appliance. Inside the application only cables count. */
+/** Outbound access to the internet, per module. Inside the application only cables count. */
 export const INTERNET_ACCESS = ["none", "web", "any"] as const;
 export type InternetAccess = (typeof INTERNET_ACCESS)[number];
 
-const EndpointSchema = z.object({ applianceId: entityId, portId });
+const EndpointSchema = z.object({ moduleId: entityId, portId });
 
 export const ConnectionSchema = z.object({
   id: entityId,
@@ -112,7 +112,7 @@ export const LinkTagSchema = z.object({
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "color must be #rrggbb");
 
-/** A zone/sector drawn behind appliances. View-only: it never affects deployment semantics. */
+/** A zone/sector drawn behind modules. View-only: it never affects deployment semantics. */
 export const CableStyleSchema = z.object({ id: entityId, color: hexColor });
 
 export const ShapeSchema = z.object({
@@ -147,7 +147,7 @@ export const EditorNodeSchema = z.object({
 
 /** A component: an assembly packaged as a class. Its ports map onto inner terminals (the NIC maps onto every inner NIC). */
 export const CompositionSchema = z.object({
-  appliances: z.array(ApplianceInstanceSchema).min(1).max(200),
+  modules: z.array(ModuleInstanceSchema).min(1).max(200),
   connections: z.array(ConnectionSchema).max(1000),
   links: z.array(LinkTagSchema).max(1000).optional(),
   layout: z.array(EditorNodeSchema).max(200),
@@ -181,7 +181,7 @@ const imageBy = <T extends z.ZodType>(image: T) =>
  * `runtimeProblems`). A class without a runtime is design-only: it cannot be deployed.
  */
 /**
- * How an appliance survives failures: `stateless` instances are interchangeable (several
+ * How a module survives failures: `stateless` instances are interchangeable (several
  * replicas, a lost one is recreated), a `singleton` runs as one instance, `stateful` keeps data
  * that must not be recreated from scratch. Absent means `singleton`.
  */
@@ -190,11 +190,11 @@ export type Availability = (typeof AVAILABILITIES)[number];
 export const MAX_REPLICAS = 9;
 const availability = z.enum(AVAILABILITIES).optional();
 
-/** The operating system inside a virtual machine appliance. It decides which sessions are offered (a Linux terminal, or PowerShell and remote desktop); absent means Linux. */
+/** The operating system inside a virtual machine module. It decides which sessions are offered (a Linux terminal, or PowerShell and remote desktop); absent means Linux. */
 export const GUEST_OS = ["linux", "windows"] as const;
 export type GuestOs = (typeof GUEST_OS)[number];
 
-/** Volumes a class's appliances get unless the design changes them (e.g. a database's data). */
+/** Volumes a class's modules get unless the design changes them (e.g. a database's data). */
 const volumes = volumeList.optional();
 
 export const RuntimeSchema = z.discriminatedUnion("kind", [
@@ -203,7 +203,7 @@ export const RuntimeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes }),
 ]);
 
-export const ApplianceClassSchema = z.object({
+export const ModuleClassSchema = z.object({
   id: entityId,
   version: z.string().min(1),
   displayName: z.string().min(1).max(48),
@@ -226,7 +226,7 @@ export const ApplicationAssemblySchema = z.object({
   kind: z.literal(ASSEMBLY_KIND),
   metadata: z.object({ name: z.string().min(1).max(80), uid: z.string().min(1).max(80) }),
   spec: z.object({
-    appliances: z.array(ApplianceInstanceSchema),
+    modules: z.array(ModuleInstanceSchema),
     connections: z.array(ConnectionSchema),
     links: z.array(LinkTagSchema).optional(),
     /** Design-time hypervisor target; absent means the default platform. A retired target
@@ -241,8 +241,8 @@ export const ApplicationAssemblySchema = z.object({
     /** Per-cable colour overrides (layout only); cables without an entry use their protocol colour. */
     cables: z.array(CableStyleSchema).max(1000).optional(),
   }),
-  /** Definitions of custom appliance classes used by this assembly, so exports are self-contained. */
-  catalog: z.object({ classes: z.array(ApplianceClassSchema) }).optional(),
+  /** Definitions of custom module classes used by this assembly, so exports are self-contained. */
+  catalog: z.object({ classes: z.array(ModuleClassSchema) }).optional(),
 });
 
 export type Port = z.infer<typeof PortSchema>;
@@ -251,11 +251,11 @@ export type PortType = Port["type"];
 export type Property = z.infer<typeof PropertySchema>;
 export type ConfigValue = z.infer<typeof configValue>;
 export type Resources = z.infer<typeof ResourcesSchema>;
-export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
+export type ModuleClass = z.infer<typeof ModuleClassSchema>;
 export type Runtime = z.infer<typeof RuntimeSchema>;
 export type SystemImage = z.infer<typeof SystemImageSchema>;
 export type OciImage = z.infer<typeof OciImageSchema>;
-export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
+export type ModuleInstance = z.infer<typeof ModuleInstanceSchema>;
 export type Volume = z.infer<typeof VolumeSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type CableStyle = z.infer<typeof CableStyleSchema>;
@@ -267,4 +267,4 @@ export type ShapeKind = Shape["kind"];
 export type EditorNode = z.infer<typeof EditorNodeSchema>;
 export type ApplicationAssembly = z.infer<typeof ApplicationAssemblySchema>;
 export type Density = ApplicationAssembly["editor"]["density"];
-export type Category = ApplianceClass["category"];
+export type Category = ModuleClass["category"];

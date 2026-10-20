@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Applications deployed from the Studio (docs/design/application-deployment.md).
 //!
-//! The Studio sends its document and one `InstanceSpec` per deployable appliance. The plan is
+//! The Studio sends its document and one `InstanceSpec` per deployable module. The plan is
 //! computed here from current inventory, for the preview and again when applying (never taken
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
@@ -9,7 +9,7 @@ use apelora_domain::InstanceSpec;
 use apelora_domain::network::{
     Connection, Internet, Published, SyncRequest, discovery_env, with_discovery,
 };
-use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
+use apelora_domain::plan::{DesiredModule, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
@@ -28,12 +28,13 @@ use apelora_persistence::identity::AppContext;
 
 /// Application names become instance-name prefixes, so they are short.
 const MAX_NAME: usize = 40;
-const MAX_APPLIANCES: usize = 200;
+const MAX_MODULES: usize = 200;
 
 #[derive(Deserialize, ToSchema)]
 pub struct PlanRequest {
     pub project: String,
-    pub appliances: Vec<DesiredAppliance>,
+    #[serde(alias = "appliances")]
+    pub modules: Vec<DesiredModule>,
     /// The design's connections; enforced when the control plane has a network uplink.
     #[serde(default)]
     pub connections: Option<Vec<Connection>>,
@@ -53,7 +54,8 @@ pub struct DeployRequest {
     /// new revision. Drafts can never be deployed.
     #[serde(default)]
     pub version: Option<i32>,
-    pub appliances: Vec<DesiredAppliance>,
+    #[serde(alias = "appliances")]
+    pub modules: Vec<DesiredModule>,
     /// The design's connections; enforced when the control plane has a network uplink.
     #[serde(default)]
     pub connections: Option<Vec<Connection>>,
@@ -68,7 +70,7 @@ pub struct DeployRequest {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedChange {
-    pub appliance: String,
+    pub module: String,
     pub instance: String,
     pub action: PlanAction,
     pub job_id: Uuid,
@@ -87,8 +89,8 @@ pub struct DeployResponse {
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct ApplianceStatus {
-    pub appliance: String,
+pub struct ModuleStatus {
+    pub module: String,
     pub instance: String,
     pub project: String,
     /// Incus status, e.g. `Running`.
@@ -113,10 +115,10 @@ pub struct InstanceHealth {
     pub restarted_at: Option<String>,
 }
 
-/// A stateless appliance's service address: a load balancer over its healthy replicas.
+/// A stateless module's service address: a load balancer over its healthy replicas.
 #[derive(Serialize, ToSchema)]
 pub struct ServiceStatus {
-    pub appliance: String,
+    pub module: String,
     pub project: String,
     pub address: String,
 }
@@ -124,7 +126,7 @@ pub struct ServiceStatus {
 #[derive(Serialize, ToSchema)]
 pub struct ApplicationStatus {
     pub source: Source,
-    pub items: Vec<ApplianceStatus>,
+    pub items: Vec<ModuleStatus>,
     /// Allocated service addresses (empty without a database or service range).
     pub services: Vec<ServiceStatus>,
 }
@@ -141,7 +143,7 @@ fn spec_for(
     state: &AppState,
     name: &str,
     project: &str,
-    d: &DesiredAppliance,
+    d: &DesiredModule,
     replica: u8,
     enforce: bool,
 ) -> InstanceSpec {
@@ -149,9 +151,9 @@ fn spec_for(
     deploy_spec(name, project, d, replica, uplink)
 }
 
-/// Allocates (or finds) the service address of every appliance that gets one — stateless ones
+/// Allocates (or finds) the service address of every module that gets one — stateless ones
 /// that are connected to, and published ones — when connections are enforced and a service
-/// range is configured. Returns appliance → address.
+/// range is configured. Returns module → address.
 async fn allocate_services(
     state: &AppState,
     pool: &apelora_persistence::Pool,
@@ -170,7 +172,7 @@ async fn allocate_services(
         name,
         &req.project,
         uplink,
-        &req.appliances,
+        &req.modules,
         connections,
         Some(range),
     )
@@ -207,15 +209,15 @@ async fn allocate_services(
 }
 
 fn check_connections(
-    appliances: &[DesiredAppliance],
+    modules: &[DesiredModule],
     connections: Option<&[Connection]>,
 ) -> Result<(), ApiError> {
     for c in connections.unwrap_or_default() {
         c.validate().map_err(bad_request)?;
         for end in [&c.from, &c.to] {
-            if !appliances.iter().any(|d| &d.appliance == end) {
+            if !modules.iter().any(|d| &d.module == end) {
                 return Err(bad_request(format!(
-                    "connection {} → {}: {end} is not a deployed appliance",
+                    "connection {} → {}: {end} is not a deployed module",
                     c.from, c.to
                 )));
             }
@@ -224,16 +226,13 @@ fn check_connections(
     Ok(())
 }
 
-fn check_published(
-    appliances: &[DesiredAppliance],
-    published: &[Published],
-) -> Result<(), ApiError> {
+fn check_published(modules: &[DesiredModule], published: &[Published]) -> Result<(), ApiError> {
     for p in published {
         p.validate().map_err(bad_request)?;
-        if !appliances.iter().any(|d| d.appliance == p.appliance) {
+        if !modules.iter().any(|d| d.module == p.module) {
             return Err(bad_request(format!(
-                "published {}: not a deployed appliance",
-                p.appliance
+                "published {}: not a deployed module",
+                p.module
             )));
         }
     }
@@ -244,12 +243,12 @@ fn check_published(
 fn network_warnings(
     state: &AppState,
     plan: &mut Plan,
-    desired: &[DesiredAppliance],
+    desired: &[DesiredModule],
     connections: Option<&[Connection]>,
     published: &[Published],
 ) {
     if !published.is_empty() {
-        let names: Vec<&str> = published.iter().map(|p| p.appliance.as_str()).collect();
+        let names: Vec<&str> = published.iter().map(|p| p.module.as_str()).collect();
         plan.warnings.push(match (&state.network_uplink, &state.service_range, connections) {
             (Some(_), Some(_), Some(_)) => format!(
                 "published to outside clients: {}; the network outside must route the service addresses to the application's network",
@@ -265,7 +264,7 @@ fn network_warnings(
         let mut open: Vec<&str> = desired
             .iter()
             .filter(|d| d.internet != Internet::None)
-            .map(|d| d.appliance.as_str())
+            .map(|d| d.module.as_str())
             .collect();
         open.sort_unstable();
         if !open.is_empty() {
@@ -286,7 +285,7 @@ fn network_warnings(
     }
 }
 
-fn check(name: &str, project: &str, appliances: &[DesiredAppliance]) -> Result<(), ApiError> {
+fn check(name: &str, project: &str, modules: &[DesiredModule]) -> Result<(), ApiError> {
     if !is_valid_name(name) || name.len() > MAX_NAME {
         return Err(bad_request(format!(
             "invalid application name {name:?} (1–{MAX_NAME} letters, digits and hyphens, starting with a letter)"
@@ -295,23 +294,20 @@ fn check(name: &str, project: &str, appliances: &[DesiredAppliance]) -> Result<(
     if !is_valid_name(project) {
         return Err(bad_request(format!("invalid project name {project:?}")));
     }
-    if appliances.len() > MAX_APPLIANCES {
+    if modules.len() > MAX_MODULES {
         return Err(bad_request(format!(
-            "at most {MAX_APPLIANCES} appliances per deployment"
+            "at most {MAX_MODULES} modules per deployment"
         )));
     }
     let mut seen = std::collections::HashSet::new();
-    for d in appliances {
-        if !seen.insert(d.appliance.as_str()) {
-            return Err(bad_request(format!(
-                "appliance {} is listed twice",
-                d.appliance
-            )));
+    for d in modules {
+        if !seen.insert(d.module.as_str()) {
+            return Err(bad_request(format!("module {} is listed twice", d.module)));
         }
         d.validate().map_err(bad_request)?;
         owned_spec(name, project, d, d.replicas)
             .validate_from_caller()
-            .map_err(|e| bad_request(format!("appliance {}: {e}", d.appliance)))?;
+            .map_err(|e| bad_request(format!("module {}: {e}", d.module)))?;
     }
     Ok(())
 }
@@ -322,9 +318,9 @@ fn check(name: &str, project: &str, appliances: &[DesiredAppliance]) -> Result<(
 /// silently falls back to another pool.
 async fn resolve_volume_pools(
     state: &AppState,
-    appliances: &mut [DesiredAppliance],
+    modules: &mut [DesiredModule],
 ) -> Result<(), ApiError> {
-    if appliances.iter().all(|d| d.spec.volumes.is_empty()) {
+    if modules.iter().all(|d| d.spec.volumes.is_empty()) {
         return Ok(());
     }
     let Some(pool) = state.volume_pool.as_deref() else {
@@ -343,10 +339,7 @@ async fn resolve_volume_pools(
             "volume class data-local: storage pool {pool} does not exist in Incus"
         )));
     }
-    for v in appliances
-        .iter_mut()
-        .flat_map(|d| d.spec.volumes.iter_mut())
-    {
+    for v in modules.iter_mut().flat_map(|d| d.spec.volumes.iter_mut()) {
         v.pool = Some(pool.to_owned());
     }
     Ok(())
@@ -356,10 +349,10 @@ async fn current_plan(
     state: &AppState,
     name: &str,
     project: &str,
-    appliances: &[DesiredAppliance],
+    modules: &[DesiredModule],
 ) -> Result<Plan, ApiError> {
     let observed = state.provider.instances().await?;
-    Ok(plan(name, project, appliances, &observed))
+    Ok(plan(name, project, modules, &observed))
 }
 
 /// Where an application operation lands, resolved from the database (never from client claims
@@ -448,7 +441,7 @@ pub(super) async fn preview(
     body: Result<Json<PlanRequest>, JsonRejection>,
 ) -> Result<Json<Plan>, ApiError> {
     let Json(mut req) = body.map_err(|e| bad_request(e.body_text()))?;
-    check(&name, &req.project, &req.appliances)?;
+    check(&name, &req.project, &req.modules)?;
     let target = resolve_target(&state, &p, &name, &req.project).await?;
     if p.caller.is_some() {
         allow_any(
@@ -460,14 +453,14 @@ pub(super) async fn preview(
         require(&p, Permission::Deploy)?;
     }
     ensure_project_allowed(&state, &req.project).await?;
-    check_connections(&req.appliances, req.connections.as_deref())?;
-    check_published(&req.appliances, &req.published)?;
-    resolve_volume_pools(&state, &mut req.appliances).await?;
-    let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
+    check_connections(&req.modules, req.connections.as_deref())?;
+    check_published(&req.modules, &req.published)?;
+    resolve_volume_pools(&state, &mut req.modules).await?;
+    let mut p = current_plan(&state, &name, &req.project, &req.modules).await?;
     network_warnings(
         &state,
         &mut p,
-        &req.appliances,
+        &req.modules,
         req.connections.as_deref(),
         &req.published,
     );
@@ -475,7 +468,7 @@ pub(super) async fn preview(
 }
 
 /// Deploys the design: saves it as a new revision and queues the planned changes. Refuses
-/// the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`.
+/// the whole deployment if any module conflicts with an existing instance. Needs `deploy`.
 #[utoipa::path(post, path = "/api/v1/applications/{name}/deployments", tag = "applications", operation_id = "deploy_application",
     params(("name" = String, Path, description = "Application name"),
         ("Idempotency-Key" = Option<String>, Header, description = "Makes the request safe to repeat")),
@@ -495,7 +488,7 @@ pub(super) async fn deploy(
             "the document must be a Studio application document",
         ));
     }
-    check(&name, &req.project, &req.appliances)?;
+    check(&name, &req.project, &req.modules)?;
     let target = resolve_target(&state, &p, &name, &req.project).await?;
     if p.caller.is_some() {
         if target.existing.is_none() {
@@ -506,23 +499,23 @@ pub(super) async fn deploy(
         require(&p, Permission::Deploy)?;
     }
     ensure_project_allowed(&state, &req.project).await?;
-    check_connections(&req.appliances, req.connections.as_deref())?;
-    check_published(&req.appliances, &req.published)?;
-    resolve_volume_pools(&state, &mut req.appliances).await?;
+    check_connections(&req.modules, req.connections.as_deref())?;
+    check_published(&req.modules, &req.published)?;
+    resolve_volume_pools(&state, &mut req.modules).await?;
     let pool = store(&state)?;
     let key = idempotency_key(&headers, &p)?;
-    // Removing every appliance also removes the application's network objects, even when the
+    // Removing every module also removes the application's network objects, even when the
     // request leaves `connections` out (there is nothing left to connect).
-    let cleanup = req.appliances.is_empty()
+    let cleanup = req.modules.is_empty()
         && req.connections.is_none()
         && state.network_uplink.is_some()
         && apelora_persistence::deployment_enforced(pool, &name, &req.project).await?;
     let enforce = (req.connections.is_some() && state.network_uplink.is_some()) || cleanup;
-    let mut applied = current_plan(&state, &name, &req.project, &req.appliances).await?;
+    let mut applied = current_plan(&state, &name, &req.project, &req.modules).await?;
     network_warnings(
         &state,
         &mut applied,
-        &req.appliances,
+        &req.modules,
         req.connections.as_deref(),
         &req.published,
     );
@@ -531,7 +524,7 @@ pub(super) async fn deploy(
             .items
             .iter()
             .filter(|i| i.action == PlanAction::Conflict)
-            .map(|i| format!("{}: {}", i.appliance, i.reason))
+            .map(|i| format!("{}: {}", i.module, i.reason))
             .collect();
         return Err(ApiError::new(
             StatusCode::CONFLICT,
@@ -605,15 +598,13 @@ pub(super) async fn deploy(
         let (kind, payload) = match item.action {
             PlanAction::Create => {
                 let desired = req
-                    .appliances
+                    .modules
                     .iter()
-                    .find(|d| d.appliance == item.appliance)
-                    .ok_or_else(|| {
-                        bad_request(format!("appliance {} disappeared", item.appliance))
-                    })?;
+                    .find(|d| d.module == item.module)
+                    .ok_or_else(|| bad_request(format!("module {} disappeared", item.module)))?;
                 let env = discovery_env(
                     &name,
-                    &desired.appliance,
+                    &desired.module,
                     req.connections.as_deref().unwrap_or_default(),
                     &addresses,
                 );
@@ -645,7 +636,7 @@ pub(super) async fn deploy(
         .await?
         .id();
         jobs.push(QueuedChange {
-            appliance: item.appliance.clone(),
+            module: item.module.clone(),
             instance: item.instance.clone(),
             action: item.action,
             job_id,
@@ -653,7 +644,7 @@ pub(super) async fn deploy(
     }
     // The supervisor restores lost stateless replicas from this record.
     let service_range = state.service_range.as_deref().filter(|_| enforce);
-    let desired = serde_json::to_value(&req.appliances).map_err(|e| bad_request(e.to_string()))?;
+    let desired = serde_json::to_value(&req.modules).map_err(|e| bad_request(e.to_string()))?;
     let connections = req
         .connections
         .as_ref()
@@ -691,7 +682,7 @@ pub(super) async fn deploy(
                 &name,
                 &req.project,
                 uplink,
-                &req.appliances,
+                &req.modules,
                 req.connections.as_deref().unwrap_or_default(),
                 service_range,
             )
@@ -740,7 +731,7 @@ pub(super) async fn deploy(
     ))
 }
 
-/// The application's instances as Incus reports them, by appliance. Needs `read-inventory`.
+/// The application's instances as Incus reports them, by module. Needs `read-inventory`.
 #[utoipa::path(get, path = "/api/v1/applications/{name}/status", tag = "applications", operation_id = "application_status",
     params(("name" = String, Path, description = "Application name"), StatusQuery),
     responses((status = 200, body = ApplicationStatus), (status = 400, body = ErrorBody),
@@ -793,8 +784,8 @@ pub(super) async fn status(
                 .position(|h| h.project == i.project && h.instance == i.name)
                 .map(|at| health.swap_remove(at))
                 .filter(|_| i.status == "Running");
-            Some(ApplianceStatus {
-                appliance: o.appliance,
+            Some(ModuleStatus {
+                module: o.module,
                 instance: i.name,
                 project: i.project,
                 status: i.status,
@@ -813,8 +804,8 @@ pub(super) async fn status(
             .await?
             .into_iter()
             .filter(|(project, _, _)| q.project.as_ref().is_none_or(|p| p == project))
-            .map(|(project, appliance, address)| ServiceStatus {
-                appliance,
+            .map(|(project, module, address)| ServiceStatus {
+                module,
                 project,
                 address,
             })

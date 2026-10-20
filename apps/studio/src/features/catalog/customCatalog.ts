@@ -1,17 +1,17 @@
 import { create } from "zustand";
-import { allClasses, lookupClass, setCustomClasses } from "@apelora/appliance-catalog";
-import { ApplianceClassSchema, effectiveValue, slug, validateProperty, type ApplianceClass, type ConfigValue, type Port, type Property } from "@apelora/assembly-model";
+import { allClasses, lookupClass, setCustomClasses } from "@apelora/module-catalog";
+import { ModuleClassSchema, effectiveValue, migrateLegacyKeys, slug, validateProperty, type ModuleClass, type ConfigValue, type Port, type Property } from "@apelora/assembly-model";
 
 const KEY = "apelora.studio.catalog.v1";
 
-export interface DraftPort { key: string; /** The network interface every appliance has; cannot be removed or retyped. */ locked?: boolean; name: string; direction: Port["direction"]; type: Port["type"]; optional: boolean; multiplicity: Port["multiplicity"]; description: string }
+export interface DraftPort { key: string; /** The network interface every module has; cannot be removed or retyped. */ locked?: boolean; name: string; direction: Port["direction"]; type: Port["type"]; optional: boolean; multiplicity: Port["multiplicity"]; description: string }
 export interface DraftProp { key: string; /** Stable id kept when editing, so saved configuration values keep matching. */ id?: string; label: string; type: Property["type"]; default: string; required: boolean; group: string; description: string; options: string; min: string; max: string }
 
 export interface Draft {
   /** Set when editing an existing custom class. */
   editingId?: string;
   name: string;
-  category: ApplianceClass["category"];
+  category: ModuleClass["category"];
   summary: string;
   icon: string;
   cpu: number;
@@ -20,24 +20,24 @@ export interface Draft {
   properties: DraftProp[];
 }
 
-function load(): ApplianceClass[] {
+function load(): ModuleClass[] {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? "[]") as unknown;
     if (!Array.isArray(raw)) return [];
-    return raw.flatMap((c) => { const r = ApplianceClassSchema.safeParse(c); return r.success ? [{ ...r.data, custom: true }] : []; });
+    return raw.flatMap((c) => { const r = ModuleClassSchema.safeParse(migrateLegacyKeys(c)); return r.success ? [{ ...r.data, custom: true }] : []; });
   } catch { return []; }
 }
-const persist = (list: ApplianceClass[]) => { try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* storage unavailable */ } };
+const persist = (list: ModuleClass[]) => { try { localStorage.setItem(KEY, JSON.stringify(list)); } catch { /* storage unavailable */ } };
 
 interface CatalogState {
-  classes: ApplianceClass[];
+  classes: ModuleClass[];
   draft: Draft | null;
   openDesigner: (d: Draft) => void;
   closeDesigner: () => void;
-  save: (c: ApplianceClass) => void;
+  save: (c: ModuleClass) => void;
   remove: (id: string) => void;
   /** Registers classes embedded in an imported file that this browser does not know yet. Returns how many were added. */
-  addMissing: (list: readonly ApplianceClass[]) => number;
+  addMissing: (list: readonly ModuleClass[]) => number;
 }
 
 const initial = load();
@@ -80,7 +80,7 @@ function toDraftProps(list: readonly Property[] | undefined, config?: Readonly<R
   }));
 }
 
-const NIC_DESCRIPTION = "Network interface (NIC). Plug into a network or a network appliance; unplugged, it joins the default network.";
+const NIC_DESCRIPTION = "Network interface (NIC). Plug into a network or a network module; unplugged, it joins the default network.";
 export const nicDraft = (): DraftPort => ({ key: newPortKey(), locked: true, name: "net", direction: "input", type: "network", optional: true, multiplicity: "one", description: NIC_DESCRIPTION });
 
 export function emptyDraft(): Draft {
@@ -95,7 +95,7 @@ export function emptyDraft(): Draft {
   };
 }
 
-export function draftFromClass(c: ApplianceClass, editing: boolean): Draft {
+export function draftFromClass(c: ModuleClass, editing: boolean): Draft {
   return {
     ...(editing ? { editingId: c.id } : {}),
     name: editing ? c.displayName : `${c.displayName} (custom)`,
@@ -118,10 +118,10 @@ export function draftFromPorts(name: string, ports: readonly Port[], res: { cpu:
 }
 
 /** Builds and validates a class from a draft. Port ids are derived from names and kept unique. */
-export function classFromDraft(d: Draft): { ok: true; cls: ApplianceClass } | { ok: false; errors: string[] } {
+export function classFromDraft(d: Draft): { ok: true; cls: ModuleClass } | { ok: false; errors: string[] } {
   const errors: string[] = [];
   const name = d.name.trim();
-  if (!name) errors.push("Give the appliance a name.");
+  if (!name) errors.push("Give the module a name.");
   const names = new Set<string>();
   const ids = new Set<string>();
   const ports: Port[] = d.ports.map((p) => {
@@ -166,7 +166,7 @@ export function classFromDraft(d: Draft): { ok: true; cls: ApplianceClass } | { 
 
   let id = d.editingId ?? `custom-${slug(name)}`;
   if (!d.editingId) { let i = 2; const base = id; while (allClasses().some((c) => c.id === id)) id = `${base}-${i++}`; }
-  const r = ApplianceClassSchema.safeParse({
+  const r = ModuleClassSchema.safeParse({
     id, version: "1.0.0", displayName: name.slice(0, 48), category: d.category, summary: d.summary.trim().slice(0, 200), iconAssetPath: d.icon,
     runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports, resources: { cpu: d.cpu, memoryMiB: d.memoryMiB }, ...(properties.length ? { properties } : {}), custom: true,
   });

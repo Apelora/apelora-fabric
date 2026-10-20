@@ -2092,7 +2092,7 @@ pub(super) async fn request_approval(
     let mut engine = engine;
     engine.policies = db::load_policies(pool).await?;
     if apelora_auth::is_interactive_access(&req.action) {
-        // Access to one appliance: judged on its application, not on the platform.
+        // Access to one module: judged on its application, not on the platform.
         // An application that does not exist and one the caller cannot see answer alike.
         let unknown = || {
             bad(

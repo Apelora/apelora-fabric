@@ -335,7 +335,7 @@ async fn converge(
                         &apelora_persistence::NewVolume {
                             application: &owner.application,
                             project,
-                            appliance: &owner.appliance,
+                            module: &owner.module,
                             instance: name,
                             name: &v.name,
                             incus_name: &apelora_domain::storage::volume_name(name, &v.name),

@@ -1,4 +1,4 @@
-import { addAppliance, connect, createEmptyAssembly, renameAppliance, tagPort, tidyLayout, type ApplicationAssembly } from "@apelora/assembly-model";
+import { addModule, connect, createEmptyAssembly, renameModule, tagPort, tidyLayout, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass } from "./classes";
 
 export interface Template {
@@ -14,26 +14,26 @@ type Node = readonly [key: string, classId: string, name?: string];
 type Cable = readonly [from: string, fromPort: string, to: string, toPort: string];
 type Tag = readonly [key: string, port: string, tag: string];
 
-/** Builds a valid assembly from keys: appliances are created, cabled, tagged and then laid out left to right. */
+/** Builds a valid assembly from keys: modules are created, cabled, tagged and then laid out left to right. */
 function blueprint(name: string, nodes: readonly Node[], cables: readonly Cable[], tags: readonly Tag[] = []): ApplicationAssembly {
   let a: ApplicationAssembly = { ...createEmptyAssembly(name), metadata: { name, uid: `assembly-template-${name}` } };
   const ids = new Map<string, string>();
   nodes.forEach(([key, classId, label], i) => {
     const cls = lookupClass(classId, "1.0.0");
     if (!cls) throw new Error(`template ${name}: unknown class ${classId}`);
-    const r = addAppliance(a, cls, { x: (i % 6) * 220, y: Math.floor(i / 6) * 160 });
+    const r = addModule(a, cls, { x: (i % 6) * 220, y: Math.floor(i / 6) * 160 });
     a = r.assembly;
-    if (label) a = renameAppliance(a, r.id, label);
+    if (label) a = renameModule(a, r.id, label);
     ids.set(key, r.id);
   });
   const id = (k: string): string => { const v = ids.get(k); if (!v) throw new Error(`template ${name}: unknown key ${k}`); return v; };
   for (const [s, sp, t, tp] of cables) {
-    const r = connect(a, { applianceId: id(s), portId: sp }, { applianceId: id(t), portId: tp });
+    const r = connect(a, { moduleId: id(s), portId: sp }, { moduleId: id(t), portId: tp });
     if ("error" in r) throw new Error(`template ${name}: ${s}.${sp} → ${t}.${tp}: ${r.error.message}`);
     a = r.assembly;
   }
   for (const [k, port, tag] of tags) {
-    const r = tagPort(a, { applianceId: id(k), portId: port }, tag);
+    const r = tagPort(a, { moduleId: id(k), portId: port }, tag);
     if ("error" in r) throw new Error(`template ${name}: tag ${tag}: ${r.error.message}`);
     a = r.assembly;
   }

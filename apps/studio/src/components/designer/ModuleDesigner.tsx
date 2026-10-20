@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { GENERIC_ICONS, logoUrl } from "@apelora/appliance-catalog";
-import { CATEGORIES, NODE, PORT_TYPES, minApplianceHeight, portCenterY, type Category } from "@apelora/assembly-model";
+import { GENERIC_ICONS, logoUrl } from "@apelora/module-catalog";
+import { CATEGORIES, NODE, PORT_TYPES, minModuleHeight, portCenterY, type Category } from "@apelora/assembly-model";
 import { classFromDraft, emptyProp, newPortKey, useCustomCatalog, type Draft, type DraftPort, type DraftProp } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { Jack } from "../canvas/Jack";
@@ -9,7 +9,7 @@ import { IconPlus, IconTrash, IconUp, IconDown } from "../icons";
 function Preview({ d }: { d: Draft }) {
   const inputs = d.ports.filter((p) => p.direction === "input");
   const outputs = d.ports.filter((p) => p.direction === "output");
-  const h = Math.max(minApplianceHeight(inputs.length, outputs.length), NODE.height);
+  const h = Math.max(minModuleHeight(inputs.length, outputs.length), NODE.height);
   const url = logoUrl(d.icon);
   const side = (list: DraftPort[], kind: "input" | "output") =>
     list.map((p, i) => (
@@ -19,9 +19,9 @@ function Preview({ d }: { d: Draft }) {
       </div>
     ));
   return (
-    <div className="flex justify-center rounded-box border border-base-300 py-6" style={{ background: "var(--apl-canvas)" }} aria-label="Appliance preview">
+    <div className="flex justify-center rounded-box border border-base-300 py-6" style={{ background: "var(--apl-canvas)" }} aria-label="Module preview">
       <div className="apl-node" style={{ width: NODE.width, height: h }} data-testid="designer-preview">
-        <div className="apl-node-header flex items-center px-2 text-[11px] font-medium leading-none"><span className="truncate">{d.name.trim() || "new-appliance"}</span></div>
+        <div className="apl-node-header flex items-center px-2 text-[11px] font-medium leading-none"><span className="truncate">{d.name.trim() || "new-module"}</span></div>
         <div className="flex items-center justify-center" style={{ height: h - NODE.header - 2 }}>{url && <img src={url} alt="" style={{ width: NODE.logo, height: NODE.logo }} />}</div>
         {side(inputs, "input")}
         {side(outputs, "output")}
@@ -30,7 +30,7 @@ function Preview({ d }: { d: Draft }) {
   );
 }
 
-export function ApplianceDesigner() {
+export function ModuleDesigner() {
   const api = useStudioApi();
   const draft = useCustomCatalog((s) => s.draft);
   const classes = useCustomCatalog((s) => s.classes);
@@ -41,7 +41,7 @@ export function ApplianceDesigner() {
   useEffect(() => { setD(draft); setErrors([]); setTab("ports"); }, [draft]);
   const store = useCustomCatalog;
 
-  const inUse = useMemo(() => !!d?.editingId && assembly.spec.appliances.some((a) => a.classRef.name === d.editingId), [d?.editingId, assembly]);
+  const inUse = useMemo(() => !!d?.editingId && assembly.spec.modules.some((a) => a.classRef.name === d.editingId), [d?.editingId, assembly]);
   const existing = d?.editingId ? classes.find((c) => c.id === d.editingId) : undefined;
 
   if (!d) return <dialog className="modal" data-testid="designer" />;
@@ -64,13 +64,13 @@ export function ApplianceDesigner() {
     if (!r.ok) { setErrors(r.errors); return; }
     store.getState().save(r.cls);
     store.getState().closeDesigner();
-    api.getState().toast("success", `${existing ? "Updated" : "Created"} appliance “${r.cls.displayName}”. It is in the catalog under ${r.cls.category}.`);
+    api.getState().toast("success", `${existing ? "Updated" : "Created"} module “${r.cls.displayName}”. It is in the catalog under ${r.cls.category}.`);
   };
   const del = () => {
     if (!d.editingId) return;
     store.getState().remove(d.editingId);
     store.getState().closeDesigner();
-    api.getState().toast("info", "Custom appliance deleted from the catalog.");
+    api.getState().toast("info", "Custom module deleted from the catalog.");
   };
 
   const section = (direction: DraftPort["direction"], title: string) => (
@@ -83,11 +83,11 @@ export function ApplianceDesigner() {
         {d.ports.filter((p) => p.direction === direction).map((p, i, arr) => (
           <li key={p.key} className="rounded-box border border-base-300 p-1.5" data-testid="designer-port">
             <div className="flex items-center gap-1">
-              <input className="input input-xs min-w-0 flex-1" aria-label="Port name" placeholder="short name, e.g. db" maxLength={48} value={p.name} disabled={p.locked} title={p.locked ? "Every appliance has a network interface" : undefined} onChange={(e) => setPort(p.key, { name: e.target.value })} />
+              <input className="input input-xs min-w-0 flex-1" aria-label="Port name" placeholder="short name, e.g. db" maxLength={48} value={p.name} disabled={p.locked} title={p.locked ? "Every module has a network interface" : undefined} onChange={(e) => setPort(p.key, { name: e.target.value })} />
               <select className="select select-xs w-24" aria-label="Port type" disabled={p.locked} value={p.type} onChange={(e) => setPort(p.key, { type: e.target.value as DraftPort["type"] })}>{PORT_TYPES.map((t) => <option key={t}>{t}</option>)}</select>
               <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Move up" disabled={i === 0} onClick={() => move(p.key, -1)}><IconUp size={12} /></button>
               <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Move down" disabled={i === arr.length - 1} onClick={() => move(p.key, 1)}><IconDown size={12} /></button>
-              <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Delete port" disabled={p.locked} title={p.locked ? "Every appliance has a network interface (net)" : undefined} onClick={() => patch({ ports: d.ports.filter((x) => x.key !== p.key) })}><IconTrash size={12} /></button>
+              <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Delete port" disabled={p.locked} title={p.locked ? "Every module has a network interface (net)" : undefined} onClick={() => patch({ ports: d.ports.filter((x) => x.key !== p.key) })}><IconTrash size={12} /></button>
             </div>
             <div className="mt-1 flex items-center gap-2">
               <input className="input input-xs min-w-0 flex-1" aria-label="Port description" placeholder="what it carries (tooltip)" maxLength={160} value={p.description} onChange={(e) => setPort(p.key, { description: e.target.value })} />
@@ -137,8 +137,8 @@ export function ApplianceDesigner() {
     <dialog className="modal modal-open" data-testid="designer" aria-labelledby="designer-title">
       <div className="modal-box flex max-h-[92vh] w-full max-w-4xl flex-col p-0">
         <div className="border-b border-base-300 px-5 py-3">
-          <h3 id="designer-title" className="text-base font-semibold">{existing ? "Edit custom appliance" : "New custom appliance"}</h3>
-          <p className="text-xs text-base-content/60">Define the appliance's terminals (typed ports), resources and look. It is saved in this browser and embedded in exported assemblies. Nothing is deployed.</p>
+          <h3 id="designer-title" className="text-base font-semibold">{existing ? "Edit custom module" : "New custom module"}</h3>
+          <p className="text-xs text-base-content/60">Define the module's terminals (typed ports), resources and look. It is saved in this browser and embedded in exported assemblies. Nothing is deployed.</p>
         </div>
         <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <div className="flex flex-col gap-3">
@@ -159,7 +159,7 @@ export function ApplianceDesigner() {
                   </button>
                 ))}
               </div>
-              <p className="mt-1 text-[11px] text-base-content/50">Generic icons only; vendor logos are reserved for catalog appliances.</p>
+              <p className="mt-1 text-[11px] text-base-content/50">Generic icons only; vendor logos are reserved for catalog modules.</p>
             </fieldset>
             <Preview d={d} />
           </div>
@@ -173,10 +173,10 @@ export function ApplianceDesigner() {
         </div>
         {errors.length > 0 && <ul className="mx-5 mb-2 list-disc rounded-box border border-error/40 bg-error/5 py-2 pl-7 pr-3 text-xs text-error" role="alert" data-testid="designer-errors">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
         <div className="flex items-center gap-2 border-t border-base-300 px-5 py-3">
-          {existing && <button type="button" className="btn btn-sm btn-ghost text-error" data-testid="designer-delete" disabled={inUse} title={inUse ? "In use by the current assembly" : "Delete this appliance from the catalog"} onClick={del}><IconTrash size={14} />Delete</button>}
+          {existing && <button type="button" className="btn btn-sm btn-ghost text-error" data-testid="designer-delete" disabled={inUse} title={inUse ? "In use by the current assembly" : "Delete this module from the catalog"} onClick={del}><IconTrash size={14} />Delete</button>}
           <div className="ml-auto flex gap-2">
             <button type="button" className="btn btn-sm" onClick={() => store.getState().closeDesigner()}>Cancel</button>
-            <button type="button" className="btn btn-sm btn-primary" data-testid="designer-save" onClick={save}>{existing ? "Save changes" : "Create appliance"}</button>
+            <button type="button" className="btn btn-sm btn-primary" data-testid="designer-save" onClick={save}>{existing ? "Save changes" : "Create module"}</button>
           </div>
         </div>
       </div>

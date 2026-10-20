@@ -256,7 +256,7 @@ async fn unowned_instances_are_refused(pool: Pool) {
 }
 
 /// Every catalog runtime runs: the requests come from the catalog itself
-/// (`npm run -s runtime-requests -w @apelora/appliance-catalog > requests.json`).
+/// (`npm run -s runtime-requests -w @apelora/module-catalog > requests.json`).
 #[ignore = "needs a disposable Incus and APELORA_TEST_CATALOG_REQUESTS"]
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn catalog_runtimes_run(pool: Pool) {
@@ -326,14 +326,14 @@ async fn join_tokens_need_the_admin_identity_and_can_be_revoked() {
     assert_eq!(admin.revoke_join_token(&member).await, Ok(false));
 }
 
-/// Two replicas of a stateless appliance land on different members (the anti-affinity
+/// Two replicas of a stateless module land on different members (the anti-affinity
 /// scriptlet, scripts/test-cluster/placement.sh), and the supervisor brings back a lost one,
 /// again on the member without a sibling. Needs two members and the scriptlet installed.
 #[ignore = "needs a disposable two-member Incus with the placement scriptlet: scripts/test-cluster/placement.sh"]
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
     use apelora_deployment_worker::supervisor::supervise_once;
-    use apelora_domain::plan::{DesiredAppliance, deploy_spec};
+    use apelora_domain::plan::{DesiredModule, deploy_spec};
 
     let provider = real_incus();
     let project = project();
@@ -341,8 +341,8 @@ async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
     let app = apelora_persistence::ensure_application(&pool, &application)
         .await
         .expect("application");
-    let web: DesiredAppliance = serde_json::from_value(json!({
-        "appliance": "web-01",
+    let web: DesiredModule = serde_json::from_value(json!({
+        "module": "web-01",
         "spec": { "project": "", "name": "", "kind": "container", "start": true,
                   "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" } },
         "replicas": 2,
@@ -445,7 +445,7 @@ async fn volumes_follow_the_instance_and_outlive_it(pool: Pool) {
     let name = unique("apl-vol");
     let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
         "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
-        "owner": { "application": "apl-volume-test", "appliance": "db", "replica": 1 },
+        "owner": { "application": "apl-volume-test", "module": "db", "replica": 1 },
         "volumes": [{ "name": "data", "sizeMib": 256, "path": "/srv/data", "pool": volume_pool }] });
     converge(&pool, &provider, "instance.create", &spec).await;
     let created = status(&provider, &project, &name).await.expect("created");

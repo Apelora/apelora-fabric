@@ -1,6 +1,6 @@
 ---
 name: ui-engineer
-description: Implements Apelora Studio UI (React, TypeScript, React Flow, Tailwind 4, daisyUI 5) following CLAUDE.md and the studio-design-system, compact-appliance and react-flow-interactions skills. Use for focused component or interaction work.
+description: Implements Apelora Studio UI (React, TypeScript, React Flow, Tailwind 4, daisyUI 5) following CLAUDE.md and the studio-design-system, compact-module and react-flow-interactions skills. Use for focused component or interaction work.
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 

@@ -1,9 +1,9 @@
 import { test, type Page, type Request } from "@playwright/test";
 import { expect, open, openProps } from "./helpers";
 
-// Volumes in the Studio: a singleton appliance keeps data in volumes set in its Properties
+// Volumes in the Studio: a singleton module keeps data in volumes set in its Properties
 // window; every change is checked before it is kept, the deploy review lists them and the plan
-// request carries them. Stateless appliances cannot have volumes.
+// request carries them. Stateless modules cannot have volumes.
 const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true } };
 const operator = { name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["apelora"] };
 
@@ -17,8 +17,8 @@ async function stub(page: Page, routes: Record<string, (req: Request) => { statu
   });
 }
 
-test("a singleton appliance keeps volumes that are checked, reviewed and sent with the plan", async ({ page }) => {
-  let planBody: { appliances: { appliance: string; spec: { volumes?: unknown } }[] } | null = null;
+test("a singleton module keeps volumes that are checked, reviewed and sent with the plan", async ({ page }) => {
+  let planBody: { modules: { module: string; spec: { volumes?: unknown } }[] } | null = null;
   await stub(page, {
     "GET /api/v1/health": () => ({ json: health }),
     "GET /api/v1/whoami": () => ({ json: operator }),
@@ -30,7 +30,7 @@ test("a singleton appliance keeps volumes that are checked, reviewed and sent wi
   await page.keyboard.press("Escape");
 
   await page.locator("[data-testid=catalog-tile][data-class-id=debian]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
-  const debian = page.locator("[data-testid=appliance-node][data-node-id^=debian]");
+  const debian = page.locator("[data-testid=module-node][data-node-id^=debian]");
   await expect(debian).toHaveCount(1);
   const id = (await debian.getAttribute("data-node-id"))!;
   await openProps(page, id);
@@ -67,7 +67,7 @@ test("a singleton appliance keeps volumes that are checked, reviewed and sent wi
   await expect(dialog.getByTestId("deploy-volumes")).toHaveText("Keeps data (2 GiB) at /var/lib/app");
   await dialog.getByTestId("deploy-preview").click();
   await expect.poll(() => planBody).not.toBeNull();
-  const sent = planBody!.appliances.find((a) => a.appliance === id);
+  const sent = planBody!.modules.find((a) => a.module === id);
   expect(sent?.spec.volumes).toEqual([{ name: "data", sizeMib: 2048, path: "/var/lib/app" }]);
-  expect(planBody!.appliances.find((a) => a.appliance === "nginx-01")?.spec.volumes, "stateless: none").toBeUndefined();
+  expect(planBody!.modules.find((a) => a.module === "nginx-01")?.spec.volumes, "stateless: none").toBeUndefined();
 });

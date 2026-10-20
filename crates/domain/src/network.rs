@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Enforcing a design's connections on an OVN network (Phase 07).
 //!
-//! Every application gets one OVN network; every appliance an ACL and an address set holding
+//! Every application gets one OVN network; every module an ACL and an address set holding
 //! its instances' addresses. A connection lets the consumer reach the provider on one
 //! protocol and port: the consumer's ACL allows it outbound and the provider's ACL allows it
 //! inbound (Incus combines egress and ingress allows with OR, so both sides are always
 //! written). Rules use address sets, not ACL selectors: selector rules only matched traffic
 //! between instances on the same member (docs/development/TEST-CLUSTER.md).
 //!
-//! A stateless appliance that others connect to also gets a *service address*: an OVN load
+//! A stateless module that others connect to also gets a *service address*: an OVN load
 //! balancer on the application's network, listening on an address from a routed range and
-//! spreading each connected port over the appliance's replicas, with health checks. The load
+//! spreading each connected port over the module's replicas, with health checks. The load
 //! balancer translates the address before ACLs are evaluated, so the address-set rules above
 //! already cover traffic to it.
 
@@ -20,9 +20,9 @@ use std::net::Ipv4Addr;
 use serde::{Deserialize, Serialize};
 
 use crate::is_valid_name;
-use crate::plan::{Availability, DesiredAppliance, instance_name};
+use crate::plan::{Availability, DesiredModule, instance_name};
 
-/// One connection of the design: `from` may reach `to` (appliance ids).
+/// One connection of the design: `from` may reach `to` (module ids).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +39,7 @@ impl Connection {
     pub fn validate(&self) -> Result<(), String> {
         for (what, v) in [("from", &self.from), ("to", &self.to)] {
             if !is_valid_name(v) {
-                return Err(format!("connection {what}: invalid appliance id {v:?}"));
+                return Err(format!("connection {what}: invalid module id {v:?}"));
             }
         }
         if self.from == self.to {
@@ -58,7 +58,7 @@ impl Connection {
     }
 }
 
-/// What an appliance may reach outside the application (the internet, through the uplink).
+/// What a module may reach outside the application (the internet, through the uplink).
 /// Inside the application only connections count, whatever this says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -75,7 +75,7 @@ pub enum Internet {
 
 /// Egress rules for `level`. They use Incus's `@external` subject (traffic leaving through the
 /// uplink), never "any destination": an egress allow alone would let traffic into other
-/// appliances of the application (REAL INCUS TESTED, TEST-CLUSTER.md).
+/// modules of the application (REAL INCUS TESTED, TEST-CLUSTER.md).
 pub fn internet_rules(level: Internet) -> Vec<AclRule> {
     let rule = |protocol: &str, ports: &str, description: &str| AclRule {
         action: "allow".into(),
@@ -110,8 +110,8 @@ pub fn service_env_name(provider: &str) -> String {
     )
 }
 
-/// The discovery environment of `consumer` (ADR 0004): one variable per appliance it connects
-/// to, holding that appliance's service address when it has one (`addresses`), otherwise its
+/// The discovery environment of `consumer` (ADR 0004): one variable per module it connects
+/// to, holding that module's service address when it has one (`addresses`), otherwise its
 /// instance name (resolved by the network's DNS).
 pub fn discovery_env(
     application: &str,
@@ -143,13 +143,14 @@ pub fn with_discovery(
     spec
 }
 
-/// A port of an appliance reachable from outside the application (in the Studio: connected
+/// A port of a module reachable from outside the application (in the Studio: connected
 /// from a gateway). Only ports with a number can be published.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Published {
-    pub appliance: String,
+    #[serde(alias = "appliance")]
+    pub module: String,
     /// `tcp` or `udp`.
     pub transport: String,
     pub port: u16,
@@ -157,28 +158,25 @@ pub struct Published {
 
 impl Published {
     pub fn validate(&self) -> Result<(), String> {
-        if !is_valid_name(&self.appliance) {
-            return Err(format!(
-                "published: invalid appliance id {:?}",
-                self.appliance
-            ));
+        if !is_valid_name(&self.module) {
+            return Err(format!("published: invalid module id {:?}", self.module));
         }
         if !matches!(self.transport.as_str(), "tcp" | "udp") || self.port == 0 {
             return Err(format!(
                 "published {}: needs tcp or udp and a port",
-                self.appliance
+                self.module
             ));
         }
         Ok(())
     }
 }
 
-/// Ingress rules that let anyone reach `appliance`'s published ports. Traffic still has to be
-/// routed to the appliance's service address by the network outside (TEST-CLUSTER.md).
-pub fn published_rules(appliance: &str, published: &[Published]) -> Vec<AclRule> {
+/// Ingress rules that let anyone reach `module`'s published ports. Traffic still has to be
+/// routed to the module's service address by the network outside (TEST-CLUSTER.md).
+pub fn published_rules(module: &str, published: &[Published]) -> Vec<AclRule> {
     let mut rules: Vec<AclRule> = published
         .iter()
-        .filter(|p| p.appliance == appliance)
+        .filter(|p| p.module == module)
         .map(|p| AclRule {
             action: "allow".into(),
             source: String::new(),
@@ -228,24 +226,24 @@ pub fn network_name(application: &str) -> String {
     application.to_owned()
 }
 
-/// The ACL and the address set of an appliance share the instance's name.
-pub fn acl_name(application: &str, appliance: &str) -> String {
-    instance_name(application, appliance)
+/// The ACL and the address set of a module share the instance's name.
+pub fn acl_name(application: &str, module: &str) -> String {
+    instance_name(application, module)
 }
 
-pub fn attachment(application: &str, appliance: &str, uplink: &str) -> NetworkAttachment {
+pub fn attachment(application: &str, module: &str, uplink: &str) -> NetworkAttachment {
     NetworkAttachment {
         network: network_name(application),
-        acl: acl_name(application, appliance),
+        acl: acl_name(application, module),
         uplink: uplink.to_owned(),
     }
 }
 
-/// The ingress and egress rules of `appliance`'s ACL, sorted so unchanged designs produce
+/// The ingress and egress rules of `module`'s ACL, sorted so unchanged designs produce
 /// identical rules.
 pub fn acl_rules(
     application: &str,
-    appliance: &str,
+    module: &str,
     connections: &[Connection],
 ) -> (Vec<AclRule>, Vec<AclRule>) {
     let rule = |source: String, destination: String, c: &Connection, description: String| AclRule {
@@ -260,12 +258,12 @@ pub fn acl_rules(
     let set = |a: &str| format!("${}", acl_name(application, a));
     let mut ingress: Vec<AclRule> = connections
         .iter()
-        .filter(|c| c.to == appliance)
+        .filter(|c| c.to == module)
         .map(|c| rule(set(&c.from), String::new(), c, format!("from {}", c.from)))
         .collect();
     let mut egress: Vec<AclRule> = connections
         .iter()
-        .filter(|c| c.from == appliance)
+        .filter(|c| c.from == module)
         .map(|c| rule(String::new(), set(&c.to), c, format!("to {}", c.to)))
         .collect();
     let key = |r: &AclRule| {
@@ -291,12 +289,13 @@ pub struct SyncRequest {
     pub project: String,
     pub application: String,
     pub uplink: String,
-    pub appliances: Vec<String>,
+    #[serde(alias = "appliances")]
+    pub modules: Vec<String>,
     pub connections: Vec<Connection>,
-    /// Replicas per appliance (1 when absent): every replica's addresses join the set.
+    /// Replicas per module (1 when absent): every replica's addresses join the set.
     #[serde(default)]
     pub replicas: BTreeMap<String, u8>,
-    /// Stateless appliances: those connected to get a service address.
+    /// Stateless modules: those connected to get a service address.
     #[serde(default)]
     pub stateless: Vec<String>,
     /// IPv4 range service addresses come from (routed by the uplink); none: no load balancers.
@@ -305,7 +304,7 @@ pub struct SyncRequest {
     /// Ports reachable from outside the application.
     #[serde(default)]
     pub published: Vec<Published>,
-    /// What each appliance may reach outside the application (absent: nothing).
+    /// What each module may reach outside the application (absent: nothing).
     #[serde(default)]
     pub internet: BTreeMap<String, Internet>,
 }
@@ -315,7 +314,7 @@ impl SyncRequest {
         application: &str,
         project: &str,
         uplink: &str,
-        desired: &[DesiredAppliance],
+        desired: &[DesiredModule],
         connections: &[Connection],
         service_range: Option<&str>,
     ) -> Self {
@@ -323,23 +322,23 @@ impl SyncRequest {
             project: project.to_owned(),
             application: application.to_owned(),
             uplink: uplink.to_owned(),
-            appliances: desired.iter().map(|d| d.appliance.clone()).collect(),
+            modules: desired.iter().map(|d| d.module.clone()).collect(),
             connections: connections.to_vec(),
             replicas: desired
                 .iter()
-                .map(|d| (d.appliance.clone(), d.replicas))
+                .map(|d| (d.module.clone(), d.replicas))
                 .collect(),
             stateless: desired
                 .iter()
                 .filter(|d| d.availability == Availability::Stateless)
-                .map(|d| d.appliance.clone())
+                .map(|d| d.module.clone())
                 .collect(),
             service_range: service_range.map(str::to_owned),
             published: Vec::new(),
             internet: desired
                 .iter()
                 .filter(|d| d.internet != Internet::None)
-                .map(|d| (d.appliance.clone(), d.internet))
+                .map(|d| (d.module.clone(), d.internet))
                 .collect(),
         }
     }
@@ -352,7 +351,7 @@ impl SyncRequest {
     pub fn validate(&self) -> Result<(), String> {
         for n in [&self.project, &self.application, &self.uplink]
             .into_iter()
-            .chain(&self.appliances)
+            .chain(&self.modules)
         {
             if !is_valid_name(n) {
                 return Err(format!("invalid name {n:?}"));
@@ -360,9 +359,9 @@ impl SyncRequest {
         }
         for c in &self.connections {
             c.validate()?;
-            if !self.appliances.contains(&c.from) || !self.appliances.contains(&c.to) {
+            if !self.modules.contains(&c.from) || !self.modules.contains(&c.to) {
                 return Err(format!(
-                    "connection {} → {} names an appliance outside the application",
+                    "connection {} → {} names a module outside the application",
                     c.from, c.to
                 ));
             }
@@ -372,24 +371,21 @@ impl SyncRequest {
         }
         for p in &self.published {
             p.validate()?;
-            if !self.appliances.contains(&p.appliance) {
-                return Err(format!(
-                    "published {} is not in the application",
-                    p.appliance
-                ));
+            if !self.modules.contains(&p.module) {
+                return Err(format!("published {} is not in the application", p.module));
             }
         }
         Ok(())
     }
 
-    /// The ports a service address of `appliance` listens on: those other appliances connect
+    /// The ports a service address of `module` listens on: those other modules connect
     /// to and those published.
-    pub fn ports_of(&self, appliance: &str) -> Vec<(String, u16)> {
-        let mut ports = service_ports(appliance, &self.connections);
+    pub fn ports_of(&self, module: &str) -> Vec<(String, u16)> {
+        let mut ports = service_ports(module, &self.connections);
         ports.extend(
             self.published
                 .iter()
-                .filter(|p| p.appliance == appliance)
+                .filter(|p| p.module == module)
                 .map(|p| (p.transport.clone(), p.port)),
         );
         ports.sort();
@@ -397,14 +393,14 @@ impl SyncRequest {
         ports
     }
 
-    /// Appliances that get a service address: stateless ones reached on at least one port,
+    /// Modules that get a service address: stateless ones reached on at least one port,
     /// and every published one (outside clients need one stable address, even for a single
     /// instance).
     pub fn services(&self) -> Vec<String> {
-        self.appliances
+        self.modules
             .iter()
             .filter(|a| {
-                self.published.iter().any(|p| &p.appliance == *a)
+                self.published.iter().any(|p| &p.module == *a)
                     || self.stateless.contains(a) && !service_ports(a, &self.connections).is_empty()
             })
             .cloned()
@@ -437,12 +433,12 @@ pub fn service_addresses(range: &str) -> Result<Vec<Ipv4Addr>, String> {
         .collect())
 }
 
-/// The ports `appliance` is reached on, as `(transport, port)`, sorted. Connections without a
+/// The ports `module` is reached on, as `(transport, port)`, sorted. Connections without a
 /// well-known port allow any port and cannot be balanced, so they are left out.
-pub fn service_ports(appliance: &str, connections: &[Connection]) -> Vec<(String, u16)> {
+pub fn service_ports(module: &str, connections: &[Connection]) -> Vec<(String, u16)> {
     let mut ports: Vec<(String, u16)> = connections
         .iter()
-        .filter(|c| c.to == appliance)
+        .filter(|c| c.to == module)
         .filter_map(|c| c.port.map(|p| (c.transport.clone(), p)))
         .collect();
     ports.sort();
@@ -461,11 +457,11 @@ pub struct Backend {
     pub description: String,
 }
 
-/// An appliance's service address: an OVN load balancer on the application's network.
+/// A module's service address: an OVN load balancer on the application's network.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadBalancer {
     pub listen_address: Ipv4Addr,
-    pub appliance: String,
+    pub module: String,
     pub backends: Vec<Backend>,
     pub ports: Vec<(String, u16)>,
 }
@@ -513,7 +509,7 @@ mod tests {
         let (lonely_in, lonely_out) = acl_rules("shop", "cache-01", &conns);
         assert!(
             lonely_in.is_empty() && lonely_out.is_empty(),
-            "unconnected appliances are isolated"
+            "unconnected modules are isolated"
         );
     }
 
@@ -568,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn only_connected_stateless_appliances_get_a_service_with_their_ports() {
+    fn only_connected_stateless_modules_get_a_service_with_their_ports() {
         let mut conns = vec![
             c("lb-01", "web-01", Some(80)),
             c("lb-01", "web-01", Some(443)),
@@ -584,7 +580,7 @@ mod tests {
             project: "apelora".into(),
             application: "shop".into(),
             uplink: "incusbr0".into(),
-            appliances: ["lb-01", "web-01", "db-01", "app-01", "raw-01"]
+            modules: ["lb-01", "web-01", "db-01", "app-01", "raw-01"]
                 .map(String::from)
                 .to_vec(),
             connections: conns,
@@ -611,7 +607,7 @@ mod tests {
     #[test]
     fn published_ports_open_to_anyone_and_get_a_service_address() {
         let published = vec![Published {
-            appliance: "db-01".into(),
+            module: "db-01".into(),
             transport: "tcp".into(),
             port: 5432,
         }];
@@ -626,7 +622,7 @@ mod tests {
             project: "apelora".into(),
             application: "shop".into(),
             uplink: "incusbr0".into(),
-            appliances: ["web-01", "db-01"].map(String::from).to_vec(),
+            modules: ["web-01", "db-01"].map(String::from).to_vec(),
             connections: vec![c("web-01", "db-01", Some(5432))],
             replicas: BTreeMap::new(),
             stateless: vec![],
@@ -643,7 +639,7 @@ mod tests {
         assert_eq!(s.ports_of("db-01"), vec![("tcp".to_owned(), 5432)]);
         let bad = SyncRequest {
             published: vec![Published {
-                appliance: "nope-01".into(),
+                module: "nope-01".into(),
                 transport: "tcp".into(),
                 port: 1,
             }],
@@ -652,7 +648,7 @@ mod tests {
         assert!(bad.validate().is_err());
         assert!(
             Published {
-                appliance: "db-01".into(),
+                module: "db-01".into(),
                 transport: "icmp".into(),
                 port: 1
             }

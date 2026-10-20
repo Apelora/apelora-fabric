@@ -5,7 +5,7 @@
 //! The check is the OVN load balancer's port probe of each service backend, read through the
 //! load balancer's state; instances without a service address are not checked. Only running
 //! instances on online members are observed: a stopped or stranded instance is the replica
-//! supervisor's business. At most one replica of an appliance is restarted per pass, so a
+//! supervisor's business. At most one replica of a module is restarted per pass, so a
 //! service whose replicas all fail is not taken down at once; a restart is audited, and the
 //! same instance is not restarted again within the cooldown. The decided health is recorded
 //! for the status API: the worker is the only place it is decided.
@@ -16,7 +16,7 @@ use std::time::Instant;
 use apelora_domain::Instance;
 use apelora_domain::health::{HealthPolicy, HealthState, Probe, Tracker, probe_of};
 use apelora_domain::network::network_name;
-use apelora_domain::plan::{Availability, DesiredAppliance, replica_name};
+use apelora_domain::plan::{Availability, DesiredModule, replica_name};
 use apelora_incus_adapter::Provider;
 use apelora_persistence::{DeploymentRecord, NewHealth, Pool, StoreError};
 use serde_json::json;
@@ -54,7 +54,7 @@ impl HealthWatch {
         pool: &Pool,
         provider: &Provider,
         d: &DeploymentRecord,
-        desired: &[DesiredAppliance],
+        desired: &[DesiredModule],
         observed: &[Instance],
         unavailable: &[String],
     ) -> Result<Vec<String>, StoreError> {
@@ -63,7 +63,7 @@ impl HealthWatch {
         let network = network_name(app);
         // Probe per instance, from each service's load balancer.
         let mut probes: BTreeMap<String, (String, Probe)> = BTreeMap::new();
-        for (appliance, address) in
+        for (module, address) in
             apelora_persistence::service_addresses(pool, d.application_id, project).await?
         {
             let backends = match provider
@@ -73,17 +73,17 @@ impl HealthWatch {
                 Ok(b) => b,
                 // The address is allocated before its load balancer exists: no check yet.
                 Err(apelora_incus_adapter::AdapterError::NotFound(_)) => {
-                    tracing::debug!(application = app, %appliance, "health: no load balancer yet");
+                    tracing::debug!(application = app, %module, "health: no load balancer yet");
                     continue;
                 }
                 Err(e) => {
-                    tracing::warn!(application = app, %appliance, error = %e, "health: cannot read the load balancer's state");
+                    tracing::warn!(application = app, %module, error = %e, "health: cannot read the load balancer's state");
                     continue;
                 }
             };
             for (backend, status) in backends {
-                if let Some(instance) = backend_instance(app, &appliance, &backend) {
-                    probes.insert(instance, (appliance.clone(), probe_of(&status)));
+                if let Some(instance) = backend_instance(app, &module, &backend) {
+                    probes.insert(instance, (module.clone(), probe_of(&status)));
                 }
             }
         }
@@ -98,7 +98,7 @@ impl HealthWatch {
                 && !unavailable.contains(&i.location)
                 && i.owner.as_ref().is_some_and(|o| o.application == app)
         }) {
-            let Some((appliance, probe)) = probes.get(&i.name) else {
+            let Some((module, probe)) = probes.get(&i.name) else {
                 continue;
             };
             let tracker = self
@@ -114,20 +114,20 @@ impl HealthWatch {
                 }
                 None => {}
             }
-            seen.push((i.name.clone(), appliance.clone(), *probe));
+            seen.push((i.name.clone(), module.clone(), *probe));
         }
-        // Per stateless appliance, at most one restart per pass: the replica restarted least
+        // Per stateless module, at most one restart per pass: the replica restarted least
         // recently (never first), so failing replicas take turns.
         let mut restarted_now: Vec<String> = Vec::new();
         let stateless: Vec<&str> = desired
             .iter()
             .filter(|a| a.availability == Availability::Stateless)
-            .map(|a| a.appliance.as_str())
+            .map(|a| a.module.as_str())
             .collect();
-        for appliance in stateless {
+        for module in stateless {
             let mut due: Vec<(&String, Option<f64>)> = seen
                 .iter()
-                .filter(|(_, a, _)| a == appliance)
+                .filter(|(_, a, _)| a == module)
                 .filter_map(|(name, _, _)| {
                     let t = self.trackers.get(&(project.to_owned(), name.clone()))?;
                     t.should_restart(now, &policy)
@@ -158,7 +158,7 @@ impl HealthWatch {
                     "supervisor",
                     "application.replica.restart-unhealthy",
                     &format!("{project}/{name}"),
-                    &json!({ "application": app, "appliance": appliance, "unhealthySeconds": unhealthy_secs, "jobId": job }),
+                    &json!({ "application": app, "module": module, "unhealthySeconds": unhealthy_secs, "jobId": job }),
                 )
                 .await?;
                 tracing::warn!(application = app, instance = %name, unhealthy_secs, "health: restarting a replica that keeps failing its port check");
@@ -168,7 +168,7 @@ impl HealthWatch {
             }
         }
         let mut checked = Vec::new();
-        for (name, appliance, probe) in &seen {
+        for (name, module, probe) in &seen {
             let Some(tracker) = self.trackers.get(&(project.to_owned(), name.clone())) else {
                 continue;
             };
@@ -183,7 +183,7 @@ impl HealthWatch {
                     application_id: d.application_id,
                     project,
                     instance: name,
-                    appliance,
+                    module,
                     health: tracker.health.as_str(),
                     since: self.wall(tracker.since),
                     detail,
@@ -224,14 +224,14 @@ async fn restart_pending(pool: &Pool, project: &str, name: &str) -> Result<bool,
     Ok(false)
 }
 
-/// The instance behind a load balancer backend: `r2` → `<app>-<appliance>-r2` (replica 1 has
+/// The instance behind a load balancer backend: `r2` → `<app>-<module>-r2` (replica 1 has
 /// no suffix), `r2-s1` → its substitute.
-pub fn backend_instance(app: &str, appliance: &str, backend: &str) -> Option<String> {
+pub fn backend_instance(app: &str, module: &str, backend: &str) -> Option<String> {
     let rest = backend.strip_prefix('r')?;
     let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
     let replica: u8 = digits.parse().ok()?;
     let suffix = &rest[digits.len()..];
-    Some(format!("{}{suffix}", replica_name(app, appliance, replica)))
+    Some(format!("{}{suffix}", replica_name(app, module, replica)))
 }
 
 #[cfg(test)]

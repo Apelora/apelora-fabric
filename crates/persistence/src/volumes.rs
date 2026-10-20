@@ -11,7 +11,7 @@ use crate::{Pool, Result};
 pub struct VolumeRecord {
     pub id: Uuid,
     pub project: String,
-    pub appliance: String,
+    pub module: String,
     pub instance: String,
     pub name: String,
     pub incus_name: String,
@@ -28,7 +28,7 @@ pub struct VolumeRecord {
 pub struct NewVolume<'a> {
     pub application: &'a str,
     pub project: &'a str,
-    pub appliance: &'a str,
+    pub module: &'a str,
     pub instance: &'a str,
     pub name: &'a str,
     pub incus_name: &'a str,
@@ -44,7 +44,7 @@ pub struct NewVolume<'a> {
 pub async fn record_volume(pool: &Pool, v: &NewVolume<'_>) -> Result<bool> {
     let size = i32::try_from(v.size_mib).unwrap_or(i32::MAX);
     Ok(sqlx::query(
-        "INSERT INTO volumes (id, application_id, project, appliance, instance, name, incus_name,
+        "INSERT INTO volumes (id, application_id, project, module, instance, name, incus_name,
                               storage_pool, member, size_mib, content, class)
          SELECT $1, a.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
          FROM applications a WHERE a.name = $2
@@ -54,7 +54,7 @@ pub async fn record_volume(pool: &Pool, v: &NewVolume<'_>) -> Result<bool> {
     .bind(Uuid::new_v4())
     .bind(v.application)
     .bind(v.project)
-    .bind(v.appliance)
+    .bind(v.module)
     .bind(v.instance)
     .bind(v.name)
     .bind(v.incus_name)
@@ -69,14 +69,14 @@ pub async fn record_volume(pool: &Pool, v: &NewVolume<'_>) -> Result<bool> {
         > 0)
 }
 
-const COLUMNS: &str = "v.id, v.project, v.appliance, v.instance, v.name, v.incus_name,
+const COLUMNS: &str = "v.id, v.project, v.module, v.instance, v.name, v.incus_name,
     v.storage_pool, v.member, v.size_mib, v.content, v.class, v.created_at, v.updated_at";
 
-/// The application's volumes, by appliance and name.
+/// The application's volumes, by module and name.
 pub async fn application_volumes(pool: &Pool, application: &str) -> Result<Vec<VolumeRecord>> {
     Ok(sqlx::query_as::<_, VolumeRecord>(&format!(
         "SELECT {COLUMNS} FROM volumes v JOIN applications a ON a.id = v.application_id
-         WHERE a.name = $1 ORDER BY v.appliance, v.instance, v.name"
+         WHERE a.name = $1 ORDER BY v.module, v.instance, v.name"
     ))
     .bind(application)
     .fetch_all(pool)

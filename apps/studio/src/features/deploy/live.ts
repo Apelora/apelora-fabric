@@ -1,11 +1,11 @@
 import { create } from "zustand";
 
-import type { ApplianceStatus, ProviderMode } from "@apelora/api-client";
+import type { ModuleStatus, ProviderMode } from "@apelora/api-client";
 
 import { client, messageOf } from "./api";
 
 /**
- * Live state of a deployed application, by appliance id. Kept apart from the design: the
+ * Live state of a deployed application, by module id. Kept apart from the design: the
  * overlay shows it on the canvas but never changes the document.
  */
 type LiveState = {
@@ -13,9 +13,9 @@ type LiveState = {
   project: string | null;
   provider: ProviderMode | null;
   observedAt: string | null;
-  /** Every instance (replica) of each appliance. */
-  byAppliance: Record<string, ApplianceStatus[]>;
-  /** Service address per appliance (stateless appliances others connect to). */
+  /** Every instance (replica) of each module. */
+  byModule: Record<string, ModuleStatus[]>;
+  /** Service address per module (stateless modules others connect to). */
   services: Record<string, string>;
   error: string | null;
   watch: (application: string, project: string) => void;
@@ -27,11 +27,11 @@ type LiveState = {
 const POLL_MS = 5000;
 
 /**
- * One state for an appliance's instances: all serving (`Running`), some (`Degraded`), running
+ * One state for a module's instances: all serving (`Running`), some (`Degraded`), running
  * but all failing their check (`Unhealthy`), or the first instance's status. A replica serves
  * when it runs and the worker has not found it unhealthy.
  */
-export function liveSummary(instances: readonly ApplianceStatus[] | undefined, service?: string): { state: string; label: string } {
+export function liveSummary(instances: readonly ModuleStatus[] | undefined, service?: string): { state: string; label: string } {
   if (!instances?.length) return { state: "absent", label: "Not deployed" };
   const running = instances.filter((i) => i.status === "Running");
   const serving = running.filter((i) => i.health?.health !== "unhealthy").length;
@@ -52,10 +52,10 @@ export const useLive = create<LiveState>((set, get) => {
       set({
         provider: s.source.provider,
         observedAt: s.source.observedAt,
-        byAppliance: s.items
+        byModule: s.items
           .filter((i) => i.project === project)
-          .reduce<Record<string, ApplianceStatus[]>>((m, i) => ({ ...m, [i.appliance]: [...(m[i.appliance] ?? []), i] }), {}),
-        services: Object.fromEntries(s.services.filter((x) => x.project === project).map((x) => [x.appliance, x.address])),
+          .reduce<Record<string, ModuleStatus[]>>((m, i) => ({ ...m, [i.module]: [...(m[i.module] ?? []), i] }), {}),
+        services: Object.fromEntries(s.services.filter((x) => x.project === project).map((x) => [x.module, x.address])),
         error: null,
       });
     } catch (e) {
@@ -67,12 +67,12 @@ export const useLive = create<LiveState>((set, get) => {
     project: null,
     provider: null,
     observedAt: null,
-    byAppliance: {},
+    byModule: {},
     services: {},
     error: null,
     watch: (application, project) => {
       if (timer) clearInterval(timer);
-      set({ application, project, byAppliance: {}, services: {}, error: null });
+      set({ application, project, byModule: {}, services: {}, error: null });
       void poll();
       timer = setInterval(() => void poll(), POLL_MS);
     },
@@ -80,7 +80,7 @@ export const useLive = create<LiveState>((set, get) => {
     stop: () => {
       if (timer) clearInterval(timer);
       timer = null;
-      set({ application: null, project: null, provider: null, observedAt: null, byAppliance: {}, services: {}, error: null });
+      set({ application: null, project: null, provider: null, observedAt: null, byModule: {}, services: {}, error: null });
     },
   };
 });

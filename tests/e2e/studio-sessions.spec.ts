@@ -11,8 +11,8 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 
 const T = "2026-10-20T00:00:00Z";
 // The sample design is read from the Studio itself (the catalog is bundled by Vite, not importable here).
-let doc: { spec: { appliances: { id: string }[] } };
-let APPLIANCE = "";
+let doc: { spec: { modules: { id: string }[] } };
+let MODULE = "";
 let INSTANCES: string[] = [];
 
 test.beforeAll(async ({ browser }) => {
@@ -20,11 +20,11 @@ test.beforeAll(async ({ browser }) => {
   await page.addInitScript(() => { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); });
   await page.route("**/api/**", (r) => r.abort());
   await page.goto("/");
-  await page.waitForSelector("[data-testid=appliance-node]");
+  await page.waitForSelector("[data-testid=module-node]");
   doc = await page.evaluate(() => JSON.parse(JSON.stringify((window as unknown as { __studio: { getState: () => { assembly: unknown } } }).__studio.getState().assembly)));
   await page.close();
-  APPLIANCE = doc.spec.appliances[0]!.id;
-  INSTANCES = [`shop-${APPLIANCE}`, `shop-${APPLIANCE}-r2`];
+  MODULE = doc.spec.modules[0]!.id;
+  INSTANCES = [`shop-${MODULE}`, `shop-${MODULE}-r2`];
 });
 const project = { id: "p1", name: "Shop", organizationId: "o1", organizationSlug: "acme", slug: "shop" };
 const environment = { id: "e1", name: "production", slug: "production", kind: "production", incusProject: "shop-prod" };
@@ -50,7 +50,7 @@ async function install(page: Page, rig: Rig) {
     name: "shop", description: "The shop", icon: "nginx", archived: false, createdAt: T, updatedAt: T, latestRevision: 1, project, environment,
     actions: { start: no("Already running"), restart: no("Nothing is failing"), stop: ok },
     design: { status: "published", draftVersion: 1, publishedVersion: 1, hasUnpublishedChanges: false, validationErrors: 0, updatedAt: T },
-    deployment: { status: "running", appliances: 1, replicas: { desired: 2, healthy: 2, running: 2, unhealthy: 0 }, observedAt: T, stale: false, source: "incus", lastActivityAt: T, deployedVersion: 1, operation: null },
+    deployment: { status: "running", modules: 1, replicas: { desired: 2, healthy: 2, running: 2, unhealthy: 0 }, observedAt: T, stale: false, source: "incus", lastActivityAt: T, deployedVersion: 1, operation: null },
   };
   await page.route("**/api/**", async (route: Route) => {
     const req = route.request();
@@ -60,13 +60,13 @@ async function install(page: Page, rig: Rig) {
     if (p === "/health") return json({ status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7", clustered: false } });
     if (p === "/whoami") return json({ name: "bob", kind: "user", role: null, permissions: [], deployProjects: [], capabilities: [], platformPermissions: [] });
     if (p === "/applications") return json({ items: [app], observedAt: T, stale: false });
-    if (p === "/applications/shop") return json({ application: app, appliances: [{ appliance: APPLIANCE, availability: "stateless", replicas: 2, instances: INSTANCES.map((i, n) => ({ instance: i, location: `node-${n + 1}`, status: "Running", unhealthy: false })) }], operations: [], versions: [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "bob", createdAt: T }] });
+    if (p === "/applications/shop") return json({ application: app, modules: [{ module: MODULE, availability: "stateless", replicas: 2, instances: INSTANCES.map((i, n) => ({ instance: i, location: `node-${n + 1}`, status: "Running", unhealthy: false })) }], operations: [], versions: [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "bob", createdAt: T }] });
     if (p === "/applications/shop/draft") return json({ document: doc, version: 1, updatedAt: T, updatedBy: "bob", validationErrors: [] });
     if (p === "/applications/shop/events") return json({ items: [] });
     if (p === "/applications/shop/access") {
       return json({ observed: true, provider: "incus", idleSecs: 900, maxSecs: 3600, items: INSTANCES.map((i) => {
         const a = rig.access[i] ?? { allowed: true };
-        return { instance: i, appliance: APPLIANCE, guestOs: "linux", status: "Running", kinds: [{ kind: "terminal", allowed: a.allowed, reason: a.allowed ? undefined : (a.reason ?? "you do not have instance.console on this application"), approvalRequired: !!a.approvalRequired }] };
+        return { instance: i, module: MODULE, guestOs: "linux", status: "Running", kinds: [{ kind: "terminal", allowed: a.allowed, reason: a.allowed ? undefined : (a.reason ?? "you do not have instance.console on this application"), approvalRequired: !!a.approvalRequired }] };
       }) });
     }
     const open = /^\/applications\/shop\/instances\/([^/]+)\/sessions$/.exec(p);
@@ -201,17 +201,17 @@ test.describe("sessions on the Monitoring page", () => {
 });
 
 test.describe("sessions from the canvas menu", () => {
-  const rightClickAppliance = async (page: Page) => {
+  const rightClickModule = async (page: Page) => {
     await page.goto("/studio/applications/shop/designer");
-    await page.waitForSelector("[data-testid=appliance-node]");
-    await page.locator(`[data-testid=appliance-node][data-node-id="${APPLIANCE}"]`).click({ button: "right" });
+    await page.waitForSelector("[data-testid=module-node]");
+    await page.locator(`[data-testid=module-node][data-node-id="${MODULE}"]`).click({ button: "right" });
     await expect(page.getByTestId("context-menu")).toBeVisible();
   };
 
-  test("a deployed appliance offers a terminal on each of its instances", async ({ page }) => {
+  test("a deployed module offers a terminal on each of its instances", async ({ page }) => {
     const r = rig();
     await install(page, r);
-    await rightClickAppliance(page);
+    await rightClickModule(page);
     const menu = page.getByTestId("context-menu");
     await expect(menu).toContainText("Running instance");
     await menu.getByTestId("menu-session-terminal").hover();
@@ -222,19 +222,19 @@ test.describe("sessions from the canvas menu", () => {
 
   test("an entry the person may not use is shown disabled with the reason", async ({ page }) => {
     await install(page, rig({ access: { [INSTANCES[0]!]: { allowed: false, reason: "you do not have instance.console on this application" }, [INSTANCES[1]!]: { allowed: false, reason: "you do not have instance.console on this application" } } }));
-    await rightClickAppliance(page);
+    await rightClickModule(page);
     await page.getByTestId("menu-session-terminal").hover();
     const entry = page.getByTestId(`menu-session-terminal-${INSTANCES[0]}`);
     await expect(entry).toBeDisabled();
     await expect(page.getByTestId(`menu-session-terminal-${INSTANCES[0]}-hint`)).toContainText("instance.console");
   });
 
-  test("an appliance with no running instance, and the library canvas, offer no session", async ({ page }) => {
+  test("a module with no running instance, and the library canvas, offer no session", async ({ page }) => {
     await page.addInitScript(() => { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); });
     await page.route("**/api/**", (r) => r.abort());
     await page.goto("/");
-    await page.waitForSelector("[data-testid=appliance-node]");
-    await page.locator("[data-testid=appliance-node]").first().click({ button: "right" });
+    await page.waitForSelector("[data-testid=module-node]");
+    await page.locator("[data-testid=module-node]").first().click({ button: "right" });
     await expect(page.getByTestId("context-menu")).toBeVisible();
     await expect(page.getByTestId("context-menu")).not.toContainText("terminal");
     await expect(page.getByTestId("context-menu")).not.toContainText("Running instance");

@@ -75,8 +75,8 @@ body { overflow: hidden; }
 .react-flow__selection { background: color-mix(in oklab, var(--color-base-content) 6%, transparent); border: 1px solid color-mix(in oklab, var(--color-base-content) 45%, transparent); border-radius: 3px; }
 .react-flow__nodesselection-rect { border: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent); border-radius: 4px; background: transparent; }
 
-/* ---- appliance node ---- */
-.react-flow__node-appliance { padding: 0; border: 0; background: none; border-radius: 8px; width: auto; }
+/* ---- module node ---- */
+.react-flow__node-module { padding: 0; border: 0; background: none; border-radius: 8px; width: auto; }
 .apl-node {
   position: relative;
   background: var(--color-base-100);
@@ -128,7 +128,7 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-canvas-frame[data-category="off"] .apl-node-class { display: none; }
 .apl-tile-accent { border-bottom: 2px solid color-mix(in oklab, var(--apl-cat) 70%, transparent); }
 
-/* ---- components (grouped appliances) ---- */
+/* ---- components (grouped modules) ---- */
 .apl-node[data-component="true"] { box-shadow: 4px 4px 0 -1px var(--color-base-100), 4px 4px 0 0 var(--color-base-300), 8px 8px 0 -1px var(--color-base-100), 8px 8px 0 0 var(--color-base-300), 0 6px 16px rgba(20, 28, 38, 0.1); }
 .apl-comp-badge { font-size: 9px; line-height: 1; padding: 1px 4px; border-radius: 6px; background: var(--color-neutral); color: var(--color-neutral-content); white-space: nowrap; }
 
@@ -195,7 +195,7 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-link-label, .apl-cable-arrow { animation: apl-fade var(--apl-dur-slow) ease; }
 .apl-catalog-grid { animation: apl-drop var(--apl-dur-fast) var(--apl-ease); }
 .apl-details[open] > div { animation: apl-drop var(--apl-dur-fast) var(--apl-ease); }
-[data-testid="diagnostics"], [data-testid="inspector-appliance"], [data-testid="inspector-connection"], [data-testid="inspector-assembly"] { animation: apl-fade var(--apl-dur-fast) ease; }
+[data-testid="diagnostics"], [data-testid="inspector-module"], [data-testid="inspector-connection"], [data-testid="inspector-assembly"] { animation: apl-fade var(--apl-dur-fast) ease; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }

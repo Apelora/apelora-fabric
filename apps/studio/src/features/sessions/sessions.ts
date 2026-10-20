@@ -12,7 +12,7 @@ export const KIND_ACTION: Record<Kind, string> = { terminal: "Open terminal", po
 export interface Target {
   app: string;
   instance: string;
-  appliance: string;
+  module: string;
   kind: Kind;
   approvalRequired: boolean;
 }
@@ -59,9 +59,9 @@ export const useSessions = create<SessionsState>((set, get) => ({
   close: () => set({ target: null }),
 }));
 
-/** The instances of one appliance (its replicas) that offer sessions, in name order. */
-export const instancesOf = (access: AccessList | null, appliance: string): InstanceAccess[] =>
-  (access?.items ?? []).filter((i) => i.appliance === appliance);
+/** The instances of one module (its replicas) that offer sessions, in name order. */
+export const instancesOf = (access: AccessList | null, module: string): InstanceAccess[] =>
+  (access?.items ?? []).filter((i) => i.module === module);
 
 export const kindOf = (i: InstanceAccess, kind: Kind): KindAccess | undefined => i.kinds.find((k) => k.kind === kind);
 

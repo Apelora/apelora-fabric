@@ -10,11 +10,11 @@ Validation must be one pure, deterministic implementation with identical results
 ## Checks (in order)
 
 1. **Schema**: document and every referenced manifest valid.
-2. **References**: appliance ids/versions exist in the catalog.
+2. **References**: module ids/versions exist in the catalog.
 3. **Ports**: edge joins `out` to `in`; types compatible (exact match or declared adapter); protocol matches.
 4. **Cardinality**: required ports connected; max connections respected.
 5. **Dependencies**: `requires` satisfied, `conflicts` absent; dependency cycles reported with the cycle path.
-6. **Resources**: sum of vCPU/memory/disk fits the target pool; architecture available for every appliance.
+6. **Resources**: sum of vCPU/memory/disk fits the target pool; architecture available for every module.
 7. **Config**: required properties set; secrets referenced, not inlined.
 
 ## Output

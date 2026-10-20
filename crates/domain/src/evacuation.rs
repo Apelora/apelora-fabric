@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::plan::{Availability, DesiredAppliance};
+use crate::plan::{Availability, DesiredModule};
 use crate::{ClusterMember, Instance};
 
 /// One instance on the member being evacuated.
@@ -27,7 +27,8 @@ pub struct EvacuationItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub application: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub appliance: Option<String>,
+    #[serde(alias = "appliance")]
+    pub module: Option<String>,
     /// What it means for the application while the member is evacuated.
     pub impact: String,
 }
@@ -50,7 +51,7 @@ pub struct EvacuationPlan {
 pub struct Deployed<'a> {
     pub application: &'a str,
     pub project: &'a str,
-    pub desired: &'a [DesiredAppliance],
+    pub desired: &'a [DesiredModule],
 }
 
 const MOVES: [&str; 4] = ["auto", "migrate", "live-migrate", "refresh-migrate"];
@@ -99,7 +100,7 @@ pub fn plan_evacuation(
         deployed
             .iter()
             .find(|d| d.application == o.application && d.project == i.project)
-            .and_then(|d| d.desired.iter().find(|x| x.appliance == o.appliance))
+            .and_then(|d| d.desired.iter().find(|x| x.module == o.module))
             .map(|x| x.availability)
     };
     let mut items = Vec::new();
@@ -125,7 +126,7 @@ pub fn plan_evacuation(
                             && x.project == i.project
                             && x.status == "Running"
                             && x.owner.as_ref().is_some_and(|xo| {
-                                xo.application == o.application && xo.appliance == o.appliance
+                                xo.application == o.application && xo.module == o.module
                             })
                     })
                     .count();
@@ -157,7 +158,7 @@ pub fn plan_evacuation(
             mode,
             outcome: out,
             application: i.owner.as_ref().map(|o| o.application.clone()),
-            appliance: i.owner.as_ref().map(|o| o.appliance.clone()),
+            module: i.owner.as_ref().map(|o| o.module.clone()),
             impact,
         });
     }
@@ -169,7 +170,7 @@ pub fn plan_evacuation(
             .iter()
             .filter(|it| MOVES.contains(&it.mode.as_str()))
             .filter_map(|it| {
-                let (app, appliance) = (it.application.as_ref()?, it.appliance.as_ref()?);
+                let (app, module) = (it.application.as_ref()?, it.module.as_ref()?);
                 instances
                     .iter()
                     .any(|x| {
@@ -177,9 +178,9 @@ pub fn plan_evacuation(
                             && x.project == it.project
                             && x.owner
                                 .as_ref()
-                                .is_some_and(|o| &o.application == app && &o.appliance == appliance)
+                                .is_some_and(|o| &o.application == app && &o.module == module)
                     })
-                    .then(|| format!("{app}/{appliance}"))
+                    .then(|| format!("{app}/{module}"))
             })
             .collect();
         shared.sort();
@@ -241,7 +242,7 @@ mod tests {
             managed: owner.is_some(),
             owner: owner.map(|(a, b)| Owner {
                 application: a.into(),
-                appliance: b.into(),
+                module: b.into(),
                 replica: 1,
             }),
             evacuate: None,
@@ -249,9 +250,9 @@ mod tests {
         }
     }
 
-    fn desired(appliance: &str, availability: Availability) -> DesiredAppliance {
-        DesiredAppliance {
-            appliance: appliance.into(),
+    fn desired(module: &str, availability: Availability) -> DesiredModule {
+        DesiredModule {
+            module: module.into(),
             spec: InstanceSpec {
                 project: String::new(),
                 name: String::new(),

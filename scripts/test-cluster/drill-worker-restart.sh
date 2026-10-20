@@ -41,7 +41,7 @@ cleanup() {
   say "cleanup"
   if [ -s "$run/token" ]; then
     api -X POST -H 'Idempotency-Key: drill-cleanup' \
-      -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"appliances":[],"removeMissing":true}' \
+      -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"modules":[],"removeMissing":true}' \
       "$API/applications/$APP/deployments" >/dev/null
     [ -n "$(pgrep -f "$repo/target/debug/apelora-deployment-worker")" ] || worker drill-cleanup >/dev/null
     for _ in $(seq 1 24); do
@@ -78,7 +78,7 @@ for _ in $(seq 1 30); do curl -s "$API/health" >/dev/null && break; sleep 1; don
 nginx=library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e
 body=$(jq -n --arg nginx "$nginx" '{
   project: "apelora", document: {apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly"},
-  appliances: [{appliance: "web-01", replicas: 3, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
+  modules: [{module: "web-01", replicas: 3, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
     source: {protocol: "oci", server: "https://docker.io", alias: $nginx}}}]}')
 first=$(api -X POST -H 'Idempotency-Key: drill-1' -d "$body" "$API/applications/$APP/deployments")
 again=$(api -X POST -H 'Idempotency-Key: drill-1' -d "$body" "$API/applications/$APP/deployments")

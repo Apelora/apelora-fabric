@@ -314,7 +314,7 @@ async fn the_access_list_says_what_each_person_may_open_and_why_not(pool: Pool) 
     for item in a["items"].as_array().unwrap() {
         assert_eq!(item["guestOs"], json!("linux"));
         let kinds = item["kinds"].as_array().unwrap();
-        assert_eq!(kinds.len(), 1, "a Linux appliance offers a terminal only");
+        assert_eq!(kinds.len(), 1, "a Linux module offers a terminal only");
         assert_eq!(kinds[0]["kind"], json!("terminal"));
         assert_eq!(kinds[0]["allowed"], json!(true), "{item}");
         assert_eq!(kinds[0]["approvalRequired"], json!(true), "production");
@@ -928,7 +928,7 @@ async fn a_person_cannot_hold_more_sessions_than_allowed_and_the_feature_can_be_
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn the_kind_must_suit_the_appliance_and_the_size_must_be_sane(pool: Pool) {
+async fn the_kind_must_suit_the_module_and_the_size_must_be_sane(pool: Pool) {
     let r = rig(pool).await;
     let path = format!("/api/v1/applications/shop/instances/{WEB}/sessions");
     for body in [
@@ -1096,7 +1096,7 @@ async fn a_person_whose_access_ends_before_the_socket_opens_gets_no_shell(pool: 
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn windows_appliances_offer_powershell_only_when_turned_on_and_never_a_desktop_without_a_gateway(
+async fn windows_modules_offer_powershell_only_when_turned_on_and_never_a_desktop_without_a_gateway(
     pool: Pool,
 ) {
     let (l, _mock) = mock_lab(pool);
@@ -1111,11 +1111,11 @@ async fn windows_appliances_offer_powershell_only_when_turned_on_and_never_a_des
         .await;
     assert_eq!(st, StatusCode::CREATED, "{v}");
     let spec = |id: &str| {
-        json!({ "appliance": id, "availability": "singleton", "guestOs": if id == "win-01" { "windows" } else { "linux" }, "spec": {
+        json!({ "module": id, "availability": "singleton", "guestOs": if id == "win-01" { "windows" } else { "linux" }, "spec": {
         "project": "ignored", "name": "ignored", "kind": "container", "start": true,
         "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" } } })
     };
-    let (st, d) = l.req("POST", "/api/v1/applications/shop/deployments", &s.owner, Some(json!({ "project": "acme-prod-live", "document": {}, "version": v["revision"], "appliances": [spec("win-01"), spec("web-01")], "connections": [] }))).await;
+    let (st, d) = l.req("POST", "/api/v1/applications/shop/deployments", &s.owner, Some(json!({ "project": "acme-prod-live", "document": {}, "version": v["revision"], "modules": [spec("win-01"), spec("web-01")], "connections": [] }))).await;
     assert_eq!(st, StatusCode::ACCEPTED, "{d}");
     settle(&l).await;
 
@@ -1180,7 +1180,7 @@ async fn windows_appliances_offer_powershell_only_when_turned_on_and_never_a_des
     let win = kinds(&a, "shop-win-01");
     assert!(win[0].1, "{win:?}");
     assert!(!win[1].1, "{win:?}");
-    // A Windows appliance has no Linux terminal, and a Linux one has no PowerShell.
+    // A Windows module has no Linux terminal, and a Linux one has no PowerShell.
     let path = |i: &str| format!("/api/v1/applications/shop/instances/{i}/sessions");
     let (st, b) = call(
         on.clone(),

@@ -11,10 +11,10 @@ test("commerce stack canvas", async ({ page }) => {
   await open(page);
   await expect(page.getByTestId("canvas")).toHaveScreenshot("canvas-commerce.png", opts);
 });
-test("context menu on an appliance", async ({ page }) => {
+test("context menu on a module", async ({ page }) => {
   await open(page);
   await node(page, "nginx-01").click({ button: "right" });
-  await expect(page.getByTestId("context-menu")).toHaveScreenshot("menu-appliance.png", opts);
+  await expect(page.getByTestId("context-menu")).toHaveScreenshot("menu-module.png", opts);
 });
 test("properties window", async ({ page }) => {
   await open(page);

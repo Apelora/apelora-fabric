@@ -19,10 +19,10 @@ test.describe("templates and imports", () => {
     await expect(page.getByTestId("template-card")).toHaveCount(9);
     await page.locator("[data-testid=template-card][data-template-id=ha-web-stack]").click();
     await expect(page.getByTestId("templates-dialog")).toHaveCount(0);
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(9);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(9);
     await expect(page.getByTestId("validation-toggle")).toContainText("No issues");
     await page.getByTestId("undo").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(6);
   });
 
   test("Docker Compose import: preview with notes, errors for bad input, apply and undo", async ({ page }) => {
@@ -30,7 +30,7 @@ test.describe("templates and imports", () => {
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-compose").click();
     await page.getByTestId("compose-text").fill("services:\n  web:\n    image: nginx\n    depends_on: [api]\n  api:\n    image: acme/shop:1\n    depends_on: [db, cache]\n  db:\n    image: postgres:17\n  cache:\n    image: redis:7\n");
-    await expect(page.getByTestId("compose-summary")).toContainText("4 appliances");
+    await expect(page.getByTestId("compose-summary")).toContainText("4 modules");
     await expect(page.getByTestId("compose-notes")).toContainText("not in the catalog");
     await page.getByTestId("compose-text").fill("nothing: here");
     await expect(page.getByTestId("compose-errors")).toContainText("services");
@@ -38,9 +38,9 @@ test.describe("templates and imports", () => {
     await page.getByTestId("compose-text").fill("services:\n  db:\n    image: postgres\n  cache:\n    image: redis\n");
     await page.getByTestId("compose-apply").click();
     const a = await assemblyState(page);
-    expect(a.spec.appliances.map((x) => x.id).sort()).toEqual(["postgresql-01", "redis-01"]);
+    expect(a.spec.modules.map((x) => x.id).sort()).toEqual(["postgresql-01", "redis-01"]);
     await page.getByTestId("undo").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(6);
   });
 });
 
@@ -68,7 +68,7 @@ test.describe("hypervisor target and totals", () => {
 
   test("totals chip and assembly window show vCPU and memory; a zone shows its own totals", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("totals-chip")).toContainText("6 appliances");
+    await expect(page.getByTestId("totals-chip")).toContainText("6 modules");
     await expect(page.getByTestId("totals-chip")).toContainText("vCPU");
     await page.getByTestId("totals-chip").click();
     await expect(page.getByTestId("assembly-totals")).toContainText("vCPU");
@@ -79,12 +79,12 @@ test.describe("hypervisor target and totals", () => {
     await menuItem(page, "wrap").click();
     await menuItem(page, "wrap-rect").click();
     await page.getByTestId("props-tab-layout").click();
-    await expect(page.getByTestId("zone-totals")).toContainText("2 appliances");
+    await expect(page.getByTestId("zone-totals")).toContainText("2 modules");
   });
 });
 
 test.describe("connecting faster", () => {
-  test("port menu adds a compatible appliance already cabled", async ({ page }) => {
+  test("port menu adds a compatible module already cabled", async ({ page }) => {
     await open(page);
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
@@ -97,13 +97,13 @@ test.describe("connecting faster", () => {
     await expect(menuItem(page, "connect-kafka")).toBeVisible();
     await menuItem(page, "connect-kafka").click();
     const a = await assemblyState(page);
-    expect(a.spec.appliances).toHaveLength(2);
+    expect(a.spec.modules).toHaveLength(2);
     expect(a.spec.connections).toHaveLength(1);
-    expect(a.spec.connections[0]!.source.applianceId).toBe("kafka-01");
+    expect(a.spec.connections[0]!.source.moduleId).toBe("kafka-01");
     const [n1, n2] = [a.editor.nodes[0]!, a.editor.nodes[1]!];
     expect(n2.x).toBeGreaterThan(n1.x + n1.width);
     await page.getByTestId("undo").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(1);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(1);
   });
 
   test("a single-cable output that is already plugged cannot add another", async ({ page }) => {
@@ -124,7 +124,7 @@ test.describe("connecting faster", () => {
     await expect(handle(page, "postgresql-01", "postgres")).not.toHaveAttribute("data-drag", /.+/);
   });
 
-  test("dragging an appliance near another's edge snaps to it and shows a guide", async ({ page }) => {
+  test("dragging a module near another's edge snaps to it and shows a guide", async ({ page }) => {
     await open(page);
     const before = (await assemblyState(page)).editor.nodes.find((n) => n.id === "nginx-02")!;
     const c = await center(node(page, "nginx-02"));
@@ -166,7 +166,7 @@ test.describe("layout and navigation", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("Find (Ctrl+K) jumps to an appliance by name or class and selects it", async ({ page }) => {
+  test("Find (Ctrl+K) jumps to a module by name or class and selects it", async ({ page }) => {
     await open(page);
     await page.keyboard.press("Control+k");
     await expect(page.getByTestId("find-input")).toBeFocused();
@@ -188,7 +188,7 @@ test.describe("layout and navigation", () => {
     await page.getByTestId("toggle-minimap").click();
     await expect(page.locator(".react-flow__minimap")).toBeVisible();
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.locator(".react-flow__minimap")).toBeVisible();
   });
 
@@ -233,7 +233,7 @@ test.describe("notes", () => {
     await expect(page.getByTestId("note-body").first()).toContainText("after the freeze");
   });
 
-  test("a note never wraps appliances and is found by Find", async ({ page }) => {
+  test("a note never wraps modules and is found by Find", async ({ page }) => {
     await open(page);
     await page.getByTestId("shapes-button").click();
     await page.getByTestId("add-shape-note").click();
@@ -260,11 +260,11 @@ test.describe("snapshots, sharing and export", () => {
     await page.getByTestId("snapshot-compare").click();
     await expect(page.getByTestId("snapshot-diff")).toContainText("grafana-01");
     await page.getByTestId("snapshot-restore").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(6);
     await page.getByTestId("undo").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(5);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(5);
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await page.getByTestId("snapshots-open").click();
     await expect(page.getByTestId("snapshot-row")).toHaveCount(1);
   });
@@ -280,15 +280,15 @@ test.describe("snapshots, sharing and export", () => {
     const p2 = await context.newPage();
     await p2.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("__seeded", "1"); } });
     await p2.goto(url);
-    await p2.waitForSelector("[data-testid=appliance-node]");
-    expect((await assemblyState(p2)).spec.appliances).toHaveLength(5);
+    await p2.waitForSelector("[data-testid=module-node]");
+    expect((await assemblyState(p2)).spec.modules).toHaveLength(5);
     expect(await p2.evaluate(() => location.hash)).toBe("");
     const bad = await context.newPage();
     await bad.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("__seeded", "1"); } });
     await bad.goto("/#s=AAAA");
-    await bad.waitForSelector("[data-testid=appliance-node]");
+    await bad.waitForSelector("[data-testid=module-node]");
     await expect(bad.getByTestId("import-dialog")).toBeVisible();
-    expect((await assemblyState(bad)).spec.appliances.length).toBeGreaterThanOrEqual(5);
+    expect((await assemblyState(bad)).spec.modules.length).toBeGreaterThanOrEqual(5);
   });
 
   test("export as SVG and PNG produce real images of the diagram", async ({ page }) => {
@@ -316,14 +316,14 @@ test.describe("help and first run", () => {
     await page.goto("/");
     await page.evaluate(() => localStorage.clear());
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.getByTestId("tour")).toBeVisible();
     await page.getByTestId("tour-next").click();
     await expect(page.getByTestId("tour")).toContainText("2 of 4");
     await page.getByTestId("tour-skip").click();
     await expect(page.getByTestId("tour")).toHaveCount(0);
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.getByTestId("tour")).toHaveCount(0);
     await page.locator("body").click({ position: { x: 5, y: 5 } });
     await page.keyboard.press("?");

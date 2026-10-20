@@ -12,7 +12,7 @@ function dash(style: Shape["strokeStyle"], w: number): string | undefined {
   return undefined;
 }
 
-/** A translucent zone/sector behind appliances. Only its border and label take pointer events, so cables and appliances under it stay usable. */
+/** A translucent zone/sector behind modules. Only its border and label take pointer events, so cables and modules under it stay usable. */
 function ShapeNodeImpl({ id, data, selected }: NodeProps<ShapeFlowNode>) {
   const api = useStudioApi();
   const s = data.shape;

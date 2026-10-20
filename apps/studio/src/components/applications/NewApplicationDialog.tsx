@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { TEMPLATES } from "@apelora/appliance-catalog";
+import { TEMPLATES } from "@apelora/module-catalog";
 import { randomUid, serializeAssembly } from "@apelora/assembly-model";
 
 import { useBackend } from "../../features/applications/backend";
@@ -101,7 +101,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
               {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
             </select>
           </label>
-          <label className={`flex items-center gap-2 ${library ? "" : "opacity-50"}`}><input type="radio" className="radio radio-xs" name="from" disabled={!library} checked={from === "library"} onChange={() => setFrom("library")} data-testid="from-library" />A copy of the diagram in the Assembly Library{library ? ` (${library.spec.appliances.length} appliances)` : " (none saved)"}</label>
+          <label className={`flex items-center gap-2 ${library ? "" : "opacity-50"}`}><input type="radio" className="radio radio-xs" name="from" disabled={!library} checked={from === "library"} onChange={() => setFrom("library")} data-testid="from-library" />A copy of the diagram in the Assembly Library{library ? ` (${library.spec.modules.length} modules)` : " (none saved)"}</label>
         </fieldset>
         {error && <p role="alert" className="text-sm text-error" data-testid="new-app-error">{error}</p>}
         <div className="modal-action mt-0">

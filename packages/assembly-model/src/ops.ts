@@ -3,7 +3,7 @@ import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
 import { MAX_REPLICAS } from "./schema";
 import type { InternetAccess, Volume } from "./schema";
-import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
+import type { ModuleClass, ApplicationAssembly, ModuleInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
 function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAssembly["spec"]["links"]>[number]) => boolean): ApplicationAssembly["spec"]["links"] {
   const next = (a.spec.links ?? []).filter((l) => !pred(l));
@@ -43,13 +43,13 @@ export function createEmptyAssembly(name = "untitled-assembly"): ApplicationAsse
     apiVersion: API_VERSION,
     kind: ASSEMBLY_KIND,
     metadata: { name, uid: `assembly-${randomUid()}` },
-    spec: { appliances: [], connections: [] },
+    spec: { modules: [], connections: [] },
     editor: { layoutVersion: LAYOUT_VERSION, density: "compact", nodes: [] },
   };
 }
 
-export function createInstance(cls: ApplianceClass, assembly: ApplicationAssembly): ApplianceInstance {
-  const taken = new Set(assembly.spec.appliances.map((a) => a.id));
+export function createInstance(cls: ModuleClass, assembly: ApplicationAssembly): ModuleInstance {
+  const taken = new Set(assembly.spec.modules.map((a) => a.id));
   const id = uniqueId(cls.id, taken);
   return {
     id,
@@ -60,28 +60,28 @@ export function createInstance(cls: ApplianceClass, assembly: ApplicationAssembl
   };
 }
 
-export function addAppliance(a: ApplicationAssembly, cls: ApplianceClass, pos: { x: number; y: number }): { assembly: ApplicationAssembly; id: string } {
+export function addModule(a: ApplicationAssembly, cls: ModuleClass, pos: { x: number; y: number }): { assembly: ApplicationAssembly; id: string } {
   const inst = createInstance(cls, a);
   const size = effectiveSize({ ...DENSITY_SIZE[a.editor.density], custom: false }, inst.ports, a.editor.density);
   return {
     id: inst.id,
     assembly: {
       ...a,
-      spec: { ...a.spec, appliances: [...a.spec.appliances, inst] },
+      spec: { ...a.spec, modules: [...a.spec.modules, inst] },
       editor: { ...a.editor, nodes: [...a.editor.nodes, { id: inst.id, x: Math.round(pos.x), y: Math.round(pos.y), width: size.width, height: size.height, custom: false }] },
     },
   };
 }
 
-export function removeAppliances(a: ApplicationAssembly, ids: readonly string[]): ApplicationAssembly {
+export function removeModules(a: ApplicationAssembly, ids: readonly string[]): ApplicationAssembly {
   const gone = new Set(ids);
   return {
     ...a,
     spec: {
       ...a.spec,
-      appliances: a.spec.appliances.filter((x) => !gone.has(x.id)),
-      connections: a.spec.connections.filter((c) => !gone.has(c.source.applianceId) && !gone.has(c.target.applianceId)),
-      links: dropLinks(a, (l) => gone.has(l.endpoint.applianceId)),
+      modules: a.spec.modules.filter((x) => !gone.has(x.id)),
+      connections: a.spec.connections.filter((c) => !gone.has(c.source.moduleId) && !gone.has(c.target.moduleId)),
+      links: dropLinks(a, (l) => gone.has(l.endpoint.moduleId)),
     },
     editor: { ...a.editor, nodes: a.editor.nodes.filter((n) => !gone.has(n.id)) },
   };
@@ -92,7 +92,7 @@ export function moveNodes(a: ApplicationAssembly, moves: ReadonlyMap<string, { x
 }
 
 export function resizeNode(a: ApplicationAssembly, id: string, size: { width: number; height: number }, pos?: { x: number; y: number }): ApplicationAssembly {
-  const inst = a.spec.appliances.find((x) => x.id === id);
+  const inst = a.spec.modules.find((x) => x.id === id);
   const minH = inst ? minHeightForPorts(inst.ports) : 96;
   return {
     ...a,
@@ -132,68 +132,68 @@ export function setDensity(a: ApplicationAssembly, density: Density): Applicatio
   };
 }
 
-function updateAppliance(a: ApplicationAssembly, id: string, f: (x: ApplianceInstance) => ApplianceInstance): ApplicationAssembly {
-  return { ...a, spec: { ...a.spec, appliances: a.spec.appliances.map((x) => (x.id === id ? f(x) : x)) } };
+function updateModule(a: ApplicationAssembly, id: string, f: (x: ModuleInstance) => ModuleInstance): ApplicationAssembly {
+  return { ...a, spec: { ...a.spec, modules: a.spec.modules.map((x) => (x.id === id ? f(x) : x)) } };
 }
 
-export function renameAppliance(a: ApplicationAssembly, id: string, name: string): ApplicationAssembly {
-  return updateAppliance(a, id, (x) => ({ ...x, name: name.trim().slice(0, 48) || x.name }));
+export function renameModule(a: ApplicationAssembly, id: string, name: string): ApplicationAssembly {
+  return updateModule(a, id, (x) => ({ ...x, name: name.trim().slice(0, 48) || x.name }));
 }
 
-export function setResources(a: ApplicationAssembly, id: string, r: Partial<ApplianceInstance["resources"]>): ApplicationAssembly {
-  return updateAppliance(a, id, (x) => ({ ...x, resources: { ...x.resources, ...r } }));
+export function setResources(a: ApplicationAssembly, id: string, r: Partial<ModuleInstance["resources"]>): ApplicationAssembly {
+  return updateModule(a, id, (x) => ({ ...x, resources: { ...x.resources, ...r } }));
 }
 
-/** Sets what an appliance may reach outside the application (`none` is stored as absent). */
+/** Sets what a module may reach outside the application (`none` is stored as absent). */
 export function setInternet(a: ApplicationAssembly, id: string, level: InternetAccess): ApplicationAssembly {
-  return updateAppliance(a, id, ({ internet: _old, ...x }) => (level === "none" ? x : { ...x, internet: level }));
+  return updateModule(a, id, ({ internet: _old, ...x }) => (level === "none" ? x : { ...x, internet: level }));
 }
 
-/** Sets an appliance's volumes; `undefined` goes back to its class's. */
+/** Sets a module's volumes; `undefined` goes back to its class's. */
 export function setVolumes(a: ApplicationAssembly, id: string, volumes: Volume[] | undefined): ApplicationAssembly {
-  return updateAppliance(a, id, ({ volumes: _old, ...x }) => (volumes ? { ...x, volumes } : x));
+  return updateModule(a, id, ({ volumes: _old, ...x }) => (volumes ? { ...x, volumes } : x));
 }
 
-/** Sets how many instances an appliance runs (1–9; 1 is stored as absent). */
+/** Sets how many instances a module runs (1–9; 1 is stored as absent). */
 export function setReplicas(a: ApplicationAssembly, id: string, n: number): ApplicationAssembly {
   const replicas = Math.min(MAX_REPLICAS, Math.max(1, Math.round(n)));
-  return updateAppliance(a, id, ({ replicas: _old, ...x }) => (replicas === 1 ? x : { ...x, replicas }));
+  return updateModule(a, id, ({ replicas: _old, ...x }) => (replicas === 1 ? x : { ...x, replicas }));
 }
 
 function growToFit(a: ApplicationAssembly, id: string): ApplicationAssembly {
-  const inst = a.spec.appliances.find((x) => x.id === id);
+  const inst = a.spec.modules.find((x) => x.id === id);
   if (!inst) return a;
   const minH = minHeightForPorts(inst.ports);
   return { ...a, editor: { ...a.editor, nodes: a.editor.nodes.map((n) => (n.id === id && n.height < minH ? { ...n, height: minH } : n)) } };
 }
 
-export function addPort(a: ApplicationAssembly, applianceId: string, direction: PortDirection, type: PortType = "tcp"): { assembly: ApplicationAssembly; portId: string } {
-  const inst = a.spec.appliances.find((x) => x.id === applianceId);
+export function addPort(a: ApplicationAssembly, moduleId: string, direction: PortDirection, type: PortType = "tcp"): { assembly: ApplicationAssembly; portId: string } {
+  const inst = a.spec.modules.find((x) => x.id === moduleId);
   const taken = new Set(inst?.ports.map((p) => p.id));
   const base = direction === "input" ? "in" : "out";
   let n = 1;
   while (taken.has(`${base}-${n}`)) n++;
   const portId = `${base}-${n}`;
   const port: Port = { id: portId, name: `${direction === "input" ? "Input" : "Output"} ${n}`, direction, type, optional: true, multiplicity: "many" };
-  return { portId, assembly: growToFit(updateAppliance(a, applianceId, (x) => ({ ...x, ports: [...x.ports, port] })), applianceId) };
+  return { portId, assembly: growToFit(updateModule(a, moduleId, (x) => ({ ...x, ports: [...x.ports, port] })), moduleId) };
 }
 
-export function updatePort(a: ApplicationAssembly, applianceId: string, portId: string, patch: Partial<Pick<Port, "name" | "type" | "optional" | "multiplicity">>): ApplicationAssembly {
-  return updateAppliance(a, applianceId, (x) => ({ ...x, ports: x.ports.map((p) => (p.id === portId ? { ...p, ...patch, name: (patch.name ?? p.name).slice(0, 48) || p.name } : p)) }));
+export function updatePort(a: ApplicationAssembly, moduleId: string, portId: string, patch: Partial<Pick<Port, "name" | "type" | "optional" | "multiplicity">>): ApplicationAssembly {
+  return updateModule(a, moduleId, (x) => ({ ...x, ports: x.ports.map((p) => (p.id === portId ? { ...p, ...patch, name: (patch.name ?? p.name).slice(0, 48) || p.name } : p)) }));
 }
 
 /** Removes a port and every connection attached to it. */
-export function removePort(a: ApplicationAssembly, applianceId: string, portId: string): ApplicationAssembly {
-  const next = updateAppliance(a, applianceId, (x) => ({ ...x, ports: x.ports.filter((p) => p.id !== portId) }));
+export function removePort(a: ApplicationAssembly, moduleId: string, portId: string): ApplicationAssembly {
+  const next = updateModule(a, moduleId, (x) => ({ ...x, ports: x.ports.filter((p) => p.id !== portId) }));
   return {
     ...next,
-    spec: { ...next.spec, links: dropLinks(next, (l) => l.endpoint.applianceId === applianceId && l.endpoint.portId === portId), connections: next.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) },
+    spec: { ...next.spec, links: dropLinks(next, (l) => l.endpoint.moduleId === moduleId && l.endpoint.portId === portId), connections: next.spec.connections.filter((c) => !((c.source.moduleId === moduleId && c.source.portId === portId) || (c.target.moduleId === moduleId && c.target.portId === portId))) },
   };
 }
 
 /** Reorders ports within one side; connections follow because they reference stable port ids. */
-export function movePort(a: ApplicationAssembly, applianceId: string, portId: string, delta: -1 | 1): ApplicationAssembly {
-  return updateAppliance(a, applianceId, (x) => {
+export function movePort(a: ApplicationAssembly, moduleId: string, portId: string, delta: -1 | 1): ApplicationAssembly {
+  return updateModule(a, moduleId, (x) => {
     const p = x.ports.find((q) => q.id === portId);
     if (!p) return x;
     const side = x.ports.filter((q) => q.direction === p.direction);
@@ -247,18 +247,18 @@ export function reconnect(a: ApplicationAssembly, connectionId: string, source: 
 }
 
 /** Removes every cable attached to one port. */
-export function disconnectPort(a: ApplicationAssembly, applianceId: string, portId: string): ApplicationAssembly {
-  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.applianceId === applianceId && l.endpoint.portId === portId), connections: a.spec.connections.filter((c) => !((c.source.applianceId === applianceId && c.source.portId === portId) || (c.target.applianceId === applianceId && c.target.portId === portId))) } };
+export function disconnectPort(a: ApplicationAssembly, moduleId: string, portId: string): ApplicationAssembly {
+  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.moduleId === moduleId && l.endpoint.portId === portId), connections: a.spec.connections.filter((c) => !((c.source.moduleId === moduleId && c.source.portId === portId) || (c.target.moduleId === moduleId && c.target.portId === portId))) } };
 }
 
-/** Removes every cable attached to an appliance. */
-export function disconnectAppliance(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
-  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.applianceId === applianceId), connections: a.spec.connections.filter((c) => c.source.applianceId !== applianceId && c.target.applianceId !== applianceId) } };
+/** Removes every cable attached to a module. */
+export function disconnectModule(a: ApplicationAssembly, moduleId: string): ApplicationAssembly {
+  return { ...a, spec: { ...a.spec, links: dropLinks(a, (l) => l.endpoint.moduleId === moduleId), connections: a.spec.connections.filter((c) => c.source.moduleId !== moduleId && c.target.moduleId !== moduleId) } };
 }
 
-/** A copyable slice of an assembly: appliances, their layout and the cables between them. */
+/** A copyable slice of an assembly: modules, their layout and the cables between them. */
 export interface Subset {
-  appliances: ApplianceInstance[];
+  modules: ModuleInstance[];
   nodes: ApplicationAssembly["editor"]["nodes"];
   connections: Connection[];
 }
@@ -266,17 +266,17 @@ export interface Subset {
 export function extractSubset(a: ApplicationAssembly, ids: readonly string[]): Subset {
   const keep = new Set(ids);
   return {
-    appliances: a.spec.appliances.filter((x) => keep.has(x.id)),
+    modules: a.spec.modules.filter((x) => keep.has(x.id)),
     nodes: a.editor.nodes.filter((n) => keep.has(n.id)),
-    connections: a.spec.connections.filter((c) => keep.has(c.source.applianceId) && keep.has(c.target.applianceId)),
+    connections: a.spec.connections.filter((c) => keep.has(c.source.moduleId) && keep.has(c.target.moduleId)),
   };
 }
 
-/** Inserts a copied subset with fresh ids, offset by `delta`. Only cables between the copied appliances are kept. */
+/** Inserts a copied subset with fresh ids, offset by `delta`. Only cables between the copied modules are kept. */
 export function insertSubset(a: ApplicationAssembly, s: Subset, delta: { x: number; y: number }): { assembly: ApplicationAssembly; ids: string[] } {
-  const taken = new Set(a.spec.appliances.map((x) => x.id));
+  const taken = new Set(a.spec.modules.map((x) => x.id));
   const idMap = new Map<string, string>();
-  for (const x of s.appliances) {
+  for (const x of s.modules) {
     const id = uniqueId(x.classRef.name, taken);
     taken.add(id);
     idMap.set(x.id, id);
@@ -287,7 +287,7 @@ export function insertSubset(a: ApplicationAssembly, s: Subset, delta: { x: numb
     let id: string;
     do id = `conn-${String(++n).padStart(2, "0")}`; while (connTaken.has(id));
     connTaken.add(id);
-    return { id, source: { ...c.source, applianceId: idMap.get(c.source.applianceId)! }, target: { ...c.target, applianceId: idMap.get(c.target.applianceId)! } };
+    return { id, source: { ...c.source, moduleId: idMap.get(c.source.moduleId)! }, target: { ...c.target, moduleId: idMap.get(c.target.moduleId)! } };
   });
   return {
     ids: [...idMap.values()],
@@ -295,7 +295,7 @@ export function insertSubset(a: ApplicationAssembly, s: Subset, delta: { x: numb
       ...a,
       spec: {
         ...a.spec,
-        appliances: [...a.spec.appliances, ...s.appliances.map((x) => ({ ...x, id: idMap.get(x.id)!, name: idMap.get(x.id)!, ports: x.ports.map((p) => ({ ...p })), resources: { ...x.resources } }))],
+        modules: [...a.spec.modules, ...s.modules.map((x) => ({ ...x, id: idMap.get(x.id)!, name: idMap.get(x.id)!, ports: x.ports.map((p) => ({ ...p })), resources: { ...x.resources } }))],
         connections: [...a.spec.connections, ...conns],
       },
       editor: { ...a.editor, nodes: [...a.editor.nodes, ...s.nodes.map((nd) => ({ ...nd, id: idMap.get(nd.id)!, x: Math.round(nd.x + delta.x), y: Math.round(nd.y + delta.y) }))] },
@@ -332,8 +332,8 @@ export function alignNodes(a: ApplicationAssembly, ids: readonly string[], mode:
 }
 
 /** Sets one configuration override; `undefined` removes it so the class default applies again. */
-export function setConfig(a: ApplicationAssembly, applianceId: string, key: string, value: ConfigValue | undefined): ApplicationAssembly {
-  return updateAppliance(a, applianceId, (x) => {
+export function setConfig(a: ApplicationAssembly, moduleId: string, key: string, value: ConfigValue | undefined): ApplicationAssembly {
+  return updateModule(a, moduleId, (x) => {
     const next = { ...(x.config ?? {}) };
     if (value === undefined) delete next[key];
     else next[key] = value;
@@ -343,17 +343,17 @@ export function setConfig(a: ApplicationAssembly, applianceId: string, key: stri
   });
 }
 
-export function resetConfig(a: ApplicationAssembly, applianceId: string): ApplicationAssembly {
-  return updateAppliance(a, applianceId, (x) => { const { config: _old, ...rest } = x; void _old; return rest; });
+export function resetConfig(a: ApplicationAssembly, moduleId: string): ApplicationAssembly {
+  return updateModule(a, moduleId, (x) => { const { config: _old, ...rest } = x; void _old; return rest; });
 }
 
 /**
- * Brings older assemblies up to date: any appliance whose class defines a `net` interface but whose instance
+ * Brings older assemblies up to date: any module whose class defines a `net` interface but whose instance
  * lacks it gets one. Returns the same object when nothing changed.
  */
-export function ensureNics(a: ApplicationAssembly, lookup: (name: string, version: string) => ApplianceClass | undefined): ApplicationAssembly {
+export function ensureNics(a: ApplicationAssembly, lookup: (name: string, version: string) => ModuleClass | undefined): ApplicationAssembly {
   let changed = false;
-  const appliances = a.spec.appliances.map((x) => {
+  const modules = a.spec.modules.map((x) => {
     if (x.ports.some((p) => p.id === "net")) return x;
     const nic = lookup(x.classRef.name, x.classRef.version)?.ports.find((p) => p.id === "net");
     if (!nic) return x;
@@ -361,9 +361,9 @@ export function ensureNics(a: ApplicationAssembly, lookup: (name: string, versio
     return { ...x, ports: [...x.ports, { ...nic }] };
   });
   if (!changed) return a;
-  return growAll({ ...a, spec: { ...a.spec, appliances } });
+  return growAll({ ...a, spec: { ...a.spec, modules } });
 }
 
 function growAll(a: ApplicationAssembly): ApplicationAssembly {
-  return { ...a, editor: { ...a.editor, nodes: a.editor.nodes.map((n) => { const inst = a.spec.appliances.find((x) => x.id === n.id); const min = inst ? minHeightForPorts(inst.ports) : 0; return n.height < min ? { ...n, height: min } : n; }) } };
+  return { ...a, editor: { ...a.editor, nodes: a.editor.nodes.map((n) => { const inst = a.spec.modules.find((x) => x.id === n.id); const min = inst ? minHeightForPorts(inst.ports) : 0; return n.height < min ? { ...n, height: min } : n; }) } };
 }

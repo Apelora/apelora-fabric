@@ -1,9 +1,9 @@
 ---
 name: secure-remote-access
-description: Guardrails for giving people a terminal, PowerShell or RDP session into a running appliance from Apelora. Use before changing or reviewing any interactive access to instances (right-click "Open terminal", exec/console endpoints, session tickets). Terminal (Linux) and PowerShell (Windows, unverified) are built; RDP is not.
+description: Guardrails for giving people a terminal, PowerShell or RDP session into a running module from Apelora. Use before changing or reviewing any interactive access to instances (right-click "Open terminal", exec/console endpoints, session tickets). Terminal (Linux) and PowerShell (Windows, unverified) are built; RDP is not.
 ---
 
-# Secure remote access to appliances
+# Secure remote access to modules
 
 **Built (MOCK VERIFIED and CONTRACT VERIFIED, never run on a real Incus):** brokered terminal and PowerShell sessions, `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, tickets, limits, audit, Studio right-click and Monitoring entries. Code: `services/control-plane/src/api/sessions.rs`, `crates/incus-adapter/src/shell.rs`, `crates/domain/src/access.rs`, `apps/studio/src/components/sessions/`. Reference: `docs/architecture/IDENTITY-AND-AUTHORIZATION.md` section 7.
 **Not built:** the RDP gateway (the API reports it unavailable and says why), SSH daemons (deliberately never), session recording, a session list in the Console. Anything below must keep meeting this contract.
@@ -11,8 +11,8 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 ## Architecture
 
 - **Brokered by the control plane. Never direct.** The browser talks only to the Apelora API. The API opens the session to the instance through Incus (exec / console websocket for Linux containers and VMs; the VM serial/VGA console for Windows). The browser never receives an Incus address, certificate or credential, and instances never get a route to the Incus API (see `security-tenancy`).
-- **Linux appliances**: terminal in the browser (xterm.js) over an authenticated websocket to the API, which attaches to an Incus exec session as an unprivileged user chosen by policy (not root by default). No SSH daemon is added to appliances for this; if SSH is needed it is an explicit appliance property, key-only.
-- **Windows appliances**: PowerShell through the same brokered exec path where the guest agent supports it; **RDP through a gateway the control plane runs** (WebSocket/HTTP tunnel to the instance's RDP port, TLS, NLA required). Never publish 3389 on a tenant network or the internet. RDP credentials are never stored by Apelora and never logged; the user types them into the session or a secret reference is resolved server-side.
+- **Linux modules**: terminal in the browser (xterm.js) over an authenticated websocket to the API, which attaches to an Incus exec session as an unprivileged user chosen by policy (not root by default). No SSH daemon is added to modules for this; if SSH is needed it is an explicit module property, key-only.
+- **Windows modules**: PowerShell through the same brokered exec path where the guest agent supports it; **RDP through a gateway the control plane runs** (WebSocket/HTTP tunnel to the instance's RDP port, TLS, NLA required). Never publish 3389 on a tenant network or the internet. RDP credentials are never stored by Apelora and never logged; the user types them into the session or a secret reference is resolved server-side.
 - **Hypervisor-neutral**: put "how to open a console" behind a provider interface (Incus now; other runtimes later) in `platforms.ts`-style provider facts, not in the assembly model.
 
 ## Authorization (ACLs)
@@ -33,9 +33,9 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 
 ## UI rules
 
-- Right-click on an appliance (`features/editor/menus.ts`): show "Open terminal" / "Open PowerShell" (Linux/Windows) and "Remote desktop (RDP)" for Windows classes only in the **runtime** view of a deployed application, never on the design canvas of an undeployed draft. Disabled with a reason (no permission, not running, status unknown, approval needed). Approval-gated actions say who must approve.
+- Right-click on a module (`features/editor/menus.ts`): show "Open terminal" / "Open PowerShell" (Linux/Windows) and "Remote desktop (RDP)" for Windows classes only in the **runtime** view of a deployed application, never on the design canvas of an undeployed draft. Disabled with a reason (no permission, not running, status unknown, approval needed). Approval-gated actions say who must approve.
 - The same actions appear on the instance row in the Monitoring tab.
-- Windows detection comes from the appliance class manifest, not from the name.
+- Windows detection comes from the module class manifest, not from the name.
 
 ## Tests required
 

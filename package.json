@@ -19,7 +19,7 @@
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "schema": "npm run schema -w @apelora/assembly-model",
-    "catalog:doc": "npm run catalog:doc -w @apelora/appliance-catalog",
+    "catalog:doc": "npm run catalog:doc -w @apelora/module-catalog",
     "dev:console": "npm run dev -w @apelora/fabric-console",
     "api:generate": "cargo run -q -p apelora-control-plane -- openapi > packages/api-client/openapi.json && npm run generate -w @apelora/api-client",
     "mutation": "stryker run",

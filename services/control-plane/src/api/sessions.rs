@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Interactive sessions into running appliances: a terminal in a Linux appliance, PowerShell in
+//! Interactive sessions into running modules: a terminal in a Linux module, PowerShell in
 //! a Windows one. The contract is the `secure-remote-access` skill.
 //!
 //! - **Brokered.** The browser talks only to this API. The API opens the session to the
@@ -90,7 +90,7 @@ pub struct ConsoleSettings {
     pub allowed_origins: Vec<String>,
     /// An RDP gateway is configured. There is none yet, so this is always false.
     pub rdp_gateway: bool,
-    /// PowerShell sessions into Windows appliances are turned on (`APELORA_CONSOLE_POWERSHELL=enabled`).
+    /// PowerShell sessions into Windows modules are turned on (`APELORA_CONSOLE_POWERSHELL=enabled`).
     /// Off by default: they have not been verified against a Windows guest.
     pub powershell: bool,
 }
@@ -190,7 +190,7 @@ struct Ticket {
     application: String,
     project: String,
     instance: String,
-    appliance: String,
+    module: String,
     kind: SessionKind,
     cols: u16,
     rows: u16,
@@ -358,7 +358,7 @@ pub struct KindAccess {
 #[serde(rename_all = "camelCase")]
 pub struct InstanceAccess {
     pub instance: String,
-    pub appliance: String,
+    pub module: String,
     pub guest_os: GuestOs,
     pub status: String,
     pub kinds: Vec<KindAccess>,
@@ -454,7 +454,7 @@ fn enabled(state: &AppState) -> Res<()> {
     }
 }
 
-/// The application's own instances Incus reports, with each appliance's guest system from the
+/// The application's own instances Incus reports, with each module's guest system from the
 /// recorded deployment. `None` when Incus cannot be read.
 async fn instances_of(
     state: &AppState,
@@ -479,7 +479,7 @@ async fn instances_of(
             let os = i
                 .owner
                 .as_ref()
-                .and_then(|o| desired.iter().find(|d| d.appliance == o.appliance))
+                .and_then(|o| desired.iter().find(|d| d.module == o.module))
                 .map(|d| d.guest_os)
                 .unwrap_or_default();
             (i, os)
@@ -581,10 +581,10 @@ pub(super) async fn access(
                 })
                 .collect();
             InstanceAccess {
-                appliance: i
+                module: i
                     .owner
                     .as_ref()
-                    .map(|o| o.appliance.clone())
+                    .map(|o| o.module.clone())
                     .unwrap_or_default(),
                 instance: i.name,
                 guest_os: os,
@@ -670,7 +670,7 @@ pub(super) async fn open(
     };
     if !SessionKind::offered_for(os).contains(&req.kind) {
         return Err(bad_request(format!(
-            "a {} appliance does not offer a {} session",
+            "a {} module does not offer a {} session",
             match os {
                 GuestOs::Linux => "Linux",
                 GuestOs::Windows => "Windows",
@@ -699,10 +699,10 @@ pub(super) async fn open(
         application: name.clone(),
         project: inst.project.clone(),
         instance: instance.clone(),
-        appliance: inst
+        module: inst
             .owner
             .as_ref()
-            .map(|o| o.appliance.clone())
+            .map(|o| o.module.clone())
             .unwrap_or_default(),
         kind: req.kind,
         cols: req.cols,
@@ -1118,7 +1118,7 @@ async fn run(
         Some(&ticket.resource),
         &json!({
             "session": ticket.id, "kind": ticket.kind.as_str(), "approval": ticket.approval,
-            "source": source, "appliance": ticket.appliance, "runsAs": linux.then_some(cfg.uid),
+            "source": source, "module": ticket.module, "runsAs": linux.then_some(cfg.uid),
             "provider": state.provider.mode(),
         }),
     )
@@ -1329,7 +1329,7 @@ mod tests {
             application: "shop".into(),
             project: "p".into(),
             instance: "web".into(),
-            appliance: "web".into(),
+            module: "web".into(),
             kind: SessionKind::Terminal,
             cols: 80,
             rows: 24,

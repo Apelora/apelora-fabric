@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { PLATFORM_INFO, createEmptyAssembly, ensureNics, parseAssembly, platformOf, serializeAssembly, usedCustomClasses, type Density } from "@apelora/assembly-model";
-import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/appliance-catalog";
+import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/module-catalog";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
@@ -30,7 +30,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
   const [deploying, setDeploying] = useState(false);
   const liveApp = useLive((s) => s.application);
   const liveProvider = useLive((s) => s.provider);
-  const running = useLive((s) => Object.values(s.byAppliance).flat().filter((a) => a.status === "Running").length);
+  const running = useLive((s) => Object.values(s.byModule).flat().filter((a) => a.status === "Running").length);
   const live = liveApp ? { application: liveApp, provider: liveProvider, count: running } : null;
 
   /** Publishing and deploying use what is saved: wait until the draft on the server equals the screen. */
@@ -53,7 +53,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
 
   const doExport = () => {
     const base = api.getState().assembly;
-    // Embed the custom appliance classes this assembly uses so the file is self-contained.
+    // Embed the custom module classes this assembly uses so the file is self-contained.
     const used = usedCustomClasses(base, lookupClass);
     const a = { ...base, ...(used.length ? { catalog: { classes: used } } : { catalog: undefined }) };
     const url = URL.createObjectURL(new Blob([serializeAssembly(a)], { type: "application/json" }));
@@ -71,7 +71,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
     const added = useCustomCatalog.getState().addMissing(r.assembly.catalog?.classes ?? []);
     const assembly = ensureNics(r.assembly, lookupClass);
     api.getState().replace(assembly);
-    api.getState().toast("success", `Imported “${r.assembly.metadata.name}”${added ? ` and ${added} custom appliance${added > 1 ? "s" : ""}` : ""}. Undo restores the previous assembly.`);
+    api.getState().toast("success", `Imported “${r.assembly.metadata.name}”${added ? ` and ${added} custom module${added > 1 ? "s" : ""}` : ""}. Undo restores the previous assembly.`);
   };
 
   return (
@@ -145,7 +145,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
           </div>
         </div>
         <div className="join" role="group" aria-label="Tools">
-          <button className="btn btn-sm join-item" aria-label="Find (Ctrl+K)" title="Find an appliance (Ctrl+K)" data-testid="find-open" onClick={() => api.getState().setDialog("find")}><IconSearch size={14} /></button>
+          <button className="btn btn-sm join-item" aria-label="Find (Ctrl+K)" title="Find a module (Ctrl+K)" data-testid="find-open" onClick={() => api.getState().setDialog("find")}><IconSearch size={14} /></button>
           <button className="btn btn-sm join-item" aria-label="Snapshots" title="Snapshots: save, compare and restore" data-testid="snapshots-open" onClick={() => api.getState().setDialog("snapshots")}><IconClock size={14} /></button>
           <button className="btn btn-sm join-item" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" data-testid="help-open" onClick={() => api.getState().setDialog("help")}><IconHelp size={14} /></button>
         </div>

@@ -6,7 +6,7 @@ type: software
 title: "Apelora Fabric"
 abstract: >-
   An open-source platform for designing, connecting, deploying and operating distributed
-  applications from reusable appliances on a cluster of Linux servers. Applications are drawn
+  applications from reusable modules on a cluster of Linux servers. Applications are drawn
   in a visual designer; a Rust control plane turns the drawing into Incus instances, OVN
   networks, access rules, service addresses and supervised replicas.
 authors:

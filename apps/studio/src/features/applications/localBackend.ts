@@ -1,4 +1,4 @@
-import { sampleCommerceStack, lookupClass } from "@apelora/appliance-catalog";
+import { sampleCommerceStack, lookupClass } from "@apelora/module-catalog";
 import { applicationName, ensureNics, parseAssembly, randomUid, serializeAssembly, validateAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
 
 import { loadAssembly } from "../editor/persistence";
@@ -50,7 +50,7 @@ function view(a: LocalApp): AppView {
   const latest = a.versions[a.versions.length - 1];
   const published = latest && latest.draftVersion === a.draft.version;
   const unavailable = { allowed: false, reason: NOT_CONNECTED };
-  const count = (a.draft.document as ApplicationAssembly | undefined)?.spec?.appliances?.length ?? 0;
+  const count = (a.draft.document as ApplicationAssembly | undefined)?.spec?.modules?.length ?? 0;
   return {
     name: a.name,
     latestRevision: latest?.revision ?? null,
@@ -68,7 +68,7 @@ function view(a: LocalApp): AppView {
       stale: true,
       source: "none",
       deployedVersion: null,
-      appliances: count,
+      modules: count,
       replicas: { desired: 0, running: 0, healthy: 0, unhealthy: 0 },
       lastActivityAt: a.updatedAt,
       operation: null,
@@ -113,7 +113,7 @@ export function createLocalBackend(): AppBackend {
     async get(name): Promise<AppDetailView> {
       const a = find(load(), name);
       const versions: VersionInfo[] = [...a.versions].reverse().map((v) => ({ revision: v.revision, published: true, label: v.label, draftVersion: v.draftVersion, createdBy: "you", createdAt: v.createdAt }));
-      return { application: view(a), appliances: [], versions, operations: [] };
+      return { application: view(a), modules: [], versions, operations: [] };
     },
     async environments(): Promise<EnvChoice[]> {
       return [{ id: "local", label: "This browser", project: "This browser", organization: "local", kind: "other" }];
@@ -122,7 +122,7 @@ export function createLocalBackend(): AppBackend {
       const s = load();
       if (s.apps.some((a) => a.name === input.name)) throw new AppError(`An application named ${input.name} already exists.`, "conflict");
       const t = now();
-      const document = input.document ?? JSON.parse(serializeAssembly({ apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name: input.name, uid: `assembly-${randomUid()}` }, spec: { appliances: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } })) as unknown;
+      const document = input.document ?? JSON.parse(serializeAssembly({ apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name: input.name, uid: `assembly-${randomUid()}` }, spec: { modules: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } })) as unknown;
       const app: LocalApp = { name: input.name, description: input.description, icon: input.icon, createdAt: t, updatedAt: t, archived: false, draft: { version: 1, document, updatedAt: t }, versions: [] };
       s.apps.push(app);
       write(s);

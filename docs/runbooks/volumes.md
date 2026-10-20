@@ -1,17 +1,17 @@
 # An application's volumes: kept, missing or to be deleted
 
 **Evidence:** REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members, btrfs pool `local`):
-an application with two volumes deployed through the control plane and worker; one appliance
+an application with two volumes deployed through the control plane and worker; one module
 removed from the design (its volume kept, shown *Kept, not in use*); that volume deleted from the
 Fabric Console with its name typed; the remaining volume deleted after the application was
 removed. The *Missing* case and a member outage with a volume on it are NOT YET VERIFIED.
 
 What Apelora does on its own:
 
-1. Each volume an appliance asks for is created for its instance on the member Incus placed the
+1. Each volume a module asks for is created for its instance on the member Incus placed the
    instance on (`data-local` volumes live in that member's pool, `APELORA_VOLUME_POOL`), attached
    before the instance starts, and recorded.
-2. Removing the appliance, or the whole application, deletes the instance and **keeps** the
+2. Removing the module, or the whole application, deletes the instance and **keeps** the
    volume: Fabric Console → Applications → Show details lists it as *Kept, not in use*.
 3. Nothing deletes a volume automatically, and a volume without Apelora's labels is never used
    or changed.
@@ -40,6 +40,6 @@ A volume shows *Not found in Incus*:
 2. Otherwise it was deleted outside Apelora. Check the audit history and the Incus logs; if the
    data is gone, deleting the record from the console only forgets it.
 
-A stateful appliance on a member under maintenance: evacuating the member **stops** the instance
+A stateful module on a member under maintenance: evacuating the member **stops** the instance
 in place (Incus does not move a member-local volume) and restoring the member starts it again.
 Plan the downtime; see [member-maintenance.md](member-maintenance.md).

@@ -1,5 +1,5 @@
 import { ensureNics, parseAssembly, randomUid, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { lookupClass } from "@apelora/module-catalog";
 
 const KEY = "apelora.studio.snapshots.v1";
 export const MAX_SNAPSHOTS = 20;

@@ -5,7 +5,7 @@ export type PlatformId = (typeof PLATFORMS)[number];
 
 /**
  * What the designer knows about a runtime provider. The assembly model itself stays provider-neutral
- * (appliances, ports, cables); everything provider-specific lives here so a new provider is one entry
+ * (modules, ports, cables); everything provider-specific lives here so a new provider is one entry
  * plus, later, a backend adapter (ADR 0001: the runtime sits behind an adapter). Nothing here talks to a host.
  */
 export interface PlatformInfo {
@@ -31,7 +31,7 @@ export const PLATFORM_INFO: Readonly<Record<PlatformId, PlatformInfo>> = {
     id: "incus",
     name: "Incus",
     status: "supported",
-    summary: "Primary target: appliances run as Incus instances (LXC system containers by default, OCI containers or QEMU virtual machines where needed) on a cluster of Linux servers.",
+    summary: "Primary target: modules run as Incus instances (LXC system containers by default, OCI containers or QEMU virtual machines where needed) on a cluster of Linux servers.",
     guestAgent: "None for containers; the Incus agent for virtual machines",
     diskFormats: ["Storage-pool volumes", "qcow2 (virtual machines)"],
     nicModels: ["veth (containers)", "virtio (virtual machines)"],

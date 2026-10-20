@@ -32,26 +32,9 @@ export type Admission = {
   source: Source;
 };
 
-export type ApplianceDetail = {
-  appliance: string;
-  availability: Availability;
-  instances: InstanceDetail[];
-  replicas: number;
-};
-
-export type ApplianceStatus = {
-  appliance: string;
-  health?: null | InstanceHealth;
-  instance: string;
-  location: string;
-  project: string;
-  /** Incus status, e.g. `Running`. */
-  status: string;
-};
-
 export type ApplicationDetail = {
-  appliances: ApplianceDetail[];
   application: ApplicationInfo;
+  modules: ModuleDetail[];
   operations: OperationDto[];
   versions: VersionInfo[];
 };
@@ -82,7 +65,7 @@ export type ApplicationList = {
 };
 
 export type ApplicationStatus = {
-  items: ApplianceStatus[];
+  items: ModuleStatus[];
   /** Allocated service addresses (empty without a database or service range). */
   services: ServiceStatus[];
   source: Source;
@@ -170,7 +153,7 @@ export type AuditList = {
 
 export type AuthMode = "tokens" | "disabled-development";
 
-/** How an appliance may be run and recovered (from its catalog class). */
+/** How a module may be run and recovered (from its catalog class). */
 export type Availability = "stateless" | "singleton" | "stateful";
 
 /** What a provisioner can do to a machine without someone at the server. */
@@ -245,7 +228,7 @@ export type ConfirmVolume = {
   confirm: string;
 };
 
-/** One connection of the design: `from` may reach `to` (appliance ids). */
+/** One connection of the design: `from` may reach `to` (module ids). */
 export type Connection = {
   from: string;
   /** `None`: any port of the transport (the protocol has no well-known port). */
@@ -281,11 +264,11 @@ export type CreateToken = {
 };
 
 export type DeployRequest = {
-  appliances: DesiredAppliance[];
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
   /** The Studio document, saved as an immutable revision. Ignored when `version` is given. */
   document: Record<string, unknown>;
+  modules: DesiredModule[];
   project: string;
   /** Ports reachable from outside the application (needs connections to be enforced). */
   published?: Published[];
@@ -306,10 +289,10 @@ export type DeployResponse = {
 };
 
 export type DeploymentInfo = {
-  appliances: number;
   /** The published version the application was last deployed from. */
   deployedVersion?: number | null;
   lastActivityAt?: string | null;
+  modules: number;
   /** When the control plane last observed Incus for this answer (RFC 3339). */
   observedAt: string;
   operation?: null | OperationSummary;
@@ -334,16 +317,16 @@ export type DesignInfo = {
 
 export type DesignStatus = "draft" | "validated" | "published";
 
-/** One appliance of the design, turned into the instances it should run as. */
-export type DesiredAppliance = {
-  /** The appliance's stable id in the design (e.g. `nginx-01`). */
-  appliance: string;
+/** One module of the design, turned into the instances it should run as. */
+export type DesiredModule = {
   availability?: Availability;
   /** The operating system inside (from the class): decides which sessions it offers. */
   guestOs?: GuestOs;
   /** What it may reach outside the application (enforced with the connections). */
   internet?: Internet;
-  /** How many instances (1–9); more than one only for stateless appliances. */
+  /** The module's stable id in the design (e.g. `nginx-01`). */
+  module: string;
+  /** How many instances (1–9); more than one only for stateless modules. */
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
   spec: InstanceSpec;
@@ -416,13 +399,13 @@ export type ErrorDetail = {
 
 /** One instance on the member being evacuated. */
 export type EvacuationItem = {
-  appliance?: string | null;
   application?: string | null;
   /** What it means for the application while the member is evacuated. */
   impact: string;
   instance: string;
   /** Effective `cluster.evacuate` mode (`auto` when unset). */
   mode: string;
+  module?: string | null;
   /** What Incus will do with it. */
   outcome: string;
   project: string;
@@ -474,7 +457,7 @@ export type GrowVolume = {
   sizeMib: number;
 };
 
-/** The operating system inside an appliance, from its catalog class (never guessed from names). */
+/** The operating system inside a module, from its catalog class (never guessed from names). */
 export type GuestOs = "linux" | "windows";
 
 export type Health = {
@@ -538,10 +521,10 @@ export type Instance = {
 };
 
 export type InstanceAccess = {
-  appliance: string;
   guestOs: GuestOs;
   instance: string;
   kinds: KindAccess[];
+  module: string;
   status: string;
 };
 
@@ -594,7 +577,7 @@ export type InstanceSpec = {
   volumes?: VolumeMount[];
 };
 
-/** What an appliance may reach outside the application (the internet, through the uplink). Inside the application only connections count, whatever this says. */
+/** What a module may reach outside the application (the internet, through the uplink). Inside the application only connections count, whatever this says. */
 export type Internet = "none" | "web" | "any";
 
 export type Job = {
@@ -701,6 +684,23 @@ export type MemberStateStarted = {
   operation: string;
 };
 
+export type ModuleDetail = {
+  availability: Availability;
+  instances: InstanceDetail[];
+  module: string;
+  replicas: number;
+};
+
+export type ModuleStatus = {
+  health?: null | InstanceHealth;
+  instance: string;
+  location: string;
+  module: string;
+  project: string;
+  /** Incus status, e.g. `Running`. */
+  status: string;
+};
+
 export type Network = {
   description: string;
   kind: string;
@@ -791,7 +791,7 @@ export type NewSession = {
 
 export type OperateRequest = {
   action: OperationKind;
-  /** Required to stop or restart an application that has single-instance or stateful appliances: it acknowledges that their clients lose service meanwhile. */
+  /** Required to stop or restart an application that has single-instance or stateful modules: it acknowledges that their clients lose service meanwhile. */
   confirmDisruption?: boolean;
 };
 
@@ -843,10 +843,10 @@ export type OrganizationList = {
   items: OrganizationDto[];
 };
 
-/** The application and appliance an instance belongs to. */
+/** The application and module an instance belongs to. */
 export type Owner = {
-  appliance: string;
   application: string;
+  module: string;
   replica?: number;
 };
 
@@ -889,9 +889,9 @@ export type PlanAction = "create" | "keep" | "remove" | "conflict";
 
 export type PlanItem = {
   action: PlanAction;
-  /** The appliance in the design (for `remove`: the label of the instance being removed). */
-  appliance: string;
   instance: string;
+  /** The module in the design (for `remove`: the label of the instance being removed). */
+  module: string;
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;
   /** 1-based replica number. */
@@ -899,9 +899,9 @@ export type PlanItem = {
 };
 
 export type PlanRequest = {
-  appliances: DesiredAppliance[];
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
+  modules: DesiredModule[];
   project: string;
   /** Ports reachable from outside the application (needs connections to be enforced). */
   published?: Published[];
@@ -981,9 +981,9 @@ export type PublishRequest = {
   label?: string | null;
 };
 
-/** A port of an appliance reachable from outside the application (in the Studio: connected from a gateway). Only ports with a number can be published. */
+/** A port of a module reachable from outside the application (in the Studio: connected from a gateway). Only ports with a number can be published. */
 export type Published = {
-  appliance: string;
+  module: string;
   port: number;
   /** `tcp` or `udp`. */
   transport: string;
@@ -991,9 +991,9 @@ export type Published = {
 
 export type QueuedChange = {
   action: PlanAction;
-  appliance: string;
   instance: string;
   jobId: string;
+  module: string;
 };
 
 export type RegisterMachine = {
@@ -1140,10 +1140,10 @@ export type ServiceIdentityList = {
 
 export type ServiceKind = "workload" | "network" | "storage" | "provisioning" | "automation";
 
-/** A stateless appliance's service address: a load balancer over its healthy replicas. */
+/** A stateless module's service address: a load balancer over its healthy replicas. */
 export type ServiceStatus = {
   address: string;
-  appliance: string;
+  module: string;
   project: string;
 };
 
@@ -1157,7 +1157,7 @@ export type SessionInfo = {
   startedAt: string;
 };
 
-/** What a person can open on an appliance. */
+/** What a person can open on a module. */
 export type SessionKind = "terminal" | "powershell" | "rdp";
 
 export type SessionList = {
@@ -1192,9 +1192,9 @@ export type StateChange = {
 };
 
 export type StepDto = {
-  appliance: string;
   error?: string | null;
   instance: string;
+  module: string;
   /** `pending`, `running`, `succeeded`, `failed` or `skipped`. */
   state: string;
 };
@@ -1293,7 +1293,6 @@ export type VolumeClass = "data-local";
 export type VolumeContent = "filesystem" | "block";
 
 export type VolumeItem = {
-  appliance: string;
   class: string;
   content: string;
   createdAt: string;
@@ -1302,6 +1301,7 @@ export type VolumeItem = {
   instance: string;
   /** Member of a member-local pool; empty on a standalone server. */
   member: string;
+  module: string;
   /** The design's name (`data`). */
   name: string;
   pool: string;
@@ -1311,7 +1311,7 @@ export type VolumeItem = {
   usedBy: string[];
 };
 
-/** A volume an appliance asks for. */
+/** A volume a module asks for. */
 export type VolumeMount = {
   class?: VolumeClass;
   content?: VolumeContent;
@@ -1451,7 +1451,7 @@ export type Responses = {
   applications: ApplicationList;
   /** Creates an application in an environment, optionally with its first draft. Needs `application.create` on the environment's project. */
   create_application: ApplicationInfo;
-  /** One application with its appliances (desired and observed), versions and recent operations. Needs `application.view`. */
+  /** One application with its modules (desired and observed), versions and recent operations. Needs `application.view`. */
   application: ApplicationDetail;
   /** Changes an application's description or icon (its name cannot change). Needs `application.design`. */
   update_application: ApplicationInfo;
@@ -1459,7 +1459,7 @@ export type Responses = {
   application_access: AccessList;
   /** Archives an application that is not running; it leaves the default list and keeps its data. Needs `application.delete`. */
   archive_application: null;
-  /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`. */
+  /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any module conflicts with an existing instance. Needs `deploy`. */
   deploy_application: DeployResponse;
   /** The application's working document. 404 when it has none yet. Needs `application.view`. */
   application_draft: DraftDto;
@@ -1479,7 +1479,7 @@ export type Responses = {
   plan_application: Plan;
   /** Brings an archived application back. Needs `application.delete`. */
   restore_application: null;
-  /** The application's instances as Incus reports them, by appliance. Needs `read-inventory`. */
+  /** The application's instances as Incus reports them, by module. Needs `read-inventory`. */
   application_status: ApplicationStatus;
   /** Versions of the application, newest first. Needs `application.view`. */
   application_versions: VersionList;

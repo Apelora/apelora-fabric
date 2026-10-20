@@ -49,15 +49,15 @@ pub(super) async fn settle(l: &Lab) {
 
 fn doc() -> Value {
     json!({ "apiVersion": "fabric.apelora/v1alpha1", "kind": "ApplicationAssembly", "metadata": { "name": "x", "uid": "u" },
-        "spec": { "appliances": [
+        "spec": { "modules": [
             { "id": "web-01", "ports": [{ "id": "http", "direction": "input" }, { "id": "db", "direction": "output" }] },
             { "id": "db-01", "ports": [{ "id": "sql", "direction": "input" }] } ],
-          "connections": [{ "id": "conn-01", "source": { "applianceId": "web-01", "portId": "db" }, "target": { "applianceId": "db-01", "portId": "sql" } }] },
+          "connections": [{ "id": "conn-01", "source": { "moduleId": "web-01", "portId": "db" }, "target": { "moduleId": "db-01", "portId": "sql" } }] },
         "editor": { "layoutVersion": 1, "density": "compact", "nodes": [] } })
 }
 
-fn appliance(id: &str, availability: &str) -> Value {
-    json!({ "appliance": id, "availability": availability, "spec": {
+fn module(id: &str, availability: &str) -> Value {
+    json!({ "module": id, "availability": availability, "spec": {
         "project": "ignored", "name": "ignored", "kind": "container", "start": true,
         "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" } } })
 }
@@ -104,7 +104,7 @@ pub(super) async fn shop(l: &Lab) -> Shop {
 }
 
 async fn deploy_version(l: &Lab, token: &str, version: Option<i32>) -> (StatusCode, Value) {
-    let mut body = json!({ "project": "acme-prod-live", "document": {}, "appliances": [appliance("web-01", "stateless"), appliance("db-01", "stateful")],
+    let mut body = json!({ "project": "acme-prod-live", "document": {}, "modules": [module("web-01", "stateless"), module("db-01", "stateful")],
         "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
     if let Some(v) = version {
         body["version"] = json!(v);
@@ -725,8 +725,8 @@ async fn a_running_application_offers_stop_only_and_a_stopped_one_offers_start_o
         "{done}"
     );
     // Dependency order: the web tier (a consumer) stops before the database.
-    assert_eq!(done["phases"][0]["steps"][0]["appliance"], "web-01");
-    assert_eq!(done["phases"][1]["steps"][0]["appliance"], "db-01");
+    assert_eq!(done["phases"][0]["steps"][0]["module"], "web-01");
+    assert_eq!(done["phases"][1]["steps"][0]["module"], "db-01");
     let after = info(&l, &s.owner).await;
     assert_eq!(after["deployment"]["status"], "stopped");
     assert_eq!(actions(&after), (true, false, false), "stopped: only Start");
@@ -766,8 +766,8 @@ async fn a_running_application_offers_stop_only_and_a_stopped_one_offers_start_o
     );
     assert_eq!(
         (
-            start["phases"][0]["steps"][0]["appliance"].as_str(),
-            start["phases"][1]["steps"][0]["appliance"].as_str()
+            start["phases"][0]["steps"][0]["module"].as_str(),
+            start["phases"][1]["steps"][0]["module"].as_str()
         ),
         (Some("db-01"), Some("web-01"))
     );
@@ -919,7 +919,7 @@ async fn a_draft_that_was_never_deployed_cannot_be_started_and_only_its_own_inst
         )
         .await;
     assert_eq!(st, StatusCode::CREATED, "{v}");
-    let body = json!({ "project": "acme-prod-live", "document": {}, "version": 1, "appliances": [appliance("web-01", "stateless")] });
+    let body = json!({ "project": "acme-prod-live", "document": {}, "version": 1, "modules": [module("web-01", "stateless")] });
     assert_eq!(
         l.req(
             "POST",
@@ -1237,9 +1237,9 @@ async fn the_list_and_the_detail_agree_and_legacy_tokens_still_see_everything(po
     let (_, d) = l
         .req("GET", "/api/v1/applications/shop", &legacy, None)
         .await;
-    assert_eq!(d["appliances"].as_array().map(Vec::len), Some(2));
+    assert_eq!(d["modules"].as_array().map(Vec::len), Some(2));
     assert_eq!(
-        d["appliances"][0]["instances"].as_array().map(Vec::len),
+        d["modules"][0]["instances"].as_array().map(Vec::len),
         Some(1)
     );
 }

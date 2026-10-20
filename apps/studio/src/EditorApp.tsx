@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
-import { sampleCommerceStack } from "@apelora/appliance-catalog";
+import { sampleCommerceStack } from "@apelora/module-catalog";
 import { createStudioStore } from "./features/editor/store";
 import { StudioContext, useStudioApi } from "./features/editor/context";
 import { loadAssembly, loadView, saveAssembly, saveView } from "./features/editor/persistence";
@@ -10,11 +10,11 @@ import { DraftConflictDialog } from "./components/applications/DraftConflictDial
 import type { ApplicationAssembly } from "@apelora/assembly-model";
 import { Header } from "./components/chrome/Header";
 import { Toasts } from "./components/chrome/Toasts";
-import { ApplianceCatalog } from "./components/catalog/ApplianceCatalog";
+import { ModuleCatalog } from "./components/catalog/ModuleCatalog";
 import { AssemblyWorkspace } from "./components/canvas/AssemblyWorkspace";
 import { renameSelected } from "./features/editor/menus";
 import { PropertiesWindow } from "./components/inspector/PropertiesWindow";
-import { ApplianceDesigner } from "./components/designer/ApplianceDesigner";
+import { ModuleDesigner } from "./components/designer/ModuleDesigner";
 import { ComponentDialog } from "./components/designer/ComponentDialog";
 import { ms } from "./features/editor/motion";
 import { TemplatesDialog } from "./components/chrome/TemplatesDialog";
@@ -62,13 +62,13 @@ function Shortcuts() {
         e.preventDefault();
         const st = api.getState();
         const id = st.selection.nodes[0];
-        const el = id ? document.querySelector<HTMLElement>(`[data-testid=appliance-node][data-node-id="${id}"]`) : document.querySelector<HTMLElement>("[data-testid=canvas]");
+        const el = id ? document.querySelector<HTMLElement>(`[data-testid=module-node][data-node-id="${id}"]`) : document.querySelector<HTMLElement>("[data-testid=canvas]");
         const r = el?.getBoundingClientRect();
         if (r) st.openMenu({ x: r.left + r.width / 2, y: r.top + r.height / 2, keyboard: true, target: id ? { kind: "node", id } : { kind: "pane", flow: screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) } });
       }
       else if (!mod && !e.shiftKey && k === "v") api.getState().setTool("select");
       else if (!mod && !e.shiftKey && k === "h") api.getState().setTool("pan");
-      else if (!mod && e.key === "Enter") { const st = api.getState(); if (st.selection.nodes.length === 1 && !st.menu) { e.preventDefault(); st.openProps({ kind: "appliance", id: st.selection.nodes[0]! }); } }
+      else if (!mod && e.key === "Enter") { const st = api.getState(); if (st.selection.nodes.length === 1 && !st.menu) { e.preventDefault(); st.openProps({ kind: "module", id: st.selection.nodes[0]! }); } }
       else if (!mod && (e.key === "+" || e.key === "=")) void zoomIn({ duration: ms(120) });
       else if (!mod && e.key === "-") void zoomOut({ duration: ms(120) });
       else if (!mod && k === "f") void fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) });
@@ -103,7 +103,7 @@ export function EditorApp({ initial, binding }: { initial?: ApplicationAssembly;
     void decodeShare(fragment).then((r) => {
       if (!r.ok) { store.getState().setImportErrors(r.errors); return; }
       const before = store.getState().assembly;
-      if (before.spec.appliances.length > 0) addSnapshot(`Before opening a shared link`, before);
+      if (before.spec.modules.length > 0) addSnapshot(`Before opening a shared link`, before);
       useCustomCatalog.getState().addMissing(r.customClasses);
       store.getState().replace(r.assembly);
       store.getState().toast("success", `Opened the shared diagram “${r.assembly.metadata.name}”. Your previous diagram is saved under Snapshots.`);
@@ -130,7 +130,7 @@ export function EditorApp({ initial, binding }: { initial?: ApplicationAssembly;
         <div className="flex h-full flex-col bg-base-100 text-base-content">
           <Header theme={theme} onTheme={setTheme} saved={binding ? sync.saved : saved} designer={binding ? { binding, sync } : undefined} />
           <div className="flex min-h-0 flex-1">
-            <ApplianceCatalog />
+            <ModuleCatalog />
             <main className="flex min-w-0 flex-1 p-3">
               <AssemblyWorkspace />
             </main>
@@ -138,7 +138,7 @@ export function EditorApp({ initial, binding }: { initial?: ApplicationAssembly;
         </div>
         <Toasts />
         <PropertiesWindow />
-        <ApplianceDesigner />
+        <ModuleDesigner />
         <ComponentDialog />
         <TemplatesDialog />
         <SnapshotsDialog />

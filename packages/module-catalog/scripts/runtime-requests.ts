@@ -2,10 +2,10 @@
 // setting, as JSON, for the real Incus test (`catalog_runtimes_run` in
 // services/deployment-worker/tests/real_incus.rs).
 import { instanceRequestFor } from "@apelora/assembly-model";
-import { APPLIANCE_CLASSES } from "../src/classes";
+import { MODULE_CLASSES } from "../src/classes";
 
 const out = [];
-for (const c of APPLIANCE_CLASSES) {
+for (const c of MODULE_CLASSES) {
   const rt = c.runtime;
   if (!rt) continue;
   const settings = rt.imageBy ? Object.keys(rt.imageBy.images).map((v) => ({ [rt.imageBy!.property]: v })) : [{}];

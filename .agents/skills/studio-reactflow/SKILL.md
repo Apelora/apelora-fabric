@@ -12,8 +12,8 @@ Use for visual nodes, dynamic terminals, graph validation, saved topology and de
 ## Required workflow and guardrails
 
 - Preserve existing Studio code, React Flow nodes/edges/catalog, daisyUI theme and JSON import/export; inspect before rewriting.
-- Provide grouped catalog, centered icons, resizable appliances, dynamic left/right terminals, clear link labels, undo/redo and versioned graph save.
-- Logical node = appliance class+instance intent; deployed replicas are separate runtime instances mapped by stable IDs.
+- Provide grouped catalog, centered icons, resizable modules, dynamic left/right terminals, clear link labels, undo/redo and versioned graph save.
+- Logical node = module class+instance intent; deployed replicas are separate runtime instances mapped by stable IDs.
 - Build typed graph-schema shared with Rust/OpenAPI, and validate port protocols, cycles when invalid, resources, image digests, secrets refs, storage and target capabilities.
 - Draw connection != working network. Explain preview of generated service routing/security plan.
 - UI displays actual deployment state from backend, no mocked success or client-side Incus access.

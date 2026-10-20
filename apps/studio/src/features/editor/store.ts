@@ -1,9 +1,9 @@
 import { create } from "zustand";
-import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
+import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/module-catalog";
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
-  addAppliance, addPort, attachNew, connect, setPlatform, tidyLayout, type PlatformId, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
-  renameAppliance, resetNodeSize, resizeNode, setDensity, setInternet, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
+  addModule, addPort, attachNew, connect, setPlatform, tidyLayout, type PlatformId, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupModules, ungroupModule, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectModule, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeModules, removePort,
+  renameModule, resetNodeSize, resizeNode, setDensity, setInternet, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port, type Volume,
 } from "@apelora/assembly-model";
 
@@ -17,14 +17,14 @@ export type MenuTarget =
   | { kind: "shape"; id: string }
   | { kind: "pane"; flow: { x: number; y: number } };
 export type PropsTarget =
-  | { kind: "appliance"; id: string; tab?: "general" | "config" | "ports" | "issues" }
+  | { kind: "module"; id: string; tab?: "general" | "config" | "ports" | "issues" }
   | { kind: "cable"; id: string }
   | { kind: "tag"; id: string }
   | { kind: "assembly" }
   | { kind: "shape"; id: string; tab?: "style" | "label" | "layout" };
 
 export type DialogId = "templates" | "snapshots" | "help" | "find" | "compose" | "share";
-export interface DragFrom { applianceId: string; portId: string; direction: PortDirection; type: PortType }
+export interface DragFrom { moduleId: string; portId: string; direction: PortDirection; type: PortType }
 
 export interface MenuState { x: number; y: number; target: MenuTarget; keyboard?: boolean }
 
@@ -57,7 +57,7 @@ export interface StudioState {
   dialog: DialogId | null;
   /** The terminal a cable is being dragged from; compatible sockets light up while it is set. */
   dragFrom: DragFrom | null;
-  /** Alignment guides (flow coordinates) shown while dragging an appliance. */
+  /** Alignment guides (flow coordinates) shown while dragging a module. */
   guides: { x: number[]; y: number[] };
   propsWin: PropsTarget | null;
   propsPos: { x: number; y: number } | null;
@@ -137,8 +137,8 @@ export interface StudioState {
   setRes: (id: string, r: Partial<Resources>) => void;
   setReplicaCount: (id: string, n: number) => void;
   setInternetAccess: (id: string, level: InternetAccess) => void;
-  /** An appliance's volumes; `undefined` goes back to its class's. */
-  setApplianceVolumes: (id: string, volumes: Volume[] | undefined) => void;
+  /** A module's volumes; `undefined` goes back to its class's. */
+  setModuleVolumes: (id: string, volumes: Volume[] | undefined) => void;
   addPortTo: (id: string, direction: PortDirection, type?: PortType) => void;
   editPort: (id: string, portId: string, patch: Partial<Pick<Port, "name" | "type" | "optional" | "multiplicity">>) => void;
   deletePort: (id: string, portId: string) => void;
@@ -155,7 +155,7 @@ export interface StudioState {
 }
 
 const prune = (a: ApplicationAssembly, s: Selection): Selection => ({
-  nodes: s.nodes.filter((id) => a.spec.appliances.some((x) => x.id === id)),
+  nodes: s.nodes.filter((id) => a.spec.modules.some((x) => x.id === id)),
   edges: s.edges.filter((id) => a.spec.connections.some((c) => c.id === id)),
   shapes: (s.shapes ?? []).filter((id) => (a.editor.shapes ?? []).some((x) => x.id === id)),
 });
@@ -224,13 +224,13 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       },
       tidy: () => {
         const { assembly, selection } = get();
-        if (assembly.spec.appliances.length < 2) { get().toast("info", "Add at least two appliances to tidy the layout."); return; }
+        if (assembly.spec.modules.length < 2) { get().toast("info", "Add at least two modules to tidy the layout."); return; }
         const only = selection.nodes.length > 1 ? selection.nodes : undefined;
         const next = tidyLayout(assembly, only);
         if (next === assembly) return;
         commit(next);
         set((s) => ({ fitNonce: s.fitNonce + 1 }));
-        get().toast("info", only ? `Tidied ${only.length} selected appliances. Undo restores the old layout.` : "Layout tidied left to right along the cables. Undo restores the old layout.");
+        get().toast("info", only ? `Tidied ${only.length} selected modules. Undo restores the old layout.` : "Layout tidied left to right along the cables. Undo restores the old layout.");
       },
       addConnected: (end, classId, portId) => {
         const cls = allClasses().find((c) => c.id === classId);
@@ -258,7 +258,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       wrapInZone: (kind) => {
         const { assembly, selection } = get();
         const r = zoneAround(assembly, selection.nodes, kind);
-        if (!r) { get().toast("info", "Select at least one appliance to wrap in a zone."); return; }
+        if (!r) { get().toast("info", "Select at least one module to wrap in a zone."); return; }
         commit(r.assembly);
         set({ selection: { nodes: [], edges: [], shapes: [r.id] } });
         get().openProps({ kind: "shape", id: r.id, tab: "label" });
@@ -275,31 +275,31 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       selectShape: (id) => set({ selection: { nodes: [], edges: [], shapes: [id] }, selectedTag: null }),
       openProps: (t) => set({ propsWin: t, menu: null }),
       closeProps: () => set({ propsWin: null }),
-      setPropsTab: (tab) => { const w = get().propsWin; if (w && (w.kind === "appliance" || w.kind === "shape")) set({ propsWin: { ...w, tab } as PropsTarget }); },
+      setPropsTab: (tab) => { const w = get().propsWin; if (w && (w.kind === "module" || w.kind === "shape")) set({ propsWin: { ...w, tab } as PropsTarget }); },
       setPropsPos: (p) => set({ propsPos: p }),
 
       openGroupDialog: () => {
         const ids = get().selection.nodes;
-        if (ids.length < 2) { get().toast("info", "Select at least two appliances to make a component."); return; }
+        if (ids.length < 2) { get().toast("info", "Select at least two modules to make a component."); return; }
         set({ groupDialog: ids });
       },
       closeGroupDialog: () => set({ groupDialog: null }),
       groupSelection: (name, exposes) => {
         const ids = get().groupDialog ?? get().selection.nodes;
-        const r = groupAppliances(get().assembly, ids, name, exposes, new Set(allClasses().map((c) => c.id)));
+        const r = groupModules(get().assembly, ids, name, exposes, new Set(allClasses().map((c) => c.id)));
         if (!r.ok) { get().toast("warning", r.errors[0] ?? "Could not create the component."); return false; }
         useCustomCatalog.getState().save(r.cls);
         commit(r.assembly);
         set({ groupDialog: null, selection: { nodes: [r.instanceId], edges: [] }, selectedTag: null });
-        get().toast(r.dropped ? "warning" : "success", `Created component “${r.cls.displayName}” from ${ids.length} appliances.${r.dropped ? ` ${r.dropped} cable${r.dropped > 1 ? "s" : ""} to terminals that were not exposed ${r.dropped > 1 ? "were" : "was"} removed; undo to restore.` : ""} It is in the catalog under Custom.`);
+        get().toast(r.dropped ? "warning" : "success", `Created component “${r.cls.displayName}” from ${ids.length} modules.${r.dropped ? ` ${r.dropped} cable${r.dropped > 1 ? "s" : ""} to terminals that were not exposed ${r.dropped > 1 ? "were" : "was"} removed; undo to restore.` : ""} It is in the catalog under Custom.`);
         return true;
       },
       ungroupSelection: (id) => {
         const target = id ?? get().selection.nodes[0];
-        const app = get().assembly.spec.appliances.find((x) => x.id === target);
+        const app = get().assembly.spec.modules.find((x) => x.id === target);
         const cls = app ? lookupClass(app.classRef.name, app.classRef.version) : undefined;
         if (!app || !cls?.composition) { get().toast("info", "Select a component to ungroup it."); return; }
-        const r = ungroupAppliance(get().assembly, app.id, cls);
+        const r = ungroupModule(get().assembly, app.id, cls);
         if ("error" in r) { get().toast("warning", r.error); return; }
         commit(r.assembly);
         set({ selection: { nodes: r.ids, edges: [] } });
@@ -348,12 +348,12 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         set({ menu: m });
       },
       closeMenu: () => set({ menu: null }),
-      selectAll: () => set({ selection: { nodes: get().assembly.spec.appliances.map((a) => a.id), edges: [] } }),
+      selectAll: () => set({ selection: { nodes: get().assembly.spec.modules.map((a) => a.id), edges: [] } }),
       copySelection: () => {
         const { assembly, selection } = get();
         if (!selection.nodes.length) return;
         set({ clipboard: extractSubset(assembly, selection.nodes) });
-        get().toast("info", `Copied ${selection.nodes.length} appliance${selection.nodes.length > 1 ? "s" : ""}. Paste with Ctrl+V.`);
+        get().toast("info", `Copied ${selection.nodes.length} module${selection.nodes.length > 1 ? "s" : ""}. Paste with Ctrl+V.`);
       },
       pasteAt: (flow) => {
         const { clipboard, assembly } = get();
@@ -373,7 +373,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         set({ selection: { nodes: r.ids, edges: [] } });
       },
       disconnectPortCables: (id, portId) => commit(disconnectPort(get().assembly, id, portId)),
-      disconnectAllCables: (id) => commit(disconnectAppliance(get().assembly, id)),
+      disconnectAllCables: (id) => commit(disconnectModule(get().assembly, id)),
       align: (mode) => commit(alignNodes(get().assembly, get().selection.nodes, mode)),
       setCfg: (id, key, value) => commit(setConfig(get().assembly, id, key, value)),
       resetCfg: (id) => commit(resetConfig(get().assembly, id)),
@@ -418,7 +418,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         if (!cls) return null;
         const { assembly } = get();
         const at = opts?.avoidOverlap ? findFreeSpot(assembly, pos, DENSITY_SIZE[assembly.editor.density]) : pos;
-        const r = addAppliance(assembly, cls, at);
+        const r = addModule(assembly, cls, at);
         commit(r.assembly);
         set({ selection: { nodes: [r.id], edges: [] } });
         return r.id;
@@ -429,7 +429,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         nodeIds = nodeIds.filter((id) => !id.startsWith("shape-"));
         if (shapeIds.length) a = removeShapes(a, shapeIds);
         if (edgeIds.length) a = disconnect(a, edgeIds);
-        if (nodeIds.length) a = removeAppliances(a, nodeIds);
+        if (nodeIds.length) a = removeModules(a, nodeIds);
         commit(a);
       },
       moveTransient: (moves) => set({ assembly: moveNodes(get().assembly, moves) }),
@@ -449,16 +449,16 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         if ("error" in r) { get().toast("warning", `${r.error.message}${r.error.hint ? ` ${r.error.hint}` : ""}`); return; }
         commit(r.assembly);
       },
-      rename: (id, name) => commit(renameAppliance(get().assembly, id, name)),
+      rename: (id, name) => commit(renameModule(get().assembly, id, name)),
       setRes: (id, r) => commit(setResources(get().assembly, id, r)),
       setReplicaCount: (id, n) => commit(setReplicas(get().assembly, id, n)),
       setInternetAccess: (id, level) => commit(setInternet(get().assembly, id, level)),
-      setApplianceVolumes: (id, volumes) => commit(setVolumes(get().assembly, id, volumes)),
+      setModuleVolumes: (id, volumes) => commit(setVolumes(get().assembly, id, volumes)),
       addPortTo: (id, direction, type) => commit(addPort(get().assembly, id, direction, type).assembly),
       editPort: (id, portId, patch) => commit(updatePort(get().assembly, id, portId, patch)),
       deletePort: (id, portId) => {
         const a = get().assembly;
-        const attached = a.spec.connections.filter((c) => (c.source.applianceId === id && c.source.portId === portId) || (c.target.applianceId === id && c.target.portId === portId)).length;
+        const attached = a.spec.connections.filter((c) => (c.source.moduleId === id && c.source.portId === portId) || (c.target.moduleId === id && c.target.portId === portId)).length;
         commit(removePort(a, id, portId));
         if (attached) get().toast("info", `Port removed together with ${attached} connection${attached > 1 ? "s" : ""}. Undo to restore.`);
       },

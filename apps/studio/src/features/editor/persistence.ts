@@ -1,5 +1,5 @@
 import { ensureNics, parseAssembly, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { lookupClass } from "@apelora/module-catalog";
 
 const KEY = "apelora.studio.v1";
 const BACKUP = "apelora.studio.v1.invalid";

@@ -316,7 +316,7 @@ async fn applications_are_found_or_created_by_name_and_listed_with_their_latest_
 #[sqlx::test(migrator = "crate::MIGRATOR")]
 async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) {
     let app = ensure_application(&pool, "shop").await.expect("app");
-    let one = json!([{ "appliance": "web-01" }]);
+    let one = json!([{ "module": "web-01" }]);
     let d = NewDeployment {
         application_id: app.id,
         project: "apelora",
@@ -328,7 +328,7 @@ async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) 
         published: None,
     };
     record_deployment(&pool, &d).await.expect("record");
-    let two = json!([{ "appliance": "web-01" }, { "appliance": "db-01" }]);
+    let two = json!([{ "module": "web-01" }, { "module": "db-01" }]);
     let none = json!([]);
     record_deployment(
         &pool,
@@ -422,7 +422,7 @@ async fn service_addresses_are_allocated_once_kept_and_released(pool: PgPool) {
             .await
             .expect("again"),
         web,
-        "an appliance keeps its address"
+        "a module keeps its address"
     );
     let other = service_address(&pool, blog, "apelora", "web-01", &range)
         .await

@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { markTourSeen, tourSeen } from "../../features/editor/persistence";
 
 const STEPS = [
-  { title: "Add appliances", body: "Drag a tile from the catalog onto the canvas, or click it to place one. Search finds any of them." },
+  { title: "Add modules", body: "Drag a tile from the catalog onto the canvas, or click it to place one. Search finds any of them." },
   { title: "Plug cables", body: "Drag from a right-hand jack to a left-hand jack. Compatible sockets light up while you drag. Right-click a jack to add something that fits." },
-  { title: "Right-click anything", body: "Appliances, jacks, cables, zones and the canvas all have a menu. Properties open in a floating window." },
+  { title: "Right-click anything", body: "Modules, jacks, cables, zones and the canvas all have a menu. Properties open in a floating window." },
   { title: "Keep it tidy", body: "Use Tidy to lay the flow out left to right, add zones and notes, and press ? any time for the shortcuts." },
 ] as const;
 

@@ -1,16 +1,16 @@
 ---
-name: compact-appliance
-description: Build or change the Apelora appliance node — 128×96 compact card, 24px header, centered 30px logo, left inputs/right outputs, automatic height growth, resizing, density presets. Use when touching the node component, handle layout, or node sizing rules.
+name: compact-module
+description: Build or change the Apelora module node — 128×96 compact card, 24px header, centered 30px logo, left inputs/right outputs, automatic height growth, resizing, density presets. Use when touching the node component, handle layout, or node sizing rules.
 ---
 
-# Compact appliance node
+# Compact module node
 
-Source: `apps/studio/src/components/canvas/ApplianceNode.tsx`, geometry in `packages/assembly-model/src/geometry.ts`.
+Source: `apps/studio/src/components/canvas/ModuleNode.tsx`, geometry in `packages/assembly-model/src/geometry.ts`.
 
 ## Geometry (flow units, independent of zoom)
 
 `NODE = {width 128, height 96, header 24, logo 30, portPitch 18}`; marker 9, hit area 18.
-- `minApplianceHeight(i, o) = max(96, 60 + 18·max(1,i,o))`; port centre `y = 42 + 18·index`.
+- `minModuleHeight(i, o) = max(96, 60 + 18·max(1,i,o))`; port centre `y = 42 + 18·index`.
 - Density: compact 128×96, comfortable 152×112, expanded 178×150. Manually resized nodes (`custom`) keep their size; others follow the preset. Heights never go below the port minimum.
 - Adding ports grows **only that node's height**, never its width or other nodes.
 

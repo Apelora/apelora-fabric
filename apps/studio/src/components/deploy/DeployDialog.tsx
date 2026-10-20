@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
-import { lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, compileNetwork, type ApplicationAssembly, deploymentAppliances, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
+import { lookupClass } from "@apelora/module-catalog";
+import { applicationName, compileNetwork, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -49,7 +49,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
 
   const current = () => target?.assembly ?? api.getState().assembly;
   const assembly = open ? current() : null;
-  const split = useMemo(() => (assembly ? deploymentAppliances(assembly, lookupClass, project || "apelora") : { deployable: [], designOnly: [] }), [assembly, project]);
+  const split = useMemo(() => (assembly ? deploymentModules(assembly, lookupClass, project || "apelora") : { deployable: [], designOnly: [] }), [assembly, project]);
 
   const connect = async () => {
     setStep({ kind: "connecting" });
@@ -98,10 +98,10 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the dialog opens
   }, [open]);
 
-  const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec, replicas: d.replicas, availability: d.availability, internet: d.internet, guestOs: d.guestOs }));
-  /** The design's connections between appliances that are deployed (rules for the server). */
+  const desired = () => split.deployable.map((d) => ({ module: d.module, spec: d.spec, replicas: d.replicas, availability: d.availability, internet: d.internet, guestOs: d.guestOs }));
+  /** The design's connections between modules that are deployed (rules for the server). */
   const connections = () => {
-    const deployed = new Set(split.deployable.map((d) => d.appliance));
+    const deployed = new Set(split.deployable.map((d) => d.module));
     return compileNetwork(current(), appName).intents
       .filter((i) => deployed.has(i.from) && deployed.has(i.to))
       .map((i) => ({ from: i.from, to: i.to, transport: i.transport, port: i.number }));
@@ -109,15 +109,15 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   // A gateway in the design stands for the outside world: what it connects to is published.
   const published = () => {
     const a = current();
-    const gateways = new Set(a.spec.appliances.filter((x) => x.classRef.name === "gateway").map((x) => x.id));
-    return publishedPorts(compileNetwork(a, appName), gateways, new Set(split.deployable.map((d) => d.appliance)));
+    const gateways = new Set(a.spec.modules.filter((x) => x.classRef.name === "gateway").map((x) => x.id));
+    return publishedPorts(compileNetwork(a, appName), gateways, new Set(split.deployable.map((d) => d.module)));
   };
 
   const preview = async () => {
     setBusy(true);
     setError(null);
     try {
-      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, appliances: desired(), connections: connections(), published: published() } });
+      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, modules: desired(), connections: connections(), published: published() } });
       setStep({ kind: "review", plan });
     } catch (e) {
       setError(messageOf(e));
@@ -135,7 +135,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, appliances: desired(), connections: connections(), published: published(), removeMissing, ...(target ? { version: target.version } : {}) },
+        body: { project, document, modules: desired(), connections: connections(), published: published(), removeMissing, ...(target ? { version: target.version } : {}) },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
@@ -208,7 +208,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
               <label className="flex flex-col gap-1">
                 <span>Application name</span>
                 <input className="input input-sm w-60 font-mono" value={appName} readOnly={!!target} onChange={(e) => setAppName(e.target.value)} aria-invalid={!!nameError} aria-describedby="deploy-app-hint" data-testid="deploy-app" />
-                <span id="deploy-app-hint" className={`text-xs ${nameError ? "text-error" : "text-base-content/60"}`}>{nameError ?? "Instances are named <application>-<appliance>."}</span>
+                <span id="deploy-app-hint" className={`text-xs ${nameError ? "text-error" : "text-base-content/60"}`}>{nameError ?? "Instances are named <application>-<module>."}</span>
               </label>
               <label className="flex flex-col gap-1">
                 <span>Project</span>
@@ -217,15 +217,15 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
                 </select>
               </label>
             </div>
-            <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-appliances">
+            <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-modules">
               {split.deployable.map((d) => (
-                <li key={d.appliance} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
+                <li key={d.module} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
                   <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}<span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-resources">{d.resources.cpu} CPU · {d.resources.memoryMiB} MiB{d.replicas > 1 ? " each" : ""}</span>{d.volumes.length > 0 && <span className="block text-xs font-normal text-base-content/60" data-testid="deploy-volumes">Keeps {d.volumes.map((v) => `${v.name} (${v.sizeMiB >= 1024 && v.sizeMiB % 1024 === 0 ? `${v.sizeMiB / 1024} GiB` : `${v.sizeMiB} MiB`}) at ${v.path}`).join(", ")}</span>}</span>
                   <span className="truncate font-mono text-xs text-base-content/60">{d.spec.source.alias}</span>
                 </li>
               ))}
               {split.designOnly.map((d) => (
-                <li key={d.appliance} className="flex items-center justify-between gap-3 px-3 py-2 text-base-content/60" data-testid="deploy-design-only">
+                <li key={d.module} className="flex items-center justify-between gap-3 px-3 py-2 text-base-content/60" data-testid="deploy-design-only">
                   <span>{d.name}</span>
                   <span className="text-xs">Design only: {d.reason}</span>
                 </li>
@@ -253,7 +253,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
                 <span>Also delete the instances no longer in the design</span>
               </label>
             )}
-            {conflicts(step.plan) && <p role="alert" className="text-error" data-testid="deploy-conflicts">Resolve the conflicts first: rename the appliance or the application. Nothing is deployed while any remain.</p>}
+            {conflicts(step.plan) && <p role="alert" className="text-error" data-testid="deploy-conflicts">Resolve the conflicts first: rename the module or the application. Nothing is deployed while any remain.</p>}
             {error && <p role="alert" className="text-error" data-testid="deploy-error">{error}</p>}
             <div className="modal-action mt-0">
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setStep({ kind: "configure" })}>Back</button>
@@ -266,7 +266,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
 
         {step.kind === "applying" && (
           <div className="flex flex-col gap-3 text-sm" data-testid="deploy-progress">
-            <p className="text-base-content/70">Revision {step.revision} saved. The canvas shows each appliance's state while this design is open.</p>
+            <p className="text-base-content/70">Revision {step.revision} saved. The canvas shows each module's state while this design is open.</p>
             {step.jobs.length === 0 ? <p>Nothing to change.</p> : (
               <ul className="divide-y divide-base-300 rounded-box border border-base-300">
                 {step.jobs.map((j) => (
@@ -297,7 +297,7 @@ function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforc
       <p className="mt-2 text-xs text-base-content/60">
         Each consumer finds its provider in the environment variable shown ($APELORA_SERVICE_…).{" "}
         {enforced
-          ? "Each cable allows one service; everything else between the application's instances is rejected. Only cables between deployed appliances apply."
+          ? "Each cable allows one service; everything else between the application's instances is rejected. Only cables between deployed modules apply."
           : "Each cable allows one service, by name. The control plane does not enforce them: instances share the project's network."}
       </p>
       <ul className="mt-2 flex flex-col gap-1 font-mono text-xs">
@@ -309,7 +309,7 @@ function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforc
         <>
           <p className="mt-2 text-xs text-base-content/60">Reachable from outside the application (connected from a gateway):</p>
           <ul className="mt-1 flex flex-col gap-1 font-mono text-xs">
-            {published.map((p) => <li key={`${p.appliance}/${p.port}`} data-testid="published-port">{p.appliance} · {p.port}/{p.transport}</li>)}
+            {published.map((p) => <li key={`${p.module}/${p.port}`} data-testid="published-port">{p.module} · {p.port}/{p.transport}</li>)}
           </ul>
         </>
       )}
@@ -322,11 +322,11 @@ function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean
   return (
     <div className="max-h-64 overflow-auto rounded-box border border-base-300">
       <table className="table table-sm">
-        <thead><tr><th>Appliance</th><th>Instance</th><th>Change</th><th>Why</th></tr></thead>
+        <thead><tr><th>Module</th><th>Instance</th><th>Change</th><th>Why</th></tr></thead>
         <tbody>
           {plan.items.map((i) => (
             <tr key={i.instance} data-testid="plan-row" data-action={i.action}>
-              <td>{i.appliance}</td>
+              <td>{i.module}</td>
               <td className="font-mono text-xs">{i.instance}</td>
               <td className="whitespace-nowrap"><span className={`status ${ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}</td>
               <td className="text-base-content/70">{i.reason}</td>

@@ -33,7 +33,7 @@
     "spec": {
       "type": "object",
       "properties": {
-        "appliances": {
+        "modules": {
           "type": "array",
           "items": {
             "type": "object",
@@ -246,7 +246,7 @@
               "source": {
                 "type": "object",
                 "properties": {
-                  "applianceId": {
+                  "moduleId": {
                     "type": "string",
                     "pattern": "^[a-z][a-z0-9-]{0,62}$"
                   },
@@ -256,7 +256,7 @@
                   }
                 },
                 "required": [
-                  "applianceId",
+                  "moduleId",
                   "portId"
                 ],
                 "additionalProperties": false
@@ -264,7 +264,7 @@
               "target": {
                 "type": "object",
                 "properties": {
-                  "applianceId": {
+                  "moduleId": {
                     "type": "string",
                     "pattern": "^[a-z][a-z0-9-]{0,62}$"
                   },
@@ -274,7 +274,7 @@
                   }
                 },
                 "required": [
-                  "applianceId",
+                  "moduleId",
                   "portId"
                 ],
                 "additionalProperties": false
@@ -304,7 +304,7 @@
               "endpoint": {
                 "type": "object",
                 "properties": {
-                  "applianceId": {
+                  "moduleId": {
                     "type": "string",
                     "pattern": "^[a-z][a-z0-9-]{0,62}$"
                   },
@@ -314,7 +314,7 @@
                   }
                 },
                 "required": [
-                  "applianceId",
+                  "moduleId",
                   "portId"
                 ],
                 "additionalProperties": false
@@ -346,7 +346,7 @@
         }
       },
       "required": [
-        "appliances",
+        "modules",
         "connections"
       ],
       "additionalProperties": false
@@ -1168,7 +1168,7 @@
               "composition": {
                 "type": "object",
                 "properties": {
-                  "appliances": {
+                  "modules": {
                     "minItems": 1,
                     "maxItems": 200,
                     "type": "array",
@@ -1384,7 +1384,7 @@
                         "source": {
                           "type": "object",
                           "properties": {
-                            "applianceId": {
+                            "moduleId": {
                               "type": "string",
                               "pattern": "^[a-z][a-z0-9-]{0,62}$"
                             },
@@ -1394,7 +1394,7 @@
                             }
                           },
                           "required": [
-                            "applianceId",
+                            "moduleId",
                             "portId"
                           ],
                           "additionalProperties": false
@@ -1402,7 +1402,7 @@
                         "target": {
                           "type": "object",
                           "properties": {
-                            "applianceId": {
+                            "moduleId": {
                               "type": "string",
                               "pattern": "^[a-z][a-z0-9-]{0,62}$"
                             },
@@ -1412,7 +1412,7 @@
                             }
                           },
                           "required": [
-                            "applianceId",
+                            "moduleId",
                             "portId"
                           ],
                           "additionalProperties": false
@@ -1443,7 +1443,7 @@
                         "endpoint": {
                           "type": "object",
                           "properties": {
-                            "applianceId": {
+                            "moduleId": {
                               "type": "string",
                               "pattern": "^[a-z][a-z0-9-]{0,62}$"
                             },
@@ -1453,7 +1453,7 @@
                             }
                           },
                           "required": [
-                            "applianceId",
+                            "moduleId",
                             "portId"
                           ],
                           "additionalProperties": false
@@ -1525,7 +1525,7 @@
                           "items": {
                             "type": "object",
                             "properties": {
-                              "applianceId": {
+                              "moduleId": {
                                 "type": "string",
                                 "pattern": "^[a-z][a-z0-9-]{0,62}$"
                               },
@@ -1535,7 +1535,7 @@
                               }
                             },
                             "required": [
-                              "applianceId",
+                              "moduleId",
                               "portId"
                             ],
                             "additionalProperties": false
@@ -1551,7 +1551,7 @@
                   }
                 },
                 "required": [
-                  "appliances",
+                  "modules",
                   "connections",
                   "layout",
                   "exposes"

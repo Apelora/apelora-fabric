@@ -1,5 +1,5 @@
 {
-  "name": "@apelora/appliance-catalog",
+  "name": "@apelora/module-catalog",
   "version": "0.0.0",
   "private": true,
   "type": "module",

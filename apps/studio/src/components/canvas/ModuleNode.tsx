@@ -7,11 +7,11 @@ import { useStudio, useStudioApi } from "../../features/editor/context";
 import { TagStub } from "./TagStub";
 import { Jack, PlugHead } from "./Jack";
 
-export type ApplianceNodeData = {
+export type ModuleNodeData = {
   name: string;
   className: string;
   category: Category;
-  /** Number of appliances inside, when this node is a component. */
+  /** Number of modules inside, when this node is a component. */
   inner: number;
   icon: string | undefined;
   inputs: Port[];
@@ -26,7 +26,7 @@ export type ApplianceNodeData = {
   tags: Record<string, { name: string; type: string; members: number }>;
   [key: string]: unknown;
 };
-export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
+export type ModuleFlowNode = Node<ModuleNodeData, "module">;
 
 function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined; tag: { name: string; type: string; members: number } | undefined }) {
   const api = useStudioApi();
@@ -34,7 +34,7 @@ function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; 
   // While a cable is dragged: sockets that can take it light up, the rest dim.
   const drag = useStudio((s): "lit" | "dim" | undefined => {
     const f = s.dragFrom;
-    if (!f || f.applianceId === nodeId) return f && f.applianceId === nodeId && f.portId === port.id ? "lit" : undefined;
+    if (!f || f.moduleId === nodeId) return f && f.moduleId === nodeId && f.portId === port.id ? "lit" : undefined;
     if (port.direction === f.direction) return "dim";
     return (f.direction === "output" ? portTypesCompatible(f.type, port.type) : portTypesCompatible(port.type, f.type)) ? "lit" : "dim";
   });
@@ -65,10 +65,10 @@ function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; 
   );
 }
 
-function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>) {
+function ModuleNodeImpl({ id, data, selected }: NodeProps<ModuleFlowNode>) {
   const api = useStudioApi();
   const updateInternals = useUpdateNodeInternals();
-  const instances = useLive((s) => (s.application ? (s.byAppliance[id] ?? null) : undefined));
+  const instances = useLive((s) => (s.application ? (s.byModule[id] ?? null) : undefined));
   const service = useLive((s) => s.services[id]);
   const live = instances === undefined ? undefined : liveSummary(instances ?? undefined, service);
   const signature = `${data.inputs.map((p) => p.id).join(",")}|${data.outputs.map((p) => p.id).join(",")}|${data.width}x${data.height}`;
@@ -77,7 +77,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
   return (
     <div
       className="apl-node"
-      data-testid="appliance-node"
+      data-testid="module-node"
       data-node-id={id}
       data-selected={selected ? "true" : "false"}
       data-status={data.status}
@@ -86,7 +86,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
     >
       <div className="apl-node-header flex items-center gap-1 px-2 text-[11px] font-medium leading-none" title={`${data.name} · ${data.className}`}>
         <span className="min-w-0 flex-1 truncate">{data.name}</span>
-        {data.inner > 0 && <span className="apl-comp-badge" data-testid="component-badge" title={`Component of ${data.inner} appliances`}>▣ {data.inner}</span>}
+        {data.inner > 0 && <span className="apl-comp-badge" data-testid="component-badge" title={`Component of ${data.inner} modules`}>▣ {data.inner}</span>}
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
         {live !== undefined && (
           <span
@@ -112,7 +112,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
         minHeight={data.minHeight}
         onResizeStart={() => api.getState().beginGesture()}
         onResizeEnd={() => api.getState().endGesture()}
-        aria-label="Resize appliance"
+        aria-label="Resize module"
       >
         <svg className="apl-resize-grip" viewBox="0 0 10 10" aria-hidden="true"><path d="M9 1L1 9M9 5L5 9" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
       </NodeResizeControl>
@@ -120,4 +120,4 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
   );
 }
 
-export const ApplianceNode = memo(ApplianceNodeImpl);
+export const ModuleNode = memo(ModuleNodeImpl);

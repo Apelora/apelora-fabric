@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ApplianceInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ApplianceClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
+import { lookupClass } from "@apelora/module-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
 import { draftFromPorts, useCustomCatalog } from "../../features/catalog/customCatalog";
@@ -15,7 +15,7 @@ const W = 420;
 type Api = ReturnType<typeof useStudioApi>;
 
 function targetRect(t: PropsTarget): DOMRect | null {
-  const sel = t.kind === "appliance" ? `[data-testid=appliance-node][data-node-id="${t.id}"]` : t.kind === "shape" ? `[data-testid=shape-node][data-shape-id="${t.id}"]` : null;
+  const sel = t.kind === "module" ? `[data-testid=module-node][data-node-id="${t.id}"]` : t.kind === "shape" ? `[data-testid=shape-node][data-shape-id="${t.id}"]` : null;
   return sel ? document.querySelector(sel)?.getBoundingClientRect() ?? null : null;
 }
 
@@ -35,23 +35,23 @@ const freeVolumeName = (vs: Volume[]) => {
 };
 
 /**
- * The appliance's persistent volumes. Every change is checked against the schema before it is
+ * The module's persistent volumes. Every change is checked against the schema before it is
  * kept; an invalid one is refused with the reason and the field goes back to its value.
  */
-function VolumesSection({ appId, cls, volumes }: { appId: string; cls: ApplianceClass; volumes: Volume[] }) {
+function VolumesSection({ appId, cls, volumes }: { appId: string; cls: ModuleClass; volumes: Volume[] }) {
   const api = useStudioApi();
   const [error, setError] = useState<string | null>(null);
   const stateless = availabilityOf(cls) === "stateless";
   const commit = (next: Volume[]): boolean => {
-    const r = ApplianceInstanceSchema.shape.volumes.safeParse(next);
+    const r = ModuleInstanceSchema.shape.volumes.safeParse(next);
     if (!r.success) { setError(r.error.issues[0]?.message ?? "invalid volume"); return false; }
     setError(null);
-    api.getState().setApplianceVolumes(appId, next);
+    api.getState().setModuleVolumes(appId, next);
     return true;
   };
   const change = (i: number, patch: Partial<Volume>) => commit(volumes.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   if (stateless) {
-    return <Section title="Volumes"><p className="text-xs text-base-content/60" data-testid="volumes-stateless">Stateless appliances keep no data: their replicas can be recreated on any server.</p></Section>;
+    return <Section title="Volumes"><p className="text-xs text-base-content/60" data-testid="volumes-stateless">Stateless modules keep no data: their replicas can be recreated on any server.</p></Section>;
   }
   return (
     <Section title={`Volumes (${volumes.length})`} right={volumes.length < MAX_VOLUMES ? (
@@ -84,32 +84,32 @@ function VolumesSection({ appId, cls, volumes }: { appId: string; cls: Appliance
           </ul>
         )}
         {error && <p role="alert" className="mt-1 text-xs text-error" data-testid="volume-error">{error}</p>}
-        <p className="mt-1 text-xs text-base-content/60">Each instance gets its own. Removing the appliance keeps the data; delete it in the Fabric Console.</p>
+        <p className="mt-1 text-xs text-base-content/60">Each instance gets its own. Removing the module keeps the data; delete it in the Fabric Console.</p>
       </div>
     </Section>
   );
 }
 
-function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "ports" | "issues" }) {
+function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "ports" | "issues" }) {
   const api = useStudioApi();
   const assembly = useStudio((s) => s.assembly);
   const diagnostics = useMemo(() => diagnosticsFor(assembly), [assembly]);
-  const app = assembly.spec.appliances.find((a) => a.id === id);
+  const app = assembly.spec.modules.find((a) => a.id === id);
   const layout = assembly.editor.nodes.find((n) => n.id === id);
   if (!app || !layout) return null;
   const cls = lookupClass(app.classRef.name, app.classRef.version);
   const size = effectiveSize(layout, app.ports, assembly.editor.density);
-  const mine = diagnostics.filter((d) => d.applianceId === app.id);
+  const mine = diagnostics.filter((d) => d.moduleId === app.id);
 
-  if (tab === "config") return cls?.properties?.length ? <ConfigForm app={app} /> : <p className="text-xs text-base-content/60" data-testid="no-config">This appliance has no configuration fields.</p>;
+  if (tab === "config") return cls?.properties?.length ? <ConfigForm app={app} /> : <p className="text-xs text-base-content/60" data-testid="no-config">This module has no configuration fields.</p>;
   if (tab === "ports") return <div className="flex flex-col gap-4" data-testid="ports-tab"><PortSection appId={app.id} ports={app.ports} direction="input" /><PortSection appId={app.id} ports={app.ports} direction="output" /></div>;
   if (tab === "issues") {
-    return mine.length === 0 ? <p className="text-xs text-base-content/60" data-testid="no-issues">No issues for this appliance.</p> : (
+    return mine.length === 0 ? <p className="text-xs text-base-content/60" data-testid="no-issues">No issues for this module.</p> : (
       <ul className="flex flex-col gap-2" data-testid="inspector-diagnostics">{mine.map((d, i) => <li key={i} className="text-xs"><span className={`badge badge-xs mr-1 ${d.severity === "error" ? "badge-error" : "badge-warning"}`}>{d.severity}</span>{d.message}{d.hint && <span className="block pl-1 text-base-content/60">{d.hint}</span>}</li>)}</ul>
     );
   }
   return (
-    <div className="flex flex-col gap-4" data-testid="inspector-appliance">
+    <div className="flex flex-col gap-4" data-testid="inspector-module">
       <label className="fieldset">
         <span className="fieldset-legend text-[11px]">Instance name</span>
         <input key={app.name} defaultValue={app.name} data-testid="instance-name" className="input input-sm w-full" onBlur={(e) => api.getState().rename(app.id, e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
@@ -158,17 +158,17 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
         </Section>
       )}
       {cls?.composition && (
-        <Section title={`Contents (${cls.composition.appliances.length})`} right={<button className="btn btn-ghost btn-xs" data-testid="ungroup" onClick={() => api.getState().ungroupSelection(app.id)}>Ungroup</button>}>
+        <Section title={`Contents (${cls.composition.modules.length})`} right={<button className="btn btn-ghost btn-xs" data-testid="ungroup" onClick={() => api.getState().ungroupSelection(app.id)}>Ungroup</button>}>
           <div data-testid="component-contents">
-            <ul className="flex flex-col gap-0.5 text-xs">{cls.composition.appliances.map((x) => <li key={x.id} className="truncate">{x.name} <span className="text-base-content/70">· {lookupClass(x.classRef.name, x.classRef.version)?.displayName ?? x.classRef.name}</span></li>)}</ul>
-            <p className="mt-1 text-[10px] text-base-content/70">Its <span className="font-mono">net</span> plugs every inner appliance into the network.</p>
+            <ul className="flex flex-col gap-0.5 text-xs">{cls.composition.modules.map((x) => <li key={x.id} className="truncate">{x.name} <span className="text-base-content/70">· {lookupClass(x.classRef.name, x.classRef.version)?.displayName ?? x.classRef.name}</span></li>)}</ul>
+            <p className="mt-1 text-[10px] text-base-content/70">Its <span className="font-mono">net</span> plugs every inner module into the network.</p>
           </div>
         </Section>
       )}
       <Section title="Health policy"><p className="text-xs text-base-content/70">Placeholder: health checks are defined in a later milestone.</p></Section>
       <div className="flex gap-2">
-        <button className="btn btn-sm btn-outline flex-1" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" disabled={!!cls?.composition} onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom appliance…</button>
-        <button className="btn btn-sm btn-outline" data-testid="delete-appliance" onClick={() => { api.getState().deleteElements([app.id], []); }}><IconTrash size={14} />Delete</button>
+        <button className="btn btn-sm btn-outline flex-1" data-testid="save-as-class" title="Turn this module, with its ports, into a reusable catalog module" disabled={!!cls?.composition} onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom module…</button>
+        <button className="btn btn-sm btn-outline" data-testid="delete-module" onClick={() => { api.getState().deleteElements([app.id], []); }}><IconTrash size={14} />Delete</button>
       </div>
     </div>
   );
@@ -177,8 +177,8 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
 function CableBody({ id, api, assembly }: { id: string; api: Api; assembly: ApplicationAssembly }) {
   const conn = assembly.spec.connections.find((c) => c.id === id);
   if (!conn) return null;
-  const sa = assembly.spec.appliances.find((a) => a.id === conn.source.applianceId);
-  const ta = assembly.spec.appliances.find((a) => a.id === conn.target.applianceId);
+  const sa = assembly.spec.modules.find((a) => a.id === conn.source.moduleId);
+  const ta = assembly.spec.modules.find((a) => a.id === conn.target.moduleId);
   const sp = sa?.ports.find((p) => p.id === conn.source.portId);
   const tp = ta?.ports.find((p) => p.id === conn.target.portId);
   const custom = cableColorOf(assembly, conn.id);
@@ -218,8 +218,8 @@ function TagBody({ name, api, assembly }: { name: string; api: Api; assembly: Ap
       </label>
       <p className="text-base-content/60">Terminals with the same name are linked without a drawn cable. {members.length} terminals: {outs} output{outs === 1 ? "" : "s"}, {members.length - outs} input{members.length - outs === 1 ? "" : "s"}.</p>
       <ul className="flex flex-col gap-1" data-testid="tag-members">
-        {members.map((m) => { const a = assembly.spec.appliances.find((x) => x.id === m.endpoint.applianceId); const p = portOf(assembly, m.endpoint); return (
-          <li key={m.id}><button type="button" className="btn btn-ghost btn-xs w-full justify-start font-normal" onClick={() => api.getState().selectNode(m.endpoint.applianceId)}><span className="badge badge-xs">{p?.direction === "output" ? "out" : "in"}</span>{a?.name}.{p?.name} <span className="text-base-content/70">({p?.type})</span></button></li>
+        {members.map((m) => { const a = assembly.spec.modules.find((x) => x.id === m.endpoint.moduleId); const p = portOf(assembly, m.endpoint); return (
+          <li key={m.id}><button type="button" className="btn btn-ghost btn-xs w-full justify-start font-normal" onClick={() => api.getState().selectNode(m.endpoint.moduleId)}><span className="badge badge-xs">{p?.direction === "output" ? "out" : "in"}</span>{a?.name}.{p?.name} <span className="text-base-content/70">({p?.type})</span></button></li>
         ); })}
       </ul>
       <div className="flex gap-2">
@@ -241,7 +241,7 @@ function AssemblyBody({ assembly }: { assembly: ApplicationAssembly }) {
     <div className="flex flex-col gap-4">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs" data-testid="inspector-assembly">
         <dt className="text-base-content/60">Assembly</dt><dd className="truncate">{assembly.metadata.name}</dd>
-        <dt className="text-base-content/60">Appliances</dt><dd>{totals.appliances}</dd>
+        <dt className="text-base-content/60">Modules</dt><dd>{totals.modules}</dd>
         <dt className="text-base-content/60">Connections</dt><dd>{assembly.spec.connections.length}</dd>
         <dt className="text-base-content/60">Link tags</dt><dd>{(assembly.spec.links ?? []).length}</dd>
         <dt className="text-base-content/60">Zones and shapes</dt><dd>{(assembly.editor.shapes ?? []).length}</dd>
@@ -262,7 +262,7 @@ function AssemblyBody({ assembly }: { assembly: ApplicationAssembly }) {
           <dt className="text-base-content/60">NIC models</dt><dd>{info.nicModels.join(", ")}</dd>
           <dt className="text-base-content/60">Packaging</dt><dd>{info.packaging}</dd>
         </dl>
-        <p className="mt-2 text-[11px] text-base-content/70">The appliances, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
+        <p className="mt-2 text-[11px] text-base-content/70">The modules, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
       </section>
     </div>
   );
@@ -298,7 +298,7 @@ export function PropertiesWindow() {
   useEffect(() => {
     if (!win) return;
     const gone =
-      (win.kind === "appliance" && !assembly.spec.appliances.some((a) => a.id === win.id)) ||
+      (win.kind === "module" && !assembly.spec.modules.some((a) => a.id === win.id)) ||
       (win.kind === "cable" && !assembly.spec.connections.some((c) => c.id === win.id)) ||
       (win.kind === "tag" && tagNet(assembly, win.id).length === 0) ||
       (win.kind === "shape" && !(assembly.editor.shapes ?? []).some((x) => x.id === win.id));
@@ -331,11 +331,11 @@ export function PropertiesWindow() {
   let body: React.ReactNode = null;
   let tabs: React.ReactNode = null;
 
-  if (win.kind === "appliance") {
-    const app = assembly.spec.appliances.find((a) => a.id === win.id);
+  if (win.kind === "module") {
+    const app = assembly.spec.modules.find((a) => a.id === win.id);
     const cls = app ? lookupClass(app.classRef.name, app.classRef.version) : undefined;
     const tab = win.tab ?? "general";
-    const nIssues = diagnosticsFor(assembly).filter((d) => d.applianceId === win.id).length;
+    const nIssues = diagnosticsFor(assembly).filter((d) => d.moduleId === win.id).length;
     title = app?.name ?? win.id;
     subtitle = `${cls?.displayName ?? app?.classRef.name ?? ""} · ${win.id}`;
     accent = cls ? categoryColor(cls.category) : undefined;
@@ -348,7 +348,7 @@ export function PropertiesWindow() {
         ))}
       </div>
     );
-    body = <ApplianceBody id={win.id} tab={tab} />;
+    body = <ModuleBody id={win.id} tab={tab} />;
   } else if (win.kind === "cable") { title = "Cable"; subtitle = win.id; body = <CableBody id={win.id} api={api} assembly={assembly} />; }
   else if (win.kind === "tag") { title = `Link tag “${win.id}”`; body = <TagBody name={win.id} api={api} assembly={assembly} />; }
   else if (win.kind === "assembly") { title = "Assembly"; subtitle = assembly.metadata.name; body = <AssemblyBody assembly={assembly} />; }

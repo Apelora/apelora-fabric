@@ -4,7 +4,7 @@ Authoritative rules for working in this repository, shared by all coding agents 
 
 ## Architecture in one paragraph
 
-Apelora composes applications from appliances in a visual designer and runs them on a cluster of Linux servers. **Incus** runs the appliances (LXC system containers by default, OCI application containers, QEMU VMs where needed) and owns cluster membership, placement and instance lifecycle. **Apelora** owns application graphs, appliance classes, desired state, connectivity, replicas, health and recovery, in a Rust control plane backed by PostgreSQL. See [ADR 0001](docs/adr/0001-incus-first.md), [ADR 0003](docs/adr/0003-incus-identities-and-cluster-join.md) (Incus identities, cluster join), [ADR 0004](docs/adr/0004-service-discovery.md) (service discovery), [platform architecture](docs/architecture/PLATFORM-ARCHITECTURE.md), [implementation phases](docs/development/IMPLEMENTATION-PHASES.md) and the [current state](docs/architecture/current-state.md).
+Apelora composes applications from modules in a visual designer and runs them on a cluster of Linux servers. **Incus** runs the modules (LXC system containers by default, OCI application containers, QEMU VMs where needed) and owns cluster membership, placement and instance lifecycle. **Apelora** owns application graphs, module classes, desired state, connectivity, replicas, health and recovery, in a Rust control plane backed by PostgreSQL. See [ADR 0001](docs/adr/0001-incus-first.md), [ADR 0003](docs/adr/0003-incus-identities-and-cluster-join.md) (Incus identities, cluster join), [ADR 0004](docs/adr/0004-service-discovery.md) (service discovery), [ADR 0006](docs/adr/0006-modules.md) (modules), [platform architecture](docs/architecture/PLATFORM-ARCHITECTURE.md), [implementation phases](docs/development/IMPLEMENTATION-PHASES.md) and the [current state](docs/architecture/current-state.md).
 
 ## What exists now
 
@@ -12,7 +12,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 - `apps/fabric-console` — administrator console: inventory, instances, operations, preflight, membership (machine enrolment, evacuation, join tokens), audit, tokens.
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, network intent compiler, (de)serialisation, generated JSON Schema.
-- `packages/appliance-catalog` — original appliance class manifests, runtimes (NGINX, Debian), bundled logos (with attribution), sample assembly.
+- `packages/module-catalog` — original module class manifests, runtimes (NGINX, Debian), bundled logos (with attribution), sample assembly.
 - `services/control-plane` (Axum API), `services/deployment-worker` (job queue, network sync, replica supervisor), `crates/domain`, `crates/persistence` (PostgreSQL), `crates/incus-adapter` (Incus REST + mock). **REAL INCUS TESTED** on a three-member disposable cluster; see `docs/architecture/current-state.md` for what is verified and the known limitations.
 - Product name in UI/code is **Apelora**. Change it in one place if branding changes (`PRODUCT_NAME`, `API_VERSION`).
 
@@ -25,7 +25,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 5. **Style:** white shell, distinct light-gray framed canvas (`#F7F7F8`, 12px radius), daisyUI semantic tokens, one primary button per toolbar, no gradients/glass/heavy shadows. Fabric Console uses the same theme.
 6. **Imports are untrusted input.** Validate with the schema; never replace the current document on failure.
 7. **No secrets in the repo.** `.mcp.json` holds non-secret config only; tokens, Incus client certificates and BMC credentials stay in local env/keyring or the backend's secret store — never in the browser, logs or the repository. The browser talks only to the Apelora API.
-8. **Licensing:** AGPL-3.0-only code; do not edit legal agreements without an explicit request; logos need recorded origin/licence (`packages/appliance-catalog/assets/logos/ATTRIBUTION.md`). Upstreams are used over their APIs (Incus Apache-2.0; MAAS AGPL-3.0 if adopted); keep their notices.
+8. **Licensing:** AGPL-3.0-only code; do not edit legal agreements without an explicit request; logos need recorded origin/licence (`packages/module-catalog/assets/logos/ATTRIBUTION.md`). Upstreams are used over their APIs (Incus Apache-2.0; MAAS AGPL-3.0 if adopted); keep their notices.
 9. **Original work only.** Use general concepts in our own wording; never copy another product's code, artwork, text, formats, class names or manifests, and never store or quote third-party documents or mention other products by name in this repository (dependencies we actually use, such as Incus, PostgreSQL or OVN, may be named). See `docs/architecture/COMPONENT-MODEL.md`.
 10. **Git:** commits are authored by the user only. Never add `Co-Authored-By` or any AI attribution.
 
@@ -70,8 +70,8 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 | Task | Skills |
 |---|---|
 | Fabric Console views and actions | `fabric-console`, `studio-design-system`, `daisyui`, `playwright-qa` |
-| Studio canvas, nodes, interactions | `visual-designer`, `compact-appliance`, `react-flow-interactions`, `studio-reactflow`, `studio-design-system`, `daisyui` |
-| Catalog and schema | `appliance-catalog`, `appliance-schema`, `application-assembly`, `topology-validation` |
+| Studio canvas, nodes, interactions | `visual-designer`, `compact-module`, `react-flow-interactions`, `studio-reactflow`, `studio-design-system`, `daisyui` |
+| Catalog and schema | `module-catalog`, `module-schema`, `application-assembly`, `topology-validation` |
 | Rust API, worker, jobs | `rust-control-plane`, `security-tenancy`, `observability` |
 | Incus integration | `incus-platform`, `upstream-maintenance` |
 | Upstream knowledge (licences, facts, adopted practices, upstream AI policies) | `upstream-reference` — add an entry whenever an upstream repo or document is shared |
@@ -81,7 +81,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 | Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
 | Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
 | Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |
-| Terminal and PowerShell into appliances (built; RDP not built) | `secure-remote-access`, `identity-authorization`, `security-review` |
+| Terminal and PowerShell into modules (built; RDP not built) | `secure-remote-access`, `identity-authorization`, `security-review` |
 | Mutation testing, strengthening tests | `mutation-testing`, `testing-operations`, `quality-assurance` |
 | Design work and scaling | `system-design-framework`, `capacity-estimation`, `scalability-patterns` |
 

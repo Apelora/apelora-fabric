@@ -4,13 +4,13 @@ Status: **target design** — describes where we are going. Much of it now runs 
 
 ## 1. Goal
 
-A user composes an application from small appliances in **Apelora Studio**, connects typed terminals, chooses resources, replicas and exposure, reviews a deployment plan and deploys it onto a cluster of Linux servers. Administrators run the servers, networks, storage, tenants and failures in **Apelora Fabric Console**. Apelora adds the application layer; it does not re-implement cluster management, packet forwarding or hardware provisioning.
+A user composes an application from small modules in **Apelora Studio**, connects typed terminals, chooses resources, replicas and exposure, reviews a deployment plan and deploys it onto a cluster of Linux servers. Administrators run the servers, networks, storage, tenants and failures in **Apelora Fabric Console**. Apelora adds the application layer; it does not re-implement cluster management, packet forwarding or hardware provisioning.
 
 ## 2. Three management levels, one authority each
 
 | Level | Authority | Responsibility |
 |---|---|---|
-| Application | **Apelora** (Rust control plane + PostgreSQL) | Appliance classes, application graphs, desired state, connectivity intents, service names, publishing, replicas, health, mobility, recovery policy, audit |
+| Application | **Apelora** (Rust control plane + PostgreSQL) | Module classes, application graphs, desired state, connectivity intents, service names, publishing, replicas, health, mobility, recovery policy, audit |
 | Compute | **Incus** cluster | Membership, quorum (Raft-replicated database), instance placement and lifecycle, projects, profiles, images, storage and network objects, evacuation |
 | Network dataplane | Physical LAN/VLAN, later **OVN** (managed through Incus) | Forwarding, logical networks, ACL enforcement, load balancing |
 | Bare metal (proposed) | **MAAS** | Discovery, network boot, commissioning, OS install, power control |
@@ -18,6 +18,9 @@ A user composes an application from small appliances in **Apelora Studio**, conn
 Rules: one owner per piece of state; Apelora observes the others and acts only through their APIs; nothing writes another system's database.
 
 ## 3. Layers
+
+![Apelora on Incus, layer by layer](../assets/diagrams/platform-layers.svg)
+
 
 ```text
  LAYER 1  USER INTERFACES (React + TypeScript, independent builds)
@@ -56,16 +59,16 @@ Rules: one owner per piece of state; Apelora observes the others and acts only t
 
 The network fabric, coordination and HA engines are **libraries inside the two Rust services**, not separate products. "Minion" in the UI means an Incus cluster member; there is no extra Apelora host agent unless an ADR introduces one.
 
-## 4. Appliances and runtimes
+## 4. Modules and runtimes
 
 | Runtime | Default use |
 |---|---|
 | LXC system container | Web servers, APIs, workers, caches, databases — the default |
 | OCI application container | Single-process images, pinned by digest |
-| QEMU VM | Other kernels/OSes, firewall-style appliances, stronger isolation |
+| QEMU VM | Other kernels/OSes, firewall-style modules, stronger isolation |
 | Composite | A Studio grouping; expands into its members |
 
-A Studio node is a *logical* appliance; its replicas are separate Incus instances mapped by stable ids. Saved graphs never contain host names or IP addresses.
+A Studio node is a *logical* module; its replicas are separate Incus instances mapped by stable ids. Saved graphs never contain host names or IP addresses.
 
 ## 5. Virtual network fabric
 
@@ -82,7 +85,7 @@ Runtime:  web-01, web-02 ──> backend.<app>.internal:8080 ──> api-01, api
 
 | Studio element | Becomes |
 |---|---|
-| Appliance | Incus instance(s) |
+| Module | Incus instance(s) |
 | Input terminal | Service endpoint |
 | Output terminal | Dependency |
 | Connection | Allowed traffic + name resolution |
@@ -97,7 +100,7 @@ Runtime:  web-01, web-02 ──> backend.<app>.internal:8080 ──> api-01, api
 
 | Exposure | Reachable by | Use |
 |---|---|---|
-| Internal service name | Connected appliances | Front end → API |
+| Internal service name | Connected modules | Front end → API |
 | Private address | Authorised internal networks | API, databases, caches |
 | Shared public HTTPS (default) | Internet, via domain + TLS on shared ingress | Most web apps |
 | Dedicated public address | Internet, own address | Special TCP services |
@@ -135,7 +138,7 @@ Separate detectors, each with source, timestamp and freshness: member (Incus hea
 | Replicated database | By design | Application-specific failover adapter |
 | VM | 1 | Incus migration where supported |
 
-**Relocating stateless appliances (replace, then retire):** plan (policy + capacity) → start replacement on another member → wait for readiness → switch the service name's routing → drain and retire the old instance. No container live migration is needed; downtime depends on replica count, draining, sessions and ingress, and is measured, not promised.
+**Relocating stateless modules (replace, then retire):** plan (policy + capacity) → start replacement on another member → wait for readiness → switch the service name's routing → drain and retire the old instance. No container live migration is needed; downtime depends on replica count, draining, sessions and ingress, and is measured, not promised.
 
 **Stateful single instances:** planned stop-and-move with storage checks and an announced interruption. Ordinary LXC live migration is limited and is never assumed.
 
@@ -186,7 +189,7 @@ A container orchestrator; writing a hypervisor, cluster manager, scheduler, stor
 
 ```text
 apps/            studio (exists), fabric-console (placeholder)
-packages/        assembly-model, appliance-catalog (exist); api-client, ui (when needed)
+packages/        assembly-model, module-catalog (exist); api-client, ui (when needed)
 services/        control-plane, deployment-worker (skeletons)
 crates/          domain, incus-adapter (skeletons); others created by the phase that needs them
 infra/           incus/, ovn/, ingress/, storage/, maas/  (runbooks and example configs; later)

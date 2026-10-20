@@ -5,7 +5,7 @@ Status: agreed (follows [ADR 0002](../adr/0002-bare-metal-provisioning-maas.md),
 ## 1. Problem and scope
 
 A new server must go from "known to the administrator" to "Incus member that Apelora places
-appliances on", the same way whatever installed it, with an administrator approving every step
+modules on", the same way whatever installed it, with an administrator approving every step
 that changes something, and every step audited.
 
 - **Goals (slice 1):** machine records with a provider; the **manual** provider (operating

@@ -2,7 +2,7 @@ import { useStudio, useStudioApi } from "../../features/editor/context";
 import { Modal } from "./Modal";
 
 const GROUPS: { title: string; rows: [string, string][] }[] = [
-  { title: "Canvas", rows: [["V", "Select tool"], ["H", "Pan tool (or hold Space)"], ["F", "Fit to view"], ["+ / −", "Zoom in / out"], ["Ctrl+K", "Find an appliance"], ["Arrow keys", "Nudge the selection (Shift = 10×)"]] },
+  { title: "Canvas", rows: [["V", "Select tool"], ["H", "Pan tool (or hold Space)"], ["F", "Fit to view"], ["+ / −", "Zoom in / out"], ["Ctrl+K", "Find a module"], ["Arrow keys", "Nudge the selection (Shift = 10×)"]] },
   { title: "Editing", rows: [["Ctrl+Z / Ctrl+Shift+Z", "Undo / redo"], ["Ctrl+C / V / D", "Copy / paste / duplicate"], ["Ctrl+A", "Select all"], ["Del", "Delete the selection"], ["F2", "Rename"], ["Enter", "Open properties"]] },
   { title: "Structure", rows: [["Ctrl+G", "Group into a component"], ["Ctrl+Shift+G", "Ungroup"], ["Shift+T", "Tidy layout"], ["Right-click", "Every action for what you click on"], ["?", "This sheet"]] },
 ];

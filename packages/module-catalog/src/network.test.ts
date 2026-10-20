@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAppliance, allows, compileNetwork, connect, createEmptyAssembly, publishedPorts, tagPort, type ApplicationAssembly } from "@apelora/assembly-model";
+import { addModule, allows, compileNetwork, connect, createEmptyAssembly, publishedPorts, tagPort, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
 
 const ids = (a: ReturnType<typeof compileNetwork>) => a.intents.map((i) => `${i.id} ${i.transport}/${i.number ?? "any"}`);
@@ -19,13 +19,13 @@ describe("network intents", () => {
       "haproxy-01.shop.internal", "nginx-01.shop.internal", "nginx-02.shop.internal", "postgresql-01.shop.internal",
     ]);
     expect(plan.intents.find((i) => i.to === "postgresql-01")?.service).toBe("postgresql-01.shop.internal");
-    expect(plan.segments).toEqual([{ name: "default", appliances: ["gateway-01", "grafana-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01"] }]);
+    expect(plan.segments).toEqual([{ name: "default", modules: ["gateway-01", "grafana-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01"] }]);
     expect(plan.warnings).toEqual([]);
   });
 
   it("are deterministic: the same graph in another order compiles to the same plan", () => {
     const a = sampleCommerceStack();
-    const shuffled: ApplicationAssembly = { ...a, spec: { ...a.spec, appliances: [...a.spec.appliances].reverse(), connections: [...a.spec.connections].reverse() } };
+    const shuffled: ApplicationAssembly = { ...a, spec: { ...a.spec, modules: [...a.spec.modules].reverse(), connections: [...a.spec.connections].reverse() } };
     expect(compileNetwork(shuffled, "shop")).toEqual(compileNetwork(a, "shop"));
   });
 
@@ -40,29 +40,29 @@ describe("network intents", () => {
 
   it("link tags connect like cables; NICs on a tag form a named segment", () => {
     const plan = compileNetwork(sampleNetworkedStack(), "shop");
-    expect(plan.segments).toEqual([{ name: "lan", appliances: ["gateway-01", "grafana-01", "haproxy-01", "network-01", "nginx-01", "nginx-02", "postgresql-01"] }]);
+    expect(plan.segments).toEqual([{ name: "lan", modules: ["gateway-01", "grafana-01", "haproxy-01", "network-01", "nginx-01", "nginx-02", "postgresql-01"] }]);
 
     let a = createEmptyAssembly("tags");
-    const place = (cls: string) => { const r = addAppliance(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
+    const place = (cls: string) => { const r = addModule(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
     const web = place("nginx");
     const db = place("postgresql");
-    const tagged = tagPort(a, { applianceId: web, portId: "db" }, "orders-db");
+    const tagged = tagPort(a, { moduleId: web, portId: "db" }, "orders-db");
     if ("error" in tagged) throw new Error(tagged.error.message);
-    const both = tagPort(tagged.assembly, { applianceId: db, portId: "postgres" }, "orders-db");
+    const both = tagPort(tagged.assembly, { moduleId: db, portId: "postgres" }, "orders-db");
     if ("error" in both) throw new Error(both.error.message);
     expect(ids(compileNetwork(both.assembly, "tags"))).toEqual([`${web}.db->${db}.postgres tcp/5432`]);
   });
 
   it("generic TCP terminals get a rule for any port and say so", () => {
     let a = createEmptyAssembly("raw");
-    const place = (cls: string) => { const r = addAppliance(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
+    const place = (cls: string) => { const r = addModule(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
     const lb = place("haproxy");
     const web = place("nginx");
-    const r = connect(a, { applianceId: lb, portId: "backend" }, { applianceId: web, portId: "http" });
+    const r = connect(a, { moduleId: lb, portId: "backend" }, { moduleId: web, portId: "http" });
     if ("error" in r) throw new Error(r.error.message);
     const plan = compileNetwork(r.assembly, "raw");
     expect(plan.intents[0]?.number).toBe(80);
-    const generic: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, appliances: r.assembly.spec.appliances.map((x) => (x.id === web ? { ...x, ports: x.ports.map((p) => (p.id === "http" ? { ...p, type: "tcp" as const } : p)) } : x)) } };
+    const generic: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, modules: r.assembly.spec.modules.map((x) => (x.id === web ? { ...x, ports: x.ports.map((p) => (p.id === "http" ? { ...p, type: "tcp" as const } : p)) } : x)) } };
     const g = compileNetwork(generic, "raw");
     expect(g.intents[0]?.number).toBeNull();
     expect(g.warnings[0]).toContain("no well-known port");
@@ -71,12 +71,12 @@ describe("network intents", () => {
   it("publishes what a gateway connects to, only when it is deployed and has a port", () => {
     const plan = compileNetwork(sampleCommerceStack(), "shop");
     const gateways = new Set(["gateway-01"]);
-    expect(publishedPorts(plan, gateways, new Set(["haproxy-01", "nginx-01"]))).toEqual([{ appliance: "haproxy-01", transport: "tcp", port: 80 }]);
+    expect(publishedPorts(plan, gateways, new Set(["haproxy-01", "nginx-01"]))).toEqual([{ module: "haproxy-01", transport: "tcp", port: 80 }]);
     expect(publishedPorts(plan, gateways, new Set(["nginx-01"])), "a design-only target is not published").toEqual([]);
     expect(publishedPorts(plan, new Set(), new Set(["haproxy-01"])), "no gateway, nothing published").toEqual([]);
   });
 
-  it("a rule opens one source to one target: neither side can be swapped for another appliance", () => {
+  it("a rule opens one source to one target: neither side can be swapped for another module", () => {
     const plan = compileNetwork(sampleCommerceStack(), "shop");
     // Declared: nginx-01 -> postgresql-01 on 5432, haproxy-01 -> nginx-01 on 80.
     expect(allows(plan, "nginx-01", "nginx-02", 5432), "same port, other target").toBe(false);
@@ -98,33 +98,33 @@ describe("network intents", () => {
     expect(allows(anyPort, to, from, 1)).toBe(false);
   });
 
-  it("publishes each port once, sorted by appliance, ignoring rules that have no port", () => {
+  it("publishes each port once, sorted by module, ignoring rules that have no port", () => {
     const plan = compileNetwork(sampleCommerceStack(), "shop");
     const gw = plan.intents.find((i) => i.from === "gateway-01")!;
     const twice = { ...plan, intents: [{ ...gw, to: "zz", from: "gateway-01" }, gw, { ...gw }, { ...gw, to: "aa" }, { ...gw, to: "bb", number: null }] };
     expect(publishedPorts(twice, new Set(["gateway-01"]), new Set(["haproxy-01", "zz", "aa", "bb"]))).toEqual([
-      { appliance: "aa", transport: "tcp", port: 80 },
-      { appliance: "haproxy-01", transport: "tcp", port: 80 },
-      { appliance: "zz", transport: "tcp", port: 80 },
+      { module: "aa", transport: "tcp", port: 80 },
+      { module: "haproxy-01", transport: "tcp", port: 80 },
+      { module: "zz", transport: "tcp", port: 80 },
     ]);
   });
 
-  it("cables only count between an output and an input of two different appliances", () => {
+  it("cables only count between an output and an input of two different modules", () => {
     let a = createEmptyAssembly("direction");
-    const place = (cls: string) => { const r = addAppliance(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
+    const place = (cls: string) => { const r = addModule(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
     const web = place("nginx");
     const db = place("postgresql");
-    const r = connect(a, { applianceId: web, portId: "db" }, { applianceId: db, portId: "postgres" });
+    const r = connect(a, { moduleId: web, portId: "db" }, { moduleId: db, portId: "postgres" });
     if ("error" in r) throw new Error(r.error.message);
     const plan = compileNetwork(r.assembly, "d");
     expect(plan.intents.map((i) => `${i.from}->${i.to}`)).toEqual([`${web}->${db}`]);
     // A cable written backwards still means the output reaches the input, never the reverse.
     const flipped: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, source: c.target, target: c.source })) } };
     expect(compileNetwork(flipped, "d").intents.map((i) => `${i.from}->${i.to}`)).toEqual([`${web}->${db}`]);
-    // Two outputs, or a cable from an appliance to itself, open nothing.
-    const outputs: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { applianceId: web, portId: "db" } })) } };
+    // Two outputs, or a cable from a module to itself, open nothing.
+    const outputs: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { moduleId: web, portId: "db" } })) } };
     expect(compileNetwork(outputs, "d").intents).toEqual([]);
-    const itself: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { applianceId: web, portId: "http" } })) } };
+    const itself: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { moduleId: web, portId: "http" } })) } };
     expect(compileNetwork(itself, "d").intents).toEqual([]);
   });
 });

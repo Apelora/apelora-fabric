@@ -10,7 +10,7 @@ use serde_json::Value;
 pub const API_VERSION: &str = "fabric.apelora/v1alpha1";
 pub const KIND: &str = "ApplicationAssembly";
 pub const MAX_BYTES: usize = 2_000_000;
-const MAX_APPLIANCES: usize = 200;
+const MAX_MODULES: usize = 200;
 const MAX_CONNECTIONS: usize = 1000;
 
 fn id_ok(s: &str) -> bool {
@@ -37,23 +37,23 @@ pub fn validate(doc: &Value) -> Vec<String> {
         errors.push("spec is missing".into());
         return errors;
     };
-    let appliances = spec.get("appliances").and_then(Value::as_array);
-    let Some(appliances) = appliances else {
-        errors.push("spec.appliances must be a list".into());
+    let modules = spec.get("modules").and_then(Value::as_array);
+    let Some(modules) = modules else {
+        errors.push("spec.modules must be a list".into());
         return errors;
     };
-    if appliances.len() > MAX_APPLIANCES {
-        errors.push(format!("at most {MAX_APPLIANCES} appliances"));
+    if modules.len() > MAX_MODULES {
+        errors.push(format!("at most {MAX_MODULES} modules"));
     }
     // id -> (inputs, outputs) port ids
     let mut ports: std::collections::BTreeMap<&str, (Vec<&str>, Vec<&str>)> = Default::default();
-    for (i, a) in appliances.iter().enumerate() {
+    for (i, a) in modules.iter().enumerate() {
         let Some(id) = a.get("id").and_then(Value::as_str).filter(|s| id_ok(s)) else {
-            errors.push(format!("appliance {} has no valid id", i + 1));
+            errors.push(format!("module {} has no valid id", i + 1));
             continue;
         };
         if ports.contains_key(id) {
-            errors.push(format!("appliance {id} appears twice"));
+            errors.push(format!("module {id} appears twice"));
             continue;
         }
         let mut entry = (Vec::new(), Vec::new());
@@ -95,7 +95,7 @@ pub fn validate(doc: &Value) -> Vec<String> {
         let end = |side: &str| {
             c.get(side).map(|e| {
                 (
-                    e.get("applianceId").and_then(Value::as_str),
+                    e.get("moduleId").and_then(Value::as_str),
                     e.get("portId").and_then(Value::as_str),
                 )
             })
@@ -124,7 +124,7 @@ pub fn validate(doc: &Value) -> Vec<String> {
                 }
             }
             _ => errors.push(format!(
-                "a connection refers to an unknown appliance ({sa} → {ta})"
+                "a connection refers to an unknown module ({sa} → {ta})"
             )),
         }
     }
@@ -139,10 +139,10 @@ mod tests {
 
     fn doc() -> Value {
         json!({ "apiVersion": API_VERSION, "kind": KIND, "metadata": { "name": "x" },
-            "spec": { "appliances": [
+            "spec": { "modules": [
                 { "id": "web-01", "ports": [{ "id": "http", "direction": "input" }, { "id": "db", "direction": "output" }] },
                 { "id": "db-01", "ports": [{ "id": "sql", "direction": "input" }] } ],
-              "connections": [{ "id": "conn-01", "source": { "applianceId": "web-01", "portId": "db" }, "target": { "applianceId": "db-01", "portId": "sql" } }] } })
+              "connections": [{ "id": "conn-01", "source": { "moduleId": "web-01", "portId": "db" }, "target": { "moduleId": "db-01", "portId": "sql" } }] } })
     }
 
     #[test]
@@ -159,25 +159,22 @@ mod tests {
         );
         let mut d = doc();
         d["apiVersion"] = json!("v0");
-        d["spec"]["appliances"][1]["id"] = json!("web-01");
+        d["spec"]["modules"][1]["id"] = json!("web-01");
         d["spec"]["connections"][0]["source"]["portId"] = json!("http");
-        d["spec"]["connections"][0]["target"]["applianceId"] = json!("web-01");
+        d["spec"]["connections"][0]["target"]["moduleId"] = json!("web-01");
         let e = validate(&d);
         assert!(e.iter().any(|m| m.contains("apiVersion")), "{e:?}");
         assert!(e.iter().any(|m| m.contains("appears twice")), "{e:?}");
         assert!(e.iter().any(|m| m.contains("not an output port")), "{e:?}");
         assert!(e.iter().any(|m| m.contains("connected to itself")), "{e:?}");
         let mut d = doc();
-        d["spec"]["connections"][0]["target"]["applianceId"] = json!("ghost");
-        assert!(validate(&d).iter().any(|m| m.contains("unknown appliance")));
+        d["spec"]["connections"][0]["target"]["moduleId"] = json!("ghost");
+        assert!(validate(&d).iter().any(|m| m.contains("unknown module")));
         let mut d = doc();
-        d["spec"]["appliances"][0]["ports"][0]["direction"] = json!("sideways");
+        d["spec"]["modules"][0]["ports"][0]["direction"] = json!("sideways");
         assert!(validate(&d).iter().any(|m| m.contains("direction")));
         let mut d = doc();
-        d["spec"]
-            .as_object_mut()
-            .expect("spec")
-            .remove("appliances");
-        assert!(validate(&d).iter().any(|m| m.contains("spec.appliances")));
+        d["spec"].as_object_mut().expect("spec").remove("modules");
+        assert!(validate(&d).iter().any(|m| m.contains("spec.modules")));
     }
 }

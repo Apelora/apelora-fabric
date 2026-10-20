@@ -14,7 +14,7 @@ an unreachable member, because Incus can only force that.
    volumes are on this member are stopped in place and stay there.
 2. **Move or delete what is left.** The removal check lists instances still on the member and
    application volumes recorded on it. Copy the data of a volume you need
-   (`incus storage volume export`), then remove the appliance from its design and delete the
+   (`incus storage volume export`), then remove the module from its design and delete the
    kept volume ([volumes.md](volumes.md)).
 3. **Check and remove.** Membership → *Remove…* on the evacuated member. The check runs again;
    it is refused while anything is left, while the member is not evacuated or reachable, or when

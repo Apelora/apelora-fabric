@@ -347,7 +347,7 @@ impl Engine {
     }
 
     /// [`Engine::needs_approval`] for a particular resource: interactive access to an
-    /// appliance in a production environment always does.
+    /// module in a production environment always does.
     pub fn needs_approval_on(&self, permission_id: &str, res: &Resource) -> bool {
         crate::permission::needs_approval_in(permission_id, res.environment)
             || self.policies.extra_approval.contains(permission_id)

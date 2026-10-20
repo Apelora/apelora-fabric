@@ -1,6 +1,6 @@
 # Storage: how Incus does it, and how Apelora abstracts it
 
-Status: **target design.** What exists: a read-only list of storage pools (`GET /api/v1/storage-pools`, shown in the Fabric Console) and appliances whose root disk comes from the project's default profile on the test cluster's btrfs pool. Persistent volumes, snapshots, backups and storage policy are **not built** (Phase 06 remainder, Phase 08 M3). Every statement about Incus below comes from its documentation and is **NOT YET VERIFIED** on the pinned release (7.0.1); each build step must verify it on the disposable test cluster and record the result. Date: 2026-10-20. Related: [platform architecture](PLATFORM-ARCHITECTURE.md) §8, [ADR 0001](../adr/0001-incus-first.md), skills `storage-recovery` and `storage-volumes`.
+Status: **target design.** What exists: a read-only list of storage pools (`GET /api/v1/storage-pools`, shown in the Fabric Console) and modules whose root disk comes from the project's default profile on the test cluster's btrfs pool. Persistent volumes, snapshots, backups and storage policy are **not built** (Phase 06 remainder, Phase 08 M3). Every statement about Incus below comes from its documentation and is **NOT YET VERIFIED** on the pinned release (7.0.1); each build step must verify it on the disposable test cluster and record the result. Date: 2026-10-20. Related: [platform architecture](PLATFORM-ARCHITECTURE.md) §8, [ADR 0001](../adr/0001-incus-first.md), skills `storage-recovery` and `storage-volumes`.
 
 ## 1. How Incus models storage
 
@@ -64,9 +64,12 @@ Apelora never writes Incus's database and never invents its own volume store or 
 
 ## 3. The abstraction: designers pick a class, not a pool
 
+![Storage for modules, layer by layer](../assets/diagrams/storage-layers.svg)
+
+
 A design must not contain pool names, driver names, hosts or addresses (same rule as hosts: [architecture](PLATFORM-ARCHITECTURE.md) §4). Instead:
 
-- An **appliance class** declares the volumes it can use: name, mount path, default size, whether required, and a suggested class. (A database class asks for `data`; a web server asks for none.)
+- An **module class** declares the volumes it can use: name, mount path, default size, whether required, and a suggested class. (A database class asks for `data`; a web server asks for none.)
 - A **volume class** is an Apelora policy an administrator defines and maps to a pool. The designer chooses a class and a size.
 - Administrators map each class to a pool in the Console. If no pool can satisfy a class, the plan says so and refuses; it never silently falls back to a weaker pool.
 
@@ -82,7 +85,7 @@ A design must not contain pool names, driver names, hosts or addresses (same rul
 ```mermaid
 flowchart TB
   subgraph D["Design (Studio) — provider-neutral"]
-    A["Appliance: postgresql<br/>volume data · class data-replicated · 50 GiB"]
+    A["Module: postgresql<br/>volume data · class data-replicated · 50 GiB"]
   end
   subgraph AP["Apelora control plane"]
     PL["Planner<br/>capacity, class → pool, anti-affinity,<br/>replica and volume rules"]
@@ -101,13 +104,13 @@ flowchart TB
 
 ### 3.1 Rules (carried from the `storage-volumes` skill, restated for this design)
 
-1. Removing an appliance from the canvas **never** deletes data. Deleting a volume is an explicit, typed-name confirmed action; retained volumes show as *orphaned* until an owner decides.
+1. Removing a module from the canvas **never** deletes data. Deleting a volume is an explicit, typed-name confirmed action; retained volumes show as *orphaned* until an owner decides.
 2. A read-write **block** volume attaches to at most one instance. A design that gives several replicas the same exclusive volume is invalid (validation error with a hint: use one volume per replica or a shared filesystem class).
 3. Resize is **grow-only** by default; shrinking is not offered.
 4. Snapshots are taken stopped or with an application-aware hook unless the backend guarantees consistency; Apelora records which one was achieved. **Snapshots are not backups.**
 5. All operations are idempotent and level-triggered like every other desired state: re-read Incus, then act.
 6. Encrypt at rest where the backend supports it; keys are referenced, never stored in designs or the database.
-7. Ownership labels `user.apelora.application`, `user.apelora.appliance`, `user.apelora.volume` are written only by Apelora; anything without them is never touched.
+7. Ownership labels `user.apelora.application`, `user.apelora.module`, `user.apelora.volume` are written only by Apelora; anything without them is never touched.
 
 ## 4. Data model (PROPOSED)
 
@@ -120,13 +123,13 @@ erDiagram
   VOLUME_CLASS }o--|| POOL_MAPPING : "resolves to"
   VOLUME ||--o{ SNAPSHOT : has
   VOLUME ||--o| ATTACHMENT : "attached by"
-  APPLIANCE_INSTANCE ||--o{ ATTACHMENT : uses
+  MODULE_INSTANCE ||--o{ ATTACHMENT : uses
 
   VOLUME {
     string id
     string application
     string project
-    string appliance_id
+    string module_id
     string name
     string class
     int size_gib
@@ -164,7 +167,7 @@ stateDiagram-v2
   Error --> Requested : operator fixes cause, retries
 ```
 
-### 5.1 Deploying an appliance with a volume
+### 5.1 Deploying a module with a volume
 
 ```mermaid
 sequenceDiagram
@@ -222,7 +225,7 @@ The evacuation dry run lists every volume that blocks a move and why. It never r
 
 ## 9. UI
 
-- **Studio:** a *Volumes* section in the appliance properties (add volume, class, size, mount path); a small disk badge on the node; validation messages for rule 2 and unavailable classes; the deploy review lists volumes to create, keep, grow or leave retained.
+- **Studio:** a *Volumes* section in the module properties (add volume, class, size, mount path); a small disk badge on the node; validation messages for rule 2 and unavailable classes; the deploy review lists volumes to create, keep, grow or leave retained.
 - **Fabric Console, Storage:** pools (exists), volume classes and their pool mapping (admin), volumes per project with state, attachment, size and used space, snapshots, orphans; destructive actions need the typed name.
 
 ## 10. Build order
@@ -248,11 +251,11 @@ The evacuation dry run lists every volume that blocks a move and why. It never r
 
 Step 1 is complete. Consequences for step 2 and later: create order is instance (stopped) → volume on its member → disk device → start; grow-only and deletion are Apelora's rules, not Incus's; a project needs `restricted.snapshots=allow` before snapshots are offered; evacuation of a member with `data-local` volumes means downtime, never a move.
 
-**Step 2 progress (part A, 2026-10-20):** volumes are part of the instance spec (`apelora_domain::storage::VolumeMount`: name, size in MiB, `filesystem` or `block`, class, mount path; at most four; block only for virtual machines; stateless appliances cannot have them). The control plane resolves the class to the pool in `APELORA_VOLUME_POOL` and refuses a design with volumes when it is unset or Incus has no such pool; a caller can never name a pool. The worker creates the instance stopped, then each volume `<instance>-<volume>` on the instance's member with ownership labels, attaches it as `vol-<volume>` and starts the instance; a volume that exists without Apelora's labels or for another application is refused. Deleting the instance keeps the volume. The adapter's operations are methods of `Provider` (as for networks) rather than a separate trait; the mock holds volumes and injects create and attach failures. REAL INCUS TESTED: `volumes_follow_the_instance_and_outlive_it`. **Part B (2026-10-20):** the worker records each volume as soon as it exists (`volumes`, migration 0012; an application with recorded volumes cannot be deleted from the database). `GET /api/v1/applications/{name}/volumes` lists them with what Incus reports now (attached, kept, missing); `DELETE …/volumes/{volume}` deletes one with its snapshots after the name is typed again, refused while an instance uses it, needs `application.delete`, audited `application.volume.delete`. The Fabric Console shows them under Applications → Show details. REAL INCUS TESTED (four members): volumes on two members, one kept after its appliance was removed, both deleted from the console and the API. Runbook: `docs/runbooks/volumes.md`. **Step 3 (2026-10-20):** `@apelora/assembly-model` has `VolumeSchema` (name, size in MiB, mount path; unique names and paths, at most four), class defaults in `runtime.volumes` and per-appliance `volumes` (absent: the class's). `instanceRequestFor` sends them as `spec.volumes` and refuses them for stateless classes. The Studio's Properties window has a Volumes section (add, rename, mount path, size in GiB, remove; every change checked before it is kept) and the deploy review lists what each appliance keeps. Filesystem volumes only in the Studio for now; block volumes for virtual machines are accepted by the API. Grow: `PATCH /api/v1/applications/{name}/volumes/{volume}` with `sizeMib` (needs `application.deploy`, audited `application.volume.grow`) and *Grow…* in the Fabric Console; grow-only, refused before Incus is asked; REAL INCUS TESTED on a running instance. Next: the Console Storage view for classes and orphans (step 4), then snapshots and backups (step 5).
+**Step 2 progress (part A, 2026-10-20):** volumes are part of the instance spec (`apelora_domain::storage::VolumeMount`: name, size in MiB, `filesystem` or `block`, class, mount path; at most four; block only for virtual machines; stateless modules cannot have them). The control plane resolves the class to the pool in `APELORA_VOLUME_POOL` and refuses a design with volumes when it is unset or Incus has no such pool; a caller can never name a pool. The worker creates the instance stopped, then each volume `<instance>-<volume>` on the instance's member with ownership labels, attaches it as `vol-<volume>` and starts the instance; a volume that exists without Apelora's labels or for another application is refused. Deleting the instance keeps the volume. The adapter's operations are methods of `Provider` (as for networks) rather than a separate trait; the mock holds volumes and injects create and attach failures. REAL INCUS TESTED: `volumes_follow_the_instance_and_outlive_it`. **Part B (2026-10-20):** the worker records each volume as soon as it exists (`volumes`, migration 0012; an application with recorded volumes cannot be deleted from the database). `GET /api/v1/applications/{name}/volumes` lists them with what Incus reports now (attached, kept, missing); `DELETE …/volumes/{volume}` deletes one with its snapshots after the name is typed again, refused while an instance uses it, needs `application.delete`, audited `application.volume.delete`. The Fabric Console shows them under Applications → Show details. REAL INCUS TESTED (four members): volumes on two members, one kept after its module was removed, both deleted from the console and the API. Runbook: `docs/runbooks/volumes.md`. **Step 3 (2026-10-20):** `@apelora/assembly-model` has `VolumeSchema` (name, size in MiB, mount path; unique names and paths, at most four), class defaults in `runtime.volumes` and per-module `volumes` (absent: the class's). `instanceRequestFor` sends them as `spec.volumes` and refuses them for stateless classes. The Studio's Properties window has a Volumes section (add, rename, mount path, size in GiB, remove; every change checked before it is kept) and the deploy review lists what each module keeps. Filesystem volumes only in the Studio for now; block volumes for virtual machines are accepted by the API. Grow: `PATCH /api/v1/applications/{name}/volumes/{volume}` with `sizeMib` (needs `application.deploy`, audited `application.volume.grow`) and *Grow…* in the Fabric Console; grow-only, refused before Incus is asked; REAL INCUS TESTED on a running instance. Next: the Console Storage view for classes and orphans (step 4), then snapshots and backups (step 5).
 
 1. Verify on the test cluster, labelled REAL INCUS TESTED: custom volume create, attach to a container and to a VM, snapshot, restore, grow, delete, and the project restrictions in §7; write down what the pinned release actually does.
 2. `VolumeProvider` trait, fake provider with fault injection, adapter implementation, `volumes` table and migration.
-3. Appliance class `volumes` field and Studio properties section; planner rules; deploy review.
+3. Module class `volumes` field and Studio properties section; planner rules; deploy review.
 4. Console Storage: classes, volumes, orphans.
 5. Snapshots and scheduled backups with a restore drill; then relocation of `data-local` volumes (stop, copy, start).
 6. Only with a verified shared pool and tested fencing: `data-replicated` recovery (M3).

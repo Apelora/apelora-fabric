@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Node enrolment (Phase 09, ADR 0002, `docs/design/node-enrolment.md`): how a machine becomes
-//! an Incus member Apelora places appliances on — the same way whichever provisioner installed
+//! an Incus member Apelora places modules on — the same way whichever provisioner installed
 //! it. Pure: the caller observes Incus and the machine record; this decides.
 //!
 //! A new member is *held* (`scheduler.instance=manual`: Incus places only instances targeted at

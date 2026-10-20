@@ -327,7 +327,7 @@ impl Provider {
         }
     }
 
-    /// Network objects of an application (OVN network, appliance ACLs and address sets).
+    /// Network objects of an application (OVN network, module ACLs and address sets).
     /// Each is created only when missing and labelled with its application; one that exists
     /// for another application or without Apelora's marker is refused, never adopted.
     pub async fn ensure_network(
@@ -539,7 +539,7 @@ impl Provider {
         }
     }
 
-    /// Creates or updates an appliance's service address (an OVN load balancer); `true` when
+    /// Creates or updates a module's service address (an OVN load balancer); `true` when
     /// it changed.
     pub async fn ensure_load_balancer(
         &self,
@@ -632,7 +632,7 @@ impl Provider {
         }
     }
 
-    /// The application's load balancers on `network`, as `(listen address, appliance)`.
+    /// The application's load balancers on `network`, as `(listen address, module)`.
     pub async fn owned_load_balancers(
         &self,
         project: &str,
@@ -646,7 +646,7 @@ impl Provider {
                     .load_balancers
                     .iter()
                     .filter(|(k, (app, _))| k.starts_with(&prefix) && app == application)
-                    .map(|(k, (_, lb))| (k[prefix.len()..].to_owned(), lb.appliance.clone()))
+                    .map(|(k, (_, lb))| (k[prefix.len()..].to_owned(), lb.module.clone()))
                     .collect())
             }
             Provider::Incus(c) => c.owned_load_balancers(project, network, application).await,

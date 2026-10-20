@@ -239,7 +239,7 @@ async fn evacuation_plan(
     ApiError,
 > {
     use apelora_domain::evacuation::{Deployed, plan_evacuation};
-    use apelora_domain::plan::DesiredAppliance;
+    use apelora_domain::plan::DesiredModule;
     let provider: &Provider = state.admin.as_deref().unwrap_or(&state.provider);
     let members = provider.cluster_members().await?;
     let instances = provider.instances().await?;
@@ -247,7 +247,7 @@ async fn evacuation_plan(
         Auth::Tokens(pool) => apelora_persistence::list_deployments(pool).await?,
         Auth::DisabledForDevelopment => Vec::new(),
     };
-    let desired: Vec<(String, String, Vec<DesiredAppliance>)> = records
+    let desired: Vec<(String, String, Vec<DesiredModule>)> = records
         .into_iter()
         .filter_map(|r| {
             Some((

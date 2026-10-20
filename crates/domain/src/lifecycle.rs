@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::network::Connection;
-use crate::plan::{Availability, DesiredAppliance};
+use crate::plan::{Availability, DesiredModule};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -99,7 +99,7 @@ impl OperationState {
 /// One instance as observed, for status purposes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Observed {
-    pub appliance: String,
+    pub module: String,
     pub instance: String,
     pub status: String,
     /// `unhealthy` from the supervisor's decision; anything else is not a failure.
@@ -117,7 +117,7 @@ pub struct Activity {
 /// What the status is derived from.
 #[derive(Debug, Clone)]
 pub struct StatusInput<'a> {
-    /// Instances the deployment should have (appliance id, replicas); empty = never deployed.
+    /// Instances the deployment should have (module id, replicas); empty = never deployed.
     pub desired: &'a [(String, u8)],
     /// `None` when Incus could not be read at all.
     pub observed: Option<&'a [Observed]>,
@@ -149,11 +149,11 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
         .iter()
         .filter(|o| o.status == "Running" && o.unhealthy)
         .count();
-    let missing_appliance = i
+    let missing_module = i
         .desired
         .iter()
-        .any(|(a, _)| !observed.iter().any(|o| &o.appliance == a));
-    let good = running >= want && unhealthy == 0 && !missing_appliance;
+        .any(|(a, _)| !observed.iter().any(|o| &o.module == a));
+    let good = running >= want && unhealthy == 0 && !missing_module;
     if good {
         return DeploymentStatus::Running;
     }
@@ -169,18 +169,18 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
     DeploymentStatus::Degraded
 }
 
-/// Layers of appliances for an operation, in the order to act on them. `providers_first`
+/// Layers of modules for an operation, in the order to act on them. `providers_first`
 /// (starting) puts what others depend on first; stopping reverses it. A connection `from → to`
-/// means `from` depends on `to`. Appliances in a cycle, and unconnected ones, are placed so
-/// every appliance appears exactly once.
+/// means `from` depends on `to`. Modules in a cycle, and unconnected ones, are placed so
+/// every module appears exactly once.
 pub fn layers(
-    appliances: &[String],
+    modules: &[String],
     connections: &[Connection],
     providers_first: bool,
 ) -> Vec<Vec<String>> {
-    let known: BTreeSet<&str> = appliances.iter().map(String::as_str).collect();
+    let known: BTreeSet<&str> = modules.iter().map(String::as_str).collect();
     // depends_on[a] = what a needs running before it.
-    let mut depends_on: BTreeMap<&str, BTreeSet<&str>> = appliances
+    let mut depends_on: BTreeMap<&str, BTreeSet<&str>> = modules
         .iter()
         .map(|a| (a.as_str(), BTreeSet::new()))
         .collect();
@@ -219,13 +219,13 @@ pub fn layers(
     out
 }
 
-/// Appliances whose interruption needs the caller's explicit confirmation: anything that is not
+/// Modules whose interruption needs the caller's explicit confirmation: anything that is not
 /// stateless holds a single instance (or data) that clients lose while it is stopped.
-pub fn needs_confirmation(desired: &[DesiredAppliance]) -> Vec<(String, Availability)> {
+pub fn needs_confirmation(desired: &[DesiredModule]) -> Vec<(String, Availability)> {
     desired
         .iter()
         .filter(|d| d.availability != Availability::Stateless)
-        .map(|d| (d.appliance.clone(), d.availability))
+        .map(|d| (d.module.clone(), d.availability))
         .collect()
 }
 
@@ -244,10 +244,10 @@ mod tests {
     fn names(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| (*s).to_owned()).collect()
     }
-    fn obs(appliance: &str, status: &str) -> Observed {
+    fn obs(module: &str, status: &str) -> Observed {
         Observed {
-            appliance: appliance.into(),
-            instance: format!("app-{appliance}"),
+            module: module.into(),
+            instance: format!("app-{module}"),
             status: status.into(),
             unhealthy: false,
             unreachable: false,
@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn every_appliance_appears_once_even_with_cycles_unknown_names_and_no_connections() {
+    fn every_module_appears_once_even_with_cycles_unknown_names_and_no_connections() {
         let a = names(&["a", "b", "c", "lone"]);
         let c = [
             conn("a", "b"),
@@ -449,11 +449,11 @@ mod tests {
     }
 
     #[test]
-    fn only_non_stateless_appliances_need_confirmation_to_stop() {
+    fn only_non_stateless_modules_need_confirmation_to_stop() {
         use crate::InstanceSpec;
         let spec: InstanceSpec = serde_json::from_value(serde_json::json!({ "project": "p", "name": "n", "kind": "container", "source": { "protocol": "oci", "server": "https://r", "alias": "x" }, "start": true })).expect("spec");
-        let d = |name: &str, availability| DesiredAppliance {
-            appliance: name.into(),
+        let d = |name: &str, availability| DesiredModule {
+            module: name.into(),
             spec: spec.clone(),
             replicas: 1,
             availability,

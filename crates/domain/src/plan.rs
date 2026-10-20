@@ -7,28 +7,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Instance, InstanceSpec, Owner, is_valid_name};
 
-/// At most this many replicas per appliance.
+/// At most this many replicas per module.
 pub const MAX_REPLICAS: u8 = 9;
 
-/// The instance name of an appliance's first replica: `<application>-<appliance>`.
-pub fn instance_name(application: &str, appliance: &str) -> String {
-    format!("{application}-{appliance}")
+/// The instance name of a module's first replica: `<application>-<module>`.
+pub fn instance_name(application: &str, module: &str) -> String {
+    format!("{application}-{module}")
 }
 
 /// The instance name of replica `replica` (1-based): the first keeps the plain name, the
 /// others get `-r<n>`, so a single-replica deployment keeps its names when replicas are added.
-pub fn replica_name(application: &str, appliance: &str, replica: u8) -> String {
+pub fn replica_name(application: &str, module: &str, replica: u8) -> String {
     if replica <= 1 {
-        instance_name(application, appliance)
+        instance_name(application, module)
     } else {
-        format!("{}-r{replica}", instance_name(application, appliance))
+        format!("{}-r{replica}", instance_name(application, module))
     }
 }
 
 /// The name of a replica's `n`th substitute: created on another member while the member
 /// holding the replica was down (Incus cannot move instances off a failed member).
-pub fn substitute_name(application: &str, appliance: &str, replica: u8, n: u8) -> String {
-    format!("{}-s{n}", replica_name(application, appliance, replica))
+pub fn substitute_name(application: &str, module: &str, replica: u8, n: u8) -> String {
+    format!("{}-s{n}", replica_name(application, module, replica))
 }
 
 /// Whether `name` is replica `base` itself or one of its substitutes (`<base>-s<n>`).
@@ -40,18 +40,18 @@ fn in_slot(name: &str, base: &str) -> bool {
             .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
-/// The application's instances that fill replica `replica` of `appliance` in `project`: the
+/// The application's instances that fill replica `replica` of `module` in `project`: the
 /// replica and its substitutes, recognised by Apelora's labels and their names. An instance
 /// whose member is unreachable has no visible labels; one with the slot's name counts (names
 /// are unique in a project, and the name was Apelora's before its member went away).
 pub fn slot_instances<'a>(
     application: &str,
     project: &str,
-    appliance: &str,
+    module: &str,
     replica: u8,
     observed: &'a [Instance],
 ) -> Vec<&'a Instance> {
-    let base = replica_name(application, appliance, replica);
+    let base = replica_name(application, module, replica);
     observed
         .iter()
         .filter(|i| {
@@ -61,14 +61,14 @@ pub fn slot_instances<'a>(
                     || i.managed
                         && i.owner.as_ref().is_some_and(|o| {
                             o.application == application
-                                && o.appliance == appliance
+                                && o.module == module
                                 && o.replica == replica
                         }))
         })
         .collect()
 }
 
-/// How an appliance may be run and recovered (from its catalog class).
+/// How a module may be run and recovered (from its catalog class).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
@@ -86,16 +86,17 @@ fn one() -> u8 {
     1
 }
 
-/// One appliance of the design, turned into the instances it should run as.
+/// One module of the design, turned into the instances it should run as.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct DesiredAppliance {
-    /// The appliance's stable id in the design (e.g. `nginx-01`).
-    pub appliance: String,
+pub struct DesiredModule {
+    /// The module's stable id in the design (e.g. `nginx-01`).
+    #[serde(alias = "appliance")]
+    pub module: String,
     /// Image, kind and settings; the control plane sets the name, project and owner.
     pub spec: InstanceSpec,
-    /// How many instances (1–9); more than one only for stateless appliances.
+    /// How many instances (1–9); more than one only for stateless modules.
     #[serde(default = "one")]
     pub replicas: u8,
     #[serde(default)]
@@ -108,25 +109,25 @@ pub struct DesiredAppliance {
     pub guest_os: crate::access::GuestOs,
 }
 
-impl DesiredAppliance {
+impl DesiredModule {
     pub fn validate(&self) -> Result<(), String> {
         if !(1..=MAX_REPLICAS).contains(&self.replicas) {
             return Err(format!(
                 "{}: replicas must be 1–{MAX_REPLICAS}",
-                self.appliance
+                self.module
             ));
         }
         if self.replicas > 1 && self.availability != Availability::Stateless {
             return Err(format!(
-                "{}: only stateless appliances can have more than one replica",
-                self.appliance
+                "{}: only stateless modules can have more than one replica",
+                self.module
             ));
         }
         // A stateless replica may be recreated anywhere, which a member-local volume cannot follow.
         if !self.spec.volumes.is_empty() && self.availability == Availability::Stateless {
             return Err(format!(
-                "{}: stateless appliances cannot have volumes; make it a singleton or stateful",
-                self.appliance
+                "{}: stateless modules cannot have volumes; make it a singleton or stateful",
+                self.module
             ));
         }
         Ok(())
@@ -143,7 +144,7 @@ pub enum PlanAction {
     Keep,
     /// The application's instance is no longer in the design.
     Remove,
-    /// The name is taken by an instance that is not this appliance's: nothing can be applied.
+    /// The name is taken by an instance that is not this module's: nothing can be applied.
     Conflict,
 }
 
@@ -151,8 +152,9 @@ pub enum PlanAction {
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct PlanItem {
-    /// The appliance in the design (for `remove`: the label of the instance being removed).
-    pub appliance: String,
+    /// The module in the design (for `remove`: the label of the instance being removed).
+    #[serde(alias = "appliance")]
+    pub module: String,
     /// 1-based replica number.
     pub replica: u8,
     pub instance: String,
@@ -179,20 +181,20 @@ impl Plan {
     }
 }
 
-/// The spec replica `replica` of an appliance is created with: its name, project and
+/// The spec replica `replica` of a module is created with: its name, project and
 /// ownership labels are set here, never taken from the caller.
 pub fn owned_spec(
     application: &str,
     project: &str,
-    desired: &DesiredAppliance,
+    desired: &DesiredModule,
     replica: u8,
 ) -> InstanceSpec {
     InstanceSpec {
         project: project.to_owned(),
-        name: replica_name(application, &desired.appliance, replica),
+        name: replica_name(application, &desired.module, replica),
         owner: Some(Owner {
             application: application.to_owned(),
-            appliance: desired.appliance.clone(),
+            module: desired.module.clone(),
             replica,
         }),
         ..desired.spec.clone()
@@ -205,7 +207,7 @@ pub fn owned_spec(
 pub fn deploy_spec(
     application: &str,
     project: &str,
-    desired: &DesiredAppliance,
+    desired: &DesiredModule,
     replica: u8,
     uplink: Option<&str>,
 ) -> InstanceSpec {
@@ -213,7 +215,7 @@ pub fn deploy_spec(
     if let Some(uplink) = uplink {
         spec.network = Some(crate::network::attachment(
             application,
-            &desired.appliance,
+            &desired.module,
             uplink,
         ));
     }
@@ -224,7 +226,7 @@ pub fn deploy_spec(
 pub fn plan(
     application: &str,
     project: &str,
-    desired: &[DesiredAppliance],
+    desired: &[DesiredModule],
     observed: &[Instance],
 ) -> Plan {
     let in_project: Vec<&Instance> = observed.iter().filter(|i| i.project == project).collect();
@@ -239,10 +241,10 @@ pub fn plan(
 
     for d in desired {
         for replica in 1..=d.replicas.max(1) {
-            let name = replica_name(application, &d.appliance, replica);
+            let name = replica_name(application, &d.module, replica);
             wanted.push(name.clone());
             let item = |action, reason: String| PlanItem {
-                appliance: d.appliance.clone(),
+                module: d.module.clone(),
                 replica,
                 instance: name.clone(),
                 action,
@@ -255,7 +257,7 @@ pub fn plan(
                 ));
                 continue;
             }
-            let slot = slot_instances(application, project, &d.appliance, replica, observed);
+            let slot = slot_instances(application, project, &d.module, replica, observed);
             for sub in slot.iter().filter(|i| i.name != name) {
                 wanted.push(sub.name.clone());
                 items.push(PlanItem {
@@ -273,7 +275,7 @@ pub fn plan(
                     PlanAction::Keep,
                     format!("its member {} cannot be reached", i.location),
                 ),
-                Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.appliance == d.appliance && o.replica == replica) => {
+                Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.module == d.module && o.replica == replica) => {
                     item(PlanAction::Keep, format!("already deployed ({})", i.status))
                 }
                 Some(i) if !i.managed => item(
@@ -283,7 +285,7 @@ pub fn plan(
                 Some(i) => item(
                     PlanAction::Conflict,
                     match &i.owner {
-                        Some(o) => format!("an instance with this name belongs to {}/{} replica {}", o.application, o.appliance, o.replica),
+                        Some(o) => format!("an instance with this name belongs to {}/{} replica {}", o.application, o.module, o.replica),
                         None => "an instance with this name was created by Apelora outside an application".into(),
                     },
                 ),
@@ -297,7 +299,7 @@ pub fn plan(
     {
         let owner = i.owner.as_ref();
         items.push(PlanItem {
-            appliance: owner.map(|o| o.appliance.clone()).unwrap_or_default(),
+            module: owner.map(|o| o.module.clone()).unwrap_or_default(),
             replica: owner.map_or(1, |o| o.replica),
             instance: i.name.clone(),
             action: PlanAction::Remove,
@@ -308,7 +310,7 @@ pub fn plan(
     let mut single: Vec<&str> = desired
         .iter()
         .filter(|d| d.replicas <= 1)
-        .map(|d| d.appliance.as_str())
+        .map(|d| d.module.as_str())
         .collect();
     single.sort_unstable();
     let mut warnings = Vec::new();
@@ -327,9 +329,9 @@ mod tests {
     use super::*;
     use crate::{ImageProtocol, ImageSource, InstanceKind};
 
-    fn desired(appliance: &str) -> DesiredAppliance {
-        DesiredAppliance {
-            appliance: appliance.into(),
+    fn desired(module: &str) -> DesiredModule {
+        DesiredModule {
+            module: module.into(),
             spec: InstanceSpec {
                 project: "ignored".into(),
                 name: "ignored".into(),
@@ -355,11 +357,11 @@ mod tests {
         }
     }
 
-    fn stateless(appliance: &str, replicas: u8) -> DesiredAppliance {
-        DesiredAppliance {
+    fn stateless(module: &str, replicas: u8) -> DesiredModule {
+        DesiredModule {
             replicas,
             availability: Availability::Stateless,
-            ..desired(appliance)
+            ..desired(module)
         }
     }
 
@@ -380,7 +382,7 @@ mod tests {
             managed,
             owner: owner.map(|(a, b, r)| Owner {
                 application: a.into(),
-                appliance: b.into(),
+                module: b.into(),
                 replica: r,
             }),
             evacuate: None,
@@ -432,7 +434,7 @@ mod tests {
         assert!(p.has_conflicts());
         assert!(p.items[1].reason.contains("not created by Apelora"));
         assert!(p.items[2].reason.contains("blog/cache-01"));
-        assert_eq!(p.items[4].appliance, "old-01");
+        assert_eq!(p.items[4].module, "old-01");
         assert_eq!((p.count(Create), p.count(Keep), p.count(Remove)), (1, 1, 1));
         assert!(
             p.warnings[0].contains("single points of failure: api-01, cache-01, db-01, web-01")
@@ -474,7 +476,7 @@ mod tests {
         assert_eq!(
             down.items[2],
             PlanItem {
-                appliance: "web-01".into(),
+                module: "web-01".into(),
                 replica: 3,
                 instance: "shop-web-01-r3".into(),
                 action: Remove,
@@ -495,10 +497,10 @@ mod tests {
     }
 
     #[test]
-    fn only_stateless_appliances_get_more_than_one_replica() {
+    fn only_stateless_modules_get_more_than_one_replica() {
         assert_eq!(stateless("web-01", 3).validate(), Ok(()));
         assert!(
-            DesiredAppliance {
+            DesiredModule {
                 replicas: 2,
                 ..desired("db-01")
             }
@@ -506,7 +508,7 @@ mod tests {
             .is_err()
         );
         assert!(
-            DesiredAppliance {
+            DesiredModule {
                 replicas: 2,
                 availability: Availability::Stateful,
                 ..desired("db-01")
@@ -533,7 +535,7 @@ mod tests {
             spec.owner,
             Some(Owner {
                 application: "shop".into(),
-                appliance: "web-01".into(),
+                module: "web-01".into(),
                 replica: 2
             })
         );

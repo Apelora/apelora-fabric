@@ -118,16 +118,16 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         Proj,
         "Create, change and delete single instances in a project's environments",
     ),
-    // --- interactive access to running appliances (brokered by the control plane)
+    // --- interactive access to running modules (brokered by the control plane)
     t(
         "instance.console",
         App,
-        "Open a terminal or PowerShell session in a running appliance of the application",
+        "Open a terminal or PowerShell session in a running module of the application",
     ),
     t(
         "instance.desktop",
         App,
-        "Open a remote desktop (RDP) session to a running Windows appliance of the application",
+        "Open a remote desktop (RDP) session to a running Windows module of the application",
     ),
     // --- people and access inside a scope
     t("user.view", Proj, "See users with access in the scope"),
@@ -263,7 +263,7 @@ pub fn needs_approval(id: &str) -> bool {
     permission(id).is_some_and(|p| p.approval)
 }
 
-/// Interactive sessions into an appliance. They are the most direct way to change a running
+/// Interactive sessions into a module. They are the most direct way to change a running
 /// system, so they are never open to service identities or legacy tokens, and in production
 /// they need a second person's approval.
 pub fn is_interactive_access(id: &str) -> bool {

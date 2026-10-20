@@ -252,7 +252,7 @@ mod tests {
         let spec = json!({ "project": "apelora", "name": "shop-db-01", "kind": "container",
             "source": { "protocol": "oci", "server": "https://registry.example", "alias": "postgres:18" },
             "start": true,
-            "owner": { "application": "shop", "appliance": "db", "replica": 1 },
+            "owner": { "application": "shop", "module": "db", "replica": 1 },
             "volumes": [{ "name": "data", "sizeMib": 1024, "path": "/var/lib/postgresql", "pool": "local" }] });
         // The pool is full at first: the job fails and nothing is started without its data.
         m.storage().fail_create.insert("shop-db-01-data".into());
@@ -377,7 +377,7 @@ mod tests {
         );
         let create = job(&pool, "instance.create", json!({ "project": "apelora", "name": "shop-db-01", "kind": "container",
             "source": { "protocol": "oci", "server": "https://registry.example", "alias": "postgres:18" },
-            "start": true, "owner": { "application": "shop", "appliance": "db", "replica": 1 },
+            "start": true, "owner": { "application": "shop", "module": "db", "replica": 1 },
             "volumes": [{ "name": "data", "sizeMib": 1024, "path": "/data", "pool": "local" }] })).await;
         sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
             .bind(create)
@@ -480,7 +480,7 @@ mod tests {
 
     fn phases(list: &[(&str, &[&str])]) -> serde_json::Value {
         json!(list.iter().map(|(action, names)| json!({ "action": action, "state": "pending",
-            "steps": names.iter().map(|n| json!({ "project": "apelora", "name": n, "appliance": n, "state": "pending" })).collect::<Vec<_>>() })).collect::<Vec<_>>())
+            "steps": names.iter().map(|n| json!({ "project": "apelora", "name": n, "module": n, "state": "pending" })).collect::<Vec<_>>() })).collect::<Vec<_>>())
     }
 
     /// Runs the worker until nothing is runnable, skipping the coordinator's waits only when

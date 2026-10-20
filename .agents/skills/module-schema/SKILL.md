@@ -1,9 +1,9 @@
 ---
-name: appliance-schema
-description: Define or change Apelora appliance manifests — typed ports, resource envelopes, architectures, and configuration properties. Use when adding or editing an appliance definition, the manifest JSON Schema, or the shared TypeScript/Rust types generated from it.
+name: module-schema
+description: Define or change Apelora module manifests — typed ports, resource envelopes, architectures, and configuration properties. Use when adding or editing a module definition, the manifest JSON Schema, or the shared TypeScript/Rust types generated from it.
 ---
 
-# Appliance schema
+# Module schema
 
 The manifest is the contract shared by Studio (TypeScript), Controller and Node (Rust), and the Catalog. Change it deliberately.
 
@@ -15,7 +15,7 @@ The manifest is the contract shared by Studio (TypeScript), Controller and Node 
 - `resources`: `{ vcpus, memory_mib, disk_gib }` with `min` and `recommended`
 - `ports[]`: `{ id, direction: in|out, protocol, type, cardinality, required }`
 - `properties[]`: typed config (`string|int|bool|enum|secret`), default, validation, `secret` values never inlined
-- `requires` / `conflicts`: other appliance ids or capabilities
+- `requires` / `conflicts`: other module ids or capabilities
 
 ## Rules
 
@@ -38,4 +38,4 @@ Classes may declare `properties` (typed fields: string, int, bool, enum, secret;
 
 ## Volumes
 
-A class's runtime may declare default `volumes` (`{ name, sizeMiB, path }`: name lowercase, at most 16; size 64 MiB–4 TiB; absolute mount path without `.` or `..`; names and paths unique; at most four). An appliance's own `volumes` replace them (an empty list means none). Stateless classes cannot have volumes: `instanceRequestFor` refuses them. Designs never name a pool; the control plane maps the `data-local` class to `APELORA_VOLUME_POOL`. Design and verified Incus behaviour: `docs/architecture/STORAGE.md`.
+A class's runtime may declare default `volumes` (`{ name, sizeMiB, path }`: name lowercase, at most 16; size 64 MiB–4 TiB; absolute mount path without `.` or `..`; names and paths unique; at most four). A module's own `volumes` replace them (an empty list means none). Stateless classes cannot have volumes: `instanceRequestFor` refuses them. Designs never name a pool; the control plane maps the `data-local` class to `APELORA_VOLUME_POOL`. Design and verified Incus behaviour: `docs/architecture/STORAGE.md`.

@@ -21,7 +21,8 @@ use uuid::Uuid;
 struct Step {
     project: String,
     name: String,
-    appliance: String,
+    #[serde(alias = "appliance")]
+    module: String,
     #[serde(default)]
     job: Option<Uuid>,
     /// `pending`, `running`, `succeeded`, `failed`, `skipped`.

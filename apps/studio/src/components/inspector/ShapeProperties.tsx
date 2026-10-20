@@ -102,8 +102,8 @@ export function ShapeProperties({ id, tab }: { id: string; tab: "style" | "label
         <div className="flex gap-2">{num("x", "X", -100000)}{num("y", "Y", -100000)}</div>
         <div className="flex gap-2">{num("width", "Width", 40)}{num("height", "Height", 30)}</div>
         <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="toggle toggle-sm" data-testid="shape-locked" checked={sh.locked} onChange={(e) => set({ locked: e.target.checked })} />Lock position and size</label>
-        {sh.kind !== "note" && <p className="text-xs text-base-content/60" data-testid="shape-contents">{inside} appliance{inside === 1 ? "" : "s"} inside. They move with the zone when you drag it.</p>}
-        {sh.kind !== "note" && inside > 0 && <p className="rounded-box bg-base-200 px-3 py-2 text-xs" data-testid="zone-totals">Requests <b>{totals.cpu} vCPU</b> and <b>{formatMemory(totals.memoryMiB)}</b> across {totals.appliances} appliance{totals.appliances === 1 ? "" : "s"} and {totals.cables} internal cable{totals.cables === 1 ? "" : "s"}.</p>}
+        {sh.kind !== "note" && <p className="text-xs text-base-content/60" data-testid="shape-contents">{inside} module{inside === 1 ? "" : "s"} inside. They move with the zone when you drag it.</p>}
+        {sh.kind !== "note" && inside > 0 && <p className="rounded-box bg-base-200 px-3 py-2 text-xs" data-testid="zone-totals">Requests <b>{totals.cpu} vCPU</b> and <b>{formatMemory(totals.memoryMiB)}</b> across {totals.modules} module{totals.modules === 1 ? "" : "s"} and {totals.cables} internal cable{totals.cables === 1 ? "" : "s"}.</p>}
         <div className="flex gap-2">
           <button className="btn btn-sm btn-outline flex-1" data-testid="shape-front" onClick={() => api.getState().orderShapeAction(id, "front")}>Bring forward</button>
           <button className="btn btn-sm btn-outline flex-1" data-testid="shape-back" onClick={() => api.getState().orderShapeAction(id, "back")}>Send back</button>

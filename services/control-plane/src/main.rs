@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if uplink.is_none() {
             return Err("APELORA_SERVICE_ADDRESSES needs APELORA_NETWORK_UPLINK".into());
         }
-        tracing::info!(range = %r, addresses = n, "stateless appliances get service addresses");
+        tracing::info!(range = %r, addresses = n, "stateless modules get service addresses");
     }
     let volume_pool = std::env::var("APELORA_VOLUME_POOL")
         .ok()

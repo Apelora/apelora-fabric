@@ -4,7 +4,7 @@ import { useStudio, useStudioApi } from "../../features/editor/context";
 
 interface Row { key: string; c: GroupCandidate; on: boolean; name: string }
 
-/** Packages the selected appliances into one reusable component; the user picks which inner terminals become its ports. */
+/** Packages the selected modules into one reusable component; the user picks which inner terminals become its ports. */
 export function ComponentDialog() {
   const api = useStudioApi();
   const ids = useStudio((s) => s.groupDialog);
@@ -18,20 +18,20 @@ export function ComponentDialog() {
     const taken = new Map<string, number>();
     for (const c of cands) taken.set(`${c.port.direction}:${c.port.name}`, (taken.get(`${c.port.direction}:${c.port.name}`) ?? 0) + 1);
     setName("");
-    setRows(cands.map((c) => ({ key: `${c.appliance.id}:${c.port.id}`, c, on: c.external, name: (taken.get(`${c.port.direction}:${c.port.name}`) ?? 0) > 1 ? `${c.appliance.name}-${c.port.name}` : c.port.name })));
+    setRows(cands.map((c) => ({ key: `${c.module.id}:${c.port.id}`, c, on: c.external, name: (taken.get(`${c.port.direction}:${c.port.name}`) ?? 0) > 1 ? `${c.module.name}-${c.port.name}` : c.port.name })));
   }, [ids, cands]);
 
   if (!ids) return null;
   const patch = (key: string, p: Partial<Row>) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...p } : r)));
-  const byApp = ids.map((id) => ({ app: assembly.spec.appliances.find((a) => a.id === id)!, rows: rows.filter((r) => r.c.appliance.id === id) })).filter((g) => g.app);
-  const create = () => api.getState().groupSelection(name, rows.filter((r) => r.on).map((r) => ({ inner: { applianceId: r.c.appliance.id, portId: r.c.port.id }, name: r.name })));
+  const byApp = ids.map((id) => ({ app: assembly.spec.modules.find((a) => a.id === id)!, rows: rows.filter((r) => r.c.module.id === id) })).filter((g) => g.app);
+  const create = () => api.getState().groupSelection(name, rows.filter((r) => r.on).map((r) => ({ inner: { moduleId: r.c.module.id, portId: r.c.port.id }, name: r.name })));
 
   return (
     <dialog className="modal modal-open" data-testid="component-dialog" aria-labelledby="comp-title">
       <div className="modal-box flex max-h-[90vh] w-full max-w-xl flex-col p-0">
         <div className="border-b border-base-300 px-5 py-3">
           <h3 id="comp-title" className="text-base font-semibold">Group into a component</h3>
-          <p className="text-xs text-base-content/60">{ids.length} appliances become one reusable appliance. Choose which inner terminals appear as its ports; terminals linked to something outside the selection are required. The component's <span className="font-mono">net</span> plugs every inner appliance into the network.</p>
+          <p className="text-xs text-base-content/60">{ids.length} modules become one reusable module. Choose which inner terminals appear as its ports; terminals linked to something outside the selection are required. The component's <span className="font-mono">net</span> plugs every inner module into the network.</p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           <label className="fieldset"><span className="fieldset-legend text-[11px]">Component name</span><input className="input input-sm w-full" data-testid="component-name" maxLength={48} value={name} placeholder="e.g. Web tier" onChange={(e) => setName(e.target.value)} /></label>

@@ -1,5 +1,5 @@
 import { ensureNics, parseAssembly, usedCustomClasses, type ApplicationAssembly } from "@apelora/assembly-model";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { lookupClass } from "@apelora/module-catalog";
 
 /** Longest address fragment we hand out; larger diagrams should be shared as a file. */
 export const MAX_LINK_CHARS = 12_000;

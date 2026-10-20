@@ -34,7 +34,7 @@ Layout follows the Studio design contract (white shell, light-gray framed conten
 | Area | Content |
 |---|---|
 | Toolbar | Search, filters (project, status), **New application** (the one primary button) |
-| Table or cards | Name · project · status · appliances · replicas running · last revision · last edited by and when |
+| Table or cards | Name · project · status · modules · replicas running · last revision · last edited by and when |
 | Row menu | Open · Duplicate · Export JSON · Archive (needs permission) |
 | Empty state | "No applications yet" with **New application** and **Start from a template** |
 | Footer line | Counts per status; shows "Mock data" until the API is a real backend |
@@ -44,7 +44,7 @@ Status, derived and never typed by a person:
 | Status | Meaning | Source |
 |---|---|---|
 | **Draft** | Designed, never deployed | No revision deployed |
-| **Running** | All deployable appliances ready | `GET /applications/{name}/status` |
+| **Running** | All deployable modules ready | `GET /applications/{name}/status` |
 | **Degraded** | Some replicas or services unhealthy | Same, with health evidence |
 | **Stopped** | Instances exist, none running | Same |
 | **Changed** | The draft differs from the deployed revision | Compare draft with latest revision |
@@ -71,7 +71,7 @@ The dialog asks for the least that is needed.
 
 | Field | Rule |
 |---|---|
-| **Name** | Lowercase letters, digits and `-`, starts with a letter; at most 40 characters, because instances are named `<application>-<appliance id>` (63-character limit). Unique within the platform. **Cannot be changed later**; "Duplicate" is the way to a new name. |
+| **Name** | Lowercase letters, digits and `-`, starts with a letter; at most 40 characters, because instances are named `<application>-<module id>` (63-character limit). Unique within the platform. **Cannot be changed later**; "Duplicate" is the way to a new name. |
 | **Project** | Chosen from the projects the signed-in identity may design in (`whoami`). Defaults to the only one. Decides where it can be deployed. |
 | **Start from** | *Blank canvas* · *Template* (the nine starters) · *Import file* (assembly JSON) · *Docker Compose* · *Duplicate of…* |
 | **Description** | Optional, 200 characters. |

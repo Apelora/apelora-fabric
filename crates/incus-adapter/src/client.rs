@@ -4,8 +4,8 @@
 use std::time::Duration;
 
 use apelora_domain::{
-    APPLIANCE_KEY, APPLICATION_KEY, ClusterMember, ImageProtocol, Instance, InstanceAction,
-    InstanceKind, InstanceSpec, MANAGED_KEY, Network, Owner, Project, REPLICA_KEY, ServerInfo,
+    APPLICATION_KEY, ClusterMember, ImageProtocol, Instance, InstanceAction, InstanceKind,
+    InstanceSpec, MANAGED_KEY, MODULE_KEY, Network, Owner, Project, REPLICA_KEY, ServerInfo,
     StoragePool,
 };
 use reqwest::Method;
@@ -104,11 +104,11 @@ fn check_client_certificate(pem: &[u8]) -> Result<(), AdapterError> {
 fn load_balancer_body(lb: &LoadBalancer, application: &str) -> Value {
     let backends: Vec<String> = lb.backends.iter().map(|b| b.name.clone()).collect();
     json!({
-        "description": format!("Apelora service {}", lb.appliance),
+        "description": format!("Apelora service {}", lb.module),
         "config": {
             MANAGED_KEY: "true",
             APPLICATION_KEY: application,
-            APPLIANCE_KEY: lb.appliance,
+            MODULE_KEY: lb.module,
             "healthcheck": "true",
             "healthcheck.interval": "5",
             "healthcheck.failure_count": "2",
@@ -391,7 +391,7 @@ impl IncusClient {
         config.insert(MANAGED_KEY.into(), "true".into());
         if let Some(o) = &spec.owner {
             config.insert(APPLICATION_KEY.into(), o.application.clone());
-            config.insert(APPLIANCE_KEY.into(), o.appliance.clone());
+            config.insert(MODULE_KEY.into(), o.module.clone());
             config.insert(REPLICA_KEY.into(), o.replica.to_string());
         }
         let mut source = json!({
@@ -482,7 +482,7 @@ impl IncusClient {
                 "size": format!("{}MiB", mount.size_mib),
                 MANAGED_KEY: "true",
                 APPLICATION_KEY: owner.application,
-                APPLIANCE_KEY: owner.appliance,
+                MODULE_KEY: owner.module,
                 VOLUME_KEY: mount.name,
             },
         });
@@ -739,7 +739,8 @@ impl IncusClient {
         name: &str,
         application: &str,
     ) -> Result<(), AdapterError> {
-        let body = json!({ "description": "Apelora appliance", "config": {}, "ingress": [], "egress": [] });
+        let body =
+            json!({ "description": "Apelora module", "config": {}, "ingress": [], "egress": [] });
         self.ensure_owned("/1.0/network-acls", project, name, application, body)
             .await
     }
@@ -753,7 +754,7 @@ impl IncusClient {
         egress: &[AclRule],
         application: &str,
     ) -> Result<(), AdapterError> {
-        let body = json!({ "description": "Apelora appliance", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "ingress": ingress, "egress": egress });
+        let body = json!({ "description": "Apelora module", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "ingress": ingress, "egress": egress });
         self.call::<Value>(
             Method::PUT,
             &format!("/1.0/network-acls/{name}?project={project}"),
@@ -770,7 +771,7 @@ impl IncusClient {
         application: &str,
     ) -> Result<(), AdapterError> {
         let body =
-            json!({ "description": "Apelora appliance addresses", "config": {}, "addresses": [] });
+            json!({ "description": "Apelora module addresses", "config": {}, "addresses": [] });
         self.ensure_owned(
             "/1.0/network-address-sets",
             project,
@@ -789,7 +790,7 @@ impl IncusClient {
         addresses: &[String],
         application: &str,
     ) -> Result<(), AdapterError> {
-        let body = json!({ "description": "Apelora appliance addresses", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "addresses": addresses });
+        let body = json!({ "description": "Apelora module addresses", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "addresses": addresses });
         self.call::<Value>(
             Method::PUT,
             &format!("/1.0/network-address-sets/{name}?project={project}"),
@@ -811,7 +812,7 @@ impl IncusClient {
         Ok(i.config.get("volatile.uuid").cloned())
     }
 
-    /// Creates or updates the appliance's load balancer on `network` (Apelora owns it whole);
+    /// Creates or updates the module's load balancer on `network` (Apelora owns it whole);
     /// refuses one at that address that is not this application's. `true` when it changed.
     pub async fn ensure_load_balancer(
         &self,
@@ -910,7 +911,7 @@ impl IncusClient {
             .map(|_| ())
     }
 
-    /// The application's load balancers on `network`, as `(listen address, appliance)`;
+    /// The application's load balancers on `network`, as `(listen address, module)`;
     /// empty when the network does not exist.
     pub async fn owned_load_balancers(
         &self,
@@ -932,8 +933,10 @@ impl IncusClient {
             .into_iter()
             .filter(|lb| owned_by_config(&lb.config, application))
             .map(|lb| {
-                let appliance = lb.config.get(APPLIANCE_KEY).cloned().unwrap_or_default();
-                (lb.listen_address, appliance)
+                let module = apelora_domain::module_label(&lb.config)
+                    .cloned()
+                    .unwrap_or_default();
+                (lb.listen_address, module)
             })
             .collect())
     }
@@ -1095,10 +1098,13 @@ impl IncusClient {
                         _ => InstanceKind::Unknown,
                     },
                     managed: config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
-                    owner: match (config.get(APPLICATION_KEY), config.get(APPLIANCE_KEY)) {
-                        (Some(application), Some(appliance)) => Some(Owner {
+                    owner: match (
+                        config.get(APPLICATION_KEY),
+                        apelora_domain::module_label(&config),
+                    ) {
+                        (Some(application), Some(module)) => Some(Owner {
                             application: application.clone(),
-                            appliance: appliance.clone(),
+                            module: module.clone(),
                             replica: config
                                 .get(REPLICA_KEY)
                                 .and_then(|r| r.parse().ok())

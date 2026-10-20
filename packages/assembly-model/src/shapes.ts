@@ -24,7 +24,7 @@ function nextShapeId(a: ApplicationAssembly): string {
 
 export const DEFAULT_LABEL: Record<ShapeKind, string> = { rect: "Zone", ellipse: "Sector", rounded: "Zone", triangle: "Sector", note: "" };
 
-/** Sticky-note look: warm paper fill, thin amber border. Notes carry free text and never wrap appliances. */
+/** Sticky-note look: warm paper fill, thin amber border. Notes carry free text and never wrap modules. */
 const NOTE_STYLE = { fill: "#fde68a", fillOpacity: 0.92, stroke: "#d97706", strokeWidth: 1, radius: 4, text: "Note" } as const;
 
 export function makeShape(a: ApplicationAssembly, kind: ShapeKind, rect: { x: number; y: number; width: number; height: number }, over: Partial<Shape> = {}): Shape {
@@ -56,7 +56,7 @@ export function zoneRectAround(nodes: readonly { x: number; y: number; width: nu
   return rect;
 }
 
-/** A zone wrapped around the given appliances, with room for its label. */
+/** A zone wrapped around the given modules, with room for its label. */
 export function zoneAround(a: ApplicationAssembly, ids: readonly string[], kind: ShapeKind): { assembly: ApplicationAssembly; id: string } | null {
   const nodes = a.editor.nodes.filter((n) => ids.includes(n.id));
   if (nodes.length === 0) return null;
@@ -79,7 +79,7 @@ export function resizeShape(a: ApplicationAssembly, id: string, rect: { width: n
   return withShapes(a, shapesOf(a).map((s) => (s.id === id ? { ...s, width: Math.max(40, Math.round(rect.width)), height: Math.max(30, Math.round(rect.height)), x: rect.x === undefined ? s.x : Math.round(rect.x), y: rect.y === undefined ? s.y : Math.round(rect.y) } : s)));
 }
 
-/** Moves a shape to the front or back among shapes (shapes always stay behind appliances). */
+/** Moves a shape to the front or back among shapes (shapes always stay behind modules). */
 export function orderShape(a: ApplicationAssembly, id: string, to: "front" | "back"): ApplicationAssembly {
   const list = shapesOf(a);
   const me = list.find((s) => s.id === id);
@@ -95,7 +95,7 @@ export function duplicateShape(a: ApplicationAssembly, id: string): { assembly: 
   return { id: copy.id, assembly: withShapes(a, [...shapesOf(a), copy]) };
 }
 
-/** Appliances whose centre lies inside a shape: they travel with it when it is dragged. */
+/** Modules whose centre lies inside a shape: they travel with it when it is dragged. */
 export function shapeContents(a: ApplicationAssembly, shapeId: string): string[] {
   const s = shapesOf(a).find((x) => x.id === shapeId);
   if (!s || s.kind === "note") return [];

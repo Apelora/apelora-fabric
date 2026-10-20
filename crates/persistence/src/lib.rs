@@ -218,7 +218,7 @@ pub struct NewDeployment<'a> {
     pub connections: Option<&'a Value>,
     /// Set when connections are enforced.
     pub uplink: Option<&'a str>,
-    /// Set when stateless appliances get service addresses.
+    /// Set when stateless modules get service addresses.
     pub service_range: Option<&'a str>,
     /// Ports published outside the application.
     pub published: Option<&'a Value>,
@@ -289,39 +289,39 @@ pub async fn list_deployments(pool: &PgPool) -> Result<Vec<DeploymentRecord>> {
     .await?)
 }
 
-/// The service address of an appliance: the one it already has, otherwise the first of
-/// `candidates` no appliance holds. `None` when every candidate is taken.
+/// The service address of a module: the one it already has, otherwise the first of
+/// `candidates` no module holds. `None` when every candidate is taken.
 pub async fn service_address(
     pool: &PgPool,
     application_id: Uuid,
     project: &str,
-    appliance: &str,
+    module: &str,
     candidates: &[String],
 ) -> Result<Option<String>> {
     let held = |pool| {
         sqlx::query_scalar::<_, String>(
             "SELECT address FROM service_addresses
-             WHERE application_id = $1 AND project = $2 AND appliance = $3",
+             WHERE application_id = $1 AND project = $2 AND module = $3",
         )
         .bind(application_id)
         .bind(project)
-        .bind(appliance)
+        .bind(module)
         .fetch_optional(pool)
     };
     if let Some(a) = held(pool).await? {
         return Ok(Some(a));
     }
     for c in candidates {
-        // Both the address and the appliance are unique: a concurrent allocation for the
-        // same appliance makes this insert a no-op, and the held address is returned below.
+        // Both the address and the module are unique: a concurrent allocation for the
+        // same module makes this insert a no-op, and the held address is returned below.
         let inserted = sqlx::query(
-            "INSERT INTO service_addresses (address, application_id, project, appliance)
+            "INSERT INTO service_addresses (address, application_id, project, module)
              VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         )
         .bind(c)
         .bind(application_id)
         .bind(project)
-        .bind(appliance)
+        .bind(module)
         .execute(pool)
         .await?
         .rows_affected();
@@ -335,15 +335,15 @@ pub async fn service_address(
     Ok(None)
 }
 
-/// The application's service addresses in a project, as `(appliance, address)`.
+/// The application's service addresses in a project, as `(module, address)`.
 pub async fn service_addresses(
     pool: &PgPool,
     application_id: Uuid,
     project: &str,
 ) -> Result<Vec<(String, String)>> {
     Ok(sqlx::query_as::<_, (String, String)>(
-        "SELECT appliance, address FROM service_addresses
-         WHERE application_id = $1 AND project = $2 ORDER BY appliance",
+        "SELECT module, address FROM service_addresses
+         WHERE application_id = $1 AND project = $2 ORDER BY module",
     )
     .bind(application_id)
     .bind(project)
@@ -351,22 +351,22 @@ pub async fn service_addresses(
     .await?)
 }
 
-/// An application's service addresses in every project, as `(project, appliance, address)`.
+/// An application's service addresses in every project, as `(project, module, address)`.
 pub async fn application_services(
     pool: &PgPool,
     application: &str,
 ) -> Result<Vec<(String, String, String)>> {
     Ok(sqlx::query_as::<_, (String, String, String)>(
-        "SELECT s.project, s.appliance, s.address
+        "SELECT s.project, s.module, s.address
          FROM service_addresses s JOIN applications a ON a.id = s.application_id
-         WHERE a.name = $1 ORDER BY s.project, s.appliance",
+         WHERE a.name = $1 ORDER BY s.project, s.module",
     )
     .bind(application)
     .fetch_all(pool)
     .await?)
 }
 
-/// Frees the service addresses of the application's appliances not in `keep`.
+/// Frees the service addresses of the application's modules not in `keep`.
 pub async fn release_service_addresses(
     pool: &PgPool,
     application_id: Uuid,
@@ -375,7 +375,7 @@ pub async fn release_service_addresses(
 ) -> Result<u64> {
     Ok(sqlx::query(
         "DELETE FROM service_addresses
-         WHERE application_id = $1 AND project = $2 AND NOT (appliance = ANY($3))",
+         WHERE application_id = $1 AND project = $2 AND NOT (module = ANY($3))",
     )
     .bind(application_id)
     .bind(project)

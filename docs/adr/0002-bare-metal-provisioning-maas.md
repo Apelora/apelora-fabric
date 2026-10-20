@@ -16,10 +16,10 @@ Three management levels, each with one authority:
 |---|---|---|
 | Bare metal | MAAS | Discovery, network boot, commissioning, OS install, power, provisioning addresses |
 | Compute | Incus | Cluster membership, instances, storage and network objects, instance lifecycle |
-| Application | Apelora | Appliances, graphs, connectivity, publishing, replicas, health, mobility |
+| Application | Apelora | Modules, graphs, connectivity, publishing, replicas, health, mobility |
 
 - `crates/maas-adapter` talks to the MAAS API; `crates/node-enrollment` hands a freshly installed host to Incus: preflight (kernel, time sync, latency, storage, network), a single-use Incus join token delivered through cloud-init / a preseed, then validation before the member is eligible for placement.
-- **Approval gates.** New hardware is discovered automatically but is never wiped, provisioned or admitted to a cluster without an administrator's approval. Powering off a host with running appliances first offers a planned evacuation; immediate power-off is a separately permissioned emergency action.
+- **Approval gates.** New hardware is discovered automatically but is never wiped, provisioned or admitted to a cluster without an administrator's approval. Powering off a host with running modules first offers a planned evacuation; immediate power-off is a separately permissioned emergency action.
 - **Network separation.** Provisioning (DHCP/PXE), management (Apelora and Incus APIs), storage and BMC traffic use separate networks or VLANs with access controls. MAAS DHCP never runs on a network that already has a DHCP server without coordination.
 - **Address authority stays with its owner:** provisioning and host addresses with MAAS (or the site's IPAM), container addresses with Incus/OVN, service endpoints with Apelora's ingress controller. Apelora shows them all but does not become a second DHCP or IPAM.
 - **Independence.** MAAS and the Apelora control plane run on management infrastructure that survives the loss of the compute cluster, so the cluster can be repaired or reprovisioned.

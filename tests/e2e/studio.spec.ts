@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { APPLIANCE_CLASSES } from "../../packages/appliance-catalog/src/classes";
+import { MODULE_CLASSES } from "../../packages/module-catalog/src/classes";
 import { test } from "@playwright/test";
 import { openProps, addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
 
@@ -45,7 +45,7 @@ test.describe("visual contract", () => {
     expect(await n.evaluate((el) => getComputedStyle(el).borderRadius)).toBe("8px");
   });
 
-  test("six-appliance commerce stack fits the framed canvas at the default view", async ({ page }) => {
+  test("six-module commerce stack fits the framed canvas at the default view", async ({ page }) => {
     await open(page);
     const canvas = await page.getByTestId("canvas").boundingBox();
     const ids = ["gateway-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01", "grafana-01"];
@@ -76,7 +76,7 @@ test.describe("context menus", () => {
   const menu = (page: import("@playwright/test").Page) => page.getByTestId("context-menu");
   const item = (page: import("@playwright/test").Page, id: string) => page.getByTestId(`menu-${id}`);
 
-  test("appliance menu: lists every action; rename, duplicate, add port, reset size, unplug, delete", async ({ page }) => {
+  test("module menu: lists every action; rename, duplicate, add port, reset size, unplug, delete", async ({ page }) => {
     await open(page);
     await node(page, "nginx-01").click({ button: "right" });
     await expect(menu(page)).toBeVisible();
@@ -88,28 +88,28 @@ test.describe("context menus", () => {
     await item(page, "rename").click();
     await expect(page.getByTestId("instance-name")).toBeFocused();
     // add an input port via the submenu
-    const portsBefore = (await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length;
+    const portsBefore = (await assemblyState(page)).spec.modules.find((a) => a.id === "nginx-01")!.ports.length;
     await node(page, "nginx-01").click({ button: "right" });
     await item(page, "add-port").click();
     await page.getByTestId("menu-add-input").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.ports.length).toBe(portsBefore + 1);
-    // duplicate: new appliance, no cables copied for a single node
+    expect((await assemblyState(page)).spec.modules.find((a) => a.id === "nginx-01")!.ports.length).toBe(portsBefore + 1);
+    // duplicate: new module, no cables copied for a single node
     const before = await assemblyState(page);
     await node(page, "nginx-01").click({ button: "right" });
     await item(page, "duplicate").click();
     const after = await assemblyState(page);
-    expect(after.spec.appliances.length).toBe(before.spec.appliances.length + 1);
+    expect(after.spec.modules.length).toBe(before.spec.modules.length + 1);
     expect(after.spec.connections.length).toBe(before.spec.connections.length);
     await expect(menu(page)).toHaveCount(0);
     // unplug all cables, then undo
     await node(page, "haproxy-01").click({ button: "right" });
     await item(page, "disconnect").click();
-    expect((await assemblyState(page)).spec.connections.some((c) => c.source.applianceId === "haproxy-01" || c.target.applianceId === "haproxy-01")).toBe(false);
+    expect((await assemblyState(page)).spec.connections.some((c) => c.source.moduleId === "haproxy-01" || c.target.moduleId === "haproxy-01")).toBe(false);
     await page.getByTestId("undo").click();
     // delete from the menu
     await node(page, "grafana-01").click({ button: "right" });
     await item(page, "delete").click();
-    expect((await assemblyState(page)).spec.appliances.some((a) => a.id === "grafana-01")).toBe(false);
+    expect((await assemblyState(page)).spec.modules.some((a) => a.id === "grafana-01")).toBe(false);
   });
 
   test("multi-selection menu: align and delete", async ({ page }) => {
@@ -117,7 +117,7 @@ test.describe("context menus", () => {
     await node(page, "nginx-01").click();
     await node(page, "grafana-01").click({ modifiers: ["ControlOrMeta"] });
     await node(page, "grafana-01").click({ button: "right" });
-    await expect(menu(page)).toContainText("2 appliances selected");
+    await expect(menu(page)).toContainText("2 modules selected");
     await item(page, "align").click();
     await page.getByTestId("menu-align-left").click();
     const st = await assemblyState(page);
@@ -125,7 +125,7 @@ test.describe("context menus", () => {
     expect(xs[0]).toBe(xs[1]);
     await node(page, "grafana-01").click({ button: "right" });
     await item(page, "delete").click();
-    expect((await assemblyState(page)).spec.appliances.length).toBe(4);
+    expect((await assemblyState(page)).spec.modules.length).toBe(4);
   });
 
   test("port menu: type, multi-cable, required, unplug, reorder, delete", async ({ page }) => {
@@ -142,14 +142,14 @@ test.describe("context menus", () => {
     await pg.click({ button: "right", force: true });
     await item(page, "type").click();
     await page.getByTestId("menu-type-tcp").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.find((p) => p.id === "postgres")!.type).toBe("tcp");
+    expect((await assemblyState(page)).spec.modules.find((a) => a.id === "postgresql-01")!.ports.find((p) => p.id === "postgres")!.type).toBe("tcp");
     await pg.click({ button: "right", force: true });
     await expect(item(page, "unplug")).toContainText("(3)");
     await item(page, "unplug").click();
     expect((await assemblyState(page)).spec.connections.length).toBe(3);
     await handle(page, "postgresql-01", "metrics").click({ button: "right", force: true });
     await item(page, "delete-port").click();
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "postgresql-01")!.ports.length).toBe(2);
+    expect((await assemblyState(page)).spec.modules.find((a) => a.id === "postgresql-01")!.ports.length).toBe(2);
   });
 
   test("cable menu: select ends and unplug", async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe("context menus", () => {
     expect((await assemblyState(page)).spec.connections.some((c) => c.id === "conn-01")).toBe(false);
   });
 
-  test("canvas menu: add appliance at the pointer, paste at the pointer, select all, view toggles", async ({ page }) => {
+  test("canvas menu: add module at the pointer, paste at the pointer, select all, view toggles", async ({ page }) => {
     await open(page);
     const canvas = (await page.getByTestId("canvas").boundingBox())!;
     const at = { x: canvas.x + canvas.width * 0.25, y: canvas.y + canvas.height * 0.8 };
@@ -175,7 +175,7 @@ test.describe("context menus", () => {
     await item(page, "add").click();
     await page.getByTestId("menu-add-redis").click();
     const st = await assemblyState(page);
-    const redis = st.spec.appliances.find((a) => a.id.startsWith("redis"))!;
+    const redis = st.spec.modules.find((a) => a.id.startsWith("redis"))!;
     const c = await center(node(page, redis.id));
     expect(Math.abs(c.x - at.x)).toBeLessThan(3);
     expect(Math.abs(c.y - at.y)).toBeLessThan(3);
@@ -185,7 +185,7 @@ test.describe("context menus", () => {
     await page.mouse.click(at2.x, at2.y, { button: "right" });
     await item(page, "paste").click();
     const st2 = await assemblyState(page);
-    const pasted = st2.spec.appliances.find((a) => a.id.startsWith("redis") && a.id !== redis.id)!;
+    const pasted = st2.spec.modules.find((a) => a.id.startsWith("redis") && a.id !== redis.id)!;
     const c2 = await center(node(page, pasted.id));
     expect(Math.abs(c2.x - at2.x)).toBeLessThan(80); // pasted block's top-left lands at the pointer
     expect(c2.x).toBeGreaterThan(at2.x - 10);
@@ -209,7 +209,7 @@ test.describe("context menus", () => {
     await page.keyboard.press("Escape");
     await expect(menu(page)).toHaveCount(0);
     await page.keyboard.press("Control+d");
-    expect((await assemblyState(page)).spec.appliances.length).toBe(7);
+    expect((await assemblyState(page)).spec.modules.length).toBe(7);
     await page.keyboard.press("Control+a");
     await expect(page.getByTestId("selection-info")).toContainText("7 selected");
     await node(page, "gateway-01").click({ button: "right" });
@@ -221,7 +221,7 @@ test.describe("context menus", () => {
 
 test.describe("configuration forms", () => {
   const field = (page: import("@playwright/test").Page, id: string) => page.locator(`[data-testid=cfg-field][data-prop-id="${id}"]`);
-  const cfg = async (page: import("@playwright/test").Page, appId: string) => (await assemblyState(page)).spec.appliances.find((a) => a.id === appId)!.config;
+  const cfg = async (page: import("@playwright/test").Page, appId: string) => (await assemblyState(page)).spec.modules.find((a) => a.id === appId)!.config;
 
   test("typed fields: int, enum, bool, string, secret with validation, reset and persistence", async ({ page }) => {
     await open(page);
@@ -258,7 +258,7 @@ test.describe("configuration forms", () => {
     // survives reload; reset one, reset all
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("shop-db-password");
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await openProps(page, "postgresql-01", "config");
     await expect(page.getByTestId("cfg-max-connections")).toHaveValue("250");
     await page.getByTestId("cfg-reset-max-connections").click();
@@ -277,11 +277,11 @@ test.describe("configuration forms", () => {
     const dl = page.waitForEvent("download");
     await page.getByTestId("export").click();
     const text = readFileSync((await (await dl).path())!, "utf8");
-    expect(JSON.parse(text).spec.appliances.find((a: { id: string }) => a.id === "nginx-01").config).toEqual({ gzip: false, "server-name": "shop.example.test" });
+    expect(JSON.parse(text).spec.modules.find((a: { id: string }) => a.id === "nginx-01").config).toEqual({ gzip: false, "server-name": "shop.example.test" });
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
     await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     expect(await cfg(page, "nginx-01")).toEqual({ gzip: false, "server-name": "shop.example.test" });
   });
 
@@ -302,7 +302,7 @@ test.describe("configuration forms", () => {
 
   test("designer: define configuration fields, reject bad defaults, create, configure an instance", async ({ page }) => {
     await open(page);
-    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("new-module").click();
     await page.getByTestId("designer-name").fill("Job runner");
     await page.getByTestId("designer-tab-config").click();
     // enum field with too few options is rejected
@@ -337,10 +337,10 @@ test.describe("configuration forms", () => {
     await expect(field(page, "workers").getByTestId("cfg-error")).toContainText("at most 8");
   });
 
-  test("save as custom appliance carries the configured values as new defaults", async ({ page }) => {
+  test("save as custom module carries the configured values as new defaults", async ({ page }) => {
     await open(page);
     await page.locator("[data-testid=catalog-tile][data-class-id=redis]").click();
-    const id = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("redis"))!.id;
+    const id = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("redis"))!.id;
     await openProps(page, id, "config");
     await page.getByTestId("cfg-maxmemory").fill("2048");
     await page.getByTestId("cfg-maxmemory").press("Enter");
@@ -351,7 +351,7 @@ test.describe("configuration forms", () => {
     await expect(page.getByTestId("designer-prop").first().getByLabel("Default value")).toHaveValue("2048");
     await page.getByTestId("designer-save").click();
     await page.locator("[data-testid=catalog-tile][data-class-id=custom-big-cache]").click();
-    const id2 = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("custom-big-cache"))!.id;
+    const id2 = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("custom-big-cache"))!.id;
     await openProps(page, id2, "config");
     await expect(page.getByTestId("cfg-maxmemory")).toHaveValue("2048");
     void id;
@@ -375,7 +375,7 @@ test.describe("category colours and cable routing", () => {
     expect(await shadow("nginx-01")).toBe("none");
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.view.v1") ?? "")).toContain('"showCategory":false');
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(node(page, "nginx-01").getByTestId("node-class")).toBeHidden();
   });
 
@@ -390,7 +390,7 @@ test.describe("category colours and cable routing", () => {
     await expectEdgesAnchored(page);
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.view.v1") ?? "")).toContain('"routing":"angled"');
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     expect((await d())!).not.toContain("C");
     await page.getByTestId("toggle-routing").click();
     expect(await d()).toContain("C");
@@ -401,13 +401,13 @@ test.describe("network interface and link tags", () => {
   const stubs = (page: import("@playwright/test").Page, tag?: string) => page.locator(tag ? `[data-testid=tag-stub][data-tag="${tag}"]` : "[data-testid=tag-stub]");
 
   const dropAt = async (page: import("@playwright/test").Page, cls: string, fx: number, fy: number) => {
-    const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
+    const before = (await assemblyState(page)).spec.modules.map((a) => a.id);
     const box = (await page.getByTestId("canvas").boundingBox())!;
     await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
-    return (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !before.includes(id))!;
+    return (await assemblyState(page)).spec.modules.map((a) => a.id).find((id) => !before.includes(id))!;
   };
 
-  test("every appliance shows a net terminal with a link light; default network until plugged", async ({ page }) => {
+  test("every module shows a net terminal with a link light; default network until plugged", async ({ page }) => {
     await open(page);
     for (const id of ["gateway-01", "haproxy-01", "nginx-01", "postgresql-01", "grafana-01"]) {
       await expect(handle(page, id, "net")).toHaveAttribute("aria-label", /net \(network\).*single cable/);
@@ -417,7 +417,7 @@ test.describe("network interface and link tags", () => {
     await expect(page.getByTestId("nic-status")).toHaveText("default network");
     await page.keyboard.press("Escape"); // the floating window may cover the drop spot
     await expect(page.getByTestId("nic-status")).toHaveCount(0);
-    // plug it into a Network appliance by cable
+    // plug it into a Network module by cable
     const net = await dropAt(page, "network", 0.12, 0.85);
     await dragHandle(page, handle(page, net, "net"), handle(page, "nginx-01", "net"));
     await expect(node(page, "nginx-01").getByTestId("nic-led")).toHaveAttribute("data-linked", "true");
@@ -470,7 +470,7 @@ test.describe("network interface and link tags", () => {
     expect(await edgeCount(page)).toBe(edges + 1);
     await expectEdgesAnchored(page);
     // cable → tag via the cable's context menu
-    const id = (await assemblyState(page)).spec.connections.find((c) => c.source.applianceId === node1 && c.target.applianceId === redis)!.id;
+    const id = (await assemblyState(page)).spec.connections.find((c) => c.source.moduleId === node1 && c.target.moduleId === redis)!.id;
     const pt = await cablePoint(page, id, 0.5);
     await page.mouse.click(pt.x, pt.y, { button: "right" });
     await page.getByTestId("menu-to-tag").click();
@@ -505,11 +505,11 @@ test.describe("network interface and link tags", () => {
     await expect(page.getByTestId("menu-tag-new")).toBeVisible();
   });
 
-  test("sample with a Network appliance joins every NIC through the tag 'lan'; export/import keeps tags", async ({ page }) => {
+  test("sample with a Network module joins every NIC through the tag 'lan'; export/import keeps tags", async ({ page }) => {
     await open(page);
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample-network").click();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await page.waitForTimeout(400);
     await expect(stubs(page, "lan")).toHaveCount(7);
     await expect(page.getByTestId("nic-led").first()).toHaveAttribute("data-linked", "true");
@@ -523,13 +523,13 @@ test.describe("network interface and link tags", () => {
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
     await page.getByTestId("import-input").setInputFiles({ name: "t.json", mimeType: "application/json", buffer: Buffer.from(text) });
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(stubs(page, "lan")).toHaveCount(7);
   });
 
-  test("designer: a new appliance always includes a locked net interface", async ({ page }) => {
+  test("designer: a new module always includes a locked net interface", async ({ page }) => {
     await open(page);
-    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("new-module").click();
     await page.getByTestId("designer-name").fill("Probe");
     const ports = page.getByTestId("designer-port");
     await expect(ports).toHaveCount(3);
@@ -539,7 +539,7 @@ test.describe("network interface and link tags", () => {
     await expect(nic.getByLabel("Delete port")).toBeDisabled();
     await page.getByTestId("designer-save").click();
     await page.locator("[data-testid=catalog-tile][data-class-id=custom-probe]").click();
-    const probe = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("custom-probe"))!;
+    const probe = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("custom-probe"))!;
     expect(probe.ports.some((p) => p.id === "net" && p.type === "network" && p.direction === "input")).toBe(true);
   });
 });
@@ -551,7 +551,7 @@ test.describe("components", () => {
     await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
   };
 
-  test("group three appliances into a component: dialog, re-plugged cables, badge, catalog tile; ungroup restores", async ({ page }) => {
+  test("group three modules into a component: dialog, re-plugged cables, badge, catalog tile; ungroup restores", async ({ page }) => {
     await open(page);
     await webTier(page);
     await node(page, "nginx-02").click({ button: "right" });
@@ -570,7 +570,7 @@ test.describe("components", () => {
     await expect(page.getByTestId("component-dialog")).toHaveCount(0);
 
     const st = await assemblyState(page);
-    expect(st.spec.appliances.map((a) => a.id).sort()).toEqual(["custom-web-tier-01", "gateway-01", "grafana-01", "postgresql-01"]);
+    expect(st.spec.modules.map((a) => a.id).sort()).toEqual(["custom-web-tier-01", "gateway-01", "grafana-01", "postgresql-01"]);
     expect(st.spec.connections).toHaveLength(4);
     const comp = node(page, "custom-web-tier-01");
     await expect(comp.getByTestId("component-badge")).toContainText("3");
@@ -582,14 +582,14 @@ test.describe("components", () => {
     await expectEdgesAnchored(page);
     // another instance from the catalog; the component is reusable
     await page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]").click();
-    expect((await assemblyState(page)).spec.appliances.some((a) => a.id === "custom-web-tier-02")).toBe(true);
+    expect((await assemblyState(page)).spec.modules.some((a) => a.id === "custom-web-tier-02")).toBe(true);
     await page.getByTestId("undo").click();
 
     // ungroup via the menu
     await comp.click({ button: "right" });
     await page.getByTestId("menu-ungroup").click();
     const after = await assemblyState(page);
-    expect(after.spec.appliances).toHaveLength(6);
+    expect(after.spec.modules).toHaveLength(6);
     expect(after.spec.connections).toHaveLength(6);
     await expectEdgesAnchored(page);
     // undo brings the component back
@@ -609,14 +609,14 @@ test.describe("components", () => {
     await expect(node(page, "custom-partial-01")).toBeVisible();
     await page.keyboard.press("Control+Shift+g");
     await expect(node(page, "custom-partial-01")).toHaveCount(0);
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(6);
   });
 
-  test("a component joins the same network as its inner appliances", async ({ page }) => {
+  test("a component joins the same network as its inner modules", async ({ page }) => {
     await open(page);
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample-network").click();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await webTier(page);
     await page.keyboard.press("Control+g");
     await page.getByTestId("component-name").fill("Web tier");
@@ -637,10 +637,10 @@ test.describe("components", () => {
     await page.getByTestId("export").click();
     const text = readFileSync((await (await dl).path())!, "utf8");
     const json = JSON.parse(text);
-    expect(json.catalog.classes[0].composition.appliances).toHaveLength(3);
+    expect(json.catalog.classes[0].composition.modules).toHaveLength(3);
     await page.evaluate(() => localStorage.removeItem("apelora.studio.catalog.v1"));
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
     await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
@@ -648,7 +648,7 @@ test.describe("components", () => {
     await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-web-tier]")).toBeVisible();
     await node(page, "custom-web-tier-01").click({ button: "right" });
     await page.getByTestId("menu-ungroup").click();
-    expect((await assemblyState(page)).spec.appliances).toHaveLength(6);
+    expect((await assemblyState(page)).spec.modules).toHaveLength(6);
   });
 });
 
@@ -742,7 +742,7 @@ test.describe("properties window", () => {
     await page.mouse.up();
     const moved = (await page.getByTestId("inspector").boundingBox())!;
     expect(moved.x).toBeLessThan(box.x - 250);
-    // the canvas stays usable while it is open: clicking another appliance selects it, the window stays on its target
+    // the canvas stays usable while it is open: clicking another module selects it, the window stays on its target
     await node(page, "gateway-01").click();
     await expect(node(page, "gateway-01")).toHaveAttribute("data-selected", "true");
     await expect(page.getByTestId("props-title")).toHaveText("postgresql-01");
@@ -751,11 +751,11 @@ test.describe("properties window", () => {
     await expect(page.getByTestId("props-title")).toHaveText("grafana-01");
     const again = (await page.getByTestId("inspector").boundingBox())!;
     expect(Math.abs(again.x - moved.x)).toBeLessThan(3); // remembered position
-    // Esc closes; the window also closes when its appliance is deleted
+    // Esc closes; the window also closes when its module is deleted
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("inspector")).toHaveCount(0);
     await openProps(page, "grafana-01");
-    await page.getByTestId("delete-appliance").click();
+    await page.getByTestId("delete-module").click();
     await expect(page.getByTestId("inspector")).toHaveCount(0);
   });
 
@@ -768,7 +768,7 @@ test.describe("properties window", () => {
     const canvas = (await page.getByTestId("canvas").boundingBox())!;
     await page.mouse.click(canvas.x + 60, canvas.y + 60, { button: "right" });
     await page.getByTestId("menu-assembly-props").click();
-    await expect(page.getByTestId("inspector-assembly")).toContainText("Appliances");
+    await expect(page.getByTestId("inspector-assembly")).toContainText("Modules");
     await expect(page.getByTestId("inspector-assembly")).toContainText("6");
   });
 });
@@ -864,7 +864,7 @@ test.describe("zones and shapes", () => {
     await expect(page.getByTestId("shape-kind").locator("[data-kind=triangle]")).toHaveAttribute("aria-checked", "true");
   });
 
-  test("wrap a selection in a zone: sits behind appliances, wraps them, opens the label editor; cables stay clickable", async ({ page }) => {
+  test("wrap a selection in a zone: sits behind modules, wraps them, opens the label editor; cables stay clickable", async ({ page }) => {
     await open(page);
     await wrapWebTier(page, "rounded");
     await expect(page.getByTestId("shape-label-input")).toBeVisible();
@@ -876,8 +876,8 @@ test.describe("zones and shapes", () => {
       expect(b.x).toBeGreaterThan(z.x); expect(b.y).toBeGreaterThan(z.y);
       expect(b.x + b.width).toBeLessThan(z.x + z.width); expect(b.y + b.height).toBeLessThan(z.y + z.height);
     }
-    // behind: the topmost element over an appliance is the appliance, not the zone
-    const top = await page.evaluate(() => { const n = document.querySelector("[data-testid=appliance-node][data-node-id=haproxy-01]")!.getBoundingClientRect(); return document.elementFromPoint(n.x + n.width / 2, n.y + n.height - 8)?.closest("[data-testid=appliance-node]")?.getAttribute("data-node-id") ?? "zone"; });
+    // behind: the topmost element over a module is the module, not the zone
+    const top = await page.evaluate(() => { const n = document.querySelector("[data-testid=module-node][data-node-id=haproxy-01]")!.getBoundingClientRect(); return document.elementFromPoint(n.x + n.width / 2, n.y + n.height - 8)?.closest("[data-testid=module-node]")?.getAttribute("data-node-id") ?? "zone"; });
     expect(top).toBe("haproxy-01");
     // a cable inside the zone is still reachable (the interior does not capture clicks)
     const pt = await cablePoint(page, "conn-02", 0.5);
@@ -929,10 +929,10 @@ test.describe("zones and shapes", () => {
     expect((await shapes(page))[0]).toMatchObject({ labelPos: "bottom", fontSize: 20 });
     // layout tab
     await page.getByTestId("props-tab-layout").click();
-    await expect(page.getByTestId("shape-contents")).toContainText("appliance");
+    await expect(page.getByTestId("shape-contents")).toContainText("module");
   });
 
-  test("dragging a zone carries the appliances inside; a locked zone stays put", async ({ page }) => {
+  test("dragging a zone carries the modules inside; a locked zone stays put", async ({ page }) => {
     await open(page);
     await wrapWebTier(page, "rect");
     const before = await assemblyState(page);
@@ -1009,7 +1009,7 @@ test.describe("zones and shapes", () => {
     await page.locator("[data-testid=shape-label]").first().click({ button: "right" });
     await page.getByTestId("menu-delete").click();
     expect(await shapes(page)).toHaveLength(1);
-    // change the remaining zone to a triangle (its label then sits among the appliances, so do this last)
+    // change the remaining zone to a triangle (its label then sits among the modules, so do this last)
     await page.locator("[data-testid=shape-label]").first().click({ button: "right" });
     await page.getByTestId("menu-shape-kind").click();
     await page.getByTestId("menu-kind-triangle").click();
@@ -1043,7 +1043,7 @@ test.describe("zones and shapes", () => {
     expect(await shapes(page)).toHaveLength(0);
     await page.getByTestId("import-input").setInputFiles({ name: "z.json", mimeType: "application/json", buffer: Buffer.from(text) });
     await expect(page.locator("[data-testid=shape-node]")).toHaveCount(2);
-    // density scales zones with the appliances
+    // density scales zones with the modules
     const w0 = (await shapes(page))[0]!.width;
     await page.getByTestId("density-expanded").click();
     expect((await shapes(page))[0]!.width).toBeGreaterThan(w0);
@@ -1113,7 +1113,7 @@ test.describe("terminals and labels", () => {
     const logo = (await n.getByTestId("node-logo").boundingBox())!;
     for (const l of await page.getByTestId("port-label").all()) {
       const b = (await l.boundingBox())!;
-      const owner = await l.evaluate((el) => el.closest("[data-testid=appliance-node]")!.getAttribute("data-node-id"));
+      const owner = await l.evaluate((el) => el.closest("[data-testid=module-node]")!.getAttribute("data-node-id"));
       if (owner !== "nginx-01") continue;
       expect(b.x + b.width <= logo.x + 0.5 || b.x >= logo.x + logo.width - 0.5, "label must not overlap the logo").toBe(true);
     }
@@ -1163,10 +1163,10 @@ test.describe("cables and plugs", () => {
   test("dragging a plug end re-plugs the cable into another compatible port", async ({ page }) => {
     await open(page);
     const before = (await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!; // haproxy -> nginx-02
-    expect(before.target.applianceId).toBe("nginx-02");
+    expect(before.target.moduleId).toBe("nginx-02");
     // add a third web server to re-plug into
     await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
-    const newId = (await assemblyState(page)).spec.appliances.map((a) => a.id).find((id) => !["gateway-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01", "grafana-01"].includes(id))!;
+    const newId = (await assemblyState(page)).spec.modules.map((a) => a.id).find((id) => !["gateway-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01", "grafana-01"].includes(id))!;
     // grab the cable end near nginx-02's "in" jack and drop it on the new node's "in" jack
     const jack = await center(handle(page, "nginx-02", "http"));
     const dest = await center(handle(page, newId, "http"));
@@ -1177,17 +1177,17 @@ test.describe("cables and plugs", () => {
     await page.mouse.up();
     await page.waitForTimeout(150);
     const after = (await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!;
-    expect(after.target.applianceId).toBe(newId);
+    expect(after.target.moduleId).toBe(newId);
     await expectEdgesAnchored(page);
     await page.getByTestId("undo").click();
-    expect((await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!.target.applianceId).toBe("nginx-02");
+    expect((await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!.target.moduleId).toBe("nginx-02");
   });
 });
 
-test.describe("custom appliances", () => {
-  test("design a custom appliance with typed ports, place it, connect it, export/import it", async ({ page }) => {
+test.describe("custom modules", () => {
+  test("design a custom module with typed ports, place it, connect it, export/import it", async ({ page }) => {
     await open(page);
-    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("new-module").click();
     await expect(page.getByTestId("designer")).toBeVisible();
     await page.getByTestId("designer-name").fill("Session cache");
     await page.getByTestId("designer-add-input").click();
@@ -1204,7 +1204,7 @@ test.describe("custom appliances", () => {
     await expect(tile).toBeVisible();
     await tile.click();
     const st = await assemblyState(page);
-    const added = st.spec.appliances.find((a) => a.id.startsWith("custom-session-cache"))!;
+    const added = st.spec.modules.find((a) => a.id.startsWith("custom-session-cache"))!;
     expect(added.ports.length).toBe(5);
     const h = await flowSize(page, added.id);
     expect(h.height).toBeCloseTo(60 + 18 * 3, 0); // in, added input and net
@@ -1220,16 +1220,16 @@ test.describe("custom appliances", () => {
     expect(JSON.parse(text).catalog.classes[0].id).toBe("custom-session-cache");
     await page.evaluate(() => localStorage.removeItem("apelora.studio.catalog.v1"));
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
     await page.getByTestId("import-input").setInputFiles({ name: "c.json", mimeType: "application/json", buffer: Buffer.from(text) });
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.locator("[data-testid=catalog-tile][data-class-id=custom-session-cache]")).toBeVisible();
     await expect(page.getByTestId("error-count")).toHaveCount(0);
   });
 
-  test("save an instance with extra ports as a reusable appliance; designer validates names", async ({ page }) => {
+  test("save an instance with extra ports as a reusable module; designer validates names", async ({ page }) => {
     await open(page);
     await openProps(page, "grafana-01", "ports");
     await addPorts(page, "output", 2);
@@ -1254,7 +1254,7 @@ test.describe("catalog", () => {
   test("sections collapse, search filters, click adds exactly one instance", async ({ page }) => {
     await open(page);
     const section = page.locator("[data-testid=catalog-section][data-category='Databases & Cache']");
-    const dbCount = APPLIANCE_CLASSES.filter((c) => c.category === "Databases & Cache").length;
+    const dbCount = MODULE_CLASSES.filter((c) => c.category === "Databases & Cache").length;
     expect(dbCount).toBeGreaterThanOrEqual(12);
     await expect(section.getByTestId("catalog-tile")).toHaveCount(dbCount);
     await section.getByRole("button").first().click();
@@ -1265,11 +1265,11 @@ test.describe("catalog", () => {
     await page.getByTestId("catalog-search").fill("redi");
     await expect(page.getByTestId("catalog-tile")).toHaveCount(1);
     await expect(page.getByTestId("catalog-section")).toHaveCount(1);
-    const before = (await assemblyState(page)).spec.appliances.length;
+    const before = (await assemblyState(page)).spec.modules.length;
     await page.getByTestId("catalog-tile").click();
-    expect((await assemblyState(page)).spec.appliances.length).toBe(before + 1);
+    expect((await assemblyState(page)).spec.modules.length).toBe(before + 1);
     await page.getByTestId("catalog-search").fill("zzzz");
-    await expect(page.getByText("No appliances match")).toBeVisible();
+    await expect(page.getByText("No modules match")).toBeVisible();
   });
 
   test("Custom section is always visible (with an empty state) and fills when you create one; identity and Microsoft Windows sections exist", async ({ page }) => {
@@ -1284,44 +1284,44 @@ test.describe("catalog", () => {
     await expect(custom).toHaveCount(0);
     await page.getByTestId("catalog-search").fill("");
     // one create button, and it lives in the Custom section (no separate one above the catalog)
-    await expect(page.getByTestId("new-appliance")).toHaveCount(1);
-    await expect(custom.getByTestId("new-appliance")).toHaveText(/Create appliance/);
-    await custom.getByTestId("new-appliance").click();
+    await expect(page.getByTestId("new-module")).toHaveCount(1);
+    await expect(custom.getByTestId("new-module")).toHaveText(/Create module/);
+    await custom.getByTestId("new-module").click();
     await page.getByTestId("designer-name").fill("My service");
     await page.getByTestId("designer-save").click();
     await expect(custom.getByTestId("catalog-tile")).toHaveCount(1);
     await expect(page.getByTestId("custom-empty")).toHaveCount(0);
-    await expect(custom.getByTestId("new-appliance")).toBeVisible(); // still there once the section has appliances
+    await expect(custom.getByTestId("new-module")).toBeVisible(); // still there once the section has modules
     // identity providers
     const ident = page.locator("[data-testid=catalog-section][data-category='Security & Identity']");
     for (const id of ["keycloak", "authelia", "authentik", "pocketid"]) await expect(ident.locator(`[data-class-id=${id}]`)).toBeVisible();
     // Microsoft Windows
     const win = page.locator("[data-testid=catalog-section][data-category='Microsoft Windows']");
-    await expect(win.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.filter((c) => c.category === "Microsoft Windows").length);
+    await expect(win.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.filter((c) => c.category === "Microsoft Windows").length);
     for (const id of ["windows-server", "windows-11", "active-directory", "iis", "sql-server", "dotnet"]) await expect(win.locator(`[data-class-id=${id}]`)).toBeVisible();
-    // a Windows appliance has the usual net terminal, ports and configuration
+    // a Windows module has the usual net terminal, ports and configuration
     await win.locator("[data-class-id=sql-server]").click();
-    const id = (await assemblyState(page)).spec.appliances.find((a) => a.id.startsWith("sql-server"))!.id;
+    const id = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("sql-server"))!.id;
     await openProps(page, id, "config");
     await expect(page.getByTestId("config-form")).toBeVisible();
     await expect(page.getByTestId("cfg-edition")).toBeVisible();
   });
 
-  test("tiles show every built-in appliance, grouped, with collapse all / expand all", async ({ page }) => {
+  test("tiles show every built-in module, grouped, with collapse all / expand all", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.length);
-    await expect(page.getByTestId("catalog-count")).toHaveText(`${APPLIANCE_CLASSES.length} appliances`);
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.length);
+    await expect(page.getByTestId("catalog-count")).toHaveText(`${MODULE_CLASSES.length} modules`);
     await page.getByTestId("catalog-collapse-all").click();
     await expect(page.getByTestId("catalog-tile")).toHaveCount(0);
     await page.getByTestId("catalog-expand-all").click();
-    await expect(page.getByTestId("catalog-tile")).toHaveCount(APPLIANCE_CLASSES.length);
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.length);
     expect(await page.getByTestId("catalog-section").count()).toBeGreaterThanOrEqual(6);
   });
 });
 
 test.describe("drag and drop placement", () => {
   for (const [label, zoomClicks] of [["50%-ish", -3], ["100%-ish", 0], ["150%-ish", 2]] as const) {
-    test(`dropped appliance lands under the cursor at ${label} zoom, also after panning`, async ({ page }) => {
+    test(`dropped module lands under the cursor at ${label} zoom, also after panning`, async ({ page }) => {
       await open(page);
       const buttons = zoomClicks < 0 ? "Zoom out" : "Zoom in";
       for (let i = 0; i < Math.abs(zoomClicks); i++) { await page.getByRole("button", { name: buttons }).click(); await page.waitForTimeout(220); }
@@ -1329,9 +1329,9 @@ test.describe("drag and drop placement", () => {
       const canvas = (await page.getByTestId("canvas").boundingBox())!;
       const target = { x: canvas.x + canvas.width * 0.3, y: canvas.y + canvas.height * 0.82 };
       const drop = async () => {
-        const before = (await assemblyState(page)).spec.appliances.map((a) => a.id);
+        const before = (await assemblyState(page)).spec.modules.map((a) => a.id);
         await tile.dragTo(page.getByTestId("canvas"), { targetPosition: { x: target.x - canvas.x, y: target.y - canvas.y } });
-        const after = (await assemblyState(page)).spec.appliances.map((a) => a.id);
+        const after = (await assemblyState(page)).spec.modules.map((a) => a.id);
         const id = after.find((x) => !before.includes(x))!;
         const c = await center(node(page, id));
         expect(Math.abs(c.x - target.x), "x").toBeLessThan(3);
@@ -1433,8 +1433,8 @@ test.describe("editing", () => {
     await page.locator("[data-testid=catalog-tile][data-class-id=apache]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 120, y: 560 } });
     await page.locator("[data-testid=catalog-tile][data-class-id=mariadb]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 480, y: 560 } });
     const st = await assemblyState(page);
-    const apache = st.spec.appliances.find((a) => a.id.startsWith("apache"))!.id;
-    const maria = st.spec.appliances.find((a) => a.id.startsWith("mariadb"))!.id;
+    const apache = st.spec.modules.find((a) => a.id.startsWith("apache"))!.id;
+    const maria = st.spec.modules.find((a) => a.id.startsWith("mariadb"))!.id;
     const n0 = await edgeCount(page);
 
     // type mismatch: apache mysql output → haproxy http input
@@ -1465,19 +1465,19 @@ test.describe("editing", () => {
     await expect(node(page, "nginx-01").locator(".apl-node-header")).toContainText("web-front");
     await page.getByTestId("res-cpu").fill("4");
     await page.getByTestId("res-cpu").press("Enter");
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.resources.cpu).toBe(4);
+    expect((await assemblyState(page)).spec.modules.find((a) => a.id === "nginx-01")!.resources.cpu).toBe(4);
     await page.getByTestId("res-cpu").fill("0");
     await page.getByTestId("res-cpu").press("Enter");
-    expect((await assemblyState(page)).spec.appliances.find((a) => a.id === "nginx-01")!.resources.cpu).toBe(4); // invalid input rejected
+    expect((await assemblyState(page)).spec.modules.find((a) => a.id === "nginx-01")!.resources.cpu).toBe(4); // invalid input rejected
 
     await node(page, "nginx-02").click();
     await page.keyboard.press("Delete");
-    expect((await assemblyState(page)).spec.appliances.length).toBe(5);
+    expect((await assemblyState(page)).spec.modules.length).toBe(5);
     await page.keyboard.press("Control+z");
-    expect((await assemblyState(page)).spec.appliances.length).toBe(6);
+    expect((await assemblyState(page)).spec.modules.length).toBe(6);
     await expectEdgesAnchored(page);
     await page.keyboard.press("Control+Shift+z");
-    expect((await assemblyState(page)).spec.appliances.length).toBe(5);
+    expect((await assemblyState(page)).spec.modules.length).toBe(5);
     await page.keyboard.press("Control+z");
     // delete a single selected edge
     await page.evaluate(() => (window as unknown as { __studio: { getState: () => { setSelection: (s: unknown) => void; openProps: (t: unknown) => void } } }).__studio.getState().setSelection({ nodes: [], edges: ["conn-01"] }));
@@ -1506,17 +1506,17 @@ test.describe("assembly files", () => {
 
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
-    expect((await assemblyState(page)).spec.appliances.length).toBe(0);
+    expect((await assemblyState(page)).spec.modules.length).toBe(0);
     await page.getByTestId("import-input").setInputFiles({ name: "stack.json", mimeType: "application/json", buffer: Buffer.from(text1) });
-    await page.waitForSelector("[data-testid=appliance-node]");
-    expect((await assemblyState(page)).spec.appliances.length).toBe(6);
+    await page.waitForSelector("[data-testid=module-node]");
+    expect((await assemblyState(page)).spec.modules.length).toBe(6);
     await page.waitForTimeout(400);
     await expectEdgesAnchored(page);
 
     await page.getByTestId("import-input").setInputFiles({ name: "bad.json", mimeType: "application/json", buffer: Buffer.from('{"apiVersion":"nope"}') });
     await expect(page.getByTestId("import-errors")).toBeVisible();
     await page.getByRole("button", { name: "Close" }).click();
-    expect((await assemblyState(page)).spec.appliances.length).toBe(6);
+    expect((await assemblyState(page)).spec.modules.length).toBe(6);
     await page.getByTestId("import-input").setInputFiles({ name: "junk.json", mimeType: "application/json", buffer: Buffer.from("not json") });
     await expect(page.getByTestId("import-errors")).toContainText("Not valid JSON");
   });
@@ -1530,11 +1530,11 @@ test.describe("assembly files", () => {
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? ""), { timeout: 4000 }).toContain("comfortable");
     const before = await assemblyState(page);
     await page.reload();
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     const after = await assemblyState(page);
     const norm = (a: typeof before) => ({
       ...a,
-      spec: { appliances: [...a.spec.appliances].sort((x, y) => x.id.localeCompare(y.id)), connections: [...a.spec.connections].sort((x, y) => x.id.localeCompare(y.id)) },
+      spec: { modules: [...a.spec.modules].sort((x, y) => x.id.localeCompare(y.id)), connections: [...a.spec.connections].sort((x, y) => x.id.localeCompare(y.id)) },
       editor: { ...a.editor, nodes: [...a.editor.nodes].sort((x, y) => x.id.localeCompare(y.id)) },
     });
     expect(norm(after)).toEqual(norm(before));
@@ -1547,14 +1547,14 @@ test.describe("assembly files", () => {
   test("corrupted local storage is kept as a backup instead of being overwritten", async ({ page }) => {
     await page.addInitScript(() => { if (!sessionStorage.getItem("__s")) { sessionStorage.setItem("__s", "1"); localStorage.setItem("apelora.studio.v1", JSON.stringify({ version: 1, savedAt: "x", assembly: "{\"broken\":true}" })); } });
     await page.goto("/");
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.getByTestId("toast").first()).toContainText("backup was kept");
     expect(await page.evaluate(() => localStorage.getItem("apelora.studio.v1.invalid"))).toContain("broken");
   });
 });
 
 test.describe("validation and quality", () => {
-  test("validation panel lists issues with correction hints and focuses the appliance", async ({ page }) => {
+  test("validation panel lists issues with correction hints and focuses the module", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("validation-panel")).toContainText("No issues");
     await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();

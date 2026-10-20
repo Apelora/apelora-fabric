@@ -8,7 +8,7 @@ kept their addresses.
    `GET /api/v1/cluster/members/<name>/evacuation`). Read the dry run:
    - **What Incus does** per instance, from its `cluster.evacuate` mode (`auto` moves it while
      stopped, or only stops it if a device cannot move).
-   - **Effect**: replicas elsewhere keep a service up; single instances and stateful appliances
+   - **Effect**: replicas elsewhere keep a service up; single instances and stateful modules
      are down while they move, or until restore if they only stop.
    - **Blocked**: no other online member, or none with the instance's architecture. Fix that
      first; evacuation is refused while anything blocks it.

@@ -30,7 +30,7 @@
   <img src="docs/screenshots/15-networked-stack-link-tags-1440x900.png" alt="Apelora Studio: a gateway, a load balancer, two web servers, a PostgreSQL database and Grafana connected on the canvas" width="900">
 </p>
 
-For teams that run their own servers and would rather connect parts than hand-write container, network and firewall configuration. You connect appliances such as a gateway, NGINX and PostgreSQL in a visual designer. Apelora turns each connection into a private network, an access rule and a service address. It keeps the replicas you asked for running on [Incus](https://linuxcontainers.org/incus/).
+For teams that run their own servers and would rather connect parts than hand-write container, network and firewall configuration. You connect modules such as a gateway, NGINX and PostgreSQL in a visual designer. Apelora turns each connection into a private network, an access rule and a service address. It keeps the replicas you asked for running on [Incus](https://linuxcontainers.org/incus/).
 
 > **Status: early development.** Core paths are tested on a disposable four-server Incus cluster. It is not ready for production. See [what works today](docs/architecture/current-state.md) and the [known limitations](docs/architecture/current-state.md#known-limitations).
 
@@ -38,18 +38,17 @@ For teams that run their own servers and would rather connect parts than hand-wr
 
 Three steps, from drawing to running application:
 
-1. **Design.** In Apelora Studio, drag appliances onto the canvas and connect their typed ports. The designer refuses connections that cannot work, such as HTTP into a database port.
+1. **Design.** In Apelora Studio, drag modules onto the canvas and connect their typed ports. The designer refuses connections that cannot work, such as HTTP into a database port.
 2. **Deploy.** The control plane checks the design against the cluster. The deployment worker then creates each container or VM in Incus as a durable job, so a crash or a repeated request never creates duplicates.
 3. **Operate.** Only the connections you drew are allowed through. Replicas are spread across servers, unhealthy ones are restarted, and lost ones are replaced when a server fails.
 
-```mermaid
-flowchart LR
-  studio["Apelora Studio<br/>designer"] --> api
-  console["Fabric Console<br/>cluster admin"] --> api
-  api["Control plane<br/>Rust API, PostgreSQL"] --> worker["Deployment worker<br/>jobs, health, recovery"]
-  worker --> incus["Incus cluster<br/>containers and VMs"]
-  worker --> ovn["OVN<br/>networks, access rules,<br/>load balancers"]
-```
+<p align="center">
+  <img src="docs/assets/diagrams/design-to-cluster.svg" alt="A Studio design with a gateway, three web replicas and a database with a volume, deployed onto three Incus servers that share the application's OVN network" width="900">
+</p>
+
+<p align="center">
+  <img src="docs/assets/diagrams/platform-layers.svg" alt="Apelora's layers: people, Studio and Fabric Console, the control plane, the Incus cluster with containers, VMs and local storage pools, OVN, and the physical servers" width="900">
+</p>
 
 Apelora owns the application: its design, desired state, connections, replicas and health. Incus owns the servers: membership, placement and the instances themselves. Apelora talks to Incus only through its documented REST API.
 
@@ -62,7 +61,7 @@ Apelora owns the application: its design, desired state, connections, replicas a
 | **Control plane**: Rust (Axum) API, plans, deployments, roles, audit | [`services/control-plane`](services/control-plane) | Working; tested on Incus |
 | **Deployment worker**: jobs, network enforcement, replica supervision, recovery | [`services/deployment-worker`](services/deployment-worker) | Working; tested on Incus |
 | **Incus adapter** and shared Rust domain | [`crates/`](crates) | Working |
-| **Catalog and model**: appliance definitions, ports, schema | [`packages/`](packages) | Working |
+| **Catalog and model**: module definitions, ports, schema | [`packages/`](packages) | Working |
 
 Results are labelled by how they were checked: **REAL INCUS TESTED** (on the disposable cluster), **CONTRACT VERIFIED** (against recorded Incus responses) or **MOCK VERIFIED** (against the mock provider).
 

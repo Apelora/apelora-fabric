@@ -43,7 +43,7 @@ export interface ServiceEndpoint {
 }
 
 export interface Service {
-  appliance: string;
+  module: string;
   /** Stable name consumers use, independent of instances and addresses. */
   name: string;
   endpoints: ServiceEndpoint[];
@@ -66,7 +66,7 @@ export interface NetworkIntent {
 export interface Segment {
   /** A link tag's name, or `default` for unplugged NICs, or `link-<n>` for cabled groups. */
   name: string;
-  appliances: string[];
+  modules: string[];
 }
 
 export interface NetworkPlan {
@@ -77,18 +77,18 @@ export interface NetworkPlan {
   warnings: string[];
 }
 
-export const serviceName = (appliance: string, application: string) => `${appliance}.${application}.internal`;
+export const serviceName = (module: string, application: string) => `${module}.${application}.internal`;
 
 /** The environment variable a consumer reads to find `provider` (ADR 0004). */
 export const serviceEnvName = (provider: string) => `APELORA_SERVICE_${provider.toUpperCase().replaceAll("-", "_")}`;
 
-type Terminal = { appliance: string; port: Port };
+type Terminal = { module: string; port: Port };
 
 /** Every link in the design: drawn cables and pairs of terminals sharing a link tag. */
 function links(a: ApplicationAssembly): [Terminal, Terminal][] {
   const terminal = (e: Endpoint): Terminal | undefined => {
-    const port = a.spec.appliances.find((x) => x.id === e.applianceId)?.ports.find((p) => p.id === e.portId);
-    return port ? { appliance: e.applianceId, port } : undefined;
+    const port = a.spec.modules.find((x) => x.id === e.moduleId)?.ports.find((p) => p.id === e.portId);
+    return port ? { module: e.moduleId, port } : undefined;
   };
   const out: [Terminal, Terminal][] = [];
   for (const c of a.spec.connections) {
@@ -116,25 +116,25 @@ export function compileNetwork(a: ApplicationAssembly, application: string): Net
 
   for (const [x, y] of links(a)) {
     if (x.port.type === "network" || y.port.type === "network") {
-      if (x.port.type === "network" && y.port.type === "network") nicLinks.push([x.appliance, y.appliance]);
+      if (x.port.type === "network" && y.port.type === "network") nicLinks.push([x.module, y.module]);
       continue;
     }
     // The consumer is the output terminal, the provider the input terminal.
     const [from, to] = x.port.direction === "output" ? [x, y] : [y, x];
-    if (from.port.direction !== "output" || to.port.direction !== "input" || from.appliance === to.appliance) continue;
+    if (from.port.direction !== "output" || to.port.direction !== "input" || from.module === to.module) continue;
     const known = DEFAULT_PORTS[to.port.type];
-    if (!known) warnings.add(`${to.appliance}.${to.port.id} (${to.port.type}) has no well-known port: the rule allows any TCP port until one is set`);
-    const id = `${from.appliance}.${from.port.id}->${to.appliance}.${to.port.id}`;
+    if (!known) warnings.add(`${to.module}.${to.port.id} (${to.port.type}) has no well-known port: the rule allows any TCP port until one is set`);
+    const id = `${from.module}.${from.port.id}->${to.module}.${to.port.id}`;
     intents.set(id, {
       id,
-      from: from.appliance,
+      from: from.module,
       fromPort: from.port.id,
-      to: to.appliance,
+      to: to.module,
       toPort: to.port.id,
       protocol: to.port.type,
       transport: known?.transport ?? "tcp",
       number: known?.port ?? null,
-      service: serviceName(to.appliance, application),
+      service: serviceName(to.module, application),
     });
   }
 
@@ -147,7 +147,7 @@ export function compileNetwork(a: ApplicationAssembly, application: string): Net
   }
   const services: Service[] = [...providers.entries()]
     .sort(([p], [q]) => compare(p, q))
-    .map(([appliance, eps]) => ({ appliance, name: serviceName(appliance, application), endpoints: [...eps.values()].sort((p, q) => compare(p.port, q.port)) }));
+    .map(([module, eps]) => ({ module, name: serviceName(module, application), endpoints: [...eps.values()].sort((p, q) => compare(p.port, q.port)) }));
 
   // NIC segments: tagged NICs join the tag's segment, cabled NICs join each other, the rest
   // share the default segment.
@@ -156,13 +156,13 @@ export function compileNetwork(a: ApplicationAssembly, application: string): Net
   const union = (p: string, q: string) => { const [r1, r2] = [find(p), find(q)].sort(compare); if (r1 !== r2) parent.set(r2!, r1!); };
   const nicTag = new Map<string, string>();
   for (const l of a.spec.links ?? []) {
-    const port = a.spec.appliances.find((x) => x.id === l.endpoint.applianceId)?.ports.find((p) => p.id === l.endpoint.portId);
-    if (port?.type === "network") nicTag.set(l.endpoint.applianceId, l.tag);
+    const port = a.spec.modules.find((x) => x.id === l.endpoint.moduleId)?.ports.find((p) => p.id === l.endpoint.portId);
+    if (port?.type === "network") nicTag.set(l.endpoint.moduleId, l.tag);
   }
   for (const [p, q] of nicLinks) union(`a:${p}`, `a:${q}`);
-  for (const [appliance, tag] of nicTag) union(`t:${tag}`, `a:${appliance}`);
+  for (const [module, tag] of nicTag) union(`t:${tag}`, `a:${module}`);
   const groups = new Map<string, string[]>();
-  for (const x of a.spec.appliances) {
+  for (const x of a.spec.modules) {
     if (!x.ports.some((p) => p.type === "network")) continue;
     const linked = nicLinks.some(([p, q]) => p === x.id || q === x.id) || nicTag.has(x.id);
     const root = linked ? find(`a:${x.id}`) : "default";
@@ -171,33 +171,33 @@ export function compileNetwork(a: ApplicationAssembly, application: string): Net
   let n = 0;
   const segments: Segment[] = [...groups.entries()]
     .map(([root, members]) => {
-      const tag = [...nicTag.entries()].find(([appliance]) => members.includes(appliance))?.[1];
-      return { name: root === "default" ? "default" : (tag ?? ""), appliances: [...members].sort(compare) };
+      const tag = [...nicTag.entries()].find(([module]) => members.includes(module))?.[1];
+      return { name: root === "default" ? "default" : (tag ?? ""), modules: [...members].sort(compare) };
     })
-    .sort((p, q) => compare(p.appliances[0] ?? "", q.appliances[0] ?? ""))
+    .sort((p, q) => compare(p.modules[0] ?? "", q.modules[0] ?? ""))
     .map((s) => (s.name ? s : { ...s, name: `link-${++n}` }));
 
   return { application, services, intents: sorted, segments, warnings: [...warnings].sort(compare) };
 }
 
 export interface PublishedPort {
-  appliance: string;
+  module: string;
   transport: "tcp" | "udp";
   port: number;
 }
 
 /**
  * Ports reachable from outside the application: a gateway (the outside world in the design)
- * connected to a deployed appliance's terminal with a well-known port. Sorted, without
+ * connected to a deployed module's terminal with a well-known port. Sorted, without
  * duplicates; terminals without a port number cannot be published.
  */
 export function publishedPorts(plan: NetworkPlan, gateways: ReadonlySet<string>, deployed: ReadonlySet<string>): PublishedPort[] {
   const seen = new Map<string, PublishedPort>();
   for (const i of plan.intents) {
     if (!gateways.has(i.from) || !deployed.has(i.to) || i.number === null) continue;
-    seen.set(`${i.to}/${i.transport}/${i.number}`, { appliance: i.to, transport: i.transport, port: i.number });
+    seen.set(`${i.to}/${i.transport}/${i.number}`, { module: i.to, transport: i.transport, port: i.number });
   }
-  return [...seen.values()].sort((p, q) => compare(`${p.appliance}/${p.port}`, `${q.appliance}/${q.port}`));
+  return [...seen.values()].sort((p, q) => compare(`${p.module}/${p.port}`, `${q.module}/${q.port}`));
 }
 
 /** Whether the plan lets `from` reach `to` on `number` (deny by default). */

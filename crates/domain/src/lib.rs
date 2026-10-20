@@ -17,7 +17,7 @@ pub mod storage;
 /// Version segment of the Apelora REST API (`/api/v1`).
 pub const API_VERSION: &str = "v1";
 
-/// How an appliance runs on Incus (ADR 0001).
+/// How a module runs on Incus (ADR 0001).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
@@ -25,7 +25,7 @@ pub enum Runtime {
     IncusSystemContainer,
     IncusOciContainer,
     IncusVm,
-    /// A Studio grouping of other appliances; not an Incus instance type.
+    /// A Studio grouping of other modules; not an Incus instance type.
     Composite,
 }
 
@@ -105,7 +105,7 @@ pub struct Instance {
     /// Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora.
     #[serde(default)]
     pub managed: bool,
-    /// The application and appliance this instance was deployed for (Apelora's labels).
+    /// The application and module this instance was deployed for (Apelora's labels).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Owner>,
     /// What Incus does with it when its member is evacuated (`cluster.evacuate`, with
@@ -119,32 +119,40 @@ pub struct Instance {
 }
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application
-/// and the appliance (a node in the Studio design) it was deployed for.
+/// and the module (a node in the Studio design) it was deployed for.
 pub const APPLICATION_KEY: &str = "user.apelora.application";
-pub const APPLIANCE_KEY: &str = "user.apelora.appliance";
-/// 1-based replica number of the instance within its appliance.
+pub const MODULE_KEY: &str = "user.apelora.module";
+/// The key instances, load balancers and volumes carried before "appliance" was renamed
+/// "module" (ADR 0006). Read, never written.
+pub const LEGACY_MODULE_KEY: &str = "user.apelora.appliance";
+
+/// The module label of an Incus object, under its current or its earlier key.
+pub fn module_label(config: &std::collections::BTreeMap<String, String>) -> Option<&String> {
+    config
+        .get(MODULE_KEY)
+        .or_else(|| config.get(LEGACY_MODULE_KEY))
+}
+/// 1-based replica number of the instance within its module.
 pub const REPLICA_KEY: &str = "user.apelora.replica";
 
 fn first_replica() -> u8 {
     1
 }
 
-/// The application and appliance an instance belongs to.
+/// The application and module an instance belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct Owner {
     pub application: String,
-    pub appliance: String,
+    #[serde(alias = "appliance")]
+    pub module: String,
     #[serde(default = "first_replica")]
     pub replica: u8,
 }
 
 impl Owner {
     pub fn validate(&self) -> Result<(), String> {
-        for (what, v) in [
-            ("application", &self.application),
-            ("appliance", &self.appliance),
-        ] {
+        for (what, v) in [("application", &self.application), ("module", &self.module)] {
             if !is_valid_name(v) {
                 return Err(format!("invalid {what} name {v:?}"));
             }
@@ -527,6 +535,32 @@ impl Role {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_module_label_is_read_under_its_current_and_its_earlier_key() {
+        let config =
+            |k: &str| std::collections::BTreeMap::from([(k.to_owned(), "web-01".to_owned())]);
+        assert_eq!(
+            module_label(&config(MODULE_KEY)).map(String::as_str),
+            Some("web-01")
+        );
+        assert_eq!(
+            module_label(&config(LEGACY_MODULE_KEY)).map(String::as_str),
+            Some("web-01")
+        );
+        assert_eq!(module_label(&config("user.other")), None);
+    }
+
+    #[test]
+    fn documents_and_requests_written_before_the_rename_still_read() {
+        let owner: Owner =
+            serde_json::from_str(r#"{"application":"shop","appliance":"web-01","replica":2}"#)
+                .expect("old owner");
+        assert_eq!(owner.module, "web-01");
+        let new = serde_json::to_value(&owner).expect("json");
+        assert_eq!(new["module"], "web-01");
+        assert!(new.get("appliance").is_none());
+    }
     #[test]
     fn roles_follow_least_privilege() {
         use super::{Permission::*, Role};

@@ -13,7 +13,7 @@ What the drill showed (`ovn-central` stopped on the member that runs it, with an
 of a client and two web replicas behind a service address):
 
 - **Running applications keep working:** requests to the service address and connections
-  between appliances kept succeeding, and names kept resolving (`<instance>.incus`), for the
+  between modules kept succeeding, and names kept resolving (`<instance>.incus`), for the
   whole outage.
 - **Changes wait:** a deployment that added a replica during the outage was accepted, but
   creating its instance stalled (Incus waits on OVN for its network interface) and the network
@@ -41,5 +41,5 @@ member; until fixed, evacuate it (member maintenance runbook) so its replicas mo
 
 ## The uplink is unreachable — NOT YET VERIFIED
 
-Traffic between appliances (inside OVN) continues; internet access, publishing and anything
+Traffic between modules (inside OVN) continues; internet access, publishing and anything
 routed through the uplink stop. Restore the uplink network; no Apelora action is needed.

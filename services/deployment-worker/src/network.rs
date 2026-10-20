@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! `network.sync`: makes an application's network objects match its connections.
 //!
-//! Idempotent and level-triggered: ensures the application's OVN network and, per appliance,
+//! Idempotent and level-triggered: ensures the application's OVN network and, per module,
 //! an ACL and an address set; writes every ACL's rules from the connections (both sides);
 //! fills each address set with its instance's current addresses. While an instance has no
 //! address yet (still starting) the job retries; until then its set is empty, which denies.
@@ -61,13 +61,13 @@ async fn apply(
 ) -> Result<Vec<String>, SyncError> {
     let (p, app) = (&s.project, s.application.as_str());
     let mut missing = Vec::new();
-    if !s.appliances.is_empty() {
+    if !s.modules.is_empty() {
         provider
             .ensure_network(p, &network_name(app), &s.uplink, app)
             .await?;
     }
     let inv = Inventory::read(provider).await?;
-    for a in &s.appliances {
+    for a in &s.modules {
         let name = acl_name(app, a);
         provider.ensure_acl(p, &name, app).await?;
         provider.ensure_address_set(p, &name, app).await?;
@@ -93,7 +93,7 @@ async fn apply(
         addresses.sort();
         provider.set_addresses(p, &name, &addresses, app).await?;
     }
-    for a in &s.appliances {
+    for a in &s.modules {
         let (mut ingress, mut egress) = acl_rules(app, a, &s.connections);
         ingress.extend(published_rules(a, &s.published));
         egress.extend(internet_rules(
@@ -108,9 +108,9 @@ async fn apply(
     Ok(missing)
 }
 
-/// Gives every connected stateless appliance a service address: an OVN load balancer over its
+/// Gives every connected stateless module a service address: an OVN load balancer over its
 /// replicas' IPv4 addresses on the ports it is reached on, with health checks. Removes the
-/// application's load balancers (and frees their addresses) for appliances that no longer
+/// application's load balancers (and frees their addresses) for modules that no longer
 /// get one. Returns the services that could not be set up yet.
 async fn services(
     pool: &Pool,
@@ -188,7 +188,7 @@ async fn services(
         }
         let lb = LoadBalancer {
             listen_address,
-            appliance: a.clone(),
+            module: a.clone(),
             backends,
             ports: s.ports_of(a),
         };
@@ -219,12 +219,12 @@ async fn services(
     Ok(waiting)
 }
 
-/// Deletes the application's ACLs and address sets for appliances no longer in the design
-/// (ACLs first: they reference the sets), and its network once no appliance is left. Only
+/// Deletes the application's ACLs and address sets for modules no longer in the design
+/// (ACLs first: they reference the sets), and its network once no module is left. Only
 /// objects labelled with this application are considered.
 async fn remove_stale(provider: &Provider, s: &NetworkSync) -> Result<(), AdapterError> {
     let (p, app) = (&s.project, s.application.as_str());
-    let current: Vec<String> = s.appliances.iter().map(|a| acl_name(app, a)).collect();
+    let current: Vec<String> = s.modules.iter().map(|a| acl_name(app, a)).collect();
     for kind in [NetworkObject::Acl, NetworkObject::AddressSet] {
         let stale: Vec<String> = provider
             .owned_network_objects(kind, p, app)
@@ -236,7 +236,7 @@ async fn remove_stale(provider: &Provider, s: &NetworkSync) -> Result<(), Adapte
             provider.delete_network_object(kind, p, &name, app).await?;
         }
     }
-    if s.appliances.is_empty() {
+    if s.modules.is_empty() {
         provider
             .delete_network_object(NetworkObject::Network, p, &network_name(app), app)
             .await?;
@@ -269,18 +269,12 @@ impl Inventory {
         })
     }
 
-    /// The instances filling replica `replica` of `appliance` (the replica and its
+    /// The instances filling replica `replica` of `module` (the replica and its
     /// substitutes), each with whether its member can be reached.
-    fn slot(&self, s: &NetworkSync, appliance: &str, replica: u8) -> Vec<(String, bool)> {
-        slot_instances(
-            &s.application,
-            &s.project,
-            appliance,
-            replica,
-            &self.observed,
-        )
-        .into_iter()
-        .map(|i| (i.name.clone(), !self.unavailable.contains(&i.location)))
-        .collect()
+    fn slot(&self, s: &NetworkSync, module: &str, replica: u8) -> Vec<(String, bool)> {
+        slot_instances(&s.application, &s.project, module, replica, &self.observed)
+            .into_iter()
+            .map(|i| (i.name.clone(), !self.unavailable.contains(&i.location)))
+            .collect()
     }
 }

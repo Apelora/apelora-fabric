@@ -1,6 +1,6 @@
 ---
 name: storage-volumes
-description: Design provider-neutral persistent volumes — creation, attachment to appliances, snapshots, resize, and lifecycle/retention. Use when working on volume abstractions or storage backends.
+description: Design provider-neutral persistent volumes — creation, attachment to modules, snapshots, resize, and lifecycle/retention. Use when working on volume abstractions or storage backends.
 ---
 
 # Storage volumes
@@ -12,8 +12,8 @@ Incus owns pools and drivers; Apelora asks for volumes through `apelora_incus_ad
 ## As built
 
 - `apelora_domain::storage::VolumeMount` in `InstanceSpec.volumes`; `validate_volumes` checks names, sizes, paths and Incus name length; `check_resize` is grow-only.
-- One volume per instance, `<instance>-<volume>`, device `vol-<volume>`, labels `user.apelora.managed|application|appliance|volume`.
-- Worker order (Incus does not follow a member-local volume): create the instance stopped → volume on its member → attach → start. Stateless appliances cannot have volumes.
+- One volume per instance, `<instance>-<volume>`, device `vol-<volume>`, labels `user.apelora.managed|application|module|volume`.
+- Worker order (Incus does not follow a member-local volume): create the instance stopped → volume on its member → attach → start. Stateless modules cannot have volumes.
 - Deleting an instance keeps its volumes; deleting a volume is explicit and only for its own application.
 
 ## Model
@@ -25,7 +25,7 @@ Incus owns pools and drivers; Apelora asks for volumes through `apelora_incus_ad
 
 ## Rules
 
-1. Destructive operations (delete, restore-over, shrink) require explicit intent and are never implied by removing an appliance from a canvas.
+1. Destructive operations (delete, restore-over, shrink) require explicit intent and are never implied by removing a module from a canvas.
 2. Detach/stop before snapshot unless the backend guarantees crash-consistency; record which was achieved.
 3. Resize is grow-only by default.
 4. Encrypt at rest where the provider supports it; keys are referenced, never stored in manifests.

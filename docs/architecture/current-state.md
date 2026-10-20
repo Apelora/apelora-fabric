@@ -6,6 +6,8 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 
 ## What exists and works
 
+The parts of an application are called **modules** (formerly *appliances*; [ADR 0006](../adr/0006-modules.md)). Designs, API requests, stored records and Incus labels written before the rename are still read. Illustrations: [platform layers](../assets/diagrams/platform-layers.svg), [from a design to running instances](../assets/diagrams/design-to-cluster.svg), [storage layers](../assets/diagrams/storage-layers.svg).
+
 | Area | Location | State |
 |---|---|---|
 | Apelora Studio (designer) | `apps/studio` | Catalog, canvas with typed terminals, cables and link tags, properties (resources, availability and replicas, internet access, configuration, ports), components, zones, undo/redo, import/export, validation; deploy dialog (plan preview, network rules, published ports, jobs) and a live overlay of every replica and service address. |
@@ -13,7 +15,7 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Control plane | `services/control-plane` | Axum API (OpenAPI 3 document, generated TypeScript client), API tokens and roles, inventory, preflight, instances, applications (plan, deploy, revisions, status with services), cluster administration (machine enrolment, join tokens, evacuation) through a separate admin identity, audit log. |
 | Deployment worker | `services/deployment-worker` | Job queue with leases and fencing; instance lifecycle; `network.sync` (OVN networks, ACLs, address sets, load balancers with health-check repair, publishing, internet access); replica supervisor (recreate, restart, substitute on failed members, retire, sync retry, health with hysteresis and restart of failing replicas). |
 | Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0009, Incus REST client with TLS pinning and a mock provider. |
-| Catalog and model | `packages/` | 83 original appliance classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
+| Catalog and model | `packages/` | 83 original module classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
 | Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 131 Rust tests, 76 unit tests, 88 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
 | Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
@@ -25,16 +27,16 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Identity, tenancy, authorization | Organisations, projects, environments, users, groups, ten predefined and custom roles, scoped assignments with an escalation guard, service identities, approvals, emergency access, append-only audit, OIDC token validation, a default-deny route gate with exact-resource checks (MOCK VERIFIED; 46 auth, 10 identity, 29 persistence and 22 API tests). Live identity provider, MAAS 3.8 mapping and Incus restricted projects are NOT VERIFIED. [Details](IDENTITY-AND-AUTHORIZATION.md). |
 | Fabric Console → Identity & Access | Eight pages plus assignment preview with effective-permission origins, emergency access dialog and copy-once service tokens; Playwright with a stubbed API and axe (no serious violations). |
 | Application management | Drafts with conflict detection, immutable published versions, server-derived status with per-caller permitted actions, Start/Restart/Stop as dependency-ordered operations carried out by the worker (MOCK VERIFIED). Studio: Applications page (cards and list, search, filters, sorting, pagination), per-application workspace (Overview, Designer, Deployments, Monitoring, Versions, Settings), icon picker using the editor's logos, publish and deploy-version flows. Run against the real control plane and worker with the mock provider: sign-in, draft save, publish, deploy through the worker, and a refused Start that showed the server's real error ("none of the application's instances exist in Incus"). The mock inventory is static, so Start/Stop on running instances is not yet REAL INCUS TESTED. |
-| Interactive access to appliances | Terminal sessions (and PowerShell for Windows appliances) brokered by the control plane: permissions `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, single-use tickets, limits, re-checked access, audit without content; Studio right-click and Monitoring entries with xterm. MOCK VERIFIED and CONTRACT VERIFIED; not run against a real Incus, a Windows guest or a live identity provider. SSH daemons are deliberately not used. **RDP is not built** (no gateway). [Details](IDENTITY-AND-AUTHORIZATION.md#7-interactive-access-to-appliances-terminal-powershell). |
+| Interactive access to modules | Terminal sessions (and PowerShell for Windows modules) brokered by the control plane: permissions `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, single-use tickets, limits, re-checked access, audit without content; Studio right-click and Monitoring entries with xterm. MOCK VERIFIED and CONTRACT VERIFIED; not run against a real Incus, a Windows guest or a live identity provider. SSH daemons are deliberately not used. **RDP is not built** (no gateway). [Details](IDENTITY-AND-AUTHORIZATION.md#7-interactive-access-to-modules-terminal-powershell). |
 | Mutation testing | `cargo mutants` on the authorisation crate (230 caught, 0 missed), the access and lifecycle rules, and Stryker on the model rules. [How and results](../development/MUTATION-TESTING.md). |
 
 ## Earlier design
 
-An earlier hypervisor-based design (a Rust node agent and a VM per appliance) was never built and was replaced by [ADR 0001](../adr/0001-incus-first.md). Its documents and skill were removed on 2026-10-20; skills, agents, README, CLAUDE.md, SECURITY.md and the commercial licence drafts describe the Incus-first platform.
+An earlier hypervisor-based design (a Rust node agent and a VM per module) was never built and was replaced by [ADR 0001](../adr/0001-incus-first.md). Its documents and skill were removed on 2026-10-20; skills, agents, README, CLAUDE.md, SECURITY.md and the commercial licence drafts describe the Incus-first platform.
 
 ## What carries over unchanged
 
-- The whole Studio app and both packages. The Incus runtime is an *addition* to an appliance class (Phase 06), not a change to existing documents.
+- The whole Studio app and both packages. The Incus runtime is an *addition* to a module class (Phase 06), not a change to existing documents.
 - Port/terminal model, catalog rules, port placement convention, visual design contract.
 - Licence: AGPL-3.0-only for our code. Incus (Apache-2.0) and MAAS (AGPL-3.0, if adopted per ADR 0002) are used over their APIs.
 
@@ -55,13 +57,13 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console views (instances and deploy, operations, preflight, networks and storage, membership, administration, audit) | Done (slices 1–2); verified in a real browser against the test cluster | 05 |
-| Application deployment backend (plan, deploy, revisions, status by appliance) | Done; REAL INCUS TESTED (two members) | 06 |
+| Application deployment backend (plan, deploy, revisions, status by module) | Done; REAL INCUS TESTED (two members) | 06 |
 | Studio deploy panel and live status overlay | Done; verified in a real browser against the test cluster | 06 |
 | Network intent compiler (rules, service names, segments) | Done (TypeScript, tested); shown in the Studio, not enforced | 07 |
 | Enforcing connections (per-application OVN network, ACLs and address sets) | Done; REAL INCUS TESTED across two members | 07 |
-| Cleanup of network objects with the appliances (owner-labelled) | Done; REAL INCUS TESTED | 07 |
+| Cleanup of network objects with the modules (owner-labelled) | Done; REAL INCUS TESTED | 07 |
 | Publishing (gateway connections → service address + ingress rule) | Done; REAL INCUS TESTED (outside route required) | 07 |
-| Internet access per appliance (`@external` egress) | Done; REAL INCUS TESTED | 07 |
+| Internet access per module (`@external` egress) | Done; REAL INCUS TESTED | 07 |
 | Service discovery: `APELORA_SERVICE_<PROVIDER>` in every consumer (ADR 0004) | Done; REAL INCUS TESTED | 07 |
 | Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
 | Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
@@ -69,10 +71,10 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 | Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
 | Health with hysteresis from the load balancer's port check; restart of failing stateless replicas (paced, audited); health in status and Studio | Done; REAL INCUS TESTED (four members, `demo.sh`) | 08 |
 | Application-level (HTTP) readiness, service names (DNS), rebalancing | Missing | 08 |
-| Resources per appliance as Incus limits (CPU, memory, fractional CPU quota) | Done; REAL INCUS TESTED (catalog runtimes) | 06 |
-| Volumes per appliance (backend): `data-local` class, pool from `APELORA_VOLUME_POOL`, one volume per instance created on the member Incus placed it on, attached before start, kept when the instance is deleted, never adopted | Done; REAL INCUS TESTED (`volumes_follow_the_instance_and_outlive_it`) | 06 |
+| Resources per module as Incus limits (CPU, memory, fractional CPU quota) | Done; REAL INCUS TESTED (catalog runtimes) | 06 |
+| Volumes per module (backend): `data-local` class, pool from `APELORA_VOLUME_POOL`, one volume per instance created on the member Incus placed it on, attached before start, kept when the instance is deleted, never adopted | Done; REAL INCUS TESTED (`volumes_follow_the_instance_and_outlive_it`) | 06 |
 | Volume records (`volumes`, migration 0012), listing with live state (attached, kept, missing), explicit delete with the name typed (`application.delete`, audited); Fabric Console Volumes panel | Done; REAL INCUS TESTED (four members) and verified in a real browser | 06 |
-| Volumes in designs: class defaults (`runtime.volumes`), per-appliance volumes in the Studio Properties window (checked against the schema, refused for stateless classes), listed in the deploy review and sent with the plan | Done; MOCK VERIFIED in the browser (stubbed control plane); the request shape is the one REAL INCUS TESTED through the API | 06 |
+| Volumes in designs: class defaults (`runtime.volumes`), per-module volumes in the Studio Properties window (checked against the schema, refused for stateless classes), listed in the deploy review and sent with the plan | Done; MOCK VERIFIED in the browser (stubbed control plane); the request shape is the one REAL INCUS TESTED through the API | 06 |
 | Volume grow (online, grow-only: a shrink is refused before it reaches Incus), API and Fabric Console | Done; REAL INCUS TESTED (adapter, running instance) | 06 |
 | Volume snapshots and backups, relocation of `data-local` volumes | Missing | 06 |
 | Resizing existing instances | Missing | 06 |
@@ -88,7 +90,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 
 - **Incus 7.0.2** is pinned but not yet tested: the package repository still ships 7.0.1, which all evidence was produced with.
 - **One architecture** (aarch64) on the test cluster: no mixed-architecture evidence.
-- **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful appliances are not recovered automatically.
+- **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful modules are not recovered automatically.
 - **Publishing** needs the network outside to route service addresses to the application network's router; the OVN router does not answer ARP for them.
 - **Service names (DNS)** inside applications are not provided (ADR 0004): consumers read `APELORA_SERVICE_<PROVIDER>`, set when they are created; an instance that already existed keeps the environment it was created with.
 - **Resources** apply when an instance is created; changing them in the Studio does not resize instances that already exist.

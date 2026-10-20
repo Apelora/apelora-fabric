@@ -1,16 +1,16 @@
-import type { ApplianceClass } from "@apelora/assembly-model";
+import type { ModuleClass } from "@apelora/assembly-model";
 import { cls, p, prop } from "./factory";
 import { EXTRA_CLASSES } from "./classes-extra";
 import { RUNTIMES } from "./runtimes";
 
 /** Original, conceptual manifests written for this project. Short port names double as the on-canvas labels. */
-const BASE_CLASSES: readonly ApplianceClass[] = [
+const BASE_CLASSES: readonly ModuleClass[] = [
   cls("gateway", "Gateway", "Network & Security", "Application edge: public entry point and routing to the assembly.", "gateway",
     [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256, [prop("public-name", "Public DNS name", "string", { default: "app.example.test", group: "Network", description: "Name clients use to reach the application." }), prop("tls", "Terminate TLS", "bool", { default: true, group: "Network" })]),
-  cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router appliance.", "opnsense",
+  cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router module.", "opnsense",
     [p("wan", "wan", "input", "network", "Uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "network", "Protected network", { multiplicity: "many" })], 2, 1024, [prop("default-policy", "Default policy", "enum", { options: ["deny", "allow"], default: "deny", required: true, group: "Firewall" }), prop("admin-secret", "Admin password reference", "secret", { default: "firewall-admin", required: true, group: "Access", description: "Name of the secret that holds the admin password." })]),
-  cls("network", "Network", "Network & Security", "Virtual network segment (no VM). Appliances plug their net interface into it; link it to a gateway or another network through uplink.", "generic-network",
-    [p("uplink", "uplink", "input", "network", "Connect this network to another network or to a gateway", { optional: true, multiplicity: "many" }), p("net", "net", "output", "network", "Plug appliance network interfaces (NICs) in here", { multiplicity: "many" })], 1, 64),
+  cls("network", "Network", "Network & Security", "Virtual network segment (no VM). Modules plug their net interface into it; link it to a gateway or another network through uplink.", "generic-network",
+    [p("uplink", "uplink", "input", "network", "Connect this network to another network or to a gateway", { optional: true, multiplicity: "many" }), p("net", "net", "output", "network", "Plug module network interfaces (NICs) in here", { multiplicity: "many" })], 1, 64),
   cls("haproxy", "HAProxy", "Load Balancing", "HAProxy: TCP/HTTP load balancer and reverse proxy fronting a pool of servers, with health checks and high availability.", "haproxy",
     [p("frontend", "in", "input", "http", "Client traffic"), p("backend", "out", "output", "http", "Pool of servers", { multiplicity: "many" }), p("mon", "mon", "output", "metrics", "Metrics endpoint for Prometheus-style scraping", { optional: true, multiplicity: "many" })], 1, 512, [
       prop("algorithm", "Balance algorithm", "enum", { options: ["roundrobin", "leastconn", "source"], default: "roundrobin", required: true, group: "Balancing" }),
@@ -70,26 +70,26 @@ const BASE_CLASSES: readonly ApplianceClass[] = [
     [p("source", "src", "output", "postgres", "Data source", { optional: true }), p("ui", "ui", "input", "http", "Web UI", { optional: true })], 1, 512, [prop("admin-secret", "Admin password secret reference", "secret", { default: "grafana-admin", required: true, group: "Access" }), prop("anonymous", "Allow anonymous viewers", "bool", { default: false, group: "Access" })]),
   cls("rabbitmq", "RabbitMQ", "Messaging & Streaming", "AMQP message broker.", "rabbitmq",
     [p("amqp", "amqp", "input", "amqp", "Producers and consumers", { multiplicity: "many" })], 1, 1024, [prop("vhost", "Virtual host", "string", { default: "/", group: "Broker" }), prop("user-secret", "User password secret reference", "secret", { default: "mq-password", required: true, group: "Access" })]),
-  cls("linux-base", "Linux base", "Operating Systems", "Minimal Linux base image for custom appliances.", "linux-base",
+  cls("linux-base", "Linux base", "Operating Systems", "Minimal Linux base image for custom modules.", "linux-base",
     [], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System" }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
   ...EXTRA_CLASSES,
 ];
 
-export const APPLIANCE_CLASSES: readonly ApplianceClass[] = BASE_CLASSES.map((c) => (RUNTIMES[c.id] ? { ...c, runtime: RUNTIMES[c.id] } : c));
+export const MODULE_CLASSES: readonly ModuleClass[] = BASE_CLASSES.map((c) => (RUNTIMES[c.id] ? { ...c, runtime: RUNTIMES[c.id] } : c));
 
-const customClasses = new Map<string, ApplianceClass>();
+const customClasses = new Map<string, ModuleClass>();
 
 /** Replaces the user-defined (custom) classes known to lookups and validation. */
-export function setCustomClasses(list: readonly ApplianceClass[]): void {
+export function setCustomClasses(list: readonly ModuleClass[]): void {
   customClasses.clear();
   for (const c of list) customClasses.set(`${c.id}@${c.version}`, { ...c, custom: true });
 }
 
-export function allClasses(): ApplianceClass[] {
-  return [...APPLIANCE_CLASSES, ...customClasses.values()];
+export function allClasses(): ModuleClass[] {
+  return [...MODULE_CLASSES, ...customClasses.values()];
 }
 
 const key = (name: string, version: string) => `${name}@${version}`;
-const index = new Map(APPLIANCE_CLASSES.map((c) => [key(c.id, c.version), c]));
+const index = new Map(MODULE_CLASSES.map((c) => [key(c.id, c.version), c]));
 
-export const lookupClass = (name: string, version: string): ApplianceClass | undefined => index.get(key(name, version)) ?? customClasses.get(key(name, version));
+export const lookupClass = (name: string, version: string): ModuleClass | undefined => index.get(key(name, version)) ?? customClasses.get(key(name, version));

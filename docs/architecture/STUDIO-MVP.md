@@ -6,7 +6,7 @@ See also [STUDIO-UI-SPEC.md](STUDIO-UI-SPEC.md) for the interface specification 
 
 ## Scope
 
-A browser application to compose, validate, inspect, version and export application assemblies from a catalog of virtual appliances. Everything is local: state lives in memory and `localStorage`; nothing is deployed.
+A browser application to compose, validate, inspect, version and export application assemblies from a catalog of virtual modules. Everything is local: state lives in memory and `localStorage`; nothing is deployed.
 
 ## Layout
 
@@ -15,7 +15,7 @@ apps/studio/            Vite + React app
   src/components/{chrome,catalog,canvas,inspector,validation}
   src/features/editor/  zustand store, persistence, context
 packages/assembly-model schema, geometry, validation, ops, serialize
-packages/appliance-catalog classes, logos, sample assembly
+packages/module-catalog classes, logos, sample assembly
 tests/e2e/              Playwright specs (+ on-demand screenshots)
 ```
 
@@ -23,9 +23,9 @@ tests/e2e/              Playwright specs (+ on-demand screenshots)
 
 | Layer | Type | Contains |
 |---|---|---|
-| Catalog | `ApplianceClass` | id, version, category, ports (stable ids), resources, icon, runtime image placeholder |
-| Instance | `ApplianceInstance` | id, name, `classRef`, resources, own copy of ports (editable) |
-| Assembly | `ApplicationAssembly` | `spec` (appliances, connections) + `editor` (layout, density) |
+| Catalog | `ModuleClass` | id, version, category, ports (stable ids), resources, icon, runtime image placeholder |
+| Instance | `ModuleInstance` | id, name, `classRef`, resources, own copy of ports (editable) |
+| Assembly | `ApplicationAssembly` | `spec` (modules, connections) + `editor` (layout, density) |
 
 `spec` is deployment-relevant; `editor` is view-only (positions, sizes, density) so resizing never changes semantics. The JSON Schema is generated from the zod schemas into `packages/assembly-model/schema/` for future Rust consumers.
 
@@ -36,25 +36,25 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 ## Geometry contract
 
 - Default node 128×96 flow units; header 24; logo 30; port pitch 18; marker 9, hit area 18.
-- `minApplianceHeight = max(96, 60 + 18 × rows)` where rows = max(1, inputs, outputs). Two ports fit in the compact card; three or more grow the node only.
+- `minModuleHeight = max(96, 60 + 18 × rows)` where rows = max(1, inputs, outputs). Two ports fit in the compact card; three or more grow the node only.
 - Port i centre: `24 + 18 + 18·i`.
 - Density presets: compact 128×96, comfortable 152×112, expanded 178×150.
 - **Density vs manual size:** nodes the user has not resized follow the preset; a manually resized node keeps its own size (`custom: true`) and can be reset from the inspector. Heights never drop below the port minimum. Positions scale with the preset so spacing is preserved. (Tested.)
 
-## Terminals, labels and custom appliances
+## Terminals, labels and custom modules
 
 - Every terminal is an RJ45-style **socket** (hollow, latch notch, contact pins); inputs are on the left, outputs on the right. The 10px jack has an 18px pointer target.
 - **Cable style.** The default is a thin 1.6px coloured line with a small plug head at each end (clean at any density); a toolbar toggle switches to a heavier outlined patch-cable look.
 - **Cables plug in.** A connected socket shows an RJ45 plug head inserted into it, and the cable (muted colour by protocol: http blue, postgres indigo, redis red, …) leaves from the plug's strain relief with a small flow arrow near its target. Plug heads are rendered inside the node so they sit above the socket; the cable starts 6px beyond the jack edge, under the boot. Unplugged sockets stay hollow. **Cable colour:** a user can give any cable its own colour (Cable properties or right-click → Cable colour) and reset it to the protocol colour; the choice is layout only (`editor.cables`), survives export/import and undo, is dropped when the cable is unplugged, and an invalid cable is always shown red. Plug heads keep the protocol colour because a port can carry several cables.
-- **Single vs multiple cables.** Each port has a multiplicity. `multi` (the default for new ports) accepts several cables into the same socket, shown as one plug with a `×N` count; `single` accepts one and rejects another with a reason. Toggle it per port in the inspector or the Appliance Designer.
+- **Single vs multiple cables.** Each port has a multiplicity. `multi` (the default for new ports) accepts several cables into the same socket, shown as one plug with a `×N` count; `single` accepts one and rejects another with a reason. Toggle it per port in the inspector or the Module Designer.
 - **Re-plugging.** Drag a cable's plug end to another compatible socket to move it (validated; one undo step).
 - Every port shows a short text label inside the node next to its jack (truncated to the free space beside the logo, never over it); the full name, type and description appear in a tooltip. Links show the carried protocol as a small label. The `Aa` toggle in the canvas strip hides both.
-- **Appliance Designer** (Create appliance… in the Custom section, or the pencil on a tile, or "Save as custom appliance…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
+- **Module Designer** (Create module… in the Custom section, or the pencil on a tile, or "Save as custom module…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
 - Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.
 
 ## Tools, properties window, zones
 
-Select/Pan tool modes (`tool` in the store; React Flow `selectionOnDrag`/`panOnDrag`), an on-demand floating properties window (`PropertiesWindow.tsx`, store `propsWin`/`propsPos`) replacing the old sidebar, and zones (`editor.shapes`, `packages/assembly-model/src/shapes.ts`, `ShapeNode.tsx`, `ShapeProperties.tsx`). Shapes are React Flow nodes with `zIndex: -1` and `elevateNodesOnSelect` off so they stay behind appliances; only their border and label take pointer events. Dragging a zone moves the appliances whose centre lies inside it (`shapeContents`, `carry` in the store). Style edits use `commitCoalesced` so slider drags and typing form one undo step. Specified in `STUDIO-UI-SPEC.md`.
+Select/Pan tool modes (`tool` in the store; React Flow `selectionOnDrag`/`panOnDrag`), an on-demand floating properties window (`PropertiesWindow.tsx`, store `propsWin`/`propsPos`) replacing the old sidebar, and zones (`editor.shapes`, `packages/assembly-model/src/shapes.ts`, `ShapeNode.tsx`, `ShapeProperties.tsx`). Shapes are React Flow nodes with `zIndex: -1` and `elevateNodesOnSelect` off so they stay behind modules; only their border and label take pointer events. Dragging a zone moves the modules whose centre lies inside it (`shapeContents`, `carry` in the store). Style edits use `commitCoalesced` so slider drags and typing form one undo step. Specified in `STUDIO-UI-SPEC.md`.
 
 ## Context menus and shortcuts
 
@@ -62,13 +62,13 @@ Right-click (or the Menu key / Shift+F10 on a selection) opens a context menu; a
 
 | Target | Actions |
 |---|---|
-| Appliance | Rename (F2), Duplicate (Ctrl+D), Copy (Ctrl+C), Add port ▸ input/output, Reset size, Unplug all cables, Zoom to appliance, Save as custom appliance…, Edit appliance class… (custom only), Delete |
-| Several appliances | Duplicate, Copy, Align ▸ (left, right, top, bottom, centre H/V), Zoom to selection, Delete N |
+| Module | Rename (F2), Duplicate (Ctrl+D), Copy (Ctrl+C), Add port ▸ input/output, Reset size, Unplug all cables, Zoom to module, Save as custom module…, Edit module class… (custom only), Delete |
+| Several modules | Duplicate, Copy, Align ▸ (left, right, top, bottom, centre H/V), Zoom to selection, Delete N |
 | Port (jack) | Rename port…, Protocol type ▸, Allow several cables ✓, Required ✓, Unplug cables (n), Move up/down, Delete port |
-| Cable | Select source / target appliance, Unplug cable |
-| Canvas | Add appliance ▸ (by category, at the pointer), Paste (at the pointer), Select all, Undo/Redo, Fit to view, Dotted grid ✓, Port and link labels ✓, Thick patch-cable look ✓ |
+| Cable | Select source / target module, Unplug cable |
+| Canvas | Add module ▸ (by category, at the pointer), Paste (at the pointer), Select all, Undo/Redo, Fit to view, Dotted grid ✓, Port and link labels ✓, Thick patch-cable look ✓ |
 
-Duplicate/Paste copy the appliances and only the cables **between** the copied appliances, with fresh ids; names default to the new id. Shortcuts: Ctrl+C/V/D/A, F2, Delete, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, `+` `-` `F`.
+Duplicate/Paste copy the modules and only the cables **between** the copied modules, with fresh ids; names default to the new id. Shortcuts: Ctrl+C/V/D/A, F2, Delete, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, `+` `-` `F`.
 
 ## Category colours, routing, link tags, network interface
 

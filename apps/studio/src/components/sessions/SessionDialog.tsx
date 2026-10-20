@@ -129,7 +129,7 @@ function Session({ target, onClose }: { target: Target; onClose: () => void }) {
         {phase === "prepare" && (
           <div className="flex flex-col gap-3 text-sm" data-testid="session-prepare">
             <ul className="list-disc space-y-1 pl-5 text-xs text-base-content/80">
-              <li>The session runs as an unprivileged user inside the appliance, through the control plane. Nothing connects to the appliance directly.</li>
+              <li>The session runs as an unprivileged user inside the module, through the control plane. Nothing connects to the module directly.</li>
               <li>It ends after a period without typing, and at a time limit.</li>
               <li>Apelora records who opened it, when, and why it ended. It does not record what you type or see.</li>
             </ul>

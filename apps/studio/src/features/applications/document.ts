@@ -1,4 +1,4 @@
-import { lookupClass } from "@apelora/appliance-catalog";
+import { lookupClass } from "@apelora/module-catalog";
 import { ensureNics, parseAssembly, serializeAssembly, usedCustomClasses, type ApplicationAssembly } from "@apelora/assembly-model";
 
 import { useCustomCatalog } from "../catalog/customCatalog";

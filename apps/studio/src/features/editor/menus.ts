@@ -1,4 +1,4 @@
-import { allClasses, lookupClass } from "@apelora/appliance-catalog";
+import { allClasses, lookupClass } from "@apelora/module-catalog";
 import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, linkCount, shapeContents, suggestAttachments, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
@@ -34,7 +34,7 @@ export function openPropsAndFocus(api: StudioStore, tab: "general" | "config" | 
   const st = api.getState();
   const target = id ?? st.selection.nodes[0];
   if (!target) return;
-  st.openProps({ kind: "appliance", id: target, tab });
+  st.openProps({ kind: "module", id: target, tab });
   focusField(selector);
 }
 export const renameSelected = (api: StudioStore) => openPropsAndFocus(api, "general", "[data-testid=instance-name]");
@@ -53,7 +53,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       const ids = sel.nodes;
       const align = (m: AlignMode) => () => s().align(m);
       return {
-        title: `${ids.length} appliances selected`,
+        title: `${ids.length} modules selected`,
         items: [
           item("duplicate", "Duplicate", () => s().duplicateSelection(), { shortcut: "Ctrl+D" }),
           item("copy", "Copy", () => s().copySelection(), { shortcut: "Ctrl+C" }),
@@ -69,21 +69,21 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
           item("group", "Group into component…", () => s().openGroupDialog(), { shortcut: "Ctrl+G" }),
           item("zoom", "Zoom to selection", () => rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.5, maxZoom: 1.4, duration: ms(250) })),
           sep,
-          item("delete", `Delete ${ids.length} appliances`, () => s().deleteElements(ids, []), { shortcut: "Del", danger: true }),
+          item("delete", `Delete ${ids.length} modules`, () => s().deleteElements(ids, []), { shortcut: "Del", danger: true }),
         ],
       };
     }
-    const app = a.spec.appliances.find((x) => x.id === target.id);
+    const app = a.spec.modules.find((x) => x.id === target.id);
     if (!app) return { title: "", items: [] };
     const cls = lookupClass(app.classRef.name, app.classRef.version);
     const layout = a.editor.nodes.find((n) => n.id === app.id);
-    const cables = a.spec.connections.filter((c) => c.source.applianceId === app.id || c.target.applianceId === app.id).length;
+    const cables = a.spec.connections.filter((c) => c.source.moduleId === app.id || c.target.moduleId === app.id).length;
     const hasProps = (cls?.properties?.length ?? 0) > 0;
     const overrides = Object.keys(app.config ?? {}).length;
     return {
       title: `${app.name} · ${cls?.displayName ?? app.classRef.name}`,
       items: [
-        item("properties", "Properties…", () => s().openProps({ kind: "appliance", id: app.id }), { shortcut: "Enter" }),
+        item("properties", "Properties…", () => s().openProps({ kind: "module", id: app.id }), { shortcut: "Enter" }),
         item("rename", "Rename…", () => renameSelected(api), { shortcut: "F2" }),
         item("configure", "Configure…", () => openPropsAndFocus(api, "config", "[data-testid=config-form] input, [data-testid=config-form] select", app.id), { disabled: !hasProps }),
         item("reset-config", overrides ? `Reset configuration (${overrides} changed)` : "Reset configuration", () => s().resetCfg(app.id), { disabled: overrides === 0 }),
@@ -95,12 +95,12 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         }),
         item("reset-size", "Reset size", () => s().resetSize(app.id), { disabled: !layout?.custom }),
         item("disconnect", cables ? `Unplug all cables (${cables})` : "Unplug all cables", () => s().disconnectAllCables(app.id), { disabled: cables === 0 }),
-        item("zoom", "Zoom to appliance", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: ms(250) })),
+        item("zoom", "Zoom to module", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: ms(250) })),
         ...withSeparator(sessionMenuItems(app.id)),
         sep,
         ...(cls?.composition ? [item("ungroup", "Ungroup component", () => s().ungroupSelection(app.id), { shortcut: "Ctrl+Shift+G" })] : []),
-        item("save-class", "Save as custom appliance…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config)), { disabled: !!cls?.composition }),
-        ...(cls?.custom && !cls.composition ? [item("edit-class", "Edit appliance class…", () => useCustomCatalog.getState().openDesigner(draftFromClass(cls, true)))] : []),
+        item("save-class", "Save as custom module…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config)), { disabled: !!cls?.composition }),
+        ...(cls?.custom && !cls.composition ? [item("edit-class", "Edit module class…", () => useCustomCatalog.getState().openDesigner(draftFromClass(cls, true)))] : []),
         sep,
         item("delete", "Delete", () => s().deleteElements([app.id], []), { shortcut: "Del", danger: true }),
       ],
@@ -108,20 +108,20 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
   }
 
   if (target.kind === "port") {
-    const app = a.spec.appliances.find((x) => x.id === target.nodeId);
+    const app = a.spec.modules.find((x) => x.id === target.nodeId);
     const port = app?.ports.find((p) => p.id === target.portId);
     if (!app || !port) return { title: "", items: [] };
     const side = app.ports.filter((p) => p.direction === port.direction);
     const idx = side.findIndex((p) => p.id === port.id);
-    const cables = a.spec.connections.filter((c) => (c.source.applianceId === app.id && c.source.portId === port.id) || (c.target.applianceId === app.id && c.target.portId === port.id)).length;
-    const end = { applianceId: app.id, portId: port.id };
+    const cables = a.spec.connections.filter((c) => (c.source.moduleId === app.id && c.source.portId === port.id) || (c.target.moduleId === app.id && c.target.portId === port.id)).length;
+    const end = { moduleId: app.id, portId: port.id };
     const full = port.multiplicity === "one" && linkCount(a, end) >= 1;
     const suggestions = port.type === "network" ? [] : suggestAttachments(a, end, allClasses());
     const shown = suggestions.slice(0, 24);
     return {
       title: `${app.name} · ${port.name} (${port.type})`,
       items: [
-        item("add-connected", port.direction === "output" ? "Add appliance that connects here" : "Add appliance that feeds this", () => undefined, {
+        item("add-connected", port.direction === "output" ? "Add module that connects here" : "Add module that feeds this", () => undefined, {
           disabled: full || suggestions.length === 0,
           children: [
             ...(shown.some((x) => x.exact) ? [{ type: "header" as const, label: `Speaks ${port.type}` }] : []),
@@ -135,15 +135,15 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         sep,
         item("rename-port", "Rename port…", () => openPropsAndFocus(api, "ports", `[data-testid=port-row][data-port-id="${port.id}"] input`, app.id)),
         item("type", "Protocol type", () => undefined, { children: PORT_TYPES.map((t) => item(`type-${t}`, t, () => s().editPort(app.id, port.id, { type: t }), { checked: port.type === t })) }),
-        item("link-tag", tagOf(a, { applianceId: app.id, portId: port.id }) ? `Link by name (${tagOf(a, { applianceId: app.id, portId: port.id })!.tag})` : "Link by name", () => undefined, {
+        item("link-tag", tagOf(a, { moduleId: app.id, portId: port.id }) ? `Link by name (${tagOf(a, { moduleId: app.id, portId: port.id })!.tag})` : "Link by name", () => undefined, {
           children: [
-            ...tagNames(a).map((n) => item(`tag-${n}`, n, () => void s().tagPortTo({ applianceId: app.id, portId: port.id }, n), { checked: tagOf(a, { applianceId: app.id, portId: port.id })?.tag === n })),
+            ...tagNames(a).map((n) => item(`tag-${n}`, n, () => void s().tagPortTo({ moduleId: app.id, portId: port.id }, n), { checked: tagOf(a, { moduleId: app.id, portId: port.id })?.tag === n })),
             item("tag-new", "New tag…", () => openPropsAndFocus(api, "ports", `[data-testid=port-row][data-port-id="${port.id}"] [data-testid=port-tag]`, app.id)),
           ],
         }),
-        ...(tagOf(a, { applianceId: app.id, portId: port.id }) ? [
-          item("tag-remove", "Remove link tag", () => s().untagPortAction({ applianceId: app.id, portId: port.id })),
-          item("tag-select", "Select linked appliances", () => { const t = tagOf(a, { applianceId: app.id, portId: port.id })!.tag; s().setSelection({ nodes: [...new Set(tagNet(a, t).map((l) => l.endpoint.applianceId))], edges: [] }); }),
+        ...(tagOf(a, { moduleId: app.id, portId: port.id }) ? [
+          item("tag-remove", "Remove link tag", () => s().untagPortAction({ moduleId: app.id, portId: port.id })),
+          item("tag-select", "Select linked modules", () => { const t = tagOf(a, { moduleId: app.id, portId: port.id })!.tag; s().setSelection({ nodes: [...new Set(tagNet(a, t).map((l) => l.endpoint.moduleId))], edges: [] }); }),
         ] : []),
         item("multi", "Allow several cables", () => s().editPort(app.id, port.id, { multiplicity: port.multiplicity === "many" ? "one" : "many" }), { checked: port.multiplicity === "many" }),
         item("required", "Required", () => s().editPort(app.id, port.id, { optional: !port.optional }), { checked: !port.optional }),
@@ -160,8 +160,8 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
   if (target.kind === "edge") {
     const c = a.spec.connections.find((x) => x.id === target.id);
     if (!c) return { title: "", items: [] };
-    const sa = a.spec.appliances.find((x) => x.id === c.source.applianceId);
-    const ta = a.spec.appliances.find((x) => x.id === c.target.applianceId);
+    const sa = a.spec.modules.find((x) => x.id === c.source.moduleId);
+    const ta = a.spec.modules.find((x) => x.id === c.target.moduleId);
     const sp = sa?.ports.find((p) => p.id === c.source.portId);
     const tp = ta?.ports.find((p) => p.id === c.target.portId);
     return {
@@ -176,8 +176,8 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
           ],
         }),
         item("to-tag", "Convert to link tag", () => s().cableToTagAction(c.id)),
-        item("select-source", `Select ${sa?.name ?? "source"}`, () => s().selectNode(c.source.applianceId)),
-        item("select-target", `Select ${ta?.name ?? "target"}`, () => s().selectNode(c.target.applianceId)),
+        item("select-source", `Select ${sa?.name ?? "source"}`, () => s().selectNode(c.source.moduleId)),
+        item("select-target", `Select ${ta?.name ?? "target"}`, () => s().selectNode(c.target.moduleId)),
         sep,
         item("delete", "Unplug cable", () => s().deleteElements([], [c.id]), { shortcut: "Del", danger: true }),
       ],
@@ -213,7 +213,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         item("border-colour", "Border colour", () => undefined, { children: quick("stroke") }),
         item("border-style", "Border style", () => undefined, { children: STROKE_STYLES.map((st) => item(`style-${st}`, st[0]!.toUpperCase() + st.slice(1), () => s().editShape(sh.id, { strokeStyle: st }), { checked: sh.strokeStyle === st })) }),
         sep,
-        item("select-contents", inside ? `Select appliances inside (${inside})` : "Select appliances inside", () => s().setSelection({ nodes: shapeContents(a, sh.id), edges: [], shapes: [] }), { disabled: inside === 0 }),
+        item("select-contents", inside ? `Select modules inside (${inside})` : "Select modules inside", () => s().setSelection({ nodes: shapeContents(a, sh.id), edges: [], shapes: [] }), { disabled: inside === 0 }),
         item("front", "Bring forward", () => s().orderShapeAction(sh.id, "front")),
         item("back", "Send back", () => s().orderShapeAction(sh.id, "back")),
         item("duplicate", "Duplicate", () => s().duplicateShapeAction(sh.id)),
@@ -235,16 +235,16 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
   return {
     title: "Canvas",
     items: [
-      item("add", "Add appliance", () => undefined, { children: add }),
+      item("add", "Add module", () => undefined, { children: add }),
       item("add-shape", "Add zone or note", () => undefined, { children: ADD_MENU_KINDS.map((k) => item(`shape-${k.kind}`, k.label, () => void s().addShapeAt(k.kind, flow))) }),
       item("paste", "Paste", () => s().pasteAt(flow), { shortcut: "Ctrl+V", disabled: !s().clipboard }),
-      item("select-all", "Select all", () => s().selectAll(), { shortcut: "Ctrl+A", disabled: a.spec.appliances.length === 0 }),
+      item("select-all", "Select all", () => s().selectAll(), { shortcut: "Ctrl+A", disabled: a.spec.modules.length === 0 }),
       sep,
       item("undo", "Undo", () => s().undo(), { shortcut: "Ctrl+Z", disabled: s().past.length === 0 }),
       item("redo", "Redo", () => s().redo(), { shortcut: "Ctrl+Shift+Z", disabled: s().future.length === 0 }),
       sep,
       item("assembly-props", "Assembly properties…", () => s().openProps({ kind: "assembly" })),
-      item("tidy", "Tidy layout", () => s().tidy(), { shortcut: "Shift+T", disabled: a.spec.appliances.length < 2 }),
+      item("tidy", "Tidy layout", () => s().tidy(), { shortcut: "Shift+T", disabled: a.spec.modules.length < 2 }),
       item("find", "Find…", () => s().setDialog("find"), { shortcut: "Ctrl+K" }),
       item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), { shortcut: "F" }),
       item("grid", "Dotted grid", () => s().setShowGrid(!s().showGrid), { checked: s().showGrid }),

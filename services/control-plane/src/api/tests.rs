@@ -815,8 +815,8 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
 
 // ---- Applications ----------------------------------------------------------------------------
 
-pub(super) fn appliance(id: &str) -> Value {
-    json!({ "appliance": id, "spec": {
+pub(super) fn module(id: &str) -> Value {
+    json!({ "module": id, "spec": {
         "project": "ignored", "name": "ignored", "kind": "container", "start": true,
         "source": { "protocol": "simplestreams", "server": "https://images.example", "alias": "debian/13" } } })
 }
@@ -829,7 +829,7 @@ pub(super) async fn drain(pool: &Pool, provider: &Provider) {
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn applications_are_planned_deployed_revised_and_reported_by_appliance(pool: Pool) {
+async fn applications_are_planned_deployed_revised_and_reported_by_module(pool: Pool) {
     let provider = Provider::Mock(MockIncus::default());
     let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
         .with_deploy_projects(vec!["apelora".into(), "default".into()]);
@@ -842,8 +842,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
         .expect("token")
         .0;
     let doc = json!({ "apiVersion": "fabric.apelora/v1alpha1", "kind": "ApplicationAssembly" });
-    let both =
-        json!({ "project": "apelora", "appliances": [appliance("web-01"), appliance("db-01")] });
+    let both = json!({ "project": "apelora", "modules": [module("web-01"), module("db-01")] });
 
     // Only `deploy` may plan; names are checked before Incus is asked.
     assert_eq!(
@@ -872,8 +871,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
         .0,
         StatusCode::BAD_REQUEST
     );
-    let twice =
-        json!({ "project": "apelora", "appliances": [appliance("web-01"), appliance("web-01")] });
+    let twice = json!({ "project": "apelora", "modules": [module("web-01"), module("web-01")] });
     assert_eq!(
         send(
             state.clone(),
@@ -951,7 +949,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
         .iter()
         .map(|i| {
             (
-                i["appliance"].as_str().unwrap_or_default().to_owned(),
+                i["module"].as_str().unwrap_or_default().to_owned(),
                 i["status"].as_str().unwrap_or_default().to_owned(),
             )
         })
@@ -966,8 +964,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
     );
 
     // Drop db-01 from the design: kept unless removal is asked for.
-    let mut one =
-        json!({ "project": "apelora", "appliances": [appliance("web-01")], "document": doc });
+    let mut one = json!({ "project": "apelora", "modules": [module("web-01")], "document": doc });
     let (_, keep) = send(
         state.clone(),
         "POST",
@@ -1004,8 +1001,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
     assert_eq!(st["items"].as_array().map(Vec::len), Some(1));
 
     // The seeded mock-web-01 in "default" is not Apelora's: deploying over it is refused.
-    let clash =
-        json!({ "project": "default", "appliances": [appliance("web-01")], "document": {} });
+    let clash = json!({ "project": "default", "modules": [module("web-01")], "document": {} });
     let (status, err) = send(
         state.clone(),
         "POST",
@@ -1059,7 +1055,7 @@ async fn connections_become_an_application_network_with_acls_on_both_sides(pool:
         .expect("token")
         .0;
     let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
-    let body = |connections: Value| json!({ "project": "apelora", "document": {}, "appliances": [appliance("web-01"), appliance("db-01"), appliance("cache-01")], "connections": connections });
+    let body = |connections: Value| json!({ "project": "apelora", "document": {}, "modules": [module("web-01"), module("db-01"), module("cache-01")], "connections": connections });
 
     // Without an uplink nothing is enforced, and the plan says so.
     let (_, plan) = send(
@@ -1139,15 +1135,13 @@ async fn connections_become_an_application_network_with_acls_on_both_sides(pool:
     let (cache_in, cache_out) = &net.acls["apelora/shop-cache-01"];
     assert!(
         cache_in.is_empty() && cache_out.is_empty(),
-        "unconnected appliances are isolated"
+        "unconnected modules are isolated"
     );
     assert!(net.address_sets["apelora/shop-web-01"][0].starts_with("198.51.100."));
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn removed_appliances_lose_their_network_objects_and_other_applications_keep_theirs(
-    pool: Pool,
-) {
+async fn removed_modules_lose_their_network_objects_and_other_applications_keep_theirs(pool: Pool) {
     let mock = MockIncus::default();
     let provider = Provider::Mock(mock.clone());
     let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
@@ -1157,11 +1151,11 @@ async fn removed_appliances_lose_their_network_objects_and_other_applications_ke
         .expect("token")
         .0;
     let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
-    let deploy = |app: &'static str, appliances: Value, connections: Value| {
+    let deploy = |app: &'static str, modules: Value, connections: Value| {
         let state = state.clone();
         let operator = operator.clone();
         async move {
-            let body = json!({ "project": "apelora", "document": {}, "appliances": appliances, "connections": connections, "removeMissing": true });
+            let body = json!({ "project": "apelora", "document": {}, "modules": modules, "connections": connections, "removeMissing": true });
             let (status, d) = send(
                 state,
                 "POST",
@@ -1176,17 +1170,12 @@ async fn removed_appliances_lose_their_network_objects_and_other_applications_ke
     };
     deploy(
         "shop",
-        json!([appliance("web-01"), appliance("db-01")]),
+        json!([module("web-01"), module("db-01")]),
         conn.clone(),
     )
     .await;
     // "shop-eu" starts with "shop-": a name prefix must never decide ownership.
-    deploy(
-        "shop-eu",
-        json!([appliance("web-01"), appliance("db-01")]),
-        conn,
-    )
-    .await;
+    deploy("shop-eu", json!([module("web-01"), module("db-01")]), conn).await;
     drain(&pool, &provider).await;
     let eu_before = mock
         .net()
@@ -1196,7 +1185,7 @@ async fn removed_appliances_lose_their_network_objects_and_other_applications_ke
         .count();
     assert_eq!(eu_before, 2);
 
-    deploy("shop", json!([appliance("web-01")]), json!([])).await;
+    deploy("shop", json!([module("web-01")]), json!([])).await;
     drain(&pool, &provider).await;
     let net = mock.net().clone();
     assert!(!net.acls.contains_key("apelora/shop-db-01"));
@@ -1213,7 +1202,7 @@ async fn removed_appliances_lose_their_network_objects_and_other_applications_ke
     let net = mock.net().clone();
     assert!(
         !net.networks.contains("apelora/shop"),
-        "the network goes with the last appliance"
+        "the network goes with the last module"
     );
     assert!(net.networks.contains("apelora/shop-eu"));
     assert!(net.address_sets.keys().all(|k| k.contains("shop-eu")));
@@ -1228,13 +1217,13 @@ async fn stateless_replicas_are_deployed_recorded_and_restored(pool: Pool) {
         .expect("token")
         .0;
     let replicated = |availability: &str| {
-        let mut web = appliance("web-01");
+        let mut web = module("web-01");
         web["replicas"] = json!(2);
         web["availability"] = json!(availability);
-        json!({ "project": "apelora", "document": {}, "appliances": [web, appliance("db-01")] })
+        json!({ "project": "apelora", "document": {}, "modules": [web, module("db-01")] })
     };
 
-    // Only stateless appliances may have more than one replica.
+    // Only stateless modules may have more than one replica.
     let (status, body) = send(
         state.clone(),
         "POST",
@@ -1343,7 +1332,7 @@ async fn stateless_replicas_are_deployed_recorded_and_restored(pool: Pool) {
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn connected_stateless_appliances_get_a_service_address_until_removed(pool: Pool) {
+async fn connected_stateless_modules_get_a_service_address_until_removed(pool: Pool) {
     let mock = MockIncus::default();
     let provider = Provider::Mock(mock.clone());
     let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
@@ -1353,10 +1342,10 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
         .await
         .expect("token")
         .0;
-    let mut web = appliance("web-01");
+    let mut web = module("web-01");
     web["replicas"] = json!(2);
     web["availability"] = json!("stateless");
-    let deploy = |appliances: Value, connections: Value, key: &'static str| {
+    let deploy = |modules: Value, connections: Value, key: &'static str| {
         let state = state.clone();
         let operator = operator.clone();
         async move {
@@ -1366,7 +1355,7 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
                 "/api/v1/applications/shop/deployments",
                 &operator,
                 Some(
-                    json!({ "project": "apelora", "document": {}, "appliances": appliances,
+                    json!({ "project": "apelora", "document": {}, "modules": modules,
                              "connections": connections, "removeMissing": true }),
                 ),
                 Some(key),
@@ -1376,7 +1365,7 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
         }
     };
     deploy(
-        json!([appliance("client-01"), web.clone(), appliance("db-01")]),
+        json!([module("client-01"), web.clone(), module("db-01")]),
         json!([{ "from": "client-01", "to": "web-01", "transport": "tcp", "port": 80 },
                { "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]),
         "svc-1",
@@ -1391,7 +1380,7 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
         ["apelora/shop/198.18.100.1"]
     );
     let (owner, lb) = &lbs["apelora/shop/198.18.100.1"];
-    assert_eq!((owner.as_str(), lb.appliance.as_str()), ("shop", "web-01"));
+    assert_eq!((owner.as_str(), lb.module.as_str()), ("shop", "web-01"));
     assert_eq!(lb.ports, vec![("tcp".to_owned(), 80)]);
     assert!(
         mock.net().health_check_repairs >= 1,
@@ -1420,12 +1409,12 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
     .await;
     assert_eq!(
         status["services"],
-        json!([{ "appliance": "web-01", "project": "apelora", "address": "198.18.100.1" }])
+        json!([{ "module": "web-01", "project": "apelora", "address": "198.18.100.1" }])
     );
 
     // web-01 leaves the design: its load balancer goes and its address is free again.
     deploy(
-        json!([appliance("client-01"), appliance("db-01")]),
+        json!([module("client-01"), module("db-01")]),
         json!([{ "from": "client-01", "to": "db-01", "transport": "tcp", "port": 5432 }]),
         "svc-2",
     )
@@ -1610,9 +1599,9 @@ async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
         .expect("token")
         .0;
     let body = json!({ "project": "apelora", "document": {},
-        "appliances": [appliance("web-01"), appliance("db-01")],
+        "modules": [module("web-01"), module("db-01")],
         "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }],
-        "published": [{ "appliance": "web-01", "transport": "tcp", "port": 80 }] });
+        "published": [{ "module": "web-01", "transport": "tcp", "port": 80 }] });
 
     let (_, plan) = send(
         state.clone(),
@@ -1634,7 +1623,7 @@ async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
         "{plan}"
     );
     let mut bad = body.clone();
-    bad["published"] = json!([{ "appliance": "nope-01", "transport": "tcp", "port": 80 }]);
+    bad["published"] = json!([{ "module": "nope-01", "transport": "tcp", "port": 80 }]);
     let (status, _) = send(
         state.clone(),
         "POST",
@@ -1665,7 +1654,7 @@ async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
             .get("apelora/shop/198.18.100.1")
             .expect("service address");
         assert_eq!(
-            (lb.appliance.as_str(), lb.ports.clone()),
+            (lb.module.as_str(), lb.ports.clone()),
             ("web-01", vec![("tcp".to_owned(), 80)])
         );
         // …and its ACL lets anyone reach port 80, while the database stays reachable from web only.
@@ -1683,7 +1672,7 @@ async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
         .expect("records");
     assert_eq!(
         records[0].published,
-        Some(json!([{ "appliance": "web-01", "transport": "tcp", "port": 80 }]))
+        Some(json!([{ "module": "web-01", "transport": "tcp", "port": 80 }]))
     );
 }
 
@@ -1697,9 +1686,9 @@ async fn internet_access_opens_only_external_destinations(pool: Pool) {
         .await
         .expect("token")
         .0;
-    let mut web = appliance("web-01");
+    let mut web = module("web-01");
     web["internet"] = json!("web");
-    let body = json!({ "project": "apelora", "document": {}, "appliances": [web, appliance("db-01")],
+    let body = json!({ "project": "apelora", "document": {}, "modules": [web, module("db-01")],
         "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
     let (status, _) = send(
         state.clone(),
@@ -1761,11 +1750,11 @@ async fn consumers_are_created_knowing_where_their_providers_are(pool: Pool) {
         .await
         .expect("token")
         .0;
-    let mut web = appliance("web-01");
+    let mut web = module("web-01");
     web["replicas"] = json!(2);
     web["availability"] = json!("stateless");
     let body = json!({ "project": "apelora", "document": {},
-        "appliances": [appliance("client-01"), web, appliance("db-01")],
+        "modules": [module("client-01"), web, module("db-01")],
         "connections": [
             { "from": "client-01", "to": "web-01", "transport": "tcp", "port": 80 },
             { "from": "client-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
@@ -1807,14 +1796,14 @@ async fn consumers_are_created_knowing_where_their_providers_are(pool: Pool) {
     drain(&pool, &provider).await;
 
     // A design cannot forge them.
-    let mut forged = appliance("client-01");
+    let mut forged = module("client-01");
     forged["spec"]["config"] = json!({ "environment.APELORA_SERVICE_WEB_01": "203.0.113.9" });
     let (status, _) = send(
         state,
         "POST",
         "/api/v1/applications/shop/plan",
         &operator,
-        Some(json!({ "project": "apelora", "appliances": [forged] })),
+        Some(json!({ "project": "apelora", "modules": [forged] })),
         None,
     )
     .await;
@@ -2132,10 +2121,10 @@ async fn status_reports_the_health_the_worker_decided_for_running_instances(pool
         .await
         .expect("token")
         .0;
-    let mut web = appliance("web-01");
+    let mut web = module("web-01");
     web["replicas"] = json!(2);
     web["availability"] = json!("stateless");
-    let body = json!({ "project": "apelora", "document": {}, "appliances": [web] });
+    let body = json!({ "project": "apelora", "document": {}, "modules": [web] });
     let (status, _) = send(
         state.clone(),
         "POST",
@@ -2161,7 +2150,7 @@ async fn status_reports_the_health_the_worker_decided_for_running_instances(pool
                 application_id: app.id,
                 project: "apelora",
                 instance,
-                appliance: "web-01",
+                module: "web-01",
                 health,
                 since,
                 detail,
@@ -2226,7 +2215,7 @@ async fn status_reports_the_health_the_worker_decided_for_running_instances(pool
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-async fn removing_every_appliance_without_connections_still_removes_the_network(pool: Pool) {
+async fn removing_every_module_without_connections_still_removes_the_network(pool: Pool) {
     let mock = MockIncus::default();
     let provider = Provider::Mock(mock.clone());
     let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
@@ -2236,7 +2225,7 @@ async fn removing_every_appliance_without_connections_still_removes_the_network(
         .expect("token")
         .0;
     let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
-    let body = json!({ "project": "apelora", "document": {}, "appliances": [appliance("web-01"), appliance("db-01")], "connections": conn });
+    let body = json!({ "project": "apelora", "document": {}, "modules": [module("web-01"), module("db-01")], "connections": conn });
     let (status, _) = send(
         state.clone(),
         "POST",
@@ -2252,7 +2241,7 @@ async fn removing_every_appliance_without_connections_still_removes_the_network(
 
     // A removal that leaves `connections` out (it has nothing left to connect).
     let body =
-        json!({ "project": "apelora", "document": {}, "appliances": [], "removeMissing": true });
+        json!({ "project": "apelora", "document": {}, "modules": [], "removeMissing": true });
     let (status, d) = send(
         state,
         "POST",
@@ -2282,14 +2271,14 @@ async fn volumes_go_to_the_configured_pool_and_a_design_never_names_one(pool: Po
         .expect("token")
         .0;
     let design = |pool_field: Option<&str>| {
-        let mut db = appliance("db-01");
+        let mut db = module("db-01");
         db["availability"] = json!("stateful");
         let mut volume = json!({ "name": "data", "sizeMib": 2048, "path": "/var/lib/postgresql" });
         if let Some(p) = pool_field {
             volume["pool"] = json!(p);
         }
         db["spec"]["volumes"] = json!([volume]);
-        json!({ "project": "apelora", "document": {}, "appliances": [db] })
+        json!({ "project": "apelora", "document": {}, "modules": [db] })
     };
     let plan = |state: AppState, body: Value| {
         let operator = operator.clone();
@@ -2336,9 +2325,9 @@ async fn volumes_go_to_the_configured_pool_and_a_design_never_names_one(pool: Po
     // A design that names a pool is refused: pools are the administrator's choice.
     let (status, body) = plan(state.clone(), design(Some("mock-local"))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    // Stateless appliances cannot have volumes.
+    // Stateless modules cannot have volumes.
     let mut stateless = design(None);
-    stateless["appliances"][0]["availability"] = json!("stateless");
+    stateless["modules"][0]["availability"] = json!("stateless");
     let (status, _) = plan(state.clone(), stateless).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
@@ -2399,15 +2388,15 @@ async fn volumes_are_listed_kept_after_removal_and_deleted_only_on_purpose(pool:
         .await
         .expect("token")
         .0;
-    let mut db = appliance("db-01");
+    let mut db = module("db-01");
     db["availability"] = json!("stateful");
     db["spec"]["volumes"] =
         json!([{ "name": "data", "sizeMib": 1024, "path": "/var/lib/postgresql" }]);
-    let deploy = |appliances: Value, key: &'static str| {
+    let deploy = |modules: Value, key: &'static str| {
         let (state, operator) = (state.clone(), operator.clone());
         async move {
             send(state, "POST", "/api/v1/applications/shop/deployments", &operator,
-                Some(json!({ "project": "apelora", "document": {}, "appliances": appliances, "removeMissing": true })),
+                Some(json!({ "project": "apelora", "document": {}, "modules": modules, "removeMissing": true })),
                 Some(key)).await
         }
     };
@@ -2462,7 +2451,7 @@ async fn volumes_are_listed_kept_after_removal_and_deleted_only_on_purpose(pool:
     let (status, body) = delete(operator.clone(), "shop-db-01-data").await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
 
-    // Removing the appliance deletes the instance and keeps the data.
+    // Removing the module deletes the instance and keeps the data.
     let (status, _) = deploy(json!([]), "vol-b").await;
     assert_eq!(status, StatusCode::ACCEPTED);
     drain(&pool, &provider).await;
@@ -2505,7 +2494,7 @@ async fn volumes_grow_but_never_shrink(pool: Pool) {
         .await
         .expect("token")
         .0;
-    let mut db = appliance("db-01");
+    let mut db = module("db-01");
     db["availability"] = json!("stateful");
     db["spec"]["volumes"] = json!([{ "name": "data", "sizeMib": 1024, "path": "/data" }]);
     let (status, _) = send(
@@ -2513,7 +2502,7 @@ async fn volumes_grow_but_never_shrink(pool: Pool) {
         "POST",
         "/api/v1/applications/shop/deployments",
         &operator,
-        Some(json!({ "project": "apelora", "document": {}, "appliances": [db] })),
+        Some(json!({ "project": "apelora", "document": {}, "modules": [db] })),
         Some("grow-1"),
     )
     .await;

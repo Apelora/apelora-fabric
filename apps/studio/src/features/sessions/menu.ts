@@ -2,7 +2,7 @@ import type { InstanceAccess } from "@apelora/api-client";
 
 import { KIND_ACTION, instancesOf, kindOf, useSessions, type Kind } from "./sessions";
 
-/** Menu entries (as the canvas menu models them) for sessions into one appliance's instances. */
+/** Menu entries (as the canvas menu models them) for sessions into one module's instances. */
 export interface SessionMenuItem {
   type: "item";
   id: string;
@@ -14,13 +14,13 @@ export interface SessionMenuItem {
 }
 
 /**
- * Right-click entries for an appliance of the application on screen. Empty unless the control
+ * Right-click entries for a module of the application on screen. Empty unless the control
  * plane knows deployed instances of it, so the design canvas of an undeployed draft never offers
  * a session. Each entry says why it is unavailable instead of silently disappearing.
  */
-export function sessionMenuItems(applianceId: string): SessionMenuItem[] {
+export function sessionMenuItems(moduleId: string): SessionMenuItem[] {
   const { access, app, open } = useSessions.getState();
-  const instances = instancesOf(access, applianceId);
+  const instances = instancesOf(access, moduleId);
   if (!app || instances.length === 0) return [];
   const kinds = [...new Set(instances.flatMap((i) => i.kinds.map((k) => k.kind)))] as Kind[];
   return kinds.map((kind) => {
@@ -33,7 +33,7 @@ export function sessionMenuItems(applianceId: string): SessionMenuItem[] {
         label: instances.length > 1 ? `${i.instance}${suffix}` : `${KIND_ACTION[kind]}… (${i.instance})${suffix}`,
         hint: k.allowed ? undefined : (k.reason ?? "Not available"),
         disabled: !k.allowed,
-        run: () => open({ app, instance: i.instance, appliance: applianceId, kind, approvalRequired: k.approvalRequired }),
+        run: () => open({ app, instance: i.instance, module: moduleId, kind, approvalRequired: k.approvalRequired }),
       };
     };
     if (instances.length === 1) return entry(instances[0]!);

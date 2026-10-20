@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@apelora/api-client": "*",
-    "@apelora/appliance-catalog": "*",
+    "@apelora/module-catalog": "*",
     "@apelora/assembly-model": "*",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",

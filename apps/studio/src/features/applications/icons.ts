@@ -1,4 +1,4 @@
-import { allClasses, logoUrl, GENERIC_ICONS } from "@apelora/appliance-catalog";
+import { allClasses, logoUrl, GENERIC_ICONS } from "@apelora/module-catalog";
 
 import { categoryColor } from "../editor/categories";
 

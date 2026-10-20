@@ -49,7 +49,7 @@ cleanup() {
   [ -n "$stopped_vm" ] && limactl start "$stopped_vm" >/dev/null 2>&1
   if [ -s "$run/token" ]; then
     api -X POST -H 'Idempotency-Key: demo-cleanup' \
-      -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"appliances":[],"connections":[],"removeMissing":true}' \
+      -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"modules":[],"connections":[],"removeMissing":true}' \
       "$API/applications/$APP/deployments" >/dev/null
     sleep 45
   fi
@@ -95,20 +95,20 @@ pass "control plane and worker running against Incus $(curl -s "$API/health" | j
 nginx=library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e
 body=$(jq -n --arg nginx "$nginx" '{
   project: "apelora", document: {apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly"},
-  appliances: [
-    {appliance: "client-01", internet: "web", spec: {project: "", name: "", kind: "container", start: true,
+  modules: [
+    {module: "client-01", internet: "web", spec: {project: "", name: "", kind: "container", start: true,
       source: {protocol: "simplestreams", server: "https://images.linuxcontainers.org", alias: "debian/13"}}},
-    {appliance: "web-01", replicas: 2, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
+    {module: "web-01", replicas: 2, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
       source: {protocol: "oci", server: "https://docker.io", alias: $nginx}}}],
   connections: [{from: "client-01", to: "web-01", transport: "tcp", port: 80}],
-  published: [{appliance: "web-01", transport: "tcp", port: 80}]}')
+  published: [{module: "web-01", transport: "tcp", port: 80}]}')
 res=$(api -X POST -H 'Idempotency-Key: demo-1' -d "$body" "$API/applications/$APP/deployments")
 say "plan: $(echo "$res" | jq -c '[.plan.items[] | [.instance, .action]]')"
 [ "$(wait_job "$(echo "$res" | jq -r .networkJob)")" = succeeded ] || fail "network sync"
 status=$(api "$API/applications/$APP/status")
 say "status: $(echo "$status" | jq -c '[.items[] | [.instance, .status, .location]]')"
 svc=$(echo "$status" | jq -r '.services[0].address')
-locs=$(echo "$status" | jq -r '.items[] | select(.appliance=="web-01") | .location' | sort -u | wc -l | tr -d ' ')
+locs=$(echo "$status" | jq -r '.items[] | select(.module=="web-01") | .location' | sort -u | wc -l | tr -d ' ')
 [ "$locs" -eq 2 ] && pass "two web replicas on different members" || fail "replicas share a member"
 [ "$svc" != null ] && pass "service address $svc" || fail "no service address"
 
@@ -159,8 +159,8 @@ done
 [ -n "$published" ] && pass "published port reachable from outside (via $published, the network's gateway)" || fail "published port not reachable"
 
 # --- A member fails ---------------------------------------------------------------------
-victim=$(echo "$status" | jq -r --arg c "$(echo "$status" | jq -r '.items[] | select(.appliance=="client-01") | .location')" \
-  '.items[] | select(.appliance=="web-01" and .location != $c and .location != "apelora-test-1") | .location' | head -1)
+victim=$(echo "$status" | jq -r --arg c "$(echo "$status" | jq -r '.items[] | select(.module=="client-01") | .location')" \
+  '.items[] | select(.module=="web-01" and .location != $c and .location != "apelora-test-1") | .location' | head -1)
 if [ -z "$victim" ]; then
   say "SKIP  member failure: no web replica away from the client and the OVN database member"
 else
@@ -186,7 +186,7 @@ else
 fi
 
 # --- Evacuation --------------------------------------------------------------------------
-target=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.appliance=="web-01") | .location' | grep -v apelora-test-1 | head -1)
+target=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.module=="web-01") | .location' | grep -v apelora-test-1 | head -1)
 preview=$(api "$API/cluster/members/$target/evacuation")
 [ "$(echo "$preview" | jq '.plan.blocked | length')" -eq 0 ] && pass "dry run for $target: $(echo "$preview" | jq -c '[.plan.items[] | [.instance, .impact]]')" || fail "evacuation blocked"
 api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/evacuate" >/dev/null

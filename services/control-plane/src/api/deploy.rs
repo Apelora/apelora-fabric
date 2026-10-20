@@ -244,7 +244,7 @@ pub(super) async fn create_instance(
     spec.validate_from_caller().map_err(bad_request)?;
     if !spec.volumes.is_empty() {
         return Err(bad_request(
-            "volumes belong to an application's appliance; deploy them with the application",
+            "volumes belong to an application's module; deploy them with the application",
         ));
     }
     ensure_project_allowed(&state, &spec.project).await?;

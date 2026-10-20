@@ -31,18 +31,18 @@ test.describe("applications in this browser (no control plane)", () => {
     await page.goto("/studio/applications");
     const card = page.locator("[data-testid=app-card][data-app=commerce-stack]");
     await expect(card).toBeVisible();
-    await expect(card.getByTestId("app-appliances")).not.toHaveText("0");
+    await expect(card.getByTestId("app-modules")).not.toHaveText("0");
     await card.getByTestId("app-open").click();
     await page.getByTestId("tab-designer").click();
-    await page.waitForSelector("[data-testid=appliance-node]");
-    const nodes = await page.getByTestId("appliance-node").count();
+    await page.waitForSelector("[data-testid=module-node]");
+    const nodes = await page.getByTestId("module-node").count();
     expect(nodes).toBeGreaterThanOrEqual(5);
     expect(await page.locator(".react-flow__edge").count()).toBeGreaterThanOrEqual(4);
   });
 
   test("the Assembly Library at / is still the editor", async ({ page }) => {
     await page.goto("/");
-    await page.waitForSelector("[data-testid=appliance-node]");
+    await page.waitForSelector("[data-testid=module-node]");
     await expect(page.getByTestId("deploy-open")).toBeVisible();
     await expect(page.getByTestId("publish-open")).toHaveCount(0);
   });
@@ -78,23 +78,23 @@ test.describe("applications in this browser (no control plane)", () => {
     await page.goto("/studio/applications");
         await page.locator("[data-testid=app-card][data-app=commerce-stack] [data-testid=app-open]").click();
     await page.getByTestId("tab-designer").click();
-    await page.waitForSelector("[data-testid=appliance-node]");
-    const before = await page.getByTestId("appliance-node").count();
+    await page.waitForSelector("[data-testid=module-node]");
+    const before = await page.getByTestId("module-node").count();
 
     await page.goto("/studio/applications");
     await create(page, "shop-b");
-    expect(await page.getByTestId("appliance-node").count()).toBe(0);
-    // Add an appliance to B from the catalog, then let the draft save.
+    expect(await page.getByTestId("module-node").count()).toBe(0);
+    // Add a module to B from the catalog, then let the draft save.
     await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
-    await expect(page.getByTestId("appliance-node")).toHaveCount(1);
+    await expect(page.getByTestId("module-node")).toHaveCount(1);
     await expect(page.getByTestId("save-state")).toHaveAttribute("data-sync", "saved", { timeout: 8000 });
 
     await page.goto("/studio/applications/commerce-stack/designer");
-    await page.waitForSelector("[data-testid=appliance-node]");
-    expect(await page.getByTestId("appliance-node").count()).toBe(before);
+    await page.waitForSelector("[data-testid=module-node]");
+    expect(await page.getByTestId("module-node").count()).toBe(before);
     await page.goto("/studio/applications/shop-b/designer");
-    await page.waitForSelector("[data-testid=appliance-node]");
-    await expect(page.getByTestId("appliance-node")).toHaveCount(1);
+    await page.waitForSelector("[data-testid=module-node]");
+    await expect(page.getByTestId("module-node")).toHaveCount(1);
   });
 
   test("search and filters work in both layouts", async ({ page }) => {
@@ -200,7 +200,7 @@ function appInfo(sim: Sim, name: string) {
     name, description: `${name} description`, icon: name === "web-shop" ? "nginx" : "generic-box", archived: false, createdAt: T, updatedAt: T, latestRevision: a.versions || null,
     project, environment, actions: sim.staleAll ? { start: no("Status unknown"), restart: no("Status unknown"), stop: no("Status unknown") } : actionsFor(a.status, busy, a.denied),
     design: { status: a.versions ? "published" : "draft", draftVersion: 1, publishedVersion: a.versions || null, hasUnpublishedChanges: !a.versions, validationErrors: 0, updatedAt: T },
-    deployment: { status, appliances: 2, replicas: { desired: 2, healthy: status === "running" ? 2 : status === "degraded" ? 1 : 0, running: status === "running" ? 2 : status === "degraded" ? 1 : 0, unhealthy: status === "degraded" ? 1 : 0 }, observedAt: T, stale: !!sim.staleAll, source: "incus", lastActivityAt: T, deployedVersion: a.status === "not-deployed" ? null : 1, operation: null },
+    deployment: { status, modules: 2, replicas: { desired: 2, healthy: status === "running" ? 2 : status === "degraded" ? 1 : 0, running: status === "running" ? 2 : status === "degraded" ? 1 : 0, unhealthy: status === "degraded" ? 1 : 0 }, observedAt: T, stale: !!sim.staleAll, source: "incus", lastActivityAt: T, deployedVersion: a.status === "not-deployed" ? null : 1, operation: null },
   };
 }
 
@@ -221,8 +221,8 @@ async function installApi(page: Page, sim: Sim) {
     const [, name, rest] = m as unknown as [string, string, string | undefined];
     if (!sim.apps[name]) return err(404, "not_found", `Application ${name} does not exist`);
     const a = sim.apps[name]!;
-    if (!rest) return json({ application: appInfo(sim, name), appliances: a.status === "not-deployed" ? [] : [{ appliance: "web", availability: "stateless", replicas: 2, instances: [{ instance: `${name}-web-1`, location: "node-a", status: "Running", unhealthy: false }, { instance: `${name}-web-2`, location: "node-b", status: a.status === "degraded" ? "Stopped" : "Running", unhealthy: a.status === "degraded" }] }], operations: Object.entries(sim.ops).filter(([, o]) => o.name === name).map(([id, o]) => opDto(id, o)), versions: a.versions ? [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "alex", createdAt: T }] : [] });
-    if (rest === "draft") return json({ document: { apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name, uid: "assembly-x" }, spec: { appliances: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } }, version: 1, updatedAt: T, updatedBy: "alex", validationErrors: [] });
+    if (!rest) return json({ application: appInfo(sim, name), modules: a.status === "not-deployed" ? [] : [{ module: "web", availability: "stateless", replicas: 2, instances: [{ instance: `${name}-web-1`, location: "node-a", status: "Running", unhealthy: false }, { instance: `${name}-web-2`, location: "node-b", status: a.status === "degraded" ? "Stopped" : "Running", unhealthy: a.status === "degraded" }] }], operations: Object.entries(sim.ops).filter(([, o]) => o.name === name).map(([id, o]) => opDto(id, o)), versions: a.versions ? [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "alex", createdAt: T }] : [] });
+    if (rest === "draft") return json({ document: { apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name, uid: "assembly-x" }, spec: { modules: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } }, version: 1, updatedAt: T, updatedBy: "alex", validationErrors: [] });
     if (rest === "events") return json({ items: [] });
     if (rest === "operations" && req.method() === "POST") {
       const body = req.postDataJSON() as { action: string; confirmDisruption: boolean };
@@ -248,7 +248,7 @@ async function installApi(page: Page, sim: Sim) {
 
 function opDto(id: string, o: { kind: string; polls: number; fail?: boolean; error?: string }) {
   const done = o.polls >= 2;
-  return { id, kind: o.kind, state: !done ? "running" : o.fail ? "failed" : "succeeded", requestedBy: "alex", createdAt: T, startedAt: T, finishedAt: done ? T : null, stepsDone: done && !o.fail ? 2 : done ? 1 : 0, stepsTotal: 2, error: done && o.fail ? o.error : null, phases: [{ action: o.kind === "stop" ? "stop" : "start", state: done ? (o.fail ? "failed" : "succeeded") : "running", steps: [{ appliance: "web", instance: "web-1", state: done ? "succeeded" : "running", error: null }, { appliance: "web", instance: "web-2", state: done ? (o.fail ? "failed" : "succeeded") : "pending", error: done && o.fail ? o.error : null }] }] };
+  return { id, kind: o.kind, state: !done ? "running" : o.fail ? "failed" : "succeeded", requestedBy: "alex", createdAt: T, startedAt: T, finishedAt: done ? T : null, stepsDone: done && !o.fail ? 2 : done ? 1 : 0, stepsTotal: 2, error: done && o.fail ? o.error : null, phases: [{ action: o.kind === "stop" ? "stop" : "start", state: done ? (o.fail ? "failed" : "succeeded") : "running", steps: [{ module: "web", instance: "web-1", state: done ? "succeeded" : "running", error: null }, { module: "web", instance: "web-2", state: done ? (o.fail ? "failed" : "succeeded") : "pending", error: done && o.fail ? o.error : null }] }] };
 }
 
 const act = (page: Page, app: string, kind: string) => page.locator(`[data-testid=app-card][data-app=${app}]`).getByTestId(`action-${kind}`);

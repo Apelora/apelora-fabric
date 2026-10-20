@@ -11,7 +11,7 @@ The goal is a defensible order of magnitude and a clear next decision, not a pre
 
 ## Method
 
-1. **Write assumptions**, each labeled with its unit and source (measured / given / guessed). Examples: nodes, VMs per node, appliances per assembly, assemblies, users, API calls per user per day, reconcile interval, manifest size, assembly document size, event size, retention.
+1. **Write assumptions**, each labeled with its unit and source (measured / given / guessed). Examples: nodes, VMs per node, modules per assembly, assemblies, users, API calls per user per day, reconcile interval, manifest size, assembly document size, event size, retention.
 2. **Derive rates.**
    - Requests per second (QPS) = daily requests ÷ 86,400. Peak ≈ 2–3× average unless data says otherwise.
    - Control loops: objects ÷ interval = reconciles per second; multiply by node API calls per reconcile.

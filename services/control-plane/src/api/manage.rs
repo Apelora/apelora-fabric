@@ -16,7 +16,7 @@ use apelora_domain::lifecycle::{
     Activity, DeploymentStatus, Observed, OperationKind, OperationState, StatusInput,
     derive_status, layers, needs_confirmation,
 };
-use apelora_domain::plan::{Availability, DesiredAppliance};
+use apelora_domain::plan::{Availability, DesiredModule};
 use apelora_domain::{Instance, ProviderMode, is_valid_name};
 use apelora_persistence::lifecycle as db;
 use axum::extract::rejection::JsonRejection;
@@ -117,7 +117,7 @@ pub struct DeploymentInfo {
     pub source: ProviderMode,
     /// The published version the application was last deployed from.
     pub deployed_version: Option<i32>,
-    pub appliances: u32,
+    pub modules: u32,
     pub replicas: ReplicaSummary,
     pub last_activity_at: Option<String>,
     pub operation: Option<OperationSummary>,
@@ -198,7 +198,7 @@ pub(super) fn resource_of(r: &db::ApplicationRow) -> Resource {
     )
 }
 
-pub(super) fn desired_of(rec: &apelora_persistence::DeploymentRecord) -> Vec<DesiredAppliance> {
+pub(super) fn desired_of(rec: &apelora_persistence::DeploymentRecord) -> Vec<DesiredModule> {
     serde_json::from_value(rec.desired.clone()).unwrap_or_default()
 }
 
@@ -220,10 +220,10 @@ fn activity(op: &db::OperationRow) -> Option<Activity> {
     })
 }
 
-fn replicas_of(desired: &[DesiredAppliance]) -> Vec<(String, u8)> {
+fn replicas_of(desired: &[DesiredModule]) -> Vec<(String, u8)> {
     desired
         .iter()
-        .map(|d| (d.appliance.clone(), d.replicas))
+        .map(|d| (d.module.clone(), d.replicas))
         .collect()
 }
 
@@ -241,10 +241,10 @@ fn observed_for(
                 && i.owner.as_ref().is_some_and(|o| o.application == name)
         })
         .map(|i| Observed {
-            appliance: i
+            module: i
                 .owner
                 .as_ref()
-                .map(|o| o.appliance.clone())
+                .map(|o| o.module.clone())
                 .unwrap_or_default(),
             instance: i.name.clone(),
             status: i.status.clone(),
@@ -401,7 +401,7 @@ async fn build_info(
     let may_operate = allow(p, "application.operate", &resource_of(&row)).is_ok();
     let actions = action_states(status, running, may_operate, dep.is_some());
     let design = design_of(&row);
-    let appliances = if desired.is_empty() {
+    let modules = if desired.is_empty() {
         0
     } else {
         desired.len() as u32
@@ -435,7 +435,7 @@ async fn build_info(
             stale: obs.instances.is_none(),
             source: obs.mode,
             deployed_version: dep.as_ref().map(|d| d.revision),
-            appliances,
+            modules,
             replicas: ReplicaSummary {
                 desired: want.iter().map(|(_, n)| u32::from(*n)).sum(),
                 running,
@@ -549,8 +549,8 @@ pub struct InstanceDetail {
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ApplianceDetail {
-    pub appliance: String,
+pub struct ModuleDetail {
+    pub module: String,
     pub replicas: u8,
     pub availability: Availability,
     pub instances: Vec<InstanceDetail>,
@@ -570,7 +570,7 @@ pub struct VersionInfo {
 #[derive(Serialize, ToSchema)]
 pub struct ApplicationDetail {
     pub application: ApplicationInfo,
-    pub appliances: Vec<ApplianceDetail>,
+    pub modules: Vec<ModuleDetail>,
     pub versions: Vec<VersionInfo>,
     pub operations: Vec<OperationDto>,
 }
@@ -586,7 +586,7 @@ fn version_info(v: db::VersionRow) -> VersionInfo {
     }
 }
 
-/// One application with its appliances (desired and observed), versions and recent operations.
+/// One application with its modules (desired and observed), versions and recent operations.
 /// Needs `application.view`.
 #[utoipa::path(get, path = "/api/v1/applications/{name}", tag = "applications", operation_id = "application",
     params(("name" = String, Path, description = "Application name")),
@@ -608,19 +608,19 @@ pub(super) async fn detail(
         .map(|(_, t)| t);
     let dep = pick_deployment(&row, &deployments);
     let health = apelora_persistence::application_health(pool, &row.name).await?;
-    let appliances = match (&dep, &obs.instances) {
+    let modules = match (&dep, &obs.instances) {
         (Some(d), instances) => desired_of(d)
             .into_iter()
-            .map(|a| ApplianceDetail {
+            .map(|a| ModuleDetail {
                 instances: instances
                     .iter()
                     .flatten()
                     .filter(|i| {
                         i.managed
                             && i.project == d.project
-                            && i.owner.as_ref().is_some_and(|o| {
-                                o.application == row.name && o.appliance == a.appliance
-                            })
+                            && i.owner
+                                .as_ref()
+                                .is_some_and(|o| o.application == row.name && o.module == a.module)
                     })
                     .map(|i| InstanceDetail {
                         instance: i.name.clone(),
@@ -632,7 +632,7 @@ pub(super) async fn detail(
                                 .any(|h| h.instance == i.name && h.health == "unhealthy"),
                     })
                     .collect(),
-                appliance: a.appliance,
+                module: a.module,
                 replicas: a.replicas,
                 availability: a.availability,
             })
@@ -652,7 +652,7 @@ pub(super) async fn detail(
     .await?;
     Ok(Json(ApplicationDetail {
         application: info,
-        appliances,
+        modules,
         versions: db::list_versions(pool, row.id)
             .await?
             .into_iter()
@@ -1145,7 +1145,7 @@ async fn set_archived(
 #[serde(rename_all = "camelCase")]
 pub struct StepDto {
     pub instance: String,
-    pub appliance: String,
+    pub module: String,
     /// `pending`, `running`, `succeeded`, `failed` or `skipped`.
     pub state: String,
     pub error: Option<String>,
@@ -1190,7 +1190,12 @@ fn operation_dto(o: db::OperationRow) -> OperationDto {
                             s.iter()
                                 .map(|st| StepDto {
                                     instance: st["name"].as_str().unwrap_or("").to_owned(),
-                                    appliance: st["appliance"].as_str().unwrap_or("").to_owned(),
+                                    // Operations recorded before the rename name the step's `appliance`.
+                                    module: st["module"]
+                                        .as_str()
+                                        .or_else(|| st["appliance"].as_str())
+                                        .unwrap_or("")
+                                        .to_owned(),
                                     state: st["state"].as_str().unwrap_or("").to_owned(),
                                     error: st["error"].as_str().map(str::to_owned),
                                 })
@@ -1227,7 +1232,7 @@ fn operation_dto(o: db::OperationRow) -> OperationDto {
 pub struct OperateRequest {
     pub action: OperationKind,
     /// Required to stop or restart an application that has single-instance or stateful
-    /// appliances: it acknowledges that their clients lose service meanwhile.
+    /// modules: it acknowledges that their clients lose service meanwhile.
     #[serde(default)]
     pub confirm_disruption: bool,
 }
@@ -1358,14 +1363,14 @@ pub(super) async fn operate(
         ));
     }
 
-    // Stopping interrupts clients of single-instance and stateful appliances: ask for confirmation.
+    // Stopping interrupts clients of single-instance and stateful modules: ask for confirmation.
     if matches!(req.action, OperationKind::Stop | OperationKind::Restart) && !req.confirm_disruption
     {
         let at_risk: Vec<(String, Availability)> = needs_confirmation(&desired)
             .into_iter()
             .filter(|(a, _)| {
                 mine.iter().any(|i| {
-                    i.status == "Running" && i.owner.as_ref().is_some_and(|o| &o.appliance == a)
+                    i.status == "Running" && i.owner.as_ref().is_some_and(|o| &o.module == a)
                 })
             })
             .collect();
@@ -1399,7 +1404,7 @@ pub(super) async fn operate(
         .clone()
         .and_then(|c| serde_json::from_value(c).ok())
         .unwrap_or_default();
-    let appliances: Vec<String> = desired.iter().map(|d| d.appliance.clone()).collect();
+    let modules: Vec<String> = desired.iter().map(|d| d.module.clone()).collect();
     let phase = |action: &str,
                  order: Vec<Vec<String>>,
                  wanted: &dyn Fn(&Instance) -> bool|
@@ -1409,8 +1414,8 @@ pub(super) async fn operate(
             .filter_map(|layer| {
                 let steps: Vec<Value> = layer
                     .iter()
-                    .flat_map(|a| mine.iter().filter(move |i| i.owner.as_ref().is_some_and(|o| &o.appliance == a) && wanted(i)))
-                    .map(|i| json!({ "project": i.project, "name": i.name, "appliance": i.owner.as_ref().map(|o| o.appliance.clone()).unwrap_or_default(), "state": "pending" }))
+                    .flat_map(|a| mine.iter().filter(move |i| i.owner.as_ref().is_some_and(|o| &o.module == a) && wanted(i)))
+                    .map(|i| json!({ "project": i.project, "name": i.name, "module": i.owner.as_ref().map(|o| o.module.clone()).unwrap_or_default(), "state": "pending" }))
                     .collect();
                 (!steps.is_empty()).then(|| json!({ "action": action, "state": "pending", "steps": steps }))
             })
@@ -1419,10 +1424,10 @@ pub(super) async fn operate(
     let up = |i: &Instance| i.status == "Running";
     let down = |i: &Instance| i.status != "Running";
     let phases: Vec<Value> = match req.action {
-        OperationKind::Start => phase("start", layers(&appliances, &connections, true), &down),
-        OperationKind::Stop => phase("stop", layers(&appliances, &connections, false), &up),
+        OperationKind::Start => phase("start", layers(&modules, &connections, true), &down),
+        OperationKind::Stop => phase("stop", layers(&modules, &connections, false), &up),
         OperationKind::Restart => {
-            let mut v = phase("stop", layers(&appliances, &connections, false), &up);
+            let mut v = phase("stop", layers(&modules, &connections, false), &up);
             // Everything that was running comes back, providers first.
             let was_running: Vec<String> = mine
                 .iter()
@@ -1431,7 +1436,7 @@ pub(super) async fn operate(
                 .collect();
             v.extend(phase(
                 "start",
-                layers(&appliances, &connections, true),
+                layers(&modules, &connections, true),
                 &|i: &Instance| was_running.contains(&i.name),
             ));
             v

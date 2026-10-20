@@ -18,7 +18,7 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
   const access = useSessions((s) => s.access);
   const openSession = useSessions((s) => s.open);
   const d = detail.application.deployment;
-  const rows = detail.appliances.flatMap((a) => a.instances.map((i) => ({ appliance: a.appliance, ...i })));
+  const rows = detail.modules.flatMap((a) => a.instances.map((i) => ({ module: a.module, ...i })));
   return (
     <div className="flex flex-col gap-5" data-testid="tab-monitoring">
       <p className="text-xs text-base-content/60" data-testid="observed-at">
@@ -32,10 +32,10 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
         ) : (
           <div className="overflow-x-auto rounded-box border border-base-300">
             <table className="table table-sm" data-testid="replica-table">
-              <thead><tr><th>Appliance</th><th>Instance</th><th>Status</th><th>Location</th><th>Health</th>{backend.kind === "api" && <th>Access</th>}</tr></thead>
+              <thead><tr><th>Module</th><th>Instance</th><th>Status</th><th>Location</th><th>Health</th>{backend.kind === "api" && <th>Access</th>}</tr></thead>
               <tbody>{rows.map((r) => (
                 <tr key={r.instance} className={r.unhealthy ? "bg-warning/10" : ""} data-testid="replica-row" data-unhealthy={r.unhealthy}>
-                  <td>{r.appliance}</td><td className="font-mono text-xs">{r.instance}</td><td>{r.status}</td><td>{r.location || "—"}</td><td>{r.unhealthy ? "Unhealthy" : "Healthy"}</td>
+                  <td>{r.module}</td><td className="font-mono text-xs">{r.instance}</td><td>{r.status}</td><td>{r.location || "—"}</td><td>{r.unhealthy ? "Unhealthy" : "Healthy"}</td>
                   {backend.kind === "api" && (
                     <td>
                       <div className="flex flex-wrap gap-1">
@@ -47,7 +47,7 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
                               disabled={!k.allowed}
                               title={k.allowed ? undefined : (k.reason ?? undefined)}
                               aria-describedby={k.allowed ? undefined : `why-${r.instance}-${k.kind}`}
-                              onClick={() => openSession({ app: name, instance: r.instance, appliance: r.appliance, kind: k.kind, approvalRequired: k.approvalRequired })}
+                              onClick={() => openSession({ app: name, instance: r.instance, module: r.module, kind: k.kind, approvalRequired: k.approvalRequired })}
                               data-testid={`open-${k.kind}`}
                             >
                               {KIND_ACTION[k.kind]}{k.allowed && k.approvalRequired ? " · needs approval" : ""}

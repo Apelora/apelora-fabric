@@ -20,7 +20,7 @@ Do not propose a solution yet. Resist the urge to answer fast; a confident answe
 Ask, and record the answers (mark anything the user did not confirm as an *assumption*):
 
 1. **Features:** what exactly must it do? What is explicitly out of scope?
-2. **Users and scale:** single operator, team, or multi-tenant? Hosts, appliances per assembly, assemblies, concurrent users, now / 6 months / 1 year.
+2. **Users and scale:** single operator, team, or multi-tenant? Hosts, modules per assembly, assemblies, concurrent users, now / 6 months / 1 year.
 3. **Constraints and reuse:** existing schemas, the Incus authority boundary in `docs/adr/0001-incus-first.md`, upstream licences (`license-compliance`), supported architectures (x86-64, ARM64).
 4. **Non-functional needs:** availability target, latency budget, consistency expectations, security and audit requirements, offline or air-gapped operation.
 5. **Failure expectations:** what must still work when a node, the Controller, or the store is down?

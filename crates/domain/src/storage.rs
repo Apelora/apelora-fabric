@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Persistent volumes of an appliance (docs/architecture/STORAGE.md).
+//! Persistent volumes of a module (docs/architecture/STORAGE.md).
 //!
 //! A design asks for a volume by name, size, class and mount path; it never names a pool. The
 //! control plane resolves the class to a pool before the spec reaches the worker. Each instance
 //! gets its own volumes, named after it, created on the member Incus placed the instance on
 //! (Incus does not place an instance next to a member-local volume). Volumes outlive their
-//! instance: removing an appliance never deletes its data.
+//! instance: removing a module never deletes its data.
 
 use serde::{Deserialize, Serialize};
 
 use crate::{InstanceKind, is_valid_name};
 
-/// Volume config key naming the design's volume (`data`); the application and appliance keys
-/// are the instance ones ([`crate::APPLICATION_KEY`], [`crate::APPLIANCE_KEY`]).
+/// Volume config key naming the design's volume (`data`); the application and module keys
+/// are the instance ones ([`crate::APPLICATION_KEY`], [`crate::MODULE_KEY`]).
 pub const VOLUME_KEY: &str = "user.apelora.volume";
-/// Volumes one appliance may ask for.
+/// Volumes one module may ask for.
 pub const MAX_VOLUMES: usize = 4;
 /// Smallest and largest volume Apelora creates, in MiB (64 MiB to 4 TiB).
 pub const MIN_SIZE_MIB: u32 = 64;
@@ -59,7 +59,7 @@ impl VolumeClass {
     }
 }
 
-/// A volume an appliance asks for.
+/// A volume a module asks for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]
@@ -154,7 +154,7 @@ pub fn validate_volumes(
     volumes: &[VolumeMount],
 ) -> Result<(), String> {
     if volumes.len() > MAX_VOLUMES {
-        return Err(format!("at most {MAX_VOLUMES} volumes per appliance"));
+        return Err(format!("at most {MAX_VOLUMES} volumes per module"));
     }
     let mut names = std::collections::BTreeSet::new();
     let mut paths = std::collections::BTreeSet::new();
@@ -171,7 +171,7 @@ pub fn validate_volumes(
         let full = volume_name(instance, &v.name);
         if !is_valid_name(&full) {
             return Err(format!(
-                "volume {}: {full:?} is too long for Incus; shorten the appliance or volume name",
+                "volume {}: {full:?} is too long for Incus; shorten the module or volume name",
                 v.name
             ));
         }

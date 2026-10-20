@@ -14,7 +14,7 @@ use rcgen::{KeyPair, PKCS_ECDSA_P256_SHA256};
 use serde_json::json;
 use uuid::Uuid;
 
-use super::tests::{appliance, send};
+use super::tests::{module, send};
 use super::*;
 
 const ISS: &str = "https://id.example.test/realms/apelora";
@@ -231,7 +231,7 @@ pub(super) async fn world(l: &Lab) -> World {
 }
 
 pub(super) fn deploy_body(project: &str) -> serde_json::Value {
-    json!({ "project": project, "document": {}, "appliances": [appliance("web-01")] })
+    json!({ "project": project, "document": {}, "modules": [module("web-01")] })
 }
 
 // ---- authentication ---------------------------------------------------------------------------

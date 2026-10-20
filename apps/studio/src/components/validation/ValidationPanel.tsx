@@ -15,10 +15,10 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
   const warnings = diagnostics.length - errors;
 
   const focus = (d: Diagnostic) => {
-    if (!d.applianceId) return;
-    api.getState().selectNode(d.applianceId);
-    api.getState().openProps({ kind: "appliance", id: d.applianceId, tab: "issues" });
-    void fitView({ nodes: [{ id: d.applianceId }], padding: 0.8, maxZoom: 1.2, duration: ms(250) });
+    if (!d.moduleId) return;
+    api.getState().selectNode(d.moduleId);
+    api.getState().openProps({ kind: "module", id: d.moduleId, tab: "issues" });
+    void fitView({ nodes: [{ id: d.moduleId }], padding: 0.8, maxZoom: 1.2, duration: ms(250) });
   };
 
   return (
@@ -36,7 +36,7 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
             {diagnostics.length === 0 && <li className="px-3 py-2 text-base-content/60">The assembly is structurally valid. Planning checks against real hosts are not available in this preview.</li>}
             {diagnostics.map((d, i) => (
               <li key={`${d.code}-${i}`}>
-                <button type="button" className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-base-200 disabled:hover:bg-transparent" onClick={() => focus(d)} disabled={!d.applianceId}>
+                <button type="button" className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left hover:bg-base-200 disabled:hover:bg-transparent" onClick={() => focus(d)} disabled={!d.moduleId}>
                   <span className="flex items-center gap-1.5"><span className={`badge badge-xs ${d.severity === "error" ? "badge-error" : "badge-warning"}`}>{d.severity}</span>{d.message}</span>
                   {d.hint && <span className="pl-1 text-base-content/60">{d.hint}</span>}
                 </button>
@@ -45,9 +45,9 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
           </ul>
         )}
       </div>
-      {totals.appliances > 0 && (
-        <button type="button" className="rounded-box border border-base-300 bg-base-100 px-3 py-1.5 text-xs shadow-sm" data-testid="totals-chip" title="Total vCPU and memory requested by every appliance. Click for details." onClick={() => api.getState().openProps({ kind: "assembly" })}>
-          {totals.appliances} appliance{totals.appliances === 1 ? "" : "s"} · {totals.cpu} vCPU · {formatMemory(totals.memoryMiB)}
+      {totals.modules > 0 && (
+        <button type="button" className="rounded-box border border-base-300 bg-base-100 px-3 py-1.5 text-xs shadow-sm" data-testid="totals-chip" title="Total vCPU and memory requested by every module. Click for details." onClick={() => api.getState().openProps({ kind: "assembly" })}>
+          {totals.modules} module{totals.modules === 1 ? "" : "s"} · {totals.cpu} vCPU · {formatMemory(totals.memoryMiB)}
         </button>
       )}
     </div>

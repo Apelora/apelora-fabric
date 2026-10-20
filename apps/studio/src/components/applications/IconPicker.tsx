@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { iconChoices } from "../../features/applications/icons";
 import { AppIcon } from "./common";
 
-/** Pick an icon from the ones the editor already uses (appliance logos and generic shapes). */
+/** Pick an icon from the ones the editor already uses (module logos and generic shapes). */
 export function IconPicker({ value, onChange, idPrefix = "icon" }: { value: string; onChange: (key: string) => void; idPrefix?: string }) {
   const [q, setQ] = useState("");
   const all = useMemo(iconChoices, []);

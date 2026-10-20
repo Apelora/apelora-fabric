@@ -158,7 +158,7 @@ pub fn evaluate(o: &Observed<'_>) -> Vec<Check> {
             "oci",
             "OCI application containers",
             Warn,
-            format!("{OCI_EXTENSION} is missing; OCI appliances cannot be deployed"),
+            format!("{OCI_EXTENSION} is missing; OCI modules cannot be deployed"),
         )
     });
 

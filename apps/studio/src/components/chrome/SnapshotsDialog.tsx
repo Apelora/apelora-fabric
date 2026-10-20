@@ -52,12 +52,12 @@ export function SnapshotsDialog() {
               <div className="mt-2 rounded-box bg-base-200 p-2 text-xs" data-testid="snapshot-diff">
                 {diff.identical ? <p>Identical to the current diagram.</p> : (
                   <ul className="list-disc space-y-0.5 pl-4">
-                    {diff.addedAppliances.length > 0 && <li>Added since: {diff.addedAppliances.join(", ")}</li>}
-                    {diff.removedAppliances.length > 0 && <li>Removed since: {diff.removedAppliances.join(", ")}</li>}
-                    {diff.changedAppliances.map((c) => <li key={c.name}>{c.name}: {c.changes.join("; ")}</li>)}
+                    {diff.addedModules.length > 0 && <li>Added since: {diff.addedModules.join(", ")}</li>}
+                    {diff.removedModules.length > 0 && <li>Removed since: {diff.removedModules.join(", ")}</li>}
+                    {diff.changedModules.map((c) => <li key={c.name}>{c.name}: {c.changes.join("; ")}</li>)}
                     {diff.addedCables.length > 0 && <li>New cables: {diff.addedCables.join("; ")}</li>}
                     {diff.removedCables.length > 0 && <li>Removed cables: {diff.removedCables.join("; ")}</li>}
-                    {diff.movedAppliances > 0 && <li>{diff.movedAppliances} appliance{diff.movedAppliances > 1 ? "s" : ""} moved</li>}
+                    {diff.movedModules > 0 && <li>{diff.movedModules} module{diff.movedModules > 1 ? "s" : ""} moved</li>}
                     {diff.zonesBefore !== diff.zonesAfter && <li>Zones and notes: {diff.zonesBefore} → {diff.zonesAfter}</li>}
                   </ul>
                 )}

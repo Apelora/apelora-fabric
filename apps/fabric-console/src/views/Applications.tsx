@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import type { ApplianceStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, VolumeItem } from "@apelora/api-client";
+import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, VolumeItem } from "@apelora/api-client";
 
 import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -8,7 +8,7 @@ import { client, messageOf, useLoad } from "../lib/api";
 type Statuses = Record<string, ApplicationStatus | { error: string }>;
 
 /** How an application's instances are doing, in a few words and a status colour. */
-export function summary(items: readonly ApplianceStatus[]): { label: string; dot: string } {
+export function summary(items: readonly ModuleStatus[]): { label: string; dot: string } {
   if (!items.length) return { label: "No instances", dot: "status-neutral" };
   const running = items.filter((i) => i.status === "Running");
   const failing = running.filter((i) => i.health?.health === "unhealthy").length;
@@ -22,7 +22,7 @@ export function summary(items: readonly ApplianceStatus[]): { label: string; dot
 }
 
 /** An instance's health, in words. */
-const health = (i: ApplianceStatus): string => {
+const health = (i: ModuleStatus): string => {
   if (i.status !== "Running") return "—";
   if (!i.health) return "Not checked";
   const since = new Date(i.health.since).toLocaleTimeString();
@@ -30,7 +30,7 @@ const health = (i: ApplianceStatus): string => {
   return i.health.health === "healthy" ? "Passing" : "Not decided yet";
 };
 
-const dot = (i: ApplianceStatus) => (i.status !== "Running" ? "status-error" : i.health?.health === "unhealthy" ? "status-warning" : "status-success");
+const dot = (i: ModuleStatus) => (i.status !== "Running" ? "status-error" : i.health?.health === "unhealthy" ? "status-warning" : "status-success");
 
 /** A size in MiB, in the largest whole unit. */
 export function size(mib: number): string {
@@ -130,7 +130,7 @@ function GrowVolumeDialog({ application, volume, onClose, onGrown }: { applicati
 }
 
 /**
- * The application's persistent volumes. Removing an appliance keeps its volume; this is where
+ * The application's persistent volumes. Removing a module keeps its volume; this is where
  * a kept volume is deleted, on purpose.
  */
 function Volumes({ application }: { application: string }) {
@@ -161,7 +161,7 @@ function Volumes({ application }: { application: string }) {
               const st = volumeState(v);
               return (
                 <tr key={v.incusName} data-testid="application-volume">
-                  <td className="font-medium break-words">{v.incusName}<span className="block text-xs font-normal text-base-content/60">{v.name} of {v.appliance}, on {v.member || "the server"}</span></td>
+                  <td className="font-medium break-words">{v.incusName}<span className="block text-xs font-normal text-base-content/60">{v.name} of {v.module}, on {v.member || "the server"}</span></td>
                   <td className="max-sm:hidden">{size(v.sizeMib)}</td>
                   <td className="text-sm"><span className={`status mr-2 ${st.dot}`} aria-hidden="true" />{st.label}<span className="block text-xs text-base-content/60 sm:hidden">{size(v.sizeMib)}</span></td>
                   <td className="text-right">
@@ -204,7 +204,7 @@ function Instances({ status }: { status: ApplicationStatus }) {
         <tbody>
           {status.items.map((i) => (
             <tr key={`${i.project}/${i.instance}`} data-testid="application-instance">
-              <td className="font-medium break-words">{i.instance}<span className="block text-xs font-normal text-base-content/60">{i.appliance} · {i.project}</span></td>
+              <td className="font-medium break-words">{i.instance}<span className="block text-xs font-normal text-base-content/60">{i.module} · {i.project}</span></td>
               <td className="max-sm:hidden"><span className={`status mr-2 ${dot(i)}`} aria-hidden="true" />{i.status}</td>
               <td className="max-sm:hidden">{i.location}</td>
               <td className="text-sm"><span className={`status mr-2 sm:hidden ${dot(i)}`} aria-hidden="true" /><span className="sm:hidden">{i.status === "Running" ? "" : `${i.status}. `}</span>{health(i)}</td>
@@ -266,7 +266,7 @@ export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
                             : "error" in s ? <span className="text-error">{s.error}</span>
                             : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span></>}
                         </td>
-                        <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.appliance}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.appliance}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
+                        <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.module}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.module}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
                         <td className="text-right">
                           <button type="button" className="btn btn-xs btn-ghost" disabled={!ok} aria-expanded={expanded} aria-controls={`details-${a.name}`} onClick={() => setOpen(expanded ? null : a.name)} data-testid="application-toggle">
                             {expanded ? "Hide details" : "Show details"}

@@ -5,5 +5,5 @@ export function logoUrl(icon: string): string | undefined {
   return modules[`../assets/logos/${icon}.svg`];
 }
 
-/** Original, trademark-free icons offered when designing a custom appliance. */
+/** Original, trademark-free icons offered when designing a custom module. */
 export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "generic-network", "generic-window", "generic-desktop", "generic-directory", "generic-passkey", "gateway", "haproxy", "linux-base"] as const;

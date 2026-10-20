@@ -4,8 +4,8 @@ Status: **accepted** (2026-10-20, owner's decision: "do what is recommended") ·
 
 ## Context
 
-An appliance must find the appliances it is connected to. Phase 07 gives every stateless or
-published appliance a stable *service address* (an OVN load balancer over its replicas), and
+A module must find the modules it is connected to. Phase 07 gives every stateless or
+published module a stable *service address* (an OVN load balancer over its replicas), and
 every instance is reachable by its instance name on the application's OVN network
 (`<instance>.incus`, OVN's built-in DNS). What is missing is a way for the consumer to learn
 which address or name to use.
@@ -25,15 +25,15 @@ Facts from the test cluster (Incus 7.0.1, OVN 25.03):
    target for B: B's service address when B has one, otherwise B's instance name (resolved by
    OVN's DNS). It does not change when replicas come and go.
 2. **Delivery through the environment** (`environment.*`, set when the consumer is created):
-   `APELORA_SERVICE_<B>` holds that target, where `<B>` is the provider's appliance id in upper
+   `APELORA_SERVICE_<B>` holds that target, where `<B>` is the provider's module id in upper
    case with `-` as `_` (for example `APELORA_SERVICE_WEB_01=198.18.100.1`). Every image and every
    language can read an environment variable; no resolver, sidecar or new infrastructure is
-   needed, and nothing changes for appliances that ignore it.
+   needed, and nothing changes for modules that ignore it.
 3. **Service addresses are allocated when an application is deployed**, before its instances are
    created, so the targets exist when the consumers start. Instances created later (recreated,
    substituted) get the same values.
-4. **DNS stays possible without breaking (1)–(3):** an optional resolver appliance from the
-   catalog can serve `<appliance>.<application>` names inside an application later; the
+4. **DNS stays possible without breaking (1)–(3):** an optional resolver module from the
+   catalog can serve `<module>.<application>` names inside an application later; the
    environment keeps working alongside it.
 
 ## Consequences
@@ -41,13 +41,13 @@ Facts from the test cluster (Incus 7.0.1, OVN 25.03):
 - Consumers read one variable per connection; the Studio's connection is the only configuration.
 - An instance that already exists keeps the environment it was created with (the plan says kept
   instances keep their network settings); the value only changes if a service address is
-  re-allocated, which Apelora does not do while the appliance remains in the design.
+  re-allocated, which Apelora does not do while the module remains in the design.
 - The variables carry addresses, not secrets; credentials are never put in the environment by
   this mechanism.
 
 ## Alternatives
 
-- **A resolver appliance in every application now** — adds an instance (and a failure point) to
+- **A resolver module in every application now** — adds an instance (and a failure point) to
   every application before anyone needs names; kept as the later, optional step (4).
 - **Records in OVN's DNS** — not available through the Incus API; writing OVN directly would
   bypass Incus (ADR 0001).

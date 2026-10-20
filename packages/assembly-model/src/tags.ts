@@ -3,11 +3,11 @@ import type { ApplicationAssembly, Endpoint, LinkTag, Port } from "./schema";
 
 export const TAG_NAME = /^[a-z0-9][a-z0-9._-]{0,31}$/;
 
-const same = (a: Endpoint, b: Endpoint) => a.applianceId === b.applianceId && a.portId === b.portId;
+const same = (a: Endpoint, b: Endpoint) => a.moduleId === b.moduleId && a.portId === b.portId;
 const links = (a: ApplicationAssembly): LinkTag[] => a.spec.links ?? [];
 
 export function portOf(a: ApplicationAssembly, e: Endpoint): Port | undefined {
-  return a.spec.appliances.find((x) => x.id === e.applianceId)?.ports.find((p) => p.id === e.portId);
+  return a.spec.modules.find((x) => x.id === e.moduleId)?.ports.find((p) => p.id === e.portId);
 }
 
 export function tagOf(a: ApplicationAssembly, e: Endpoint): LinkTag | undefined {
@@ -44,7 +44,7 @@ export function explainTag(a: ApplicationAssembly, endpoint: Endpoint, name: str
     const mp = portOf(a, m.endpoint);
     if (!mp || mp.direction === port.direction) continue;
     const [out, outE, inn, inE] = port.direction === "output" ? [port, endpoint, mp, m.endpoint] : [mp, m.endpoint, port, endpoint];
-    if (outE.applianceId === inE.applianceId) return { code: "tag-self", message: `Tag “${name}” would connect an appliance to itself.`, hint: "Use a different tag name." };
+    if (outE.moduleId === inE.moduleId) return { code: "tag-self", message: `Tag “${name}” would connect a module to itself.`, hint: "Use a different tag name." };
     if (!portTypesCompatible(out.type, inn.type)) return { code: "tag-type", message: `Tag “${name}”: ${out.name} (${out.type}) cannot feed ${inn.name} (${inn.type}).`, hint: `Use a tag whose members share the protocol ${out.type}.` };
   }
   if (port.multiplicity === "one") {
@@ -54,7 +54,7 @@ export function explainTag(a: ApplicationAssembly, endpoint: Endpoint, name: str
   }
   for (const m of members) {
     const mp = portOf(a, m.endpoint);
-    if (mp && mp.direction !== port.direction && mp.multiplicity === "one" && linkCount(a, m.endpoint, { linkId: ignoreLinkId }) >= 1) return { code: "tag-peer-full", message: `${mp.name} on another appliance already has its single link.`, hint: "Choose a different tag name." };
+    if (mp && mp.direction !== port.direction && mp.multiplicity === "one" && linkCount(a, m.endpoint, { linkId: ignoreLinkId }) >= 1) return { code: "tag-peer-full", message: `${mp.name} on another module already has its single link.`, hint: "Choose a different tag name." };
   }
   return null;
 }
@@ -98,7 +98,7 @@ export function renameTag(a: ApplicationAssembly, from: string, to: string): { a
   return { assembly: cur };
 }
 
-/** Replaces a cable with two same-named tags, so the diagram needs no line between the appliances. */
+/** Replaces a cable with two same-named tags, so the diagram needs no line between the modules. */
 export function cableToTag(a: ApplicationAssembly, connectionId: string, name?: string): { assembly: ApplicationAssembly; tag: string } | { error: Problem } {
   const c = a.spec.connections.find((x) => x.id === connectionId);
   if (!c) return { error: { code: "connection-missing", message: "That cable no longer exists." } };

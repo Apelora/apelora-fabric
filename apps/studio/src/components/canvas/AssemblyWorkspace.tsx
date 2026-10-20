@@ -3,13 +3,13 @@ import {
   Background, BackgroundVariant, ConnectionMode, MiniMap, ReactFlow, SelectionMode, ViewportPortal, useReactFlow, useStore as useRFStore,
   type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd, type OnConnectStart,
 } from "@xyflow/react";
-import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
+import { logoUrl, lookupClass } from "@apelora/module-catalog";
 import { DENSITY_SIZE, alignmentGuides, cableColorOf, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
-import { ApplianceNode, type ApplianceFlowNode, type ApplianceNodeData } from "./ApplianceNode";
+import { ModuleNode, type ModuleFlowNode, type ModuleNodeData } from "./ModuleNode";
 import { ShapeNode, type ShapeFlowNode } from "./ShapeNode";
 import { CableEdge, type CableFlowEdge } from "./CableEdge";
 import { CanvasStrip } from "./CanvasStrip";
@@ -17,15 +17,15 @@ import { ValidationPanel } from "../validation/ValidationPanel";
 import { ContextMenu } from "./ContextMenu";
 import { ms } from "../../features/editor/motion";
 
-const nodeTypes = { appliance: ApplianceNode, shape: ShapeNode };
-type AnyFlowNode = ApplianceFlowNode | ShapeFlowNode;
+const nodeTypes = { module: ModuleNode, shape: ShapeNode };
+type AnyFlowNode = ModuleFlowNode | ShapeFlowNode;
 const edgeTypes = { cable: CableEdge };
 
-/** How many cables are plugged into each port of an appliance, and the protocol of the first one. */
+/** How many cables are plugged into each port of a module, and the protocol of the first one. */
 function linksFor(a: ApplicationAssembly, id: string): Record<string, { count: number; type: string }> {
   const out: Record<string, { count: number; type: string }> = {};
   for (const c of a.spec.connections) {
-    const end = c.source.applianceId === id ? c.source.portId : c.target.applianceId === id ? c.target.portId : null;
+    const end = c.source.moduleId === id ? c.source.portId : c.target.moduleId === id ? c.target.portId : null;
     if (!end) continue;
     const prev = out[end];
     out[end] = prev ? { ...prev, count: prev.count + 1 } : { count: 1, type: linkLabel(a, c.source) };
@@ -33,11 +33,11 @@ function linksFor(a: ApplicationAssembly, id: string): Record<string, { count: n
   return out;
 }
 
-/** Link tags on an appliance's ports, with the protocol of each net (taken from its first output). */
+/** Link tags on a module's ports, with the protocol of each net (taken from its first output). */
 function tagsFor(a: ApplicationAssembly, id: string): Record<string, { name: string; type: string; members: number }> {
   const out: Record<string, { name: string; type: string; members: number }> = {};
   for (const l of a.spec.links ?? []) {
-    if (l.endpoint.applianceId !== id) continue;
+    if (l.endpoint.moduleId !== id) continue;
     const net = tagNet(a, l.tag);
     const src = net.map((m) => portOf(a, m.endpoint)).find((p) => p?.direction === "output") ?? portOf(a, l.endpoint);
     out[l.endpoint.portId] = { name: l.tag, type: src?.type ?? "tcp", members: net.length };
@@ -47,16 +47,16 @@ function tagsFor(a: ApplicationAssembly, id: string): Record<string, { name: str
 
 /** Link label = the protocol carried by the source terminal. */
 function linkLabel(a: ApplicationAssembly, s: Endpoint): string {
-  return a.spec.appliances.find((x) => x.id === s.applianceId)?.ports.find((p) => p.id === s.portId)?.type ?? "";
+  return a.spec.modules.find((x) => x.id === s.moduleId)?.ports.find((p) => p.id === s.portId)?.type ?? "";
 }
 
 /** Lets users drag from either side: orient the pair output → input before validating. */
 function orient(a: ApplicationAssembly, c: Pick<Connection, "source" | "target" | "sourceHandle" | "targetHandle">): { source: Endpoint; target: Endpoint } | null {
   if (!c.source || !c.target || !c.sourceHandle || !c.targetHandle) return null;
-  const s: Endpoint = { applianceId: c.source, portId: c.sourceHandle };
-  const t: Endpoint = { applianceId: c.target, portId: c.targetHandle };
-  const sp = a.spec.appliances.find((x) => x.id === s.applianceId)?.ports.find((p) => p.id === s.portId);
-  const tp = a.spec.appliances.find((x) => x.id === t.applianceId)?.ports.find((p) => p.id === t.portId);
+  const s: Endpoint = { moduleId: c.source, portId: c.sourceHandle };
+  const t: Endpoint = { moduleId: c.target, portId: c.targetHandle };
+  const sp = a.spec.modules.find((x) => x.id === s.moduleId)?.ports.find((p) => p.id === s.portId);
+  const tp = a.spec.modules.find((x) => x.id === t.moduleId)?.ports.find((p) => p.id === t.portId);
   if (sp?.direction === "input" && tp?.direction === "output") return { source: t, target: s };
   return { source: s, target: t };
 }
@@ -113,12 +113,12 @@ export function AssemblyWorkspace() {
     data: { shape: sh, inside: 0 },
   })), [assembly.editor.shapes, selection.shapes]);
 
-  // Per-appliance data that comes from the spec (ports, links, tags, status). Recomputed only when the spec changes.
+  // Per-module data that comes from the spec (ports, links, tags, status). Recomputed only when the spec changes.
   const specData = useMemo(() => {
     const byApp = new Map<string, Diagnostic[]>();
-    for (const d of diagnostics) if (d.applianceId) byApp.set(d.applianceId, [...(byApp.get(d.applianceId) ?? []), d]);
+    for (const d of diagnostics) if (d.moduleId) byApp.set(d.moduleId, [...(byApp.get(d.moduleId) ?? []), d]);
     const out = new Map<string, Record<string, unknown>>();
-    for (const a of assembly.spec.appliances) {
+    for (const a of assembly.spec.modules) {
       const mine = byApp.get(a.id) ?? [];
       const hard = mine.some((d) => d.severity === "error" && d.code !== "required-port-unconnected");
       const cls = lookupClass(a.classRef.name, a.classRef.version);
@@ -126,7 +126,7 @@ export function AssemblyWorkspace() {
         name: a.name,
         className: cls?.displayName ?? a.classRef.name,
         category: cls?.category ?? "Custom",
-        inner: cls?.composition?.appliances.length ?? 0,
+        inner: cls?.composition?.modules.length ?? 0,
         icon: cls ? logoUrl(cls.iconAssetPath) : undefined,
         inputs: a.ports.filter((p) => p.direction === "input"),
         outputs: a.ports.filter((p) => p.direction === "output"),
@@ -141,11 +141,11 @@ export function AssemblyWorkspace() {
   }, [assembly.spec, diagnostics, customClasses]);
 
   // React Flow skips work for nodes whose object is unchanged, so reuse each node object while its inputs are the same.
-  const nodeCache = useRef(new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ApplianceFlowNode }>());
-  const applianceNodes = useMemo<ApplianceFlowNode[]>(() => {
+  const nodeCache = useRef(new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ModuleFlowNode }>());
+  const moduleNodes = useMemo<ModuleFlowNode[]>(() => {
     const layout = new Map(assembly.editor.nodes.map((n) => [n.id, n]));
-    const next = new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ApplianceFlowNode }>();
-    const list = assembly.spec.appliances.flatMap((a) => {
+    const next = new Map<string, { base: unknown; x: number; y: number; w: number; h: number; sel: boolean; node: ModuleFlowNode }>();
+    const list = assembly.spec.modules.flatMap((a) => {
       const l = layout.get(a.id);
       const base = specData.get(a.id);
       if (!l || !base) return [];
@@ -153,9 +153,9 @@ export function AssemblyWorkspace() {
       const sel = selection.nodes.includes(a.id);
       const hit = nodeCache.current.get(a.id);
       if (hit && hit.base === base && hit.x === l.x && hit.y === l.y && hit.w === size.width && hit.h === size.height && hit.sel === sel) { next.set(a.id, hit); return [hit.node]; }
-      const node: ApplianceFlowNode = {
-        id: a.id, type: "appliance" as const, position: { x: l.x, y: l.y }, width: size.width, height: size.height, measured: { width: size.width, height: size.height }, selected: sel,
-        data: { ...base, width: size.width, height: size.height } as ApplianceNodeData,
+      const node: ModuleFlowNode = {
+        id: a.id, type: "module" as const, position: { x: l.x, y: l.y }, width: size.width, height: size.height, measured: { width: size.width, height: size.height }, selected: sel,
+        data: { ...base, width: size.width, height: size.height } as ModuleNodeData,
       };
       next.set(a.id, { base, x: l.x, y: l.y, w: size.width, h: size.height, sel, node });
       return [node];
@@ -163,16 +163,16 @@ export function AssemblyWorkspace() {
     nodeCache.current = next;
     return list;
   }, [assembly.spec, assembly.editor.nodes, assembly.editor.density, specData, selection.nodes]);
-  const nodes = useMemo<AnyFlowNode[]>(() => [...shapeNodes, ...applianceNodes], [shapeNodes, applianceNodes]);
+  const nodes = useMemo<AnyFlowNode[]>(() => [...shapeNodes, ...moduleNodes], [shapeNodes, moduleNodes]);
 
   const edges = useMemo<CableFlowEdge[]>(() => {
     const bad = new Set(diagnostics.filter((d) => d.connectionId).map((d) => d.connectionId));
     return assembly.spec.connections.map((c) => ({
       id: c.id,
       type: "cable" as const,
-      source: c.source.applianceId,
+      source: c.source.moduleId,
       sourceHandle: c.source.portId,
-      target: c.target.applianceId,
+      target: c.target.moduleId,
       targetHandle: c.target.portId,
       selected: selection.edges.includes(c.id),
       reconnectable: true,
@@ -193,7 +193,7 @@ export function AssemblyWorkspace() {
       if (ch.type === "position" && ch.position) {
         if (isShape) {
           shapeMoves.set(ch.id, ch.position);
-          // Appliances inside a dragged zone travel with it.
+          // Modules inside a dragged zone travel with it.
           const cur = (s.assembly.editor.shapes ?? []).find((x) => x.id === ch.id);
           const carry = s.carry;
           if (cur && carry?.shapeId === ch.id) {
@@ -214,7 +214,7 @@ export function AssemblyWorkspace() {
         else selNodes = ch.selected ? [...new Set([...selNodes, ch.id])] : selNodes.filter((x) => x !== ch.id);
       }
     }
-    // A single appliance being dragged snaps to the edges and centres of its neighbours.
+    // A single module being dragged snaps to the edges and centres of its neighbours.
     if (moves.size === 1 && shapeMoves.size === 0 && !s.carry) {
       const [id, p] = [...moves][0]!;
       const g = alignmentGuides(s.assembly, id, p);
@@ -253,8 +253,8 @@ export function AssemblyWorkspace() {
 
   const onConnectStart = useCallback<OnConnectStart>((_e, p) => {
     if (!p.nodeId || !p.handleId) return;
-    const port = api.getState().assembly.spec.appliances.find((x) => x.id === p.nodeId)?.ports.find((q) => q.id === p.handleId);
-    if (port) api.getState().setDragFrom({ applianceId: p.nodeId, portId: port.id, direction: port.direction, type: port.type });
+    const port = api.getState().assembly.spec.modules.find((x) => x.id === p.nodeId)?.ports.find((q) => q.id === p.handleId);
+    if (port) api.getState().setDragFrom({ moduleId: p.nodeId, portId: port.id, direction: port.direction, type: port.type });
   }, [api]);
 
   const onConnectEnd = useCallback<OnConnectEnd>((_e, state) => {
@@ -312,13 +312,13 @@ export function AssemblyWorkspace() {
           selectionMode={SelectionMode.Partial}
           multiSelectionKeyCode={["Control", "Meta", "Shift"]}
           panActivationKeyCode="Space"
-          onNodeDoubleClick={(_e, n) => api.getState().openProps(n.type === "shape" ? { kind: "shape", id: n.id, ...(n.data && "shape" in n.data && n.data.shape.kind === "note" ? { tab: "label" as const } : {}) } : { kind: "appliance", id: n.id })}
+          onNodeDoubleClick={(_e, n) => api.getState().openProps(n.type === "shape" ? { kind: "shape", id: n.id, ...(n.data && "shape" in n.data && n.data.shape.kind === "note" ? { tab: "label" as const } : {}) } : { kind: "module", id: n.id })}
           onEdgeDoubleClick={(_e, ed) => api.getState().openProps({ kind: "cable", id: ed.id })}
           snapToGrid={snap}
           snapGrid={[8, 8]}
           minZoom={0.2}
           maxZoom={2.5}
-          onlyRenderVisibleElements={assembly.spec.appliances.length > 150}
+          onlyRenderVisibleElements={assembly.spec.modules.length > 150}
           proOptions={{ hideAttribution: true }}
         >
           {/* Minor lines every 16 units (2 × the snap step), major lines every 128 (one compact node width). */}
@@ -334,8 +334,8 @@ export function AssemblyWorkspace() {
             </ViewportPortal>
           )}
         </ReactFlow>
-        {assembly.spec.appliances.length === 0 && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-base-content/50">Drag an appliance from the catalog onto the canvas</div>
+        {assembly.spec.modules.length === 0 && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-base-content/50">Drag a module from the catalog onto the canvas</div>
         )}
         <ValidationPanel diagnostics={diagnostics} />
         <ContextMenu />

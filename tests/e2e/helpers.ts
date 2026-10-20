@@ -3,11 +3,11 @@ import { expect, type Locator, type Page } from "@playwright/test";
 export async function open(page: Page, opts: { fresh?: boolean } = { fresh: true }) {
   if (opts.fresh) await page.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("__seeded", "1"); } });
   await page.goto("/");
-  await page.waitForSelector("[data-testid=appliance-node]");
+  await page.waitForSelector("[data-testid=module-node]");
   await page.waitForTimeout(350);
 }
 
-export const node = (page: Page, id: string): Locator => page.locator(`[data-testid=appliance-node][data-node-id="${id}"]`);
+export const node = (page: Page, id: string): Locator => page.locator(`[data-testid=module-node][data-node-id="${id}"]`);
 export const handle = (page: Page, id: string, portId: string): Locator => page.locator(`.react-flow__node[data-id="${id}"] .react-flow__handle[data-port-id="${portId}"]`);
 
 export async function viewport(page: Page) {
@@ -33,7 +33,7 @@ export async function flowSize(page: Page, id: string) {
 
 export async function assemblyState(page: Page) {
   return page.evaluate(() => {
-    const a = (window as unknown as { __studio: { getState: () => { assembly: { spec: { appliances: { id: string; ports: unknown[] }[]; connections: { id: string; source: { applianceId: string; portId: string }; target: { applianceId: string; portId: string } }[] }; editor: { nodes: { id: string; x: number; y: number; width: number; height: number; custom: boolean }[]; density: string } } } } }).__studio.getState().assembly;
+    const a = (window as unknown as { __studio: { getState: () => { assembly: { spec: { modules: { id: string; ports: unknown[] }[]; connections: { id: string; source: { moduleId: string; portId: string }; target: { moduleId: string; portId: string } }[] }; editor: { nodes: { id: string; x: number; y: number; width: number; height: number; custom: boolean }[]; density: string } } } } }).__studio.getState().assembly;
     return JSON.parse(JSON.stringify(a)) as typeof a;
   });
 }
@@ -49,8 +49,8 @@ export async function expectEdgesAnchored(page: Page, tol = 1.5) {
     const d = await page.locator(`.react-flow__edge[data-id="${c.id}"] path.react-flow__edge-path`).getAttribute("d");
     const nums = d!.match(/-?\d+(\.\d+)?/g)!.map(Number);
     const [sx, sy, tx, ty] = [nums[0]!, nums[1]!, nums[nums.length - 2]!, nums[nums.length - 1]!];
-    const sh = await handle(page, c.source.applianceId, c.source.portId).boundingBox();
-    const th = await handle(page, c.target.applianceId, c.target.portId).boundingBox();
+    const sh = await handle(page, c.source.moduleId, c.source.portId).boundingBox();
+    const th = await handle(page, c.target.moduleId, c.target.portId).boundingBox();
     if (!sh || !th) throw new Error(`handle missing for ${c.id}`);
     const f = (px: number, py: number) => ({ x: (px - vp.x - rf.x) / vp.zoom, y: (py - vp.y - rf.y) / vp.zoom });
     const s = f(sh.x + sh.width, sh.y + sh.height / 2);
@@ -101,7 +101,7 @@ export async function cablePoint(page: Page, id: string, t = 0.5) {
   }, { id, t });
 }
 
-/** Opens the floating properties window for an appliance (double-click) and optionally switches tab. */
+/** Opens the floating properties window for a module (double-click) and optionally switches tab. */
 export async function openProps(page: Page, id: string, tab?: "general" | "config" | "ports" | "issues") {
   await node(page, id).dblclick();
   await expect(page.getByTestId("inspector")).toBeVisible();

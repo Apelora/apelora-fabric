@@ -22,7 +22,7 @@ function PortRow({ appId, port, first, last }: { appId: string; port: Port; firs
   const api = useStudioApi();
   const s = () => api.getState();
   const assembly = useStudio((st) => st.assembly);
-  const tag = tagOf(assembly, { applianceId: appId, portId: port.id })?.tag ?? "";
+  const tag = tagOf(assembly, { moduleId: appId, portId: port.id })?.tag ?? "";
   const listId = `tags-${appId}-${port.id}`;
   return (
     <li className="rounded-box border border-base-300 p-1.5" data-testid="port-row" data-port-id={port.id}>
@@ -32,11 +32,11 @@ function PortRow({ appId, port, first, last }: { appId: string; port: Port; firs
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
         <button className="btn btn-ghost btn-xs btn-square" aria-label={`Move ${port.name} up`} disabled={first} onClick={() => s().shiftPort(appId, port.id, -1)}><IconUp size={12} /></button>
         <button className="btn btn-ghost btn-xs btn-square" aria-label={`Move ${port.name} down`} disabled={last} onClick={() => s().shiftPort(appId, port.id, 1)}><IconDown size={12} /></button>
-        <button className="btn btn-ghost btn-xs btn-square" aria-label={`Delete port ${port.name}`} data-testid="delete-port" disabled={port.id === "net"} title={port.id === "net" ? "Every appliance keeps its network interface" : undefined} onClick={() => s().deletePort(appId, port.id)}><IconTrash size={12} /></button>
+        <button className="btn btn-ghost btn-xs btn-square" aria-label={`Delete port ${port.name}`} data-testid="delete-port" disabled={port.id === "net"} title={port.id === "net" ? "Every module keeps its network interface" : undefined} onClick={() => s().deletePort(appId, port.id)}><IconTrash size={12} /></button>
       </div>
       <div className="mt-1 flex items-center gap-1">
         <input key={tag} defaultValue={tag} list={listId} aria-label={`Link tag of ${port.name}`} data-testid="port-tag" placeholder="link tag (name)" maxLength={32} className="input input-xs min-w-0 flex-1 font-mono"
-          onBlur={(e) => { const v = e.currentTarget.value.trim().toLowerCase(); if (v === tag) return; if (v === "") s().untagPortAction({ applianceId: appId, portId: port.id }); else if (!s().tagPortTo({ applianceId: appId, portId: port.id }, v)) e.currentTarget.value = tag; }}
+          onBlur={(e) => { const v = e.currentTarget.value.trim().toLowerCase(); if (v === tag) return; if (v === "") s().untagPortAction({ moduleId: appId, portId: port.id }); else if (!s().tagPortTo({ moduleId: appId, portId: port.id }, v)) e.currentTarget.value = tag; }}
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
         <datalist id={listId}>{tagNames(assembly).map((n) => <option key={n} value={n} />)}</datalist>
       </div>
@@ -68,16 +68,16 @@ export function PortSection({ appId, ports, direction }: { appId: string; ports:
   );
 }
 
-/** Where an appliance's net interface is plugged: a network appliance (by cable or tag) or the default network. */
+/** Where a module's net interface is plugged: a network module (by cable or tag) or the default network. */
 export function nicStatus(a: ReturnType<typeof useStudio<ApplicationAssembly>>, id: string): string {
-  const e = { applianceId: id, portId: "net" };
+  const e = { moduleId: id, portId: "net" };
   if (!portOf(a, e)) return "no interface";
-  const cable = a.spec.connections.find((c) => c.target.applianceId === id && c.target.portId === "net");
-  if (cable) return `${a.spec.appliances.find((x) => x.id === cable.source.applianceId)?.name ?? "?"} (cable)`;
+  const cable = a.spec.connections.find((c) => c.target.moduleId === id && c.target.portId === "net");
+  if (cable) return `${a.spec.modules.find((x) => x.id === cable.source.moduleId)?.name ?? "?"} (cable)`;
   const t = tagOf(a, e);
   if (t) {
     const src = tagNet(a, t.tag).find((l) => portOf(a, l.endpoint)?.direction === "output");
-    return src ? `${a.spec.appliances.find((x) => x.id === src.endpoint.applianceId)?.name ?? "?"} (tag ${t.tag})` : `tag ${t.tag} (no network yet)`;
+    return src ? `${a.spec.modules.find((x) => x.id === src.endpoint.moduleId)?.name ?? "?"} (tag ${t.tag})` : `tag ${t.tag} (no network yet)`;
   }
   return "default network";
 }

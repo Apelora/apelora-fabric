@@ -1,6 +1,6 @@
 import { trimHyphens } from "./ops";
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume } from "./schema";
+import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -20,7 +20,7 @@ export interface InstanceRequest {
 }
 
 /**
- * Incus limits for an appliance's resources: memory in MiB, whole CPUs as `limits.cpu`. A
+ * Incus limits for a module's resources: memory in MiB, whole CPUs as `limits.cpu`. A
  * container's fractional CPU becomes a hard time quota as well (`0.5` → `50ms/100ms` of one
  * CPU); a VM gets whole vCPUs (rounded up), which is what Incus offers it.
  */
@@ -34,7 +34,7 @@ export function resourceLimits(kind: InstanceRequest["kind"], r: Resources): Rec
 }
 
 /** Problems with a class's runtime definition (empty when it is sound or design-only). */
-export function runtimeProblems(cls: ApplianceClass): string[] {
+export function runtimeProblems(cls: ModuleClass): string[] {
   const rt = cls.runtime;
   if (!rt) return [];
   if (!rt.image === !rt.imageBy) return [`${cls.id}: runtime needs exactly one of image and imageBy`];
@@ -50,8 +50,8 @@ export function runtimeProblems(cls: ApplianceClass): string[] {
   ];
 }
 
-/** The image an appliance uses, given its configuration. */
-export function runtimeImage(cls: ApplianceClass, config: ApplianceInstance["config"]): SystemImage | OciImage | undefined {
+/** The image a module uses, given its configuration. */
+export function runtimeImage(cls: ModuleClass, config: ModuleInstance["config"]): SystemImage | OciImage | undefined {
   const rt = cls.runtime;
   if (!rt) return undefined;
   if (rt.image) return rt.image;
@@ -63,25 +63,25 @@ export function runtimeImage(cls: ApplianceClass, config: ApplianceInstance["con
 const isOci = (rt: Runtime, _image: SystemImage | OciImage): _image is OciImage => rt.kind === "incus-oci-container";
 
 /**
- * The create-instance request for one appliance, or why it cannot be deployed. Pure: no
+ * The create-instance request for one module, or why it cannot be deployed. Pure: no
  * placement, names or project policy beyond what the caller passes in.
  */
 export function instanceRequestFor(
-  cls: ApplianceClass,
-  appliance: Pick<ApplianceInstance, "config"> & { resources?: Resources; volumes?: Volume[] },
+  cls: ModuleClass,
+  module: Pick<ModuleInstance, "config"> & { resources?: Resources; volumes?: Volume[] },
   target: { project: string; name: string; start?: boolean },
 ): { ok: true; request: InstanceRequest } | { ok: false; error: string } {
   const rt = cls.runtime;
   if (!rt) return { ok: false, error: `${cls.displayName} is design-only: its class has no runtime` };
   const problems = runtimeProblems(cls);
   if (problems.length) return { ok: false, error: problems.join("; ") };
-  const image = runtimeImage(cls, appliance.config);
+  const image = runtimeImage(cls, module.config);
   if (!image) return { ok: false, error: `${cls.displayName} has no image for its current settings` };
   const source: InstanceRequest["source"] = isOci(rt, image)
     ? { protocol: "oci", server: image.registry, alias: image.reference }
     : { protocol: "simplestreams", server: image.server, alias: image.alias, ...(image.fingerprint ? { fingerprint: image.fingerprint } : {}) };
   const kind = rt.kind === "incus-vm" ? "virtual-machine" : "container";
-  const volumes = volumesOf(cls, appliance);
+  const volumes = volumesOf(cls, module);
   if (volumes.length && availabilityOf(cls) === "stateless") {
     return { ok: false, error: `${cls.displayName} is stateless: its replicas cannot keep volumes` };
   }
@@ -95,30 +95,30 @@ export function instanceRequestFor(
       // A fingerprint pins one build of one architecture; the server checks it against the cluster.
       architectures: source.fingerprint ? [] : [...cls.architectures],
       start: target.start ?? true,
-      // The appliance's own resources (set in the Studio), else its class's.
-      config: resourceLimits(kind, appliance.resources ?? cls.resources),
+      // The module's own resources (set in the Studio), else its class's.
+      config: resourceLimits(kind, module.resources ?? cls.resources),
       ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path })) } : {}),
     },
   };
 }
 
-/** An appliance's volumes: its own when the design sets them, else its class's. */
-export const volumesOf = (cls: ApplianceClass | undefined, appliance: { volumes?: Volume[] }): Volume[] =>
-  appliance.volumes ?? cls?.runtime?.volumes ?? [];
+/** A module's volumes: its own when the design sets them, else its class's. */
+export const volumesOf = (cls: ModuleClass | undefined, module: { volumes?: Volume[] }): Volume[] =>
+  module.volumes ?? cls?.runtime?.volumes ?? [];
 
 /** How a class's instances survive failures (`singleton` unless its runtime says otherwise). */
-export const availabilityOf = (cls: ApplianceClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";
+export const availabilityOf = (cls: ModuleClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";
 
 /** The operating system inside a class's instances: `linux` unless a virtual machine class says `windows`. */
-export const guestOsOf = (cls: ApplianceClass | undefined): GuestOs => (cls?.runtime?.kind === "incus-vm" ? cls.runtime.guestOs : undefined) ?? "linux";
+export const guestOsOf = (cls: ModuleClass | undefined): GuestOs => (cls?.runtime?.kind === "incus-vm" ? cls.runtime.guestOs : undefined) ?? "linux";
 
-/** How many instances an appliance runs: its replicas for stateless classes, otherwise one. */
-export const replicasOf = (cls: ApplianceClass | undefined, appliance: Pick<ApplianceInstance, "replicas">): number =>
-  availabilityOf(cls) === "stateless" ? (appliance.replicas ?? 1) : 1;
+/** How many instances a module runs: its replicas for stateless classes, otherwise one. */
+export const replicasOf = (cls: ModuleClass | undefined, module: Pick<ModuleInstance, "replicas">): number =>
+  availabilityOf(cls) === "stateless" ? (module.replicas ?? 1) : 1;
 
-/** An appliance the deployment will run, with the request for its instances. */
-export interface DeployableAppliance {
-  appliance: string;
+/** A module the deployment will run, with the request for its instances. */
+export interface DeployableModule {
+  module: string;
   name: string;
   spec: InstanceRequest;
   replicas: number;
@@ -131,31 +131,31 @@ export interface DeployableAppliance {
   volumes: Volume[];
 }
 
-/** An appliance that stays in the design only, and why. */
-export interface DesignOnlyAppliance {
-  appliance: string;
+/** A module that stays in the design only, and why. */
+export interface DesignOnlyModule {
+  module: string;
   name: string;
   reason: string;
 }
 
 /**
- * Splits a design into the appliances a deployment runs and those it cannot (no runtime yet,
+ * Splits a design into the modules a deployment runs and those it cannot (no runtime yet,
  * unknown class, components). The control plane names, labels and plans the instances.
  */
-export function deploymentAppliances(
+export function deploymentModules(
   assembly: ApplicationAssembly,
-  lookup: (name: string, version: string) => ApplianceClass | undefined,
+  lookup: (name: string, version: string) => ModuleClass | undefined,
   project: string,
-): { deployable: DeployableAppliance[]; designOnly: DesignOnlyAppliance[] } {
-  const deployable: DeployableAppliance[] = [];
-  const designOnly: DesignOnlyAppliance[] = [];
-  for (const a of assembly.spec.appliances) {
+): { deployable: DeployableModule[]; designOnly: DesignOnlyModule[] } {
+  const deployable: DeployableModule[] = [];
+  const designOnly: DesignOnlyModule[] = [];
+  for (const a of assembly.spec.modules) {
     const cls = lookup(a.classRef.name, a.classRef.version);
-    const skip = (reason: string) => designOnly.push({ appliance: a.id, name: a.name, reason });
-    if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
+    const skip = (reason: string) => designOnly.push({ module: a.id, name: a.name, reason });
+    if (!cls) { skip(`unknown module class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a) });
+    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a) });
     else skip(r.error);
   }
   return { deployable, designOnly };

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Optional: adds OVN to the disposable Incus test cluster so Apelora can enforce network
-# intents (per-application OVN networks, ACLs between appliances, DNS by name). Run after
+# intents (per-application OVN networks, ACLs between modules, DNS by name). Run after
 # up.sh and add-member.sh. Safe to repeat. See docs/development/TEST-CLUSTER.md.
 #
 # Test-only shortcuts, documented: one OVN database (on the first member, so OVN itself is

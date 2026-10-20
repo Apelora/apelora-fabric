@@ -1,9 +1,9 @@
 import { useId } from "react";
-import { effectiveValue, validateProperty, type ApplianceInstance, type ConfigValue, type Property } from "@apelora/assembly-model";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { effectiveValue, validateProperty, type ModuleInstance, type ConfigValue, type Property } from "@apelora/assembly-model";
+import { lookupClass } from "@apelora/module-catalog";
 import { useStudioApi } from "../../features/editor/context";
 
-function Field({ app, prop }: { app: ApplianceInstance; prop: Property }) {
+function Field({ app, prop }: { app: ModuleInstance; prop: Property }) {
   const api = useStudioApi();
   const uid = useId();
   const override = app.config?.[prop.id];
@@ -45,7 +45,7 @@ function Field({ app, prop }: { app: ApplianceInstance; prop: Property }) {
   );
 }
 
-export function ConfigForm({ app }: { app: ApplianceInstance }) {
+export function ConfigForm({ app }: { app: ModuleInstance }) {
   const api = useStudioApi();
   const cls = lookupClass(app.classRef.name, app.classRef.version);
   const props = cls?.properties ?? [];

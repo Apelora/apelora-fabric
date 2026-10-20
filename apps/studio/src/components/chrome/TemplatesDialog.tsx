@@ -1,9 +1,9 @@
-import { TEMPLATES } from "@apelora/appliance-catalog";
+import { TEMPLATES } from "@apelora/module-catalog";
 import { PLATFORM_INFO, platformOf, setPlatform } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { Modal } from "./Modal";
 
-/** Starter diagrams built only from catalog appliances. Choosing one replaces the canvas; undo brings the old diagram back. */
+/** Starter diagrams built only from catalog modules. Choosing one replaces the canvas; undo brings the old diagram back. */
 export function TemplatesDialog() {
   const api = useStudioApi();
   const open = useStudio((s) => s.dialog === "templates");

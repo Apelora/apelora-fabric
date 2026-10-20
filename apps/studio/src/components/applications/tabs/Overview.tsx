@@ -45,16 +45,16 @@ export function Overview({ detail, onPublish }: { detail: AppDetailView; onPubli
           </dl>
         </Card>
       </div>
-      <section className="flex flex-col gap-2" aria-label="Appliances">
-        <h2 className="text-sm font-semibold">Appliances</h2>
-        {detail.appliances.length === 0 ? (
-          <p className="rounded-box border border-dashed border-base-300 px-4 py-6 text-center text-xs text-base-content/60" data-testid="overview-no-appliances">{d.status === "not-deployed" ? "Nothing is deployed. Publish a version and deploy it to see its appliances here." : "No appliance instances are known."}</p>
+      <section className="flex flex-col gap-2" aria-label="Modules">
+        <h2 className="text-sm font-semibold">Modules</h2>
+        {detail.modules.length === 0 ? (
+          <p className="rounded-box border border-dashed border-base-300 px-4 py-6 text-center text-xs text-base-content/60" data-testid="overview-no-modules">{d.status === "not-deployed" ? "Nothing is deployed. Publish a version and deploy it to see its modules here." : "No module instances are known."}</p>
         ) : (
           <div className="overflow-x-auto rounded-box border border-base-300">
-            <table className="table table-sm" data-testid="overview-appliances">
-              <thead><tr><th>Appliance</th><th>Availability</th><th>Replicas</th><th>Healthy</th></tr></thead>
-              <tbody>{detail.appliances.map((x) => (
-                <tr key={x.appliance}><td className="font-medium">{x.appliance}</td><td>{x.availability}</td><td>{x.replicas}</td><td>{x.instances.filter((i) => !i.unhealthy && i.status.toLowerCase() === "running").length}/{x.instances.length}</td></tr>
+            <table className="table table-sm" data-testid="overview-modules">
+              <thead><tr><th>Module</th><th>Availability</th><th>Replicas</th><th>Healthy</th></tr></thead>
+              <tbody>{detail.modules.map((x) => (
+                <tr key={x.module}><td className="font-medium">{x.module}</td><td>{x.availability}</td><td>{x.replicas}</td><td>{x.instances.filter((i) => !i.unhealthy && i.status.toLowerCase() === "running").length}/{x.instances.length}</td></tr>
               ))}</tbody>
             </table>
           </div>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! The replica supervisor (Phase 08, M1/M2): restores lost replicas of stateless appliances.
+//! The replica supervisor (Phase 08, M1/M2): restores lost replicas of stateless modules.
 //!
 //! It compares each application's last deployment (`application_deployments`) with Incus and
 //! queues an ordinary `instance.create` job for a missing stateless replica — or
@@ -7,7 +7,7 @@
 //! purpose through Apelora (its latest lifecycle job is a stop) — unless a job for
 //! that instance is already in flight or failed within the back-off window. Instance creation
 //! is idempotent, so two supervisors racing still produce one instance. Singleton and stateful
-//! appliances are never recreated automatically: they are reported and left to an operator.
+//! modules are never recreated automatically: they are reported and left to an operator.
 //! Every recreation is audited; afterwards the application's network rules are re-synced so
 //! the new replica's address joins its address set.
 //!
@@ -27,7 +27,7 @@ use apelora_domain::Instance;
 use apelora_domain::health::HealthPolicy;
 use apelora_domain::network::{Connection, SyncRequest, discovery_env, with_discovery};
 use apelora_domain::plan::{
-    Availability, DesiredAppliance, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
+    Availability, DesiredModule, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
 };
 use apelora_incus_adapter::Provider;
 use apelora_persistence::{Pool, StoreError};
@@ -123,7 +123,7 @@ impl Supervisor {
             .collect();
         let mut recreated = Vec::new();
         for d in deployments {
-            let Ok(desired) = serde_json::from_value::<Vec<DesiredAppliance>>(d.desired.clone())
+            let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone())
             else {
                 tracing::warn!(application = %d.application, "supervisor: unreadable deployment record");
                 continue;
@@ -153,27 +153,22 @@ impl Supervisor {
                 .filter(|x| x.availability == Availability::Stateless)
             {
                 for replica in 1..=da.replicas.max(1) {
-                    let slot = slot_instances(
-                        &d.application,
-                        &d.project,
-                        &da.appliance,
-                        replica,
-                        &observed,
-                    );
+                    let slot =
+                        slot_instances(&d.application, &d.project, &da.module, replica, &observed);
                     if slot.is_empty() {
                         continue;
                     }
                     if slot.iter().all(|i| failed.contains(&i.location)) {
                         handled.extend(slot.iter().map(|i| i.name.clone()));
                         let Some(name) = (1..=9)
-                            .map(|n| substitute_name(&d.application, &da.appliance, replica, n))
+                            .map(|n| substitute_name(&d.application, &da.module, replica, n))
                             .find(|n| {
                                 !observed
                                     .iter()
                                     .any(|i| i.project == d.project && &i.name == n)
                             })
                         else {
-                            tracing::warn!(application = %d.application, appliance = %da.appliance, replica, "supervisor: no substitute name left");
+                            tracing::warn!(application = %d.application, module = %da.module, replica, "supervisor: no substitute name left");
                             continue;
                         };
                         if apelora_persistence::job_in_flight(
@@ -199,7 +194,7 @@ impl Supervisor {
                             deploy_spec(&d.application, &d.project, da, replica, uplink),
                             &discovery_env(
                                 &d.application,
-                                &da.appliance,
+                                &da.module,
                                 connections.as_deref().unwrap_or_default(),
                                 &addresses,
                             ),
@@ -225,7 +220,7 @@ impl Supervisor {
                         "supervisor",
                         "application.replica.substitute",
                         &format!("{}/{name}", d.project),
-                        &json!({ "application": d.application, "appliance": da.appliance, "replica": replica, "stranded": stranded, "jobId": job }),
+                        &json!({ "application": d.application, "module": da.module, "replica": replica, "stranded": stranded, "jobId": job }),
                     )
                     .await?;
                         tracing::info!(application = %d.application, instance = %name, ?stranded, "supervisor: substituting a replica stranded on a failed member");
@@ -283,7 +278,7 @@ impl Supervisor {
                             "supervisor",
                             "application.replica.retire",
                             &format!("{}/{}", d.project, other.name),
-                            &json!({ "application": d.application, "appliance": da.appliance, "replica": replica, "kept": keep.name, "jobId": job }),
+                            &json!({ "application": d.application, "module": da.module, "replica": replica, "kept": keep.name, "jobId": job }),
                         )
                         .await?;
                             tracing::info!(application = %d.application, instance = %other.name, kept = %keep.name, "supervisor: retiring a duplicate replica");
@@ -294,7 +289,7 @@ impl Supervisor {
                 }
             }
             for item in p.items.iter().filter(|i| !handled.contains(&i.instance)) {
-                let Some(da) = desired.iter().find(|x| x.appliance == item.appliance) else {
+                let Some(da) = desired.iter().find(|x| x.module == item.module) else {
                     continue;
                 };
                 // Missing → recreate; kept but stopped although it should run → restart.
@@ -354,7 +349,7 @@ impl Supervisor {
                         deploy_spec(&d.application, &d.project, da, item.replica, uplink),
                         &discovery_env(
                             &d.application,
-                            &da.appliance,
+                            &da.module,
                             connections.as_deref().unwrap_or_default(),
                             &addresses,
                         ),
@@ -380,7 +375,7 @@ impl Supervisor {
                 "supervisor",
                 action,
                 &format!("{}/{}", d.project, item.instance),
-                &json!({ "application": d.application, "appliance": item.appliance, "replica": item.replica, "revision": d.revision, "jobId": job }),
+                &json!({ "application": d.application, "module": item.module, "replica": item.replica, "revision": d.revision, "jobId": job }),
             )
             .await?;
                 tracing::info!(application = %d.application, instance = %item.instance, %job, kind, "supervisor: restoring a stateless replica");
@@ -441,7 +436,7 @@ impl Supervisor {
 }
 
 /// Of a slot's instances (all reachable), the one to keep: running, on the member with the
-/// fewest other instances of the same appliance (replicas apart), then the original name.
+/// fewest other instances of the same module (replicas apart), then the original name.
 fn keeper<'a>(slot: &[&'a Instance], observed: &[Instance]) -> Option<&'a Instance> {
     let siblings = |i: &Instance| {
         observed
@@ -454,7 +449,7 @@ fn keeper<'a>(slot: &[&'a Instance], observed: &[Instance]) -> Option<&'a Instan
                         .as_ref()
                         .zip(i.owner.as_ref())
                         .is_some_and(|(a, b)| {
-                            a.application == b.application && a.appliance == b.appliance
+                            a.application == b.application && a.module == b.module
                         })
             })
             .count()
@@ -492,9 +487,9 @@ mod tests {
 
     const PROJECT: &str = "apelora";
 
-    fn desired(appliance: &str, replicas: u8, availability: Availability) -> DesiredAppliance {
-        DesiredAppliance {
-            appliance: appliance.into(),
+    fn desired(module: &str, replicas: u8, availability: Availability) -> DesiredModule {
+        DesiredModule {
+            module: module.into(),
             spec: InstanceSpec {
                 project: String::new(),
                 name: String::new(),
@@ -626,7 +621,7 @@ mod tests {
             .find(|i| i.name == "shop-web-01-r2")
             .and_then(|i| i.owner);
         assert_eq!(
-            owner.map(|o| (o.application, o.appliance, o.replica)),
+            owner.map(|o| (o.application, o.module, o.replica)),
             Some(("shop".into(), "web-01".into(), 2))
         );
         let audit = recent_audit(&pool, 10).await.expect("audit");
@@ -640,7 +635,7 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
-    async fn stateful_appliances_are_not_recreated_and_failures_back_off(pool: Pool) {
+    async fn stateful_modules_are_not_recreated_and_failures_back_off(pool: Pool) {
         let provider = Provider::Mock(MockIncus::default());
         deploy(&pool, &provider).await;
         delete(&pool, &provider, "shop-db-01").await;
@@ -1003,7 +998,7 @@ mod tests {
         };
         let lb = LoadBalancer {
             listen_address: address.parse().expect("ipv4"),
-            appliance: "web-01".into(),
+            module: "web-01".into(),
             backends: vec![backend(1, 2), backend(2, 3)],
             ports: vec![("tcp".into(), 80)],
         };

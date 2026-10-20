@@ -42,7 +42,7 @@ membership; take a backup of `/var/lib/incus/database` on the surviving members 
    documentation for the version in `upstream.lock.yaml`), then start its daemon, then the others.
 4. Remove the lost members (`incus cluster remove --force <name>`); their instances are gone with
    them. Stateless replicas are recreated by the supervisor once the worker runs again;
-   singleton and stateful appliances need their data restored.
+   singleton and stateful modules need their data restored.
 5. Add new members through Apelora's enrolment ([member-join.md](member-join.md)) to get back
    to three voters.
 

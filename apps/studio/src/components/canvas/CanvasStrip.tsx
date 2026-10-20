@@ -14,7 +14,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
   const routing = useStudio((s) => s.routing);
   const tool = useStudio((s) => s.tool);
   const minimap = useStudio((s) => s.minimap);
-  // Count appliances and zones; cables (which the selection box also picks up) only count when nothing else is selected.
+  // Count modules and zones; cables (which the selection box also picks up) only count when nothing else is selected.
   const nSel = useStudio((s) => { const n = s.selection.nodes.length + (s.selection.shapes?.length ?? 0); return n > 0 ? n : s.selection.edges.length; });
   const selected = useStudio((s) => s.selection.nodes);
   const { zoomIn, zoomOut, fitView, screenToFlowPosition } = useReactFlow();
@@ -39,12 +39,12 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
       />
       {nSel > 0 && <span className="hidden text-[11px] text-base-content/75 md:inline" data-testid="selection-info" aria-live="polite">{nSel} selected</span>}
       <div className="dropdown" data-testid="shapes-dropdown">
-        <button tabIndex={0} className="btn btn-xs" aria-label="Add zone or shape" title="Add a zone: a labelled shape behind appliances" data-testid="shapes-button"><IconSquare size={14} /><span className="hidden sm:inline">Zones</span></button>
+        <button tabIndex={0} className="btn btn-xs" aria-label="Add zone or shape" title="Add a zone: a labelled shape behind modules" data-testid="shapes-button"><IconSquare size={14} /><span className="hidden sm:inline">Zones</span></button>
         <ul tabIndex={0} className="menu dropdown-content z-30 mt-1 w-44 rounded-box border border-base-300 bg-base-100 p-1 text-xs shadow-lg">
           {([["rect", "Square", IconSquare], ["ellipse", "Circle", IconCircle], ["rounded", "Rounded square", IconRounded], ["triangle", "Triangle", IconTriangle], ["note", "Sticky note", IconNote]] as const).map(([k, label, I]) => (
             <li key={k}><button type="button" data-testid={`add-shape-${k}`} onClick={() => { const el = canvasBridge.el; const r = el?.getBoundingClientRect(); const c = r ? screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 }) : undefined; api.getState().addShapeAt(k, c, true); (document.activeElement as HTMLElement | null)?.blur(); }}><I size={14} />{label}</button></li>
           ))}
-          <li className="menu-title px-2 pt-1 text-[10px]" role="presentation">Select appliances first, then right-click → Wrap in zone</li>
+          <li className="menu-title px-2 pt-1 text-[10px]" role="presentation">Select modules first, then right-click → Wrap in zone</li>
         </ul>
       </div>
       <button type="button" className="btn btn-xs" title="Tidy layout: arrange left to right along the cables (Shift+T)" aria-label="Tidy layout" data-testid="tidy" onClick={() => api.getState().tidy()}><IconLayout size={14} /><span className="hidden lg:inline">Tidy</span></button>

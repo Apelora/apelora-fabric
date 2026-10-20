@@ -1,5 +1,5 @@
-import { NODE, effectiveSize, portCenterY, portOf, tagNet, type ApplianceClass, type ApplicationAssembly, type Shape } from "@apelora/assembly-model";
-import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
+import { NODE, effectiveSize, portCenterY, portOf, tagNet, type ModuleClass, type ApplicationAssembly, type Shape } from "@apelora/assembly-model";
+import { logoUrl, lookupClass } from "@apelora/module-catalog";
 import { cableColor } from "../../components/canvas/cables";
 import { tagColor } from "../../components/canvas/TagStub";
 import { categoryColor } from "../editor/categories";
@@ -67,10 +67,10 @@ function wrap(text: string, max: number): string[] {
   return out;
 }
 
-/** Renders the diagram as a self-contained SVG: zones and notes, cables, appliances with their ports and icons. */
+/** Renders the diagram as a self-contained SVG: zones and notes, cables, modules with their ports and icons. */
 export function renderAssemblySvg(a: ApplicationAssembly, o: ImageOptions = {}): { svg: string; width: number; height: number } {
   const boxes = a.editor.nodes.map((n) => {
-    const app = a.spec.appliances.find((x) => x.id === n.id);
+    const app = a.spec.modules.find((x) => x.id === n.id);
     return app ? { n, app, ...effectiveSize(n, app.ports, a.editor.density) } : null;
   }).filter((b): b is NonNullable<typeof b> => b !== null);
   const shapes = a.editor.shapes ?? [];
@@ -92,7 +92,7 @@ export function renderAssemblySvg(a: ApplicationAssembly, o: ImageOptions = {}):
     return b.n.y - oy + portCenterY(Math.max(0, ports.findIndex((p) => p.id === portId)));
   };
   for (const c of a.spec.connections) {
-    const s = pos.get(c.source.applianceId), t = pos.get(c.target.applianceId);
+    const s = pos.get(c.source.moduleId), t = pos.get(c.target.moduleId);
     if (!s || !t) continue;
     const sp = portOf(a, c.source);
     const sx = s.n.x - ox + s.width + 5, sy = portY(s, c.source.portId);
@@ -105,7 +105,7 @@ export function renderAssemblySvg(a: ApplicationAssembly, o: ImageOptions = {}):
   }
 
   for (const b of boxes) {
-    const x = b.n.x - ox, y = b.n.y - oy, cls: ApplianceClass | undefined = lookupClass(b.app.classRef.name, b.app.classRef.version);
+    const x = b.n.x - ox, y = b.n.y - oy, cls: ModuleClass | undefined = lookupClass(b.app.classRef.name, b.app.classRef.version);
     const cat = flat(categoryColor(cls?.category ?? "Custom"));
     out.push(`<g><rect x="${x}" y="${y}" width="${b.width}" height="${b.height}" rx="8" fill="#ffffff" stroke="#d1d5db"/>`);
     out.push(`<path d="M ${x} ${y + NODE.header} V ${y + 8} Q ${x} ${y} ${x + 8} ${y} H ${x + b.width - 8} Q ${x + b.width} ${y} ${x + b.width} ${y + 8} V ${y + NODE.header} Z" fill="${cat}" fill-opacity="0.22"/>`);
@@ -116,8 +116,8 @@ export function renderAssemblySvg(a: ApplicationAssembly, o: ImageOptions = {}):
     for (const dir of ["input", "output"] as const) {
       b.app.ports.filter((p) => p.direction === dir).forEach((p, i) => {
         const cy = y + portCenterY(i), px = dir === "input" ? x : x + b.width;
-        const tag = (a.spec.links ?? []).find((l) => l.endpoint.applianceId === b.app.id && l.endpoint.portId === p.id);
-        const plugged = a.spec.connections.some((c) => (c.source.applianceId === b.app.id && c.source.portId === p.id) || (c.target.applianceId === b.app.id && c.target.portId === p.id));
+        const tag = (a.spec.links ?? []).find((l) => l.endpoint.moduleId === b.app.id && l.endpoint.portId === p.id);
+        const plugged = a.spec.connections.some((c) => (c.source.moduleId === b.app.id && c.source.portId === p.id) || (c.target.moduleId === b.app.id && c.target.portId === p.id));
         out.push(`<rect x="${px - 4.5}" y="${cy - 4.5}" width="9" height="9" rx="1.5" fill="${plugged || tag ? flat(cableColor(p.type)) : "#ffffff"}" stroke="#4b5563"/>`);
         out.push(`<text x="${dir === "input" ? x + 8 : x + b.width - 8}" y="${cy + 3}" font-size="9" fill="${MUTED}" text-anchor="${dir === "input" ? "start" : "end"}">${esc(p.name)}</text>`);
         if (tag) {
@@ -145,7 +145,7 @@ async function toDataUri(url: string): Promise<string | null> {
 /** Fetches the icons of every class the diagram uses and embeds them. */
 export async function collectIcons(a: ApplicationAssembly): Promise<Map<string, string>> {
   const paths = new Set<string>();
-  for (const app of a.spec.appliances) { const c = lookupClass(app.classRef.name, app.classRef.version); if (c) paths.add(c.iconAssetPath); }
+  for (const app of a.spec.modules) { const c = lookupClass(app.classRef.name, app.classRef.version); if (c) paths.add(c.iconAssetPath); }
   const map = new Map<string, string>();
   await Promise.all([...paths].map(async (p) => { const u = logoUrl(p); const uri = u ? await toDataUri(u) : null; if (uri) map.set(p, uri); }));
   return map;

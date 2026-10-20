@@ -154,7 +154,7 @@ test.describe("fabric console views", () => {
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(1)).toContainText("Not managed by Apelora");
     await expect(rows.nth(1).getByRole("button")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Deploy appliance" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Deploy module" })).toBeVisible();
     await rows.nth(0).getByRole("button", { name: "Stop web-01" }).click();
     await expect(rows.nth(0)).toContainText("Stopped");
     await expect(rows.nth(0).getByRole("button", { name: "Start web-01" })).toBeVisible();
@@ -197,7 +197,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/jobs/j3": () => ({ json: { id: "j3", kind: "instance.create", status: "pending", attempts: 2, maxAttempts: 5, lastError: "Incus operation failed: image download timed out", incusOperation: null, request: {}, createdAt: now, updatedAt: now } }),
     });
     await page.goto("/#/instances");
-    await page.getByRole("button", { name: "Deploy appliance" }).click();
+    await page.getByRole("button", { name: "Deploy module" }).click();
     const dialog = page.getByTestId("deploy-dialog");
     await dialog.getByTestId("deploy-class").selectOption({ label: "NGINX" });
     await dialog.getByTestId("deploy-setting").selectOption("mainline");
@@ -339,8 +339,8 @@ test.describe("fabric console views", () => {
       member: "node-2", targets: ["node-1"], blocked,
       warnings: ["replicas of shop/web-01 share node-1 until restore: one failure takes them all", "down during the evacuation: shop-db-01"],
       items: [
-        { project: "apelora", instance: "shop-web-01-r2", status: "Running", mode: "auto", outcome: "moves if it can; stopped during the move", application: "shop", appliance: "web-01", impact: "stays up (1 other replica)" },
-        { project: "apelora", instance: "shop-db-01", status: "Running", mode: "stop", outcome: "stops here until restore", application: "shop", appliance: "db-01", impact: "down until restore (stateful)" },
+        { project: "apelora", instance: "shop-web-01-r2", status: "Running", mode: "auto", outcome: "moves if it can; stopped during the move", application: "shop", module: "web-01", impact: "stays up (1 other replica)" },
+        { project: "apelora", instance: "shop-db-01", status: "Running", mode: "stop", outcome: "stops here until restore", application: "shop", module: "db-01", impact: "down until restore (stateful)" },
       ] } });
     let blocked: string[] = [];
     await stub(page, {
@@ -431,8 +431,8 @@ test.describe("fabric console views", () => {
   });
 
   test("applications show how their instances run and which fail their check", async ({ page }) => {
-    const inst = (instance: string, appliance: string, status: string, location: string, health?: string) => ({
-      appliance, instance, project: "apelora", status, location,
+    const inst = (instance: string, module: string, status: string, location: string, health?: string) => ({
+      module, instance, project: "apelora", status, location,
       ...(health ? { health: { health, since: now, detail: health === "healthy" ? "port check passing" : "port check failing" } } : {}),
     });
     await stub(page, {
@@ -443,7 +443,7 @@ test.describe("fabric console views", () => {
         inst("shop-client-01", "client-01", "Running", "node-1"),
         inst("shop-web-01", "web-01", "Running", "node-2", "healthy"),
         inst("shop-web-01-r2", "web-01", "Running", "node-3", "unhealthy"),
-      ], services: [{ appliance: "web-01", project: "apelora", address: "198.18.100.1" }] } }),
+      ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }] } }),
       "GET /api/v1/applications/blog/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("blog-web-01", "web-01", "Stopped", "node-1")], services: [] } }),
     });
     await page.goto("/#/applications");
@@ -468,7 +468,7 @@ test.describe("fabric console views", () => {
     let deleted = false;
     const sent: unknown[] = [];
     const vol = (incusName: string, state: string, usedBy: string[]) => ({
-      appliance: "db-01", instance: "shop-db-01", name: incusName.endsWith("logs") ? "logs" : "data", incusName, pool: "local",
+      module: "db-01", instance: "shop-db-01", name: incusName.endsWith("logs") ? "logs" : "data", incusName, pool: "local",
       member: "node-2", sizeMib: incusName.endsWith("logs") ? 512 : 2048, content: "filesystem", class: "data-local", state, usedBy, createdAt: now,
     });
     await stub(page, {
@@ -476,7 +476,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
       "GET /api/v1/applications": () => ({ json: { items: [{ name: "shop", createdAt: now, latestRevision: 4 }] } }),
       "GET /api/v1/applications/shop/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
-        { appliance: "web-01", instance: "shop-web-01", project: "apelora", status: "Running", location: "node-1" },
+        { module: "web-01", instance: "shop-web-01", project: "apelora", status: "Running", location: "node-1" },
       ], services: [] } }),
       "GET /api/v1/applications/shop/volumes": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
         vol("shop-web-01-logs", "attached", ["shop-web-01"]),
@@ -550,7 +550,7 @@ test.describe("fabric console on a phone", () => {
       expect(box.x + box.width, await link.innerText()).toBeLessThanOrEqual(390);
       expect(box.height).toBeGreaterThanOrEqual(44);
     }
-    for (const name of ["Deploy appliance", "Stop web-01", "Delete web-01"]) {
+    for (const name of ["Deploy module", "Stop web-01", "Delete web-01"]) {
       const box = (await page.getByRole("button", { name }).boundingBox())!;
       expect(box.height, name).toBeGreaterThanOrEqual(44);
       expect(box.x + box.width, name).toBeLessThanOrEqual(390);
@@ -586,8 +586,8 @@ test.describe("fabric console on a phone", () => {
     await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "fabric-admin", permissions: ["read-inventory"], deployProjects: ["apelora"] } }));
     await page.route("**/api/v1/applications", (route) => route.fulfill({ json: { items: [{ name: "commerce-stack", createdAt: now, latestRevision: 2 }] } }));
     await page.route("**/api/v1/applications/commerce-stack/status", (route) => route.fulfill({ json: { source: { provider: "incus", observedAt: now }, items: [
-      { appliance: "web-01", instance: "commerce-stack-web-01-r2", project: "apelora", status: "Running", location: "apelora-test-3", health: { health: "unhealthy", since: now, detail: "port check failing" } },
-    ], services: [{ appliance: "web-01", project: "apelora", address: "198.18.100.1" }] } }));
+      { module: "web-01", instance: "commerce-stack-web-01-r2", project: "apelora", status: "Running", location: "apelora-test-3", health: { health: "unhealthy", since: now, detail: "port check failing" } },
+    ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }] } }));
     await page.goto("/#/applications");
     await page.getByTestId("application-toggle").click();
     await expect(page.getByTestId("application-instance")).toHaveCount(1);

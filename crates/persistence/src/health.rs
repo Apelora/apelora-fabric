@@ -11,7 +11,7 @@ use crate::{Pool, Result};
 pub struct HealthRecord {
     pub project: String,
     pub instance: String,
-    pub appliance: String,
+    pub module: String,
     pub health: String,
     pub since: OffsetDateTime,
     pub checked_at: OffsetDateTime,
@@ -24,7 +24,7 @@ pub struct NewHealth<'a> {
     pub application_id: Uuid,
     pub project: &'a str,
     pub instance: &'a str,
-    pub appliance: &'a str,
+    pub module: &'a str,
     pub health: &'a str,
     pub since: OffsetDateTime,
     pub detail: &'a str,
@@ -34,10 +34,10 @@ pub struct NewHealth<'a> {
 pub async fn record_health(pool: &Pool, h: &NewHealth<'_>) -> Result<()> {
     sqlx::query(
         "INSERT INTO instance_health
-           (project, instance, application_id, appliance, health, since, detail, restarted_at)
+           (project, instance, application_id, module, health, since, detail, restarted_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (project, instance) DO UPDATE SET
-           application_id = EXCLUDED.application_id, appliance = EXCLUDED.appliance,
+           application_id = EXCLUDED.application_id, module = EXCLUDED.module,
            health = EXCLUDED.health, since = EXCLUDED.since, checked_at = now(),
            detail = EXCLUDED.detail,
            restarted_at = coalesce(EXCLUDED.restarted_at, instance_health.restarted_at)",
@@ -45,7 +45,7 @@ pub async fn record_health(pool: &Pool, h: &NewHealth<'_>) -> Result<()> {
     .bind(h.project)
     .bind(h.instance)
     .bind(h.application_id)
-    .bind(h.appliance)
+    .bind(h.module)
     .bind(h.health)
     .bind(h.since)
     .bind(h.detail)
@@ -58,7 +58,7 @@ pub async fn record_health(pool: &Pool, h: &NewHealth<'_>) -> Result<()> {
 /// The application's instances with a recorded health, in every project.
 pub async fn application_health(pool: &Pool, application: &str) -> Result<Vec<HealthRecord>> {
     Ok(sqlx::query_as::<_, HealthRecord>(
-        "SELECT h.project, h.instance, h.appliance, h.health, h.since, h.checked_at, h.detail,
+        "SELECT h.project, h.instance, h.module, h.health, h.since, h.checked_at, h.detail,
                 h.restarted_at
          FROM instance_health h JOIN applications a ON a.id = h.application_id
          WHERE a.name = $1 ORDER BY h.project, h.instance",

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! An application's persistent volumes (docs/architecture/STORAGE.md). The record says which
 //! volumes Apelora created; Incus says whether each still exists and who uses it. Removing an
-//! appliance never deletes its data: deleting a volume is its own action, with the volume's
+//! module never deletes its data: deleting a volume is its own action, with the volume's
 //! name typed again, refused while an instance uses it, and audited.
 
 use axum::extract::rejection::JsonRejection;
@@ -33,7 +33,7 @@ pub enum VolumeUse {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct VolumeItem {
-    pub appliance: String,
+    pub module: String,
     pub instance: String,
     /// The design's name (`data`).
     pub name: String,
@@ -113,7 +113,7 @@ pub(super) async fn list(
             },
             used_by,
             created_at: rfc3339(r.created_at),
-            appliance: r.appliance,
+            module: r.module,
             instance: r.instance,
             name: r.name,
             incus_name: r.incus_name,
@@ -239,7 +239,7 @@ pub(super) async fn delete(
                 StatusCode::CONFLICT,
                 "volume_in_use",
                 format!(
-                    "nothing was deleted: {} uses the volume; remove the appliance from the design first",
+                    "nothing was deleted: {} uses the volume; remove the module from the design first",
                     users.join(", ")
                 ),
             ));
@@ -264,7 +264,7 @@ pub(super) async fn delete(
         &target,
         "success",
         Some(&res),
-        &json!({ "application": name, "appliance": record.appliance, "pool": record.storage_pool,
+        &json!({ "application": name, "module": record.module, "pool": record.storage_pool,
                  "member": record.member, "sizeMib": record.size_mib, "existed": existed, "approval": approval }),
     )
     .await?;

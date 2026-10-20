@@ -7,24 +7,24 @@ const H_GAP = 96;
 const V_GAP = 36;
 
 /**
- * Arranges appliances left to right following the data flow (a cable runs from a column to a later one),
- * keeps the top-left corner where it was, puts unconnected appliances in a row below, and re-fits every zone
- * around the appliances it contained. Network-type cables are ignored for ordering, so a network segment does
+ * Arranges modules left to right following the data flow (a cable runs from a column to a later one),
+ * keeps the top-left corner where it was, puts unconnected modules in a row below, and re-fits every zone
+ * around the modules it contained. Network-type cables are ignored for ordering, so a network segment does
  * not push the whole diagram one column to the right.
  */
 export function tidyLayout(a: ApplicationAssembly, only?: readonly string[]): ApplicationAssembly {
-  const scope = new Set(only && only.length > 1 ? only : a.spec.appliances.map((x) => x.id));
+  const scope = new Set(only && only.length > 1 ? only : a.spec.modules.map((x) => x.id));
   const nodes = a.editor.nodes.filter((n) => scope.has(n.id));
   if (nodes.length < 2) return a;
 
   const size = new Map(nodes.map((n) => {
-    const app = a.spec.appliances.find((x) => x.id === n.id);
+    const app = a.spec.modules.find((x) => x.id === n.id);
     return [n.id, effectiveSize(n, app?.ports ?? [], a.editor.density)] as const;
   }));
   const originX = Math.min(...nodes.map((n) => n.x));
   const originY = Math.min(...nodes.map((n) => n.y));
 
-  // Flow edges between in-scope appliances, without network cables and duplicates.
+  // Flow edges between in-scope modules, without network cables and duplicates.
   const out = new Map<string, Set<string>>();
   const incoming = new Map<string, Set<string>>();
   const touched = new Set<string>();
@@ -34,7 +34,7 @@ export function tidyLayout(a: ApplicationAssembly, only?: readonly string[]): Ap
     (incoming.get(t) ?? incoming.set(t, new Set()).get(t)!).add(s);
     touched.add(s); touched.add(t);
   };
-  for (const c of a.spec.connections) if (portOf(a, c.source)?.type !== "network") edge(c.source.applianceId, c.target.applianceId);
+  for (const c of a.spec.connections) if (portOf(a, c.source)?.type !== "network") edge(c.source.moduleId, c.target.moduleId);
 
   // Break cycles: depth-first search, dropping the edge that closes a loop.
   const state = new Map<string, 1 | 2>();
@@ -98,7 +98,7 @@ export function tidyLayout(a: ApplicationAssembly, only?: readonly string[]): Ap
     bottom = Math.max(bottom, y - V_GAP);
     x += w + H_GAP;
   }
-  // Unconnected appliances wrap into rows below the flow.
+  // Unconnected modules wrap into rows below the flow.
   const loose = nodes.filter((n) => !touched.has(n.id)).map((n) => n.id).sort();
   const rowWidth = Math.max(x - H_GAP - originX, 640);
   let lx = originX;
@@ -112,7 +112,7 @@ export function tidyLayout(a: ApplicationAssembly, only?: readonly string[]): Ap
     rowH = Math.max(rowH, sz.height);
   }
 
-  // Zones are re-fitted around the appliances they held before the move.
+  // Zones are re-fitted around the modules they held before the move.
   const held = new Map((a.editor.shapes ?? []).filter((s) => s.kind !== "note").map((s) => [s.id, shapeContents(a, s.id).filter((id) => scope.has(id))] as const));
   const editorNodes = a.editor.nodes.map((n) => { const p = pos.get(n.id); return p ? { ...n, x: Math.round(p.x), y: Math.round(p.y) } : n; });
   const shapes = a.editor.shapes?.map((s) => {
@@ -125,11 +125,11 @@ export function tidyLayout(a: ApplicationAssembly, only?: readonly string[]): Ap
 }
 
 /**
- * Snaps a dragged appliance to the edges and centres of the others when they are within `threshold` flow units,
+ * Snaps a dragged module to the edges and centres of the others when they are within `threshold` flow units,
  * and reports the guide lines to draw. Only the nearest match on each axis is used.
  */
 export function alignmentGuides(a: ApplicationAssembly, id: string, pos: { x: number; y: number }, threshold = 6): { pos: { x: number; y: number }; guides: { x: number[]; y: number[] } } {
-  const sizeOf = (n: ApplicationAssembly["editor"]["nodes"][number]) => effectiveSize(n, a.spec.appliances.find((x) => x.id === n.id)?.ports ?? [], a.editor.density);
+  const sizeOf = (n: ApplicationAssembly["editor"]["nodes"][number]) => effectiveSize(n, a.spec.modules.find((x) => x.id === n.id)?.ports ?? [], a.editor.density);
   const me = a.editor.nodes.find((n) => n.id === id);
   if (!me) return { pos, guides: { x: [], y: [] } };
   const { width: w, height: h } = sizeOf(me);

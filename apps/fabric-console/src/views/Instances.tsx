@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 
 import type { Instance, InstanceList, Job, WhoAmI } from "@apelora/api-client";
-import { APPLIANCE_CLASSES, logoUrl } from "@apelora/appliance-catalog";
-import { instanceRequestFor, type ApplianceClass } from "@apelora/assembly-model";
+import { MODULE_CLASSES, logoUrl } from "@apelora/module-catalog";
+import { instanceRequestFor, type ModuleClass } from "@apelora/assembly-model";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, followJob, idempotencyKey, messageOf, useLoad } from "../lib/api";
@@ -14,10 +14,10 @@ const NAME = /^[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 type Pending = { label: string; job?: Job; error?: string };
 const key = (project: string, name: string) => `${project}/${name}`;
 
-const DEPLOYABLE = APPLIANCE_CLASSES.filter((c) => c.runtime);
+const DEPLOYABLE = MODULE_CLASSES.filter((c) => c.runtime);
 
 /** The choices of the setting that picks the image (e.g. a version), with what each runs. */
-function imageChoices(cls: ApplianceClass): { property?: string; label?: string; options: { value: string; label: string }[] } {
+function imageChoices(cls: ModuleClass): { property?: string; label?: string; options: { value: string; label: string }[] } {
   const by = cls.runtime?.imageBy;
   if (!by) return { options: [] };
   const prop = cls.properties?.find((p) => p.id === by.property);
@@ -65,11 +65,11 @@ function DeployDialog({ open, projects, onClose, onQueued }: { open: boolean; pr
   };
 
   return (
-    <FormDialog open={open} title="Deploy an appliance" onClose={onClose} testId="deploy-dialog">
+    <FormDialog open={open} title="Deploy a module" onClose={onClose} testId="deploy-dialog">
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-        <p className="text-sm text-base-content/70">Lists appliances whose images have been tested on a cluster.</p>
+        <p className="text-sm text-base-content/70">Lists modules whose images have been tested on a cluster.</p>
         <label className="flex flex-col gap-1 text-sm">
-          <span>Appliance</span>
+          <span>Module</span>
           <select className="select select-sm w-full" value={classId} onChange={(e) => { setClassId(e.target.value); setSetting(""); }} data-testid="deploy-class">
             {DEPLOYABLE.map((c) => <option key={c.id} value={c.id}>{c.displayName}</option>)}
           </select>
@@ -159,7 +159,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
             <SectionHeader title="Instances" level={1} count={l.items.length} source={l.source}>
               {canDeploy && (
                 <button type="button" className="btn btn-sm btn-primary" onClick={() => setDeploying(true)} disabled={projects.length === 0} data-testid="deploy-open">
-                  Deploy appliance
+                  Deploy module
                 </button>
               )}
             </SectionHeader>
@@ -167,7 +167,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
               <PendingNote key={target} target={target} pending={p} />
             ))}
             {l.items.length === 0 ? (
-              <p className="text-sm text-base-content/70">No instances yet.{canDeploy ? " Deploy an appliance to create one." : ""}</p>
+              <p className="text-sm text-base-content/70">No instances yet.{canDeploy ? " Deploy a module to create one." : ""}</p>
             ) : (
               <TableFrame>
                 <thead><tr><th>Instance</th><th className="max-sm:hidden">Kind</th><th>Status</th><th className="max-sm:hidden">Member</th><th>Project</th><th><span className="sr-only">Actions</span></th></tr></thead>

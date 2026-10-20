@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Interactive access to a running appliance (terminal, PowerShell, remote desktop): which
-//! kinds an appliance offers and whether the instance can take a session right now. Pure; the
+//! Interactive access to a running module (terminal, PowerShell, remote desktop): which
+//! kinds a module offers and whether the instance can take a session right now. Pure; the
 //! control plane adds the caller's permissions, the approval rule and the session limits.
 
 use serde::{Deserialize, Serialize};
 
-/// The operating system inside an appliance, from its catalog class (never guessed from names).
+/// The operating system inside a module, from its catalog class (never guessed from names).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
@@ -15,14 +15,14 @@ pub enum GuestOs {
     Windows,
 }
 
-/// What a person can open on an appliance.
+/// What a person can open on a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionKind {
-    /// A shell in a Linux appliance, through the Incus exec channel.
+    /// A shell in a Linux module, through the Incus exec channel.
     Terminal,
-    /// PowerShell in a Windows appliance, through the Incus exec channel (needs the guest agent).
+    /// PowerShell in a Windows module, through the Incus exec channel (needs the guest agent).
     Powershell,
     /// A remote desktop, through the control plane's RDP gateway.
     Rdp,
@@ -55,7 +55,7 @@ impl SessionKind {
         }
     }
 
-    /// The kinds an appliance with this guest operating system offers.
+    /// The kinds a module with this guest operating system offers.
     pub fn offered_for(os: GuestOs) -> &'static [SessionKind] {
         match os {
             GuestOs::Linux => &[SessionKind::Terminal],

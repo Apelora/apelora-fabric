@@ -98,7 +98,7 @@ impl Builtin {
                 "Deploys approved designs and starts, stops and recovers applications."
             }
             Builtin::InstanceAccess => {
-                "Opens a terminal, PowerShell or remote desktop session on running appliances, and reads the scope. Cannot change or operate anything else; production sessions need another person's approval."
+                "Opens a terminal, PowerShell or remote desktop session on running modules, and reads the scope. Cannot change or operate anything else; production sessions need another person's approval."
             }
             Builtin::Viewer => "Reads what the scope contains.",
             Builtin::Auditor => {

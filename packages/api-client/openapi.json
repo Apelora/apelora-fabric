@@ -135,7 +135,7 @@
         "tags": [
           "applications"
         ],
-        "summary": "One application with its appliances (desired and observed), versions and recent operations.\nNeeds `application.view`.",
+        "summary": "One application with its modules (desired and observed), versions and recent operations.\nNeeds `application.view`.",
         "operationId": "application",
         "parameters": [
           {
@@ -354,7 +354,7 @@
         "tags": [
           "applications"
         ],
-        "summary": "Deploys the design: saves it as a new revision and queues the planned changes. Refuses\nthe whole deployment if any appliance conflicts with an existing instance. Needs `deploy`.",
+        "summary": "Deploys the design: saves it as a new revision and queues the planned changes. Refuses\nthe whole deployment if any module conflicts with an existing instance. Needs `deploy`.",
         "operationId": "deploy_application",
         "parameters": [
           {
@@ -1046,7 +1046,7 @@
         "tags": [
           "applications"
         ],
-        "summary": "The application's instances as Incus reports them, by appliance. Needs `read-inventory`.",
+        "summary": "The application's instances as Incus reports them, by module. Needs `read-inventory`.",
         "operationId": "application_status",
         "parameters": [
           {
@@ -6059,90 +6059,23 @@
           }
         }
       },
-      "ApplianceDetail": {
-        "type": "object",
-        "required": [
-          "appliance",
-          "replicas",
-          "availability",
-          "instances"
-        ],
-        "properties": {
-          "appliance": {
-            "type": "string"
-          },
-          "availability": {
-            "$ref": "#/components/schemas/Availability"
-          },
-          "instances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/InstanceDetail"
-            }
-          },
-          "replicas": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          }
-        }
-      },
-      "ApplianceStatus": {
-        "type": "object",
-        "required": [
-          "appliance",
-          "instance",
-          "project",
-          "status",
-          "location"
-        ],
-        "properties": {
-          "appliance": {
-            "type": "string"
-          },
-          "health": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/InstanceHealth",
-                "description": "What the worker decided from the instance's port check, with hysteresis; absent for\ninstances that are not checked (no service address, not running, or no database)."
-              }
-            ]
-          },
-          "instance": {
-            "type": "string"
-          },
-          "location": {
-            "type": "string"
-          },
-          "project": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "description": "Incus status, e.g. `Running`."
-          }
-        }
-      },
       "ApplicationDetail": {
         "type": "object",
         "required": [
           "application",
-          "appliances",
+          "modules",
           "versions",
           "operations"
         ],
         "properties": {
-          "appliances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ApplianceDetail"
-            }
-          },
           "application": {
             "$ref": "#/components/schemas/ApplicationInfo"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleDetail"
+            }
           },
           "operations": {
             "type": "array",
@@ -6259,7 +6192,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ApplianceStatus"
+              "$ref": "#/components/schemas/ModuleStatus"
             }
           },
           "services": {
@@ -6568,7 +6501,7 @@
       },
       "Availability": {
         "type": "string",
-        "description": "How an appliance may be run and recovered (from its catalog class).",
+        "description": "How a module may be run and recovered (from its catalog class).",
         "enum": [
           "stateless",
           "singleton",
@@ -6791,7 +6724,7 @@
       },
       "Connection": {
         "type": "object",
-        "description": "One connection of the design: `from` may reach `to` (appliance ids).",
+        "description": "One connection of the design: `from` may reach `to` (module ids).",
         "required": [
           "from",
           "to",
@@ -6895,15 +6828,9 @@
         "required": [
           "project",
           "document",
-          "appliances"
+          "modules"
         ],
         "properties": {
-          "appliances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DesiredAppliance"
-            }
-          },
           "connections": {
             "type": [
               "array",
@@ -6917,6 +6844,12 @@
           "document": {
             "type": "object",
             "description": "The Studio document, saved as an immutable revision. Ignored when `version` is given."
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DesiredModule"
+            }
           },
           "project": {
             "type": "string"
@@ -6985,15 +6918,10 @@
           "observedAt",
           "stale",
           "source",
-          "appliances",
+          "modules",
           "replicas"
         ],
         "properties": {
-          "appliances": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
           "deployedVersion": {
             "type": [
               "integer",
@@ -7007,6 +6935,11 @@
               "string",
               "null"
             ]
+          },
+          "modules": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "observedAt": {
             "type": "string",
@@ -7099,18 +7032,14 @@
           "published"
         ]
       },
-      "DesiredAppliance": {
+      "DesiredModule": {
         "type": "object",
-        "description": "One appliance of the design, turned into the instances it should run as.",
+        "description": "One module of the design, turned into the instances it should run as.",
         "required": [
-          "appliance",
+          "module",
           "spec"
         ],
         "properties": {
-          "appliance": {
-            "type": "string",
-            "description": "The appliance's stable id in the design (e.g. `nginx-01`)."
-          },
           "availability": {
             "$ref": "#/components/schemas/Availability"
           },
@@ -7122,10 +7051,14 @@
             "$ref": "#/components/schemas/Internet",
             "description": "What it may reach outside the application (enforced with the connections)."
           },
+          "module": {
+            "type": "string",
+            "description": "The module's stable id in the design (e.g. `nginx-01`)."
+          },
           "replicas": {
             "type": "integer",
             "format": "int32",
-            "description": "How many instances (1–9); more than one only for stateless appliances.",
+            "description": "How many instances (1–9); more than one only for stateless modules.",
             "minimum": 0
           },
           "spec": {
@@ -7365,12 +7298,6 @@
           "impact"
         ],
         "properties": {
-          "appliance": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "application": {
             "type": [
               "string",
@@ -7387,6 +7314,12 @@
           "mode": {
             "type": "string",
             "description": "Effective `cluster.evacuate` mode (`auto` when unset)."
+          },
+          "module": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "outcome": {
             "type": "string",
@@ -7558,7 +7491,7 @@
       },
       "GuestOs": {
         "type": "string",
-        "description": "The operating system inside an appliance, from its catalog class (never guessed from names).",
+        "description": "The operating system inside a module, from its catalog class (never guessed from names).",
         "enum": [
           "linux",
           "windows"
@@ -7735,7 +7668,7 @@
               },
               {
                 "$ref": "#/components/schemas/Owner",
-                "description": "The application and appliance this instance was deployed for (Apelora's labels)."
+                "description": "The application and module this instance was deployed for (Apelora's labels)."
               }
             ]
           },
@@ -7755,15 +7688,12 @@
         "type": "object",
         "required": [
           "instance",
-          "appliance",
+          "module",
           "guestOs",
           "status",
           "kinds"
         ],
         "properties": {
-          "appliance": {
-            "type": "string"
-          },
           "guestOs": {
             "$ref": "#/components/schemas/GuestOs"
           },
@@ -7775,6 +7705,9 @@
             "items": {
               "$ref": "#/components/schemas/KindAccess"
             }
+          },
+          "module": {
+            "type": "string"
           },
           "status": {
             "type": "string"
@@ -7952,7 +7885,7 @@
       },
       "Internet": {
         "type": "string",
-        "description": "What an appliance may reach outside the application (the internet, through the uplink).\nInside the application only connections count, whatever this says.",
+        "description": "What a module may reach outside the application (the internet, through the uplink).\nInside the application only connections count, whatever this says.",
         "enum": [
           "none",
           "web",
@@ -8306,6 +8239,73 @@
           }
         }
       },
+      "ModuleDetail": {
+        "type": "object",
+        "required": [
+          "module",
+          "replicas",
+          "availability",
+          "instances"
+        ],
+        "properties": {
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceDetail"
+            }
+          },
+          "module": {
+            "type": "string"
+          },
+          "replicas": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ModuleStatus": {
+        "type": "object",
+        "required": [
+          "module",
+          "instance",
+          "project",
+          "status",
+          "location"
+        ],
+        "properties": {
+          "health": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InstanceHealth",
+                "description": "What the worker decided from the instance's port check, with hysteresis; absent for\ninstances that are not checked (no service address, not running, or no database)."
+              }
+            ]
+          },
+          "instance": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Incus status, e.g. `Running`."
+          }
+        }
+      },
       "Network": {
         "type": "object",
         "required": [
@@ -8606,7 +8606,7 @@
           },
           "confirmDisruption": {
             "type": "boolean",
-            "description": "Required to stop or restart an application that has single-instance or stateful\nappliances: it acknowledges that their clients lose service meanwhile."
+            "description": "Required to stop or restart an application that has single-instance or stateful\nmodules: it acknowledges that their clients lose service meanwhile."
           }
         }
       },
@@ -8796,16 +8796,16 @@
       },
       "Owner": {
         "type": "object",
-        "description": "The application and appliance an instance belongs to.",
+        "description": "The application and module an instance belongs to.",
         "required": [
           "application",
-          "appliance"
+          "module"
         ],
         "properties": {
-          "appliance": {
+          "application": {
             "type": "string"
           },
-          "application": {
+          "module": {
             "type": "string"
           },
           "replica": {
@@ -8942,7 +8942,7 @@
       "PlanItem": {
         "type": "object",
         "required": [
-          "appliance",
+          "module",
           "replica",
           "instance",
           "action",
@@ -8952,12 +8952,12 @@
           "action": {
             "$ref": "#/components/schemas/PlanAction"
           },
-          "appliance": {
-            "type": "string",
-            "description": "The appliance in the design (for `remove`: the label of the instance being removed)."
-          },
           "instance": {
             "type": "string"
+          },
+          "module": {
+            "type": "string",
+            "description": "The module in the design (for `remove`: the label of the instance being removed)."
           },
           "reason": {
             "type": "string",
@@ -8975,15 +8975,9 @@
         "type": "object",
         "required": [
           "project",
-          "appliances"
+          "modules"
         ],
         "properties": {
-          "appliances": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DesiredAppliance"
-            }
-          },
           "connections": {
             "type": [
               "array",
@@ -8993,6 +8987,12 @@
               "$ref": "#/components/schemas/Connection"
             },
             "description": "The design's connections; enforced when the control plane has a network uplink."
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DesiredModule"
+            }
           },
           "project": {
             "type": "string"
@@ -9272,14 +9272,14 @@
       },
       "Published": {
         "type": "object",
-        "description": "A port of an appliance reachable from outside the application (in the Studio: connected\nfrom a gateway). Only ports with a number can be published.",
+        "description": "A port of a module reachable from outside the application (in the Studio: connected\nfrom a gateway). Only ports with a number can be published.",
         "required": [
-          "appliance",
+          "module",
           "transport",
           "port"
         ],
         "properties": {
-          "appliance": {
+          "module": {
             "type": "string"
           },
           "port": {
@@ -9296,7 +9296,7 @@
       "QueuedChange": {
         "type": "object",
         "required": [
-          "appliance",
+          "module",
           "instance",
           "action",
           "jobId"
@@ -9305,15 +9305,15 @@
           "action": {
             "$ref": "#/components/schemas/PlanAction"
           },
-          "appliance": {
-            "type": "string"
-          },
           "instance": {
             "type": "string"
           },
           "jobId": {
             "type": "string",
             "format": "uuid"
+          },
+          "module": {
+            "type": "string"
           }
         }
       },
@@ -9877,9 +9877,9 @@
       },
       "ServiceStatus": {
         "type": "object",
-        "description": "A stateless appliance's service address: a load balancer over its healthy replicas.",
+        "description": "A stateless module's service address: a load balancer over its healthy replicas.",
         "required": [
-          "appliance",
+          "module",
           "project",
           "address"
         ],
@@ -9887,7 +9887,7 @@
           "address": {
             "type": "string"
           },
-          "appliance": {
+          "module": {
             "type": "string"
           },
           "project": {
@@ -9933,7 +9933,7 @@
       },
       "SessionKind": {
         "type": "string",
-        "description": "What a person can open on an appliance.",
+        "description": "What a person can open on a module.",
         "enum": [
           "terminal",
           "powershell",
@@ -10041,13 +10041,10 @@
         "type": "object",
         "required": [
           "instance",
-          "appliance",
+          "module",
           "state"
         ],
         "properties": {
-          "appliance": {
-            "type": "string"
-          },
           "error": {
             "type": [
               "string",
@@ -10055,6 +10052,9 @@
             ]
           },
           "instance": {
+            "type": "string"
+          },
+          "module": {
             "type": "string"
           },
           "state": {
@@ -10386,7 +10386,7 @@
       "VolumeItem": {
         "type": "object",
         "required": [
-          "appliance",
+          "module",
           "instance",
           "name",
           "incusName",
@@ -10400,9 +10400,6 @@
           "createdAt"
         ],
         "properties": {
-          "appliance": {
-            "type": "string"
-          },
           "class": {
             "type": "string"
           },
@@ -10422,6 +10419,9 @@
           "member": {
             "type": "string",
             "description": "Member of a member-local pool; empty on a standalone server."
+          },
+          "module": {
+            "type": "string"
           },
           "name": {
             "type": "string",
@@ -10448,7 +10448,7 @@
       },
       "VolumeMount": {
         "type": "object",
-        "description": "A volume an appliance asks for.",
+        "description": "A volume a module asks for.",
         "required": [
           "name",
           "sizeMib"

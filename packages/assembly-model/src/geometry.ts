@@ -1,6 +1,6 @@
 import type { Density, EditorNode, Port } from "./schema";
 
-/** Geometry of an appliance node in React Flow units (not screen pixels). */
+/** Geometry of a module node in React Flow units (not screen pixels). */
 export const NODE = { width: 128, height: 96, header: 24, logo: 30, portPitch: 18, portMarker: 9, portHit: 18 } as const;
 
 export const DENSITY_SIZE: Record<Density, { width: number; height: number }> = {
@@ -12,7 +12,7 @@ export const DENSITY_SIZE: Record<Density, { width: number; height: number }> = 
 export const MIN_WIDTH = NODE.width;
 
 /** Minimum height for a node that has to show the given number of ports on its busiest side. */
-export function minApplianceHeight(inputCount: number, outputCount: number): number {
+export function minModuleHeight(inputCount: number, outputCount: number): number {
   const rows = Math.max(1, inputCount, outputCount);
   return Math.max(NODE.height, 60 + NODE.portPitch * rows);
 }
@@ -25,7 +25,7 @@ export function countPorts(ports: readonly Port[]): { inputs: number; outputs: n
 
 export function minHeightForPorts(ports: readonly Port[]): number {
   const { inputs, outputs } = countPorts(ports);
-  return minApplianceHeight(inputs, outputs);
+  return minModuleHeight(inputs, outputs);
 }
 
 /** Vertical centre of the i-th port on a side, measured from the top of the node. */

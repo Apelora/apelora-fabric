@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
-import { lookupClass } from "@apelora/appliance-catalog";
+import { lookupClass } from "@apelora/module-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { ms } from "../../features/editor/motion";
 import { Modal } from "./Modal";
 
-/** Ctrl+K: jump to an appliance, zone or note by name, class or id. */
+/** Ctrl+K: jump to a module, zone or note by name, class or id. */
 export function FindPalette() {
   const api = useStudioApi();
   const open = useStudio((s) => s.dialog === "find");
@@ -17,7 +17,7 @@ export function FindPalette() {
   useEffect(() => { if (open) { setQ(""); setIdx(0); } }, [open]);
   const results = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const apps = assembly.spec.appliances.map((a) => ({ kind: "appliance" as const, id: a.id, title: a.name, sub: lookupClass(a.classRef.name, a.classRef.version)?.displayName ?? a.classRef.name, hay: `${a.name} ${a.id} ${a.classRef.name} ${lookupClass(a.classRef.name, a.classRef.version)?.displayName ?? ""}`.toLowerCase() }));
+    const apps = assembly.spec.modules.map((a) => ({ kind: "module" as const, id: a.id, title: a.name, sub: lookupClass(a.classRef.name, a.classRef.version)?.displayName ?? a.classRef.name, hay: `${a.name} ${a.id} ${a.classRef.name} ${lookupClass(a.classRef.name, a.classRef.version)?.displayName ?? ""}`.toLowerCase() }));
     const shapes = (assembly.editor.shapes ?? []).map((s) => ({ kind: "shape" as const, id: s.id, title: s.kind === "note" ? (s.text ?? "").split("\n")[0]!.slice(0, 40) || "Note" : s.label || "Zone", sub: s.kind === "note" ? "Note" : "Zone", hay: `${s.label} ${s.text ?? ""} ${s.kind}`.toLowerCase() }));
     return [...apps, ...shapes].filter((r) => !needle || r.hay.includes(needle)).slice(0, 30);
   }, [q, assembly]);
@@ -25,13 +25,13 @@ export function FindPalette() {
   const close = () => api.getState().setDialog(null);
   const go = (r: (typeof results)[number] | undefined) => {
     if (!r) return;
-    if (r.kind === "appliance") api.getState().selectNode(r.id); else api.getState().selectShape(r.id);
+    if (r.kind === "module") api.getState().selectNode(r.id); else api.getState().selectShape(r.id);
     api.getState().setDialog(null);
     requestAnimationFrame(() => void fitView({ nodes: [{ id: r.id }], padding: 0.8, maxZoom: 1.3, duration: ms(250) }));
   };
   return (
     <Modal testId="find-dialog" title="Find" hint="Type part of a name, class or id. Arrow keys choose, Enter jumps." onClose={close} size="max-w-lg">
-      <input ref={input} autoFocus className="input input-sm mb-3 w-full" data-testid="find-input" aria-label="Find appliance" placeholder="e.g. postgres" value={q}
+      <input ref={input} autoFocus className="input input-sm mb-3 w-full" data-testid="find-input" aria-label="Find module" placeholder="e.g. postgres" value={q}
         onChange={(e) => { setQ(e.target.value); setIdx(0); }}
         onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); setIdx(Math.min(idx + 1, results.length - 1)); } else if (e.key === "ArrowUp") { e.preventDefault(); setIdx(Math.max(idx - 1, 0)); } else if (e.key === "Enter") go(results[idx]); }} />
       <ul className="flex max-h-72 flex-col overflow-y-auto" role="listbox" aria-label="Results">

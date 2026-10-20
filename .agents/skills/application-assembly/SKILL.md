@@ -5,12 +5,12 @@ description: Define the assembly document — JSON import/export, format version
 
 # Application assembly
 
-An assembly is the portable JSON description of an application: appliance instances, connections, layout, and parameters.
+An assembly is the portable JSON description of an application: module instances, connections, layout, and parameters.
 
 ## Document
 
 - `format_version` (integer, bumped on any breaking change) and `id`, `name`, `revision`
-- `instances[]`: `{ id, appliance: {id, version}, config, position, size }`
+- `instances[]`: `{ id, module: {id, version}, config, position, size }`
 - `connections[]`: `{ id, from: {instance, port}, to: {instance, port} }`
 - `assemblies[]` / `subassembly` instances: nested assemblies expose chosen inner ports as their own ports (explicit `exports`)
 - Layout (position/size) lives in a separate `layout` section so semantic diffs stay clean

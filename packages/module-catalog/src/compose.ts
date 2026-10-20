@@ -1,5 +1,5 @@
 import { parse } from "yaml";
-import { addAppliance, addPort, connect, createEmptyAssembly, explainConnection, renameAppliance, setConfig, slug, tidyLayout, validateProperty, type ApplianceClass, type ApplicationAssembly, type Port } from "@apelora/assembly-model";
+import { addModule, addPort, connect, createEmptyAssembly, explainConnection, renameModule, setConfig, slug, tidyLayout, validateProperty, type ModuleClass, type ApplicationAssembly, type Port } from "@apelora/assembly-model";
 import { lookupClass } from "./classes";
 
 export type ComposeResult = { ok: true; assembly: ApplicationAssembly; notes: string[] } | { ok: false; errors: string[] };
@@ -7,7 +7,7 @@ export type ComposeResult = { ok: true; assembly: ApplicationAssembly; notes: st
 const MAX_BYTES = 200_000;
 const MAX_SERVICES = 60;
 
-/** Container image name (without registry, namespace or tag) → catalog class. Anything unknown becomes a Linux base appliance. */
+/** Container image name (without registry, namespace or tag) → catalog class. Anything unknown becomes a Linux base module. */
 const IMAGE_CLASS: Readonly<Record<string, string>> = {
   postgres: "postgresql", postgresql: "postgresql", pgbouncer: "postgresql", timescaledb: "postgresql",
   mysql: "mysql", mariadb: "mariadb", mongo: "mongodb", mongodb: "mongodb", redis: "redis", valkey: "redis", memcached: "memcached",
@@ -38,15 +38,15 @@ function dependsOn(v: unknown): string[] {
 
 /** Picks the pair of terminals to cable for "A depends on B": A's output to B's input, exact protocol first. */
 function pickPair(a: ApplicationAssembly, fromId: string, toId: string): { sp: Port; tp: Port } | null {
-  const from = a.spec.appliances.find((x) => x.id === fromId);
-  const to = a.spec.appliances.find((x) => x.id === toId);
+  const from = a.spec.modules.find((x) => x.id === fromId);
+  const to = a.spec.modules.find((x) => x.id === toId);
   if (!from || !to) return null;
   let best: { sp: Port; tp: Port; score: number } | null = null;
   for (const sp of from.ports) {
     if (sp.direction !== "output" || sp.type === "network" || sp.type === "metrics") continue;
     for (const tp of to.ports) {
       if (tp.direction !== "input" || tp.type === "network") continue;
-      if (explainConnection(a, { applianceId: fromId, portId: sp.id }, { applianceId: toId, portId: tp.id })) continue;
+      if (explainConnection(a, { moduleId: fromId, portId: sp.id }, { moduleId: toId, portId: tp.id })) continue;
       const score = (sp.type === tp.type ? 2 : 0) + (tp.optional ? 0 : 1);
       if (!best || score > best.score) best = { sp, tp, score };
     }
@@ -55,8 +55,8 @@ function pickPair(a: ApplicationAssembly, fromId: string, toId: string): { sp: P
 }
 
 /**
- * Turns a Compose file into an assembly: each service becomes an appliance of the matching catalog class
- * (otherwise a Linux base appliance), each `depends_on` becomes a cable where a compatible pair of terminals
+ * Turns a Compose file into an assembly: each service becomes a module of the matching catalog class
+ * (otherwise a Linux base module), each `depends_on` becomes a cable where a compatible pair of terminals
  * exists, and the result is laid out left to right. The input is untrusted: size, service count and shape are checked,
  * and only a few plain fields are read. Nothing is executed or fetched.
  */
@@ -83,11 +83,11 @@ export function importCompose(text: string): ComposeResult {
     const d = def && typeof def === "object" ? (def as Record<string, unknown>) : {};
     const image = typeof d.image === "string" ? d.image : "";
     const classId = IMAGE_CLASS[imageName(image)];
-    const cls: ApplianceClass = lookupClass(classId ?? "linux-base", "1.0.0")!;
+    const cls: ModuleClass = lookupClass(classId ?? "linux-base", "1.0.0")!;
     if (!classId) generic.add(service);
-    if (!classId) notes.push(`${service}: ${image ? `image “${image.slice(0, 60)}” is not in the catalog` : "no image given"}; added as a Linux base appliance.`);
-    const r = addAppliance(a, cls, { x: (i % 6) * 220, y: Math.floor(i / 6) * 160 });
-    a = renameAppliance(r.assembly, r.id, service.slice(0, 48));
+    if (!classId) notes.push(`${service}: ${image ? `image “${image.slice(0, 60)}” is not in the catalog` : "no image given"}; added as a Linux base module.`);
+    const r = addModule(a, cls, { x: (i % 6) * 220, y: Math.floor(i / 6) * 160 });
+    a = renameModule(r.assembly, r.id, service.slice(0, 48));
     byService.set(service, r.id);
   });
 
@@ -101,17 +101,17 @@ export function importCompose(text: string): ComposeResult {
       let pair = pickPair(a, from, to);
       if (!pair && (generic.has(service) || generic.has(dep))) {
         const host = generic.has(service) ? from : to;
-        const other = a.spec.appliances.find((x) => x.id === (host === from ? to : from))!;
+        const other = a.spec.modules.find((x) => x.id === (host === from ? to : from))!;
         const want = other.ports.filter((q) => q.direction === (host === from ? "input" : "output") && q.type !== "network" && q.type !== "metrics").sort((q, w) => Number(q.optional) - Number(w.optional))[0];
         if (want) { a = addPort(a, host, host === from ? "output" : "input", want.type).assembly; pair = pickPair(a, from, to); }
       }
       if (!pair) { notes.push(`${service} → ${dep}: no compatible terminals, so no cable was drawn.`); continue; }
-      const r = connect(a, { applianceId: from, portId: pair.sp.id }, { applianceId: to, portId: pair.tp.id });
+      const r = connect(a, { moduleId: from, portId: pair.sp.id }, { moduleId: to, portId: pair.tp.id });
       if ("error" in r) { notes.push(`${service} → ${dep}: ${r.error.message}`); continue; }
       a = r.assembly;
     }
     // A few well-known settings carry over when the class has a matching field.
-    const cls = lookupClass(a.spec.appliances.find((x) => x.id === from)!.classRef.name, "1.0.0");
+    const cls = lookupClass(a.spec.modules.find((x) => x.id === from)!.classRef.name, "1.0.0");
     const env = d.environment;
     const pairs: [string, string][] = Array.isArray(env)
       ? env.filter((x): x is string => typeof x === "string").map((x) => { const i = x.indexOf("="); return i > 0 ? [x.slice(0, i), x.slice(i + 1)] as [string, string] : [x, ""] as [string, string]; })
@@ -126,7 +126,7 @@ export function importCompose(text: string): ComposeResult {
     }
     if (d.ports) published++;
   }
-  if (published) notes.push(`${published} service${published > 1 ? "s publish" : " publishes"} ports; published ports are not modelled, so use a Gateway appliance for public access.`);
+  if (published) notes.push(`${published} service${published > 1 ? "s publish" : " publishes"} ports; published ports are not modelled, so use a Gateway module for public access.`);
   a = { ...a, metadata: { ...a.metadata, name: "imported-compose" } };
   return { ok: true, assembly: tidyLayout(a), notes: notes.slice(0, 40) };
 }

@@ -1,8 +1,8 @@
-import type { ApplianceClass, Port, Property } from "@apelora/assembly-model";
+import type { ModuleClass, Port, Property } from "@apelora/assembly-model";
 import { cls, p, prop } from "./factory";
 
 /**
- * Port placement convention (see docs/architecture/APPLIANCE-PORTS.md)
+ * Port placement convention (see docs/architecture/MODULE-PORTS.md)
  *   Inputs  (left):  primary service input first, then secondary inputs; `net` (the NIC) is always last.
  *   Outputs (right): primary downstream first, then peer/replication links, then `mon` (metrics) last.
  * Names are short and lowercase so they fit beside the logo of a compact 128-px node.
@@ -19,10 +19,10 @@ const txt = (id: string, label: string, def: string, group: string, desc?: strin
 const flag = (id: string, label: string, def: boolean, group: string): Property => prop(id, label, "bool", { default: def, group });
 
 /** Spec shorthand: id, name, category, summary, icon, inputs, outputs, vCPU, MiB, properties. */
-const a = (id: string, name: string, cat: ApplianceClass["category"], summary: string, icon: string, ins: Port[], outs: Port[], cpu: number, mem: number, props: Property[] = []): ApplianceClass =>
+const a = (id: string, name: string, cat: ModuleClass["category"], summary: string, icon: string, ins: Port[], outs: Port[], cpu: number, mem: number, props: Property[] = []): ModuleClass =>
   cls(id, name, cat, summary, icon, [...ins, ...outs], cpu, mem, props);
 
-export const EXTRA_CLASSES: readonly ApplianceClass[] = [
+export const EXTRA_CLASSES: readonly ModuleClass[] = [
   // ---- Network & Security ----
   a("pfsense", "pfSense", "Network & Security", "Open-source firewall and router.", "pfsense",
     [i("wan", "network", "Uplink", "o1")], [o("lan", "network", "Protected network", "")], 2, 1024,
@@ -177,7 +177,7 @@ export const EXTRA_CLASSES: readonly ApplianceClass[] = [
     [i("ui", "http", "Browser traffic")], [o("es", "http", "Elasticsearch cluster", "1")], 1, 1024,
     [txt("base-path", "Base path", "/", "Server"), sec("service-secret", "Service account secret reference", "kibana-service")]),
   a("logstash", "Logstash", "Search & Analytics", "Log ingestion and transformation pipeline.", "logstash",
-    [i("in", "syslog", "Log streams from appliances")], [o("out", "http", "Elasticsearch or OpenSearch", "1"), mon()], 2, 2048,
+    [i("in", "syslog", "Log streams from modules")], [o("out", "http", "Elasticsearch or OpenSearch", "1"), mon()], 2, 2048,
     [num("workers", "Pipeline workers", 2, 1, 64, "Pipeline"), num("batch-size", "Batch size", 125, 1, 10000, "Pipeline")]),
   a("spark", "Spark", "Search & Analytics", "Apache Spark analytics engine (driver and workers).", "apachespark",
     [i("submit", "http", "Job submission and UI")], [o("store", "s3", "Data lake", "o1"), mon()], 4, 8192,
