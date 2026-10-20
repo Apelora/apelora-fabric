@@ -62,7 +62,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
 | Health with hysteresis, service names (DNS), evacuation, relocation | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
-| Build/test CI | Missing | 10 |
+| CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
+| Release artefacts, runbooks, three-member end-to-end demonstration | Missing | 10 |
 
 ## Deviations from the incoming specification (deliberate)
 

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Dependency policy for the Rust workspace, checked in CI with `cargo deny check`
+# (see the license-compliance skill). Our code is AGPL-3.0-only and is also offered under a
+# commercial licence, so dependencies must be permissive: copyleft or source-available
+# licences need a maintainer decision first, never a quiet addition to this list.
+
+[graph]
+all-features = true
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "MIT-0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unlicense",
+    "CC0-1.0",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0", # data only: the bundled root certificate list
+]
+# Our crates are not published; their licence comes from the workspace.
+private = { ignore = true }
+
+[advisories]
+# Every RustSec advisory (vulnerability, unmaintained, unsound, yanked) fails the check;
+# accept one only with an entry here that says why and until when.
+ignore = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+# Path dependencies between our own (unpublished) crates are not wildcards in practice.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

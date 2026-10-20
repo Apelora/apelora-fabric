@@ -1,7 +1,8 @@
 name: CI
 
 # Regression gate for every push and pull request: frontend checks, Rust checks, generated-file
-# drift and the Playwright end-to-end suite (Studio and Fabric Console). No secrets and no Incus
+# drift, dependency licences and advisories, and the Playwright end-to-end suite (Studio and
+# Fabric Console). No secrets and no Incus
 # credentials are available here; nothing touches real infrastructure.
 on:
   push:
@@ -38,6 +39,25 @@ jobs:
           npm run generate -w @apelora/api-client
           git diff --exit-code -- packages/assembly-model/schema docs/architecture/CATALOG.md packages/api-client/src/generated.ts \
             || { echo "::error::Generated files are stale. Run 'npm run schema', 'npm run catalog:doc' and 'npm run api:generate' and commit the result."; exit 1; }
+
+  dependencies:
+    name: Dependencies (licences, advisories, sources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust licences, advisories, bans and sources (deny.toml)
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Licences of the npm packages the apps ship
+        run: node scripts/licenses/check-npm.mjs
+      - name: Known vulnerabilities in the npm packages the apps ship
+        run: npm audit --omit=dev --audit-level=high
 
   rust:
     name: Rust (fmt, clippy, test)

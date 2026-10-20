@@ -22,6 +22,12 @@ Read `LICENSE`, `COPYRIGHT.md`, `COMMERCIAL-LICENSE.md`, `TRADEMARKS.md`, and `C
 5. **Logos/trademarks**: third-party logos in the catalog are the owners' marks; use only with a basis (nominative use, permission) and record it. Do not use Incus or other marks to imply endorsement.
 6. **Release gate**: `LICENSE` must be the complete, unmodified AGPLv3 text (`scripts/install-agpl-license.sh`).
 
+## Automated checks (CI job "Dependencies")
+
+- Rust: `cargo deny check` against `deny.toml` — licence allow-list (permissive only), RustSec advisories, no wildcard versions, crates.io only. Install locally with `brew install cargo-deny` or `cargo install --locked cargo-deny`.
+- npm: `node scripts/licenses/check-npm.mjs` — the same allow-list for the production dependencies the apps ship (dev tools are not shipped); `npm audit --omit=dev --audit-level=high`.
+- A failing licence is never fixed by extending the allow-list on the spot: record the licence, the reason and the maintainers' decision first.
+
 ## Output
 
 State the license, the conflict or risk (if any), and the recommended action; escalate unresolved items to the maintainers.
