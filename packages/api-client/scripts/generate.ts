@@ -24,7 +24,7 @@ type Operation = {
   responses: Record<string, { content?: { "application/json"?: { schema: Schema } } }>;
 };
 type Doc = { info: { version: string }; paths: Record<string, Partial<Record<Method, Operation>>>; components: { schemas: Record<string, Schema> } };
-const METHODS = ["get", "post", "put", "delete"] as const;
+const METHODS = ["get", "post", "put", "patch", "delete"] as const;
 type Method = (typeof METHODS)[number];
 
 const doc = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8")) as Doc;

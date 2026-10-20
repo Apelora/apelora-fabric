@@ -68,7 +68,7 @@ export type ApplicationInfo = {
 export type ApplicationList = {
   items: ApplicationInfo[];
   /** When Incus was observed for these statuses (RFC 3339), and whether that failed. */
-  observed_at: string;
+  observedAt: string;
   stale: boolean;
 };
 
@@ -1203,6 +1203,7 @@ export const operations = {
   applications: { method: "GET", path: "/api/v1/applications", params: [], public: false },
   create_application: { method: "POST", path: "/api/v1/applications", params: [], public: false },
   application: { method: "GET", path: "/api/v1/applications/{name}", params: ["name"], public: false },
+  update_application: { method: "PATCH", path: "/api/v1/applications/{name}", params: ["name"], public: false },
   archive_application: { method: "POST", path: "/api/v1/applications/{name}/archive", params: ["name"], public: false },
   deploy_application: { method: "POST", path: "/api/v1/applications/{name}/deployments", params: ["name"], public: false },
   application_draft: { method: "GET", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
@@ -1295,6 +1296,8 @@ export type Responses = {
   create_application: ApplicationInfo;
   /** One application with its appliances (desired and observed), versions and recent operations. Needs `application.view`. */
   application: ApplicationDetail;
+  /** Changes an application's description or icon (its name cannot change). Needs `application.design`. */
+  update_application: ApplicationInfo;
   /** Archives an application that is not running; it leaves the default list and keeps its data. Needs `application.delete`. */
   archive_application: null;
   /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`. */
@@ -1466,6 +1469,7 @@ export type Bodies = {
   applications: never;
   create_application: CreateApplication;
   application: never;
+  update_application: UpdateApplication;
   archive_application: never;
   deploy_application: DeployRequest;
   application_draft: never;

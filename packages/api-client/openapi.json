@@ -5529,7 +5529,7 @@
         "type": "object",
         "required": [
           "items",
-          "observed_at",
+          "observedAt",
           "stale"
         ],
         "properties": {
@@ -5539,7 +5539,7 @@
               "$ref": "#/components/schemas/ApplicationInfo"
             }
           },
-          "observed_at": {
+          "observedAt": {
             "type": "string",
             "description": "When Incus was observed for these statuses (RFC 3339), and whether that failed."
           },

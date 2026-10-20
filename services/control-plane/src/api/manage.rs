@@ -158,6 +158,7 @@ pub struct ApplicationInfo {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ApplicationList {
     pub items: Vec<ApplicationInfo>,
     /// When Incus was observed for these statuses (RFC 3339), and whether that failed.
