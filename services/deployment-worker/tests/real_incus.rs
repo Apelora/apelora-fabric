@@ -575,3 +575,78 @@ async fn volumes_follow_the_instance_and_outlive_it(pool: Pool) {
         Ok(true)
     );
 }
+
+/// A backup is a copy, through a short-lived snapshot, into the backup pool on another member;
+/// it carries the size and Apelora's labels, and the snapshot is removed again. Needs a second
+/// pool named by `APELORA_TEST_BACKUP_POOL` (default `backup`) on every member.
+#[ignore = "needs a disposable Incus with a backup pool: scripts/test-cluster/backup-pool.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_backup_is_copied_to_another_member(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let backup_pool = std::env::var("APELORA_TEST_BACKUP_POOL").unwrap_or_else(|_| "backup".into());
+    let name = unique("apl-bk");
+    let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "owner": { "application": "apl-backup-test", "module": "db", "replica": 1 },
+        "volumes": [{ "name": "data", "sizeMib": 128, "path": "/srv/data", "pool": "local" }] });
+    converge(&pool, &provider, "instance.create", &spec).await;
+    let created = status(&provider, &project, &name).await.expect("created");
+    let volume = format!("{name}-data");
+    let req = apelora_deployment_worker::storage::BackupRequest {
+        application: "apl-backup-test".into(),
+        project: project.clone(),
+        module: "db".into(),
+        volume: volume.clone(),
+        pool: "local".into(),
+        member: created.location.clone(),
+        size_mib: 128,
+        backup_pool: backup_pool.clone(),
+    };
+    let (backup, to, snapshot) = apelora_deployment_worker::storage::back_up(
+        &provider,
+        &req,
+        time::OffsetDateTime::now_utc(),
+    )
+    .await
+    .expect("backup");
+    assert!(snapshot.starts_with("bk-"));
+    assert_ne!(to, created.location, "the backup is on another member");
+    let copy = provider
+        .volume(&project, &backup_pool, Some(&to), &backup)
+        .await
+        .expect("read backup")
+        .expect("backup exists");
+    assert_eq!(
+        (copy.size_mib, copy.application.as_deref(), copy.managed),
+        (Some(128), Some("apl-backup-test"), true)
+    );
+    let member = Some(created.location.as_str());
+    assert!(
+        provider
+            .volume_snapshots(&project, "local", member, &volume)
+            .await
+            .expect("snapshots")
+            .is_empty(),
+        "the temporary snapshot is gone"
+    );
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    for (p, m, v) in [
+        (backup_pool.as_str(), Some(to.as_str()), backup.as_str()),
+        ("local", member, volume.as_str()),
+    ] {
+        assert_eq!(
+            provider
+                .delete_volume(&project, p, m, v, "apl-backup-test")
+                .await,
+            Ok(true),
+            "{v}"
+        );
+    }
+}

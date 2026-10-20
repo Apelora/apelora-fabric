@@ -53,6 +53,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             health,
         ))
     });
+    // Scheduled snapshots and backups of volumes, checked every minute; backups go to the pool
+    // in APELORA_BACKUP_POOL (without it, scheduled backups report that none is configured).
+    let backup_pool = std::env::var("APELORA_BACKUP_POOL")
+        .ok()
+        .filter(|p| !p.trim().is_empty());
+    if let Some(p) = &backup_pool {
+        if !apelora_domain::is_valid_name(p) {
+            return Err(format!("APELORA_BACKUP_POOL: invalid pool name {p:?}").into());
+        }
+        tracing::info!(pool = %p, "volume backups go to this pool");
+    }
+    let storage = tokio::spawn(apelora_deployment_worker::storage::schedule(
+        pool.clone(),
+        provider.clone(),
+        Duration::from_secs(60),
+        backup_pool,
+    ));
     apelora_deployment_worker::run(pool, provider, worker, Duration::from_secs(2), async {
         let _ = tokio::signal::ctrl_c().await;
     })
@@ -60,5 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(s) = supervisor {
         s.abort();
     }
+    storage.abort();
     Ok(())
 }

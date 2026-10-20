@@ -7,6 +7,7 @@ pub mod health;
 pub mod lifecycle;
 pub mod network;
 pub mod operations;
+pub mod storage;
 pub mod supervisor;
 
 use std::time::Duration;
@@ -32,6 +33,9 @@ async fn handle(
     }
     if job.kind == "application.operation" {
         return operations::run(pool, provider, job).await;
+    }
+    if job.kind == "volume.backup" {
+        return storage::run_backup_job(pool, provider, &job.payload).await;
     }
     if job.kind == "network.sync" {
         return Ok(match network::from_payload(&job.payload) {

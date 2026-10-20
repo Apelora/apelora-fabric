@@ -636,6 +636,54 @@ impl IncusClient {
         self.maybe_operation(Method::DELETE, &path, None).await
     }
 
+    /// Copies a volume (or one of its snapshots, `name/snapshot`) to `to` in `to_pool`, on
+    /// `to_member` for member-local pools. Incus carries neither the size nor the labels over:
+    /// both are set here.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn copy_volume(
+        &self,
+        project: &str,
+        from_pool: &str,
+        from_member: Option<&str>,
+        from: &str,
+        to_pool: &str,
+        to_member: Option<&str>,
+        to: &str,
+        content: &str,
+        config: &std::collections::BTreeMap<String, String>,
+    ) -> Result<Option<String>, AdapterError> {
+        let mut source = json!({ "type": "copy", "pool": from_pool, "name": from });
+        if let Some(m) = from_member {
+            source["location"] = json!(m);
+        }
+        let body = json!({ "name": to, "type": "custom", "content_type": content, "config": config, "source": source });
+        let mut path = format!("/1.0/storage-pools/{to_pool}/volumes/custom?project={project}");
+        if let Some(m) = to_member {
+            path.push_str(&format!("&target={m}"));
+        }
+        self.maybe_operation(Method::POST, &path, Some(&body)).await
+    }
+
+    /// Whether an operation of `project` that mentions any of `names` is still running. Used
+    /// when Incus refuses a restricted identity the wait on a copy's own operation (it lives on
+    /// the receiving member and is checked against the default project); the copy's other
+    /// operation is listed in the project and finishes when the copy does.
+    pub async fn project_operation_running(
+        &self,
+        project: &str,
+        names: &[&str],
+    ) -> Result<bool, AdapterError> {
+        let all: std::collections::BTreeMap<String, Vec<Value>> = self
+            .get(&format!("/1.0/operations?project={project}&recursion=1"))
+            .await?;
+        Ok(all.values().flatten().any(|op| {
+            op["status"].as_str() == Some("Running") && {
+                let text = op.to_string();
+                names.iter().any(|n| text.contains(n))
+            }
+        }))
+    }
+
     /// Sends a request that Incus answers either synchronously or with an operation.
     async fn maybe_operation(
         &self,

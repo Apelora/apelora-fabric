@@ -14,6 +14,8 @@ use crate::{InstanceKind, is_valid_name};
 /// Volume config key naming the design's volume (`data`); the application and module keys
 /// are the instance ones ([`crate::APPLICATION_KEY`], [`crate::MODULE_KEY`]).
 pub const VOLUME_KEY: &str = "user.apelora.volume";
+/// Label on a backup copy naming the volume it is a copy of.
+pub const BACKUP_OF_KEY: &str = "user.apelora.backup-of";
 /// Volumes one module may ask for.
 pub const MAX_VOLUMES: usize = 4;
 /// Smallest and largest volume Apelora creates, in MiB (64 MiB to 4 TiB).
@@ -192,6 +194,70 @@ pub fn check_resize(current_mib: u32, wanted_mib: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// How often something is done for a volume and how many results are kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct Schedule {
+    /// Minutes between two runs: 15 minutes to one week.
+    pub every_minutes: u32,
+    /// How many of the scheduled results are kept: 1 to 50.
+    pub keep: u32,
+}
+
+impl Schedule {
+    pub fn validate(&self, what: &str) -> Result<(), String> {
+        if !(15..=7 * 24 * 60).contains(&self.every_minutes) {
+            return Err(format!("{what}: every 15 minutes to once a week"));
+        }
+        if !(1..=50).contains(&self.keep) {
+            return Err(format!("{what}: keep 1 to 50"));
+        }
+        Ok(())
+    }
+}
+
+/// Prefix of the snapshots the scheduler takes; only these are ever pruned by it.
+pub const AUTO_SNAPSHOT_PREFIX: &str = "auto-";
+
+/// `<prefix>YYYYMMDD-HHMMSS` for a moment in UTC.
+pub fn stamped(prefix: &str, at: time::OffsetDateTime) -> String {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    format!(
+        "{prefix}{:04}{:02}{:02}-{:02}{:02}{:02}",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second()
+    )
+}
+
+/// Which scheduled snapshots to delete so that the newest `keep` remain. Names sort by time;
+/// snapshots someone took by hand are never pruned.
+pub fn snapshots_to_prune<'a>(names: &[&'a str], keep: u32) -> Vec<&'a str> {
+    let mut auto: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|n| n.starts_with(AUTO_SNAPSHOT_PREFIX))
+        .collect();
+    auto.sort_unstable();
+    let excess = auto.len().saturating_sub(keep as usize);
+    auto.truncate(excess);
+    auto
+}
+
+/// The Incus name of a backup copy of `volume` taken at `at`: `<volume>-bk-<YYYYMMDDHHMMSS>`,
+/// shortened from the front of the volume's name when needed so it stays a valid name.
+pub fn backup_name(volume: &str, at: time::OffsetDateTime) -> String {
+    let stamp = stamped("", at).replace('-', "");
+    let suffix = format!("-bk-{stamp}");
+    let room = 63 - suffix.len();
+    let base: String = volume.chars().take(room).collect();
+    format!("{}{suffix}", base.trim_end_matches('-'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +359,56 @@ mod tests {
     fn names_of_the_incus_volume_and_device() {
         assert_eq!(volume_name("shop-db-01", "data"), "shop-db-01-data");
         assert_eq!(fs("data", "/srv").device(), "vol-data");
+    }
+
+    #[test]
+    fn schedules_are_bounded() {
+        let ok = Schedule {
+            every_minutes: 60,
+            keep: 7,
+        };
+        assert!(ok.validate("snapshots").is_ok());
+        for (every, keep) in [(14, 7), (7 * 24 * 60 + 1, 7), (60, 0), (60, 51)] {
+            assert!(
+                Schedule {
+                    every_minutes: every,
+                    keep
+                }
+                .validate("snapshots")
+                .is_err(),
+                "{every}/{keep}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_oldest_scheduled_snapshots_are_pruned() {
+        let names = [
+            "auto-20261021-010000",
+            "manual-before-upgrade",
+            "auto-20261021-030000",
+            "auto-20261021-020000",
+            "snap-20261020-120000",
+        ];
+        assert_eq!(snapshots_to_prune(&names, 2), vec!["auto-20261021-010000"]);
+        assert_eq!(snapshots_to_prune(&names, 3), Vec::<&str>::new());
+        assert_eq!(
+            snapshots_to_prune(&names, 1),
+            vec!["auto-20261021-010000", "auto-20261021-020000"]
+        );
+    }
+
+    #[test]
+    fn names_carry_the_time_and_stay_valid() {
+        let at = time::macros::datetime!(2026-10-21 09:05:03 UTC);
+        assert_eq!(stamped(AUTO_SNAPSHOT_PREFIX, at), "auto-20261021-090503");
+        assert_eq!(
+            backup_name("shop-db-01-data", at),
+            "shop-db-01-data-bk-20261021090503"
+        );
+        let long = format!("{}-data", "a".repeat(55));
+        let b = backup_name(&long, at);
+        assert!(crate::is_valid_name(&b) && b.len() <= 63, "{b}");
+        assert!(b.ends_with("-bk-20261021090503"));
     }
 }

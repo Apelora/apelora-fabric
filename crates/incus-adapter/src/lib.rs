@@ -983,6 +983,131 @@ impl Provider {
             .await
     }
 
+    /// Copies the application's volume, as it was at `snapshot`, to a new volume `to` in
+    /// `to_pool` (on `to_member` for member-local pools), labelled like the source plus
+    /// `user.apelora.backup-of`. Used for backups and for moving a volume to another member.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn copy_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+        snapshot: Option<&str>,
+        to_pool: &str,
+        to_member: Option<&str>,
+        to: &str,
+        backup_of: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        let v = self
+            .owned_volume(project, pool, member, name, application)
+            .await?;
+        valid_names(&[to_pool, to])?;
+        if let Some(s) = snapshot {
+            valid_names(&[s])?;
+        }
+        if let Some(m) = to_member {
+            valid_member(m)?;
+        }
+        let size = v.size_mib.ok_or_else(|| {
+            AdapterError::Decode(format!("volume {name} has a size Apelora cannot read"))
+        })?;
+        let mut config = std::collections::BTreeMap::from([
+            ("size".to_owned(), format!("{size}MiB")),
+            (apelora_domain::MANAGED_KEY.to_owned(), "true".to_owned()),
+            (
+                apelora_domain::APPLICATION_KEY.to_owned(),
+                application.to_owned(),
+            ),
+        ]);
+        if let Some(b) = backup_of {
+            config.insert(
+                apelora_domain::storage::BACKUP_OF_KEY.to_owned(),
+                b.to_owned(),
+            );
+        }
+        let op = match self {
+            Provider::Mock(m) => {
+                let mut st = m.storage();
+                if let Some(s) = snapshot
+                    && !st
+                        .snapshots
+                        .get(&mock_key(project, pool, member, name))
+                        .is_some_and(|l| l.iter().any(|x| x.name == s))
+                {
+                    return Err(AdapterError::NotFound(format!(
+                        "snapshot {s} of volume {name}"
+                    )));
+                }
+                let key = mock_key(project, to_pool, to_member, to);
+                if st.volumes.contains_key(&key) {
+                    return Err(AdapterError::Api {
+                        status: 409,
+                        message: "Volume by that name already exists".into(),
+                    });
+                }
+                st.volumes.insert(
+                    key,
+                    VolumeState {
+                        used_by: Vec::new(),
+                        location: to_member.unwrap_or("none").into(),
+                        ..v.clone()
+                    },
+                );
+                st.copies.push(format!(
+                    "{name}{} -> {to_pool}/{}/{to}",
+                    snapshot.map(|s| format!("/{s}")).unwrap_or_default(),
+                    to_member.unwrap_or("-")
+                ));
+                None
+            }
+            Provider::Incus(c) => {
+                let from = match snapshot {
+                    Some(s) => format!("{name}/{s}"),
+                    None => name.to_owned(),
+                };
+                let op = c
+                    .copy_volume(
+                        project, pool, member, &from, to_pool, to_member, to, &v.content, &config,
+                    )
+                    .await?;
+                let what = format!("copying volume {name} to {to_pool}/{to}");
+                match self.finish(op, &what).await {
+                    // Incus 7.0.1: a restricted identity may not read the copy's operation on
+                    // the receiving member (docs/development/TEST-CLUSTER.md). Its other
+                    // operation is listed in the project and finishes with the copy.
+                    Err(AdapterError::Authentication(_)) => {
+                        let started = Instant::now();
+                        while c.project_operation_running(project, &[name, to]).await? {
+                            if started.elapsed() >= VOLUME_BUDGET {
+                                return Err(AdapterError::Api {
+                                    status: 504,
+                                    message: format!("{what} is still running"),
+                                });
+                            }
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                        }
+                        if self
+                            .volume(project, to_pool, to_member, to)
+                            .await?
+                            .is_none()
+                        {
+                            return Err(AdapterError::Api {
+                                status: 500,
+                                message: format!("{what} failed: the copy does not exist"),
+                            });
+                        }
+                        return Ok(());
+                    }
+                    other => return other,
+                }
+            }
+        };
+        self.finish(op, &format!("copying volume {name} to {to_pool}/{to}"))
+            .await
+    }
+
     /// The volume, when it exists and Apelora created it for `application`.
     async fn owned_volume(
         &self,
@@ -1198,6 +1323,8 @@ pub struct MockStorage {
     pub snapshots: std::collections::BTreeMap<String, Vec<SnapshotInfo>>,
     /// Restores carried out, `volume/snapshot` (tests).
     pub restores: Vec<String>,
+    /// Copies made, `source[/snapshot] -> pool/member/name` (tests).
+    pub copies: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
