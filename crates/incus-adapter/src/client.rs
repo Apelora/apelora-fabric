@@ -579,14 +579,14 @@ impl IncusClient {
     }
 
     /// Creates or updates the appliance's load balancer on `network` (Apelora owns it whole);
-    /// refuses one at that address that is not this application's.
+    /// refuses one at that address that is not this application's. `true` when it changed.
     pub async fn ensure_load_balancer(
         &self,
         project: &str,
         network: &str,
         lb: &LoadBalancer,
         application: &str,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<bool, AdapterError> {
         let path = format!(
             "/1.0/networks/{network}/load-balancers/{}?project={project}",
             lb.listen_address
@@ -595,11 +595,11 @@ impl IncusClient {
         match self.get::<wire::LoadBalancer>(&path).await {
             Ok(found) if owned_by_config(&found.config, application) => {
                 if found.normalised() == wire::LoadBalancer::from_body(&desired)?.normalised() {
-                    return Ok(());
+                    return Ok(false);
                 }
                 self.call::<Value>(Method::PUT, &path, Some(&desired))
                     .await
-                    .map(|_| ())
+                    .map(|_| true)
             }
             Ok(_) => Err(AdapterError::Api {
                 status: 409,
@@ -617,10 +617,64 @@ impl IncusClient {
                     Some(&body),
                 )
                 .await
-                .map(|_| ())
+                .map(|_| true)
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Each backend's health check status (`online`, `offline`, or `unknown` when no check
+    /// runs), as `(backend, status)`.
+    pub async fn load_balancer_health(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+    ) -> Result<Vec<(String, String)>, AdapterError> {
+        let state: wire::LoadBalancerState = self
+            .get(&format!(
+                "/1.0/networks/{network}/load-balancers/{address}/state?project={project}"
+            ))
+            .await?;
+        Ok(state
+            .backend_health
+            .into_iter()
+            .map(|(name, b)| {
+                let status = b
+                    .ports
+                    .first()
+                    .map_or_else(|| "unknown".to_owned(), |p| p.status.clone());
+                (name, status)
+            })
+            .collect())
+    }
+
+    /// Re-applies the load balancer's health check (off, then on): Incus 7.0.1 can lose it in
+    /// OVN on some updates while still reporting it configured (docs/development/TEST-CLUSTER.md).
+    pub async fn reapply_health_check(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        let path = format!("/1.0/networks/{network}/load-balancers/{address}?project={project}");
+        let lb: wire::LoadBalancer = self.get(&path).await?;
+        if !owned_by_config(&lb.config, application) {
+            return Err(AdapterError::Api {
+                status: 409,
+                message: format!(
+                    "load balancer {address} on {network} does not belong to application {application}"
+                ),
+            });
+        }
+        let mut body = json!({ "description": lb.description, "config": lb.config, "backends": lb.backends.iter().map(|b| json!({ "name": b.name, "description": b.description, "target_address": b.target_address, "target_port": b.target_port })).collect::<Vec<_>>(), "ports": lb.ports.iter().map(|p| json!({ "description": p.description, "protocol": p.protocol, "listen_port": p.listen_port, "target_backend": p.target_backend })).collect::<Vec<_>>() });
+        body["config"]["healthcheck"] = json!("false");
+        self.call::<Value>(Method::PUT, &path, Some(&body)).await?;
+        body["config"]["healthcheck"] = json!("true");
+        self.call::<Value>(Method::PUT, &path, Some(&body))
+            .await
+            .map(|_| ())
     }
 
     /// The application's load balancers on `network`, as `(listen address, appliance)`;
@@ -761,32 +815,37 @@ impl IncusClient {
             .await?;
         Ok(list
             .into_iter()
-            .map(|i| Instance {
-                kind: match i.kind.as_str() {
-                    "container" => InstanceKind::Container,
-                    "virtual-machine" => InstanceKind::VirtualMachine,
-                    _ => InstanceKind::Unknown,
-                },
-                managed: i.config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
-                owner: match (i.config.get(APPLICATION_KEY), i.config.get(APPLIANCE_KEY)) {
-                    (Some(application), Some(appliance)) => Some(Owner {
-                        application: application.clone(),
-                        appliance: appliance.clone(),
-                        replica: i
-                            .config
-                            .get(REPLICA_KEY)
-                            .and_then(|r| r.parse().ok())
-                            .unwrap_or(1),
-                    }),
-                    _ => None,
-                },
-                evacuate: i.expanded_config.get("cluster.evacuate").cloned(),
-                name: i.name,
-                project: i.project,
-                status: i.status,
-                location: i.location,
-                architecture: i.architecture,
-                description: i.description,
+            .map(|i| {
+                let unreachable = i.config.is_none();
+                let config = i.config.unwrap_or_default();
+                let expanded = i.expanded_config.unwrap_or_default();
+                Instance {
+                    unreachable,
+                    kind: match i.kind.as_str() {
+                        "container" => InstanceKind::Container,
+                        "virtual-machine" => InstanceKind::VirtualMachine,
+                        _ => InstanceKind::Unknown,
+                    },
+                    managed: config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
+                    owner: match (config.get(APPLICATION_KEY), config.get(APPLIANCE_KEY)) {
+                        (Some(application), Some(appliance)) => Some(Owner {
+                            application: application.clone(),
+                            appliance: appliance.clone(),
+                            replica: config
+                                .get(REPLICA_KEY)
+                                .and_then(|r| r.parse().ok())
+                                .unwrap_or(1),
+                        }),
+                        _ => None,
+                    },
+                    evacuate: expanded.get("cluster.evacuate").cloned(),
+                    name: i.name,
+                    project: i.project,
+                    status: i.status,
+                    location: i.location,
+                    architecture: i.architecture,
+                    description: i.description,
+                }
             })
             .collect())
     }

@@ -61,7 +61,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
 | Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
 | Evacuation with dry run (API, console), audited; supervisor stays out of the way | Done; REAL INCUS TESTED (two members) and verified in a real browser | 08 |
-| Health with hysteresis, service names (DNS), recovery from a failed member, relocation | Missing | 08 |
+| Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
+| Health with hysteresis beyond the port check, service names (DNS), rebalancing | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Release artefacts, runbooks, three-member end-to-end demonstration | Missing | 10 |

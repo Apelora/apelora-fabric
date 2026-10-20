@@ -8,11 +8,12 @@
 
 use std::net::Ipv4Addr;
 
+use apelora_domain::Instance;
 use apelora_domain::network::{
     Backend, LoadBalancer, SyncRequest, acl_name, acl_rules, network_name, service_addresses,
     service_ports,
 };
-use apelora_domain::plan::replica_name;
+use apelora_domain::plan::{replica_name, slot_instances};
 use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
 use apelora_persistence::{Outcome, Pool};
 
@@ -65,18 +66,29 @@ async fn apply(
             .ensure_network(p, &network_name(app), &s.uplink, app)
             .await?;
     }
+    let inv = Inventory::read(provider).await?;
     for a in &s.appliances {
         let name = acl_name(app, a);
         provider.ensure_acl(p, &name, app).await?;
         provider.ensure_address_set(p, &name, app).await?;
         let mut addresses = Vec::new();
         for replica in 1..=s.replicas.get(a).copied().unwrap_or(1).max(1) {
-            let instance = replica_name(app, a, replica);
-            let found = provider.instance_addresses(p, &instance).await?;
-            if found.is_empty() {
-                missing.push(instance);
+            let slot = inv.slot(s, a, replica);
+            if slot.is_empty() {
+                missing.push(replica_name(app, a, replica));
             }
-            addresses.extend(found);
+            let mut found_any = slot.iter().all(|(_, reachable)| !reachable);
+            for (instance, reachable) in &slot {
+                if !reachable {
+                    continue;
+                }
+                let found = provider.instance_addresses(p, instance).await?;
+                found_any |= !found.is_empty();
+                addresses.extend(found);
+            }
+            if !slot.is_empty() && !found_any {
+                missing.push(replica_name(app, a, replica));
+            }
         }
         addresses.sort();
         provider.set_addresses(p, &name, &addresses, app).await?;
@@ -87,7 +99,7 @@ async fn apply(
             .set_acl_rules(p, &acl_name(app, a), &ingress, &egress, app)
             .await?;
     }
-    missing.extend(services(pool, provider, s).await?);
+    missing.extend(services(pool, provider, s, &inv).await?);
     remove_stale(provider, s).await?;
     Ok(missing)
 }
@@ -100,6 +112,7 @@ async fn services(
     pool: &Pool,
     provider: &Provider,
     s: &NetworkSync,
+    inv: &Inventory,
 ) -> Result<Vec<String>, SyncError> {
     let (p, app) = (&s.project, s.application.as_str());
     let network = network_name(app);
@@ -139,25 +152,31 @@ async fn services(
         kept.push(listen_address.to_string());
         let mut backends = Vec::new();
         for replica in 1..=s.replicas.get(a).copied().unwrap_or(1).max(1) {
-            let instance = replica_name(app, a, replica);
-            let ipv4 = provider
-                .instance_addresses(p, &instance)
-                .await?
-                .into_iter()
-                .find_map(|a| {
-                    a.strip_suffix("/32")
-                        .and_then(|a| a.parse::<Ipv4Addr>().ok())
+            let base = replica_name(app, a, replica);
+            for (instance, reachable) in inv.slot(s, a, replica) {
+                if !reachable {
+                    continue;
+                }
+                let ipv4 = provider
+                    .instance_addresses(p, &instance)
+                    .await?
+                    .into_iter()
+                    .find_map(|a| {
+                        a.strip_suffix("/32")
+                            .and_then(|a| a.parse::<Ipv4Addr>().ok())
+                    });
+                let Some(address) = ipv4 else { continue };
+                let uuid = provider
+                    .instance_uuid(p, &instance)
+                    .await?
+                    .unwrap_or_default();
+                backends.push(Backend {
+                    // `r2`, or `r2-s1` for a substitute of replica 2.
+                    name: format!("r{replica}{}", instance.strip_prefix(&base).unwrap_or("")),
+                    address,
+                    description: format!("{instance} {uuid}").trim().to_owned(),
                 });
-            let Some(address) = ipv4 else { continue };
-            let uuid = provider
-                .instance_uuid(p, &instance)
-                .await?
-                .unwrap_or_default();
-            backends.push(Backend {
-                name: format!("r{replica}"),
-                address,
-                description: format!("{instance} {uuid}").trim().to_owned(),
-            });
+            }
         }
         if backends.is_empty() {
             waiting.push(format!("an address of a {a} replica for its service"));
@@ -169,7 +188,21 @@ async fn services(
             backends,
             ports: service_ports(a, &s.connections),
         };
-        provider.ensure_load_balancer(p, &network, &lb, app).await?;
+        let changed = provider.ensure_load_balancer(p, &network, &lb, app).await?;
+        // Incus 7.0.1 can drop the health check in OVN on an update while still reporting it
+        // configured; its state then says `unknown`. Re-apply it after every change and
+        // whenever a backend reports no check.
+        let address = lb.listen_address.to_string();
+        let unchecked = provider
+            .load_balancer_health(p, &network, &address)
+            .await?
+            .iter()
+            .any(|(_, status)| status == "unknown");
+        if changed || unchecked {
+            provider
+                .reapply_health_check(p, &network, &address, app)
+                .await?;
+        }
     }
     for (address, _) in provider.owned_load_balancers(p, &network, app).await? {
         if !kept.contains(&address) {
@@ -205,4 +238,45 @@ async fn remove_stale(provider: &Provider, s: &NetworkSync) -> Result<(), Adapte
             .await?;
     }
     Ok(())
+}
+
+/// The instances Incus reports, and the members that cannot be asked about theirs.
+struct Inventory {
+    observed: Vec<Instance>,
+    unavailable: Vec<String>,
+}
+
+impl Inventory {
+    async fn read(provider: &Provider) -> Result<Self, AdapterError> {
+        let observed = provider.instances().await?;
+        let unavailable = provider
+            .cluster_members()
+            .await
+            .map(|m| {
+                m.into_iter()
+                    .filter(|m| m.status != "Online")
+                    .map(|m| m.name)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Inventory {
+            observed,
+            unavailable,
+        })
+    }
+
+    /// The instances filling replica `replica` of `appliance` (the replica and its
+    /// substitutes), each with whether its member can be reached.
+    fn slot(&self, s: &NetworkSync, appliance: &str, replica: u8) -> Vec<(String, bool)> {
+        slot_instances(
+            &s.application,
+            &s.project,
+            appliance,
+            replica,
+            &self.observed,
+        )
+        .into_iter()
+        .map(|i| (i.name.clone(), !self.unavailable.contains(&i.location)))
+        .collect()
+    }
 }

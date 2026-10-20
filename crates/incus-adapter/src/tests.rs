@@ -114,6 +114,33 @@ async fn standalone_server_has_no_members_and_skips_the_cluster_call() {
     assert!(members.is_empty());
 }
 
+/// Seen on Incus 7.0.1: an instance on an offline member is listed with `config: null`.
+#[tokio::test]
+async fn instances_on_an_unreachable_member_are_listed_with_unknown_labels() {
+    let base = fixture_server(vec![(
+        "/1.0/instances?recursion=1&all-projects=true",
+        sync(json!([
+            { "name": "shop-web-01", "project": "apelora", "type": "container", "status": "Error", "location": "node-2", "architecture": "aarch64", "description": "", "config": null, "expanded_config": null },
+            { "name": "shop-web-01-r2", "project": "apelora", "type": "container", "status": "Running", "location": "node-1", "architecture": "aarch64", "description": "",
+              "config": { "user.apelora.managed": "true", "user.apelora.application": "shop", "user.apelora.appliance": "web-01", "user.apelora.replica": "2" }, "expanded_config": {} }
+        ])),
+    )]).await;
+    let list = Provider::Incus(IncusClient::plain_for_tests(&base))
+        .instances()
+        .await
+        .expect("an outage must not fail the whole inventory");
+    assert_eq!(
+        list.iter()
+            .map(|i| (i.name.as_str(), i.unreachable, i.managed))
+            .collect::<Vec<_>>(),
+        [
+            ("shop-web-01", true, false),
+            ("shop-web-01-r2", false, true)
+        ]
+    );
+    assert_eq!(list[1].owner.as_ref().map(|o| o.replica), Some(2));
+}
+
 #[tokio::test]
 async fn maps_instance_kinds_and_ignores_unknown_fields() {
     let base = fixture_server(vec![(
@@ -141,6 +168,10 @@ async fn maps_instance_kinds_and_ignores_unknown_fields() {
         list.iter().map(|i| i.managed).collect::<Vec<_>>(),
         vec![true, false, false],
         "only the ownership marker makes an instance Apelora's"
+    );
+    assert!(
+        list.iter().all(|i| !i.unreachable),
+        "a missing config is empty, not unknown"
     );
     assert_eq!(
         list[2].project, "",

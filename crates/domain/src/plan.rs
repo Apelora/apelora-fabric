@@ -25,6 +25,49 @@ pub fn replica_name(application: &str, appliance: &str, replica: u8) -> String {
     }
 }
 
+/// The name of a replica's `n`th substitute: created on another member while the member
+/// holding the replica was down (Incus cannot move instances off a failed member).
+pub fn substitute_name(application: &str, appliance: &str, replica: u8, n: u8) -> String {
+    format!("{}-s{n}", replica_name(application, appliance, replica))
+}
+
+/// Whether `name` is replica `base` itself or one of its substitutes (`<base>-s<n>`).
+fn in_slot(name: &str, base: &str) -> bool {
+    name == base
+        || name
+            .strip_prefix(base)
+            .and_then(|r| r.strip_prefix("-s"))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The application's instances that fill replica `replica` of `appliance` in `project`: the
+/// replica and its substitutes, recognised by Apelora's labels and their names. An instance
+/// whose member is unreachable has no visible labels; one with the slot's name counts (names
+/// are unique in a project, and the name was Apelora's before its member went away).
+pub fn slot_instances<'a>(
+    application: &str,
+    project: &str,
+    appliance: &str,
+    replica: u8,
+    observed: &'a [Instance],
+) -> Vec<&'a Instance> {
+    let base = replica_name(application, appliance, replica);
+    observed
+        .iter()
+        .filter(|i| {
+            i.project == project
+                && in_slot(&i.name, &base)
+                && (i.unreachable
+                    || i.managed
+                        && i.owner.as_ref().is_some_and(|o| {
+                            o.application == application
+                                && o.appliance == appliance
+                                && o.replica == replica
+                        }))
+        })
+        .collect()
+}
+
 /// How an appliance may be run and recovered (from its catalog class).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -199,8 +242,24 @@ pub fn plan(
                 ));
                 continue;
             }
+            let slot = slot_instances(application, project, &d.appliance, replica, observed);
+            for sub in slot.iter().filter(|i| i.name != name) {
+                wanted.push(sub.name.clone());
+                items.push(PlanItem {
+                    instance: sub.name.clone(),
+                    ..item(
+                        PlanAction::Keep,
+                        format!("substitute for {name} ({})", sub.status),
+                    )
+                });
+            }
             items.push(match in_project.iter().find(|i| i.name == name) {
+                None if !slot.is_empty() => continue,
                 None => item(PlanAction::Create, "not deployed yet".into()),
+                Some(i) if i.unreachable => item(
+                    PlanAction::Keep,
+                    format!("its member {} cannot be reached", i.location),
+                ),
                 Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.appliance == d.appliance && o.replica == replica) => {
                     item(PlanAction::Keep, format!("already deployed ({})", i.status))
                 }
@@ -309,6 +368,7 @@ mod tests {
                 replica: r,
             }),
             evacuate: None,
+            unreachable: false,
         }
     }
 
@@ -463,5 +523,40 @@ mod tests {
         );
         assert_eq!(spec.validate(), Ok(()));
         assert!(plan("shop", "apelora", &[], &[]).warnings.is_empty());
+    }
+
+    #[test]
+    fn substitutes_fill_their_replica_slot_and_are_never_removed_or_recreated() {
+        let mut web = desired("web-01");
+        web.replicas = 2;
+        web.availability = Availability::Stateless;
+        let observed = [
+            observed_instance("shop-web-01", Some(("shop", "web-01", 1))),
+            // Replica 2's member failed: its substitute runs elsewhere, the original is gone.
+            observed_instance("shop-web-01-r2-s1", Some(("shop", "web-01", 2))),
+            // A name that looks like a substitute but belongs to another slot is not one.
+            observed_instance("shop-web-01-s1", Some(("shop", "web-01", 2))),
+        ];
+        let p = plan("shop", "apelora", &[web], &observed);
+        assert_eq!(
+            actions(&p),
+            vec![
+                ("shop-web-01", PlanAction::Keep),
+                ("shop-web-01-r2-s1", PlanAction::Keep),
+                ("shop-web-01-s1", PlanAction::Remove),
+            ]
+        );
+        assert_eq!(substitute_name("shop", "web-01", 2, 3), "shop-web-01-r2-s3");
+        assert_eq!(
+            slot_instances("shop", "apelora", "web-01", 2, &observed)
+                .iter()
+                .map(|i| i.name.as_str())
+                .collect::<Vec<_>>(),
+            ["shop-web-01-r2-s1"]
+        );
+    }
+
+    fn observed_instance(name: &str, owner: Option<(&str, &str, u8)>) -> Instance {
+        observed(name, "apelora", true, owner)
     }
 }

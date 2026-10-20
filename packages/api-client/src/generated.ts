@@ -229,6 +229,8 @@ export type Instance = {
   owner?: unknown | Owner;
   project: string;
   status: string;
+  /** Incus cannot report its configuration because its member is unreachable, so its labels (and `managed`, `owner`) are unknown, not absent. */
+  unreachable?: boolean;
 };
 
 /** A state change Apelora can request for one of its instances. */

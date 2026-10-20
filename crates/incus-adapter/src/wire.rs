@@ -65,9 +65,16 @@ pub(crate) struct Instance {
     pub location: String,
     pub architecture: String,
     pub description: String,
-    pub config: BTreeMap<String, String>,
-    #[serde(default)]
-    pub expanded_config: BTreeMap<String, String>,
+    /// `null` for an instance on an unreachable member: Incus cannot report its configuration.
+    /// A missing field is an empty configuration.
+    #[serde(default = "known_config")]
+    pub config: Option<BTreeMap<String, String>>,
+    #[serde(default = "known_config")]
+    pub expanded_config: Option<BTreeMap<String, String>>,
+}
+
+fn known_config() -> Option<BTreeMap<String, String>> {
+    Some(BTreeMap::new())
 }
 
 /// Any Apelora-owned object (network, ACL, address set): only its config is read.
@@ -105,6 +112,25 @@ pub(crate) struct LoadBalancerPort {
     pub protocol: String,
     pub listen_port: String,
     pub target_backend: Vec<String>,
+}
+
+/// `GET /1.0/networks/<network>/load-balancers/<address>/state`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct LoadBalancerState {
+    pub backend_health: BTreeMap<String, BackendHealth>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct BackendHealth {
+    pub ports: Vec<BackendPortHealth>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct BackendPortHealth {
+    pub status: String,
 }
 
 impl LoadBalancer {

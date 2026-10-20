@@ -1390,6 +1390,10 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
     let (owner, lb) = &lbs["apelora/shop/198.18.100.1"];
     assert_eq!((owner.as_str(), lb.appliance.as_str()), ("shop", "web-01"));
     assert_eq!(lb.ports, vec![("tcp".to_owned(), 80)]);
+    assert!(
+        mock.net().health_check_repairs >= 1,
+        "a new load balancer gets its health check re-applied"
+    );
     assert_eq!(
         lb.backends
             .iter()

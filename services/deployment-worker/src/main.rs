@@ -2,7 +2,8 @@
 //! Apelora deployment worker. Needs `DATABASE_URL`; without it the worker reports that it has
 //! nothing to work from and exits. Talks to Incus when `APELORA_INCUS_URL` and the certificate
 //! paths are set (the same settings as the control plane), otherwise to the mock provider.
-//! Also runs the replica supervisor every `APELORA_SUPERVISE_SECS` (default 30; 0 turns it off).
+//! Also runs the replica supervisor every `APELORA_SUPERVISE_SECS` (default 30; 0 turns it off);
+//! replicas on a member offline for `APELORA_RECOVER_AFTER_SECS` (default 120) are substituted.
 
 use std::time::Duration;
 
@@ -19,6 +20,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
     tracing::info!(%worker, provider = ?provider.mode(), "deployment worker started");
     // The replica supervisor restores lost stateless replicas (0 turns it off).
+    // A member must stay offline this long before replicas on it are substituted.
+    let recover_after: u64 = std::env::var("APELORA_RECOVER_AFTER_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(120);
     let every: u64 = std::env::var("APELORA_SUPERVISE_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -29,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pool.clone(),
             provider.clone(),
             Duration::from_secs(every),
+            Duration::from_secs(recover_after),
         ))
     });
     apelora_deployment_worker::run(pool, provider, worker, Duration::from_secs(2), async {

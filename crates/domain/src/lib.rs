@@ -98,6 +98,10 @@ pub struct Instance {
     /// profiles applied); `None`: Incus's default, `auto`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evacuate: Option<String>,
+    /// Incus cannot report its configuration because its member is unreachable, so its
+    /// labels (and `managed`, `owner`) are unknown, not absent.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unreachable: bool,
 }
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application

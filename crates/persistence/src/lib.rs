@@ -406,6 +406,23 @@ pub async fn last_lifecycle_job(
     .await?)
 }
 
+/// The status of the application's latest job of `kind` and how many seconds ago it last
+/// changed.
+pub async fn latest_application_job(
+    pool: &PgPool,
+    kind: &str,
+    application_id: Uuid,
+) -> Result<Option<(String, f64)>> {
+    Ok(sqlx::query_as::<_, (String, f64)>(
+        "SELECT status, EXTRACT(EPOCH FROM now() - updated_at)::float8 FROM jobs
+         WHERE kind = $1 AND application_id = $2 ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(kind)
+    .bind(application_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
 /// Whether a job of `kind` for the application is waiting or running.
 pub async fn application_job_in_flight(
     pool: &PgPool,

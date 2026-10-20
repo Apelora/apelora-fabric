@@ -244,6 +244,7 @@ mod tests {
                 replica: 1,
             }),
             evacuate: None,
+            unreachable: false,
         }
     }
 

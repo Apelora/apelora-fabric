@@ -2623,6 +2623,10 @@
           },
           "status": {
             "type": "string"
+          },
+          "unreachable": {
+            "type": "boolean",
+            "description": "Incus cannot report its configuration because its member is unreachable, so its\nlabels (and `managed`, `owner`) are unknown, not absent."
           }
         }
       },

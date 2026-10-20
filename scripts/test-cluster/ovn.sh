@@ -52,13 +52,27 @@ if [ "$(incus project get "$PROJECT" features.networks 2>/dev/null)" != "true" ]
     echo "project $PROJECT has instances; delete them before enabling OVN networks" >&2
     exit 1
   fi
+  # Deleting a project also removes it from every restricted identity's project list (the
+  # running server may keep authorising by name until its identity cache is rebuilt, e.g. at a
+  # member outage). Remember who had it and grant it again below.
+  grants=$(incus query "/1.0/certificates?recursion=1" |
+    jq -r --arg p "$PROJECT" '.[] | select(.restricted and ((.projects // []) | index($p))) | .fingerprint')
   incus profile device remove default eth0 --project "$PROJECT" 2>/dev/null || true
   incus profile device remove default root --project "$PROJECT" 2>/dev/null || true
   incus project delete "$PROJECT"
   incus project create "$PROJECT" -c restricted=true -c features.images=false -c features.profiles=true \
     -c features.networks=true -c restricted.networks.uplinks=incusbr0
   incus profile device add default root disk path=/ pool=local --project "$PROJECT"
+  for fp in $grants; do
+    projects=$(incus query "/1.0/certificates/$fp" | jq -c --arg p "$PROJECT" '(.projects // []) + [$p] | unique')
+    incus query -X PATCH "/1.0/certificates/$fp" --data "{\"projects\": $projects}" >/dev/null
+  done
 fi
+# Check the deploy identity can still use the project (see above).
+for fp in $(incus query "/1.0/certificates?recursion=1" | jq -r '.[] | select(.restricted and (.name | test("-admin$") | not)) | .fingerprint'); do
+  incus query "/1.0/certificates/$fp" | jq -e --arg p "$PROJECT" '(.projects // []) | index($p)' >/dev/null ||
+    echo "warning: restricted identity ${fp:0:12} has no access to project $PROJECT" >&2
+done
 # The restricted project may use the service range for load balancers, and nothing else.
 incus project set "$PROJECT" "restricted.networks.subnets=incusbr0:$SERVICES"
 # Instances without an application network get one shared OVN network.

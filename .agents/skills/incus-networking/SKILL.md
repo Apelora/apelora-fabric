@@ -18,6 +18,7 @@ Use for Incus bridges, VLANs, OVN, service discovery, load balancing and Studio 
 - Enforce deny-by-default graph connection policy where appropriate; scope network resources by project and prevent cross-tenant access.
 - Generate deterministic network changes and perform dry-run/diff before writes; never bind to unauthorized host ports.
 - Verify health checks and failure drains before marking a network path ready.
+- OVN load balancer health checks run on the backend's own chassis: a dead member's backends stay "online". Read `GET …/load-balancers/<addr>/state` (`backend_health`); `unknown` means no check is installed — re-apply by toggling `healthcheck` (Apelora does this after every change).
 - OVN load balancers (verified on 7.0.1): listen addresses must be in the uplink's `ipv4.routes` and, for a restricted project, `restricted.networks.subnets=<uplink>:<range>`; backends must be in the network's subnet; health-check mappings bind to the instance's logical port, so change the backend (Apelora: description with `volatile.uuid`) when an instance is recreated at the same address — an unchanged PUT does not rebind.
 - Record source/destination/port/transport/security semantics of each connection.
 

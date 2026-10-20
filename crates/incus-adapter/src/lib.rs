@@ -123,7 +123,31 @@ impl Provider {
 
     pub async fn instances(&self) -> Result<Vec<Instance>, AdapterError> {
         match self {
-            Provider::Mock(m) => Ok(m.lock().iter().map(|i| i.instance.clone()).collect()),
+            Provider::Mock(m) => {
+                // Like Incus: an instance on an offline member is listed without its
+                // configuration, so its labels are unknown.
+                let offline: Vec<String> = m
+                    .members
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .filter(|x| x.status == "Offline")
+                    .map(|x| x.name.clone())
+                    .collect();
+                Ok(m.lock()
+                    .iter()
+                    .map(|i| {
+                        let mut out = i.instance.clone();
+                        if offline.contains(&out.location) {
+                            out.status = "Error".into();
+                            out.managed = false;
+                            out.owner = None;
+                            out.unreachable = true;
+                        }
+                        out
+                    })
+                    .collect())
+            }
             Provider::Incus(c) => c.instances().await,
         }
     }
@@ -402,14 +426,15 @@ impl Provider {
         }
     }
 
-    /// Creates or updates an appliance's service address (an OVN load balancer).
+    /// Creates or updates an appliance's service address (an OVN load balancer); `true` when
+    /// it changed.
     pub async fn ensure_load_balancer(
         &self,
         project: &str,
         network: &str,
         lb: &LoadBalancer,
         application: &str,
-    ) -> Result<(), AdapterError> {
+    ) -> Result<bool, AdapterError> {
         match self {
             Provider::Mock(m) => {
                 let mut net = m.net();
@@ -425,12 +450,59 @@ impl Provider {
                         ),
                     });
                 }
+                let changed = net
+                    .load_balancers
+                    .get(&key)
+                    .is_none_or(|(_, old)| old != lb);
                 net.load_balancers
                     .insert(key, (application.to_owned(), lb.clone()));
-                Ok(())
+                Ok(changed)
             }
             Provider::Incus(c) => {
                 c.ensure_load_balancer(project, network, lb, application)
+                    .await
+            }
+        }
+    }
+
+    /// Each backend's health check status, as `(backend, status)`.
+    pub async fn load_balancer_health(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+    ) -> Result<Vec<(String, String)>, AdapterError> {
+        match self {
+            Provider::Mock(m) => Ok(m
+                .net()
+                .load_balancers
+                .get(&format!("{project}/{network}/{address}"))
+                .map(|(_, lb)| {
+                    lb.backends
+                        .iter()
+                        .map(|b| (b.name.clone(), "online".to_owned()))
+                        .collect()
+                })
+                .unwrap_or_default()),
+            Provider::Incus(c) => c.load_balancer_health(project, network, address).await,
+        }
+    }
+
+    /// Re-applies a load balancer's health check (see the client's documentation).
+    pub async fn reapply_health_check(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net().health_check_repairs += 1;
+                Ok(())
+            }
+            Provider::Incus(c) => {
+                c.reapply_health_check(project, network, address, application)
                     .await
             }
         }
@@ -575,6 +647,8 @@ pub struct MockNetwork {
     pub owners: std::collections::BTreeMap<String, String>,
     /// `project/network/address` → (application, load balancer).
     pub load_balancers: std::collections::BTreeMap<String, (String, LoadBalancer)>,
+    /// How often a health check was re-applied.
+    pub health_check_repairs: u32,
 }
 
 impl MockNetwork {
@@ -679,6 +753,14 @@ impl MockIncus {
             });
         }
         let uuid = self.op();
+        // Like Incus, never place on a member that is not Online.
+        let location = self
+            .members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|m| m.status == "Online")
+            .map_or_else(|| "mock-member-01".to_owned(), |m| m.name.clone());
         self.lock().push(MockInstance {
             uuid,
             instance: Instance {
@@ -686,12 +768,13 @@ impl MockIncus {
                 project: spec.project.clone(),
                 kind: spec.kind,
                 status: if spec.start { "Running" } else { "Stopped" }.into(),
-                location: "mock-member-01".into(),
+                location,
                 architecture: "x86_64".into(),
                 description: "mock data".into(),
                 managed: true,
                 owner: spec.owner.clone(),
                 evacuate: spec.config.get("cluster.evacuate").cloned(),
+                unreachable: false,
             },
             base_image: spec.source.fingerprint.clone(),
         });
@@ -788,6 +871,7 @@ impl Default for MockIncus {
             managed: false,
             owner: None,
             evacuate: None,
+            unreachable: false,
         };
         Self {
             server: ServerInfo {
