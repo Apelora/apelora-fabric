@@ -238,11 +238,15 @@ The evacuation dry run lists every volume that blocks a move and why. It never r
 | Host-path disk in the restricted project | Refused (`Attaching disks not backed by a pool is forbidden`) |
 | Grow while attached and running | Works (512 MiB → 1 GiB) |
 | Shrink | **Accepted by Incus** (1 GiB → 256 MiB): Apelora must enforce grow-only itself |
-| Snapshot | **Refused** in the restricted project (`doesn't allow for snapshot creation`): needs `restricted.snapshots=allow` set by an administrator |
-| Restore | Refused while the instance runs (`Cannot restore custom volume used by running instances`); restore after stop not yet verified (no snapshot could be taken) |
+| Snapshot | Refused in a restricted project unless an administrator sets `restricted.snapshots=allow` (`doesn't allow for snapshot creation`); with it, the restricted identity snapshots a volume, also while it is attached and running (crash-consistent only). The test cluster scripts set it |
+| Restore | Refused while the instance runs (`Cannot restore custom volume used by running instances`); after a stop, `PUT` with `restore` brought back the snapshot's data (verified with a marker file) |
+| Attach to a VM | A `block` volume appears as a second disk (`sdb`); a `filesystem` volume added to a running VM is mounted over virtiofs |
+| Instance deleted | The volume stays, with `used_by` empty: data outlives the instance, so Apelora must track and delete volumes itself |
+| Delete | Deletes the volume together with its snapshots, in one call |
+| Evacuation | Incus **stops** an instance with a member-local volume in place (it does not move it) and starts it again when the member is restored |
 | `used_by` | Lists the instances the volume is attached to |
 
-Still to verify: snapshot and restore with snapshots allowed, attach to a VM, a volume outliving its deleted instance, delete, and evacuation of an instance with a member-local volume.
+Step 1 is complete. Consequences for step 2 and later: create order is instance (stopped) → volume on its member → disk device → start; grow-only and deletion are Apelora's rules, not Incus's; a project needs `restricted.snapshots=allow` before snapshots are offered; evacuation of a member with `data-local` volumes means downtime, never a move.
 
 1. Verify on the test cluster, labelled REAL INCUS TESTED: custom volume create, attach to a container and to a VM, snapshot, restore, grow, delete, and the project restrictions in §7; write down what the pinned release actually does.
 2. `VolumeProvider` trait, fake provider with fault injection, adapter implementation, `volumes` table and migration.

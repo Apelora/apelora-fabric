@@ -65,6 +65,8 @@ if ! incus project show "$PROJECT" >/dev/null 2>&1; then
   # Images are shared with the default project; profiles are the project's own.
   incus project create "$PROJECT" -c restricted=true -c features.images=false -c features.profiles=true
 fi
+# Volume snapshots are refused in a restricted project unless allowed (docs/architecture/STORAGE.md).
+incus project set "$PROJECT" restricted.snapshots=allow
 # Each device separately, so an interrupted earlier run is completed.
 devices=$(incus profile device list default --project "$PROJECT")
 grep -qx root <<<"$devices" || incus profile device add default root disk path=/ pool=local --project "$PROJECT"

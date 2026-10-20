@@ -75,6 +75,8 @@ for fp in $(incus query "/1.0/certificates?recursion=1" | jq -r '.[] | select(.r
 done
 # The restricted project may use the service range for load balancers, and nothing else.
 incus project set "$PROJECT" "restricted.networks.subnets=incusbr0:$SERVICES"
+# Volume snapshots are refused in a restricted project unless allowed (a recreated project loses it).
+incus project set "$PROJECT" restricted.snapshots=allow
 # Instances without an application network get one shared OVN network.
 if ! incus network show "$PROJECT-default" --project "$PROJECT" >/dev/null 2>&1; then
   incus network create "$PROJECT-default" --type=ovn network=incusbr0 --project "$PROJECT"
