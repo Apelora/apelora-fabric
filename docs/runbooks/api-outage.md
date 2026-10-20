@@ -1,9 +1,12 @@
 # The control plane or the worker is down
 
 **Evidence:** partly verified — the job queue's lease and fencing behaviour is covered by tests
-(MOCK VERIFIED); restarting both services against the test cluster during these sessions showed
-queued jobs carried out after the restart (REAL INCUS TESTED, 2026-10-20). A longer outage under
-load is NOT YET VERIFIED.
+(MOCK VERIFIED). REAL INCUS TESTED (2026-10-20, four members,
+`scripts/test-cluster/drill-worker-restart.sh`): a worker killed (`kill -9`) while Incus was
+creating an instance; a second worker took the jobs over when the 30 s lease expired, waited on
+the operation the first had started, and finished with exactly the three instances asked for; the
+same deployment request sent twice queued its jobs once. A longer outage under load is NOT YET
+VERIFIED.
 
 - **Running instances are unaffected.** Incus runs them; Apelora is not in the data path. Service
   addresses keep working (they are OVN load balancers).
