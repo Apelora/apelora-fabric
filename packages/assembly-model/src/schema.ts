@@ -162,9 +162,13 @@ export type Availability = (typeof AVAILABILITIES)[number];
 export const MAX_REPLICAS = 9;
 const availability = z.enum(AVAILABILITIES).optional();
 
+/** The operating system inside a virtual machine appliance. It decides which sessions are offered (a Linux terminal, or PowerShell and remote desktop); absent means Linux. */
+export const GUEST_OS = ["linux", "windows"] as const;
+export type GuestOs = (typeof GUEST_OS)[number];
+
 export const RuntimeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability }),
-  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability }),
+  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional() }),
   z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability }),
 ]);
 

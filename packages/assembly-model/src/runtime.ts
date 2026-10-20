@@ -1,5 +1,5 @@
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, InternetAccess, OciImage, Resources, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -97,6 +97,9 @@ export function instanceRequestFor(
 /** How a class's instances survive failures (`singleton` unless its runtime says otherwise). */
 export const availabilityOf = (cls: ApplianceClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";
 
+/** The operating system inside a class's instances: `linux` unless a virtual machine class says `windows`. */
+export const guestOsOf = (cls: ApplianceClass | undefined): GuestOs => (cls?.runtime?.kind === "incus-vm" ? cls.runtime.guestOs : undefined) ?? "linux";
+
 /** How many instances an appliance runs: its replicas for stateless classes, otherwise one. */
 export const replicasOf = (cls: ApplianceClass | undefined, appliance: Pick<ApplianceInstance, "replicas">): number =>
   availabilityOf(cls) === "stateless" ? (appliance.replicas ?? 1) : 1;
@@ -109,6 +112,7 @@ export interface DeployableAppliance {
   replicas: number;
   availability: Availability;
   internet: InternetAccess;
+  guestOs: GuestOs;
   /** What each instance gets (also in `spec.config` as Incus limits). */
   resources: Resources;
 }
@@ -137,7 +141,7 @@ export function deploymentAppliances(
     if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", resources: a.resources });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources });
     else skip(r.error);
   }
   return { deployable, designOnly };

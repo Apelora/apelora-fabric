@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, resourceLimits, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, guestOsOf, instanceRequestFor, resourceLimits, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -9,6 +9,23 @@ const get = (id: string): ApplianceClass => {
   return c;
 };
 const target = { project: "apelora", name: "web-01" };
+
+describe("guest operating system", () => {
+  it("is Linux unless a virtual machine class says Windows, and travels with the deployable appliance", () => {
+    const nginx = get("nginx");
+    expect(guestOsOf(nginx)).toBe("linux");
+    expect(guestOsOf(undefined)).toBe("linux");
+    const vm = (guestOs?: "windows" | "linux"): ApplianceClass => ({ ...nginx, runtime: { kind: "incus-vm", image: { server: "https://images.example.test", alias: "win/2025" }, ...(guestOs ? { guestOs } : {}) } });
+    expect(guestOsOf(vm())).toBe("linux");
+    expect(guestOsOf(vm("linux"))).toBe("linux");
+    expect(guestOsOf(vm("windows"))).toBe("windows");
+    // Only virtual machines can say so; a container class cannot claim to be Windows.
+    expect(ApplianceClassSchema.safeParse({ ...nginx, runtime: { ...nginx.runtime, guestOs: "windows" } }).success).toBe(true);
+    expect(guestOsOf({ ...nginx, runtime: { ...nginx.runtime, guestOs: "windows" } } as ApplianceClass)).toBe("linux");
+    const a = sampleCommerceStack();
+    expect(deploymentAppliances(a, lookupClass, "apelora").deployable.every((d) => d.guestOs === "linux")).toBe(true);
+  });
+});
 
 describe("runtimes", () => {
   it("every catalog runtime is sound and attached to an existing class", () => {

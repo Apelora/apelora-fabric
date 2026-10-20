@@ -68,7 +68,10 @@ function Panel({ items, level, title, pos, onRun, onClose, autoFocus }: {
               onKeyDown={(e) => { if (hasSub && (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); setSub(it.id); } }}
             >
               <span className="inline-flex w-3 justify-center">{it.checked ? <IconCheck size={12} /> : null}</span>
-              <span className="flex-1 truncate text-left">{it.label}</span>
+              <span className="flex min-w-0 flex-1 flex-col text-left">
+                <span className="truncate">{it.label}</span>
+                {it.hint && <span className="whitespace-normal text-[10px] text-base-content/70" data-testid={`menu-${it.id}-hint`}>{it.hint}</span>}
+              </span>
               {it.shortcut && <kbd className="kbd kbd-xs">{it.shortcut}</kbd>}
               {hasSub && <IconChevron size={12} />}
             </button>

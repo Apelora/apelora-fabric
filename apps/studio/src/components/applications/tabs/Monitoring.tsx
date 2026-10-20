@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useBackend } from "../../../features/applications/backend";
+import { KIND_ACTION, KIND_LABEL, useSessions } from "../../../features/sessions/sessions";
 import type { AppDetailView, AuditItem } from "../../../features/applications/model";
 import { timeAgo } from "../common";
 
@@ -14,6 +15,8 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
     backend.events(name).then((e) => { if (live) setEvents(e); }, (e: unknown) => { if (live) setEventsError(e instanceof Error ? e.message : String(e)); });
     return () => { live = false; };
   }, [backend, name, detail.operations.length]);
+  const access = useSessions((s) => s.access);
+  const openSession = useSessions((s) => s.open);
   const d = detail.application.deployment;
   const rows = detail.appliances.flatMap((a) => a.instances.map((i) => ({ appliance: a.appliance, ...i })));
   return (
@@ -29,10 +32,32 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
         ) : (
           <div className="overflow-x-auto rounded-box border border-base-300">
             <table className="table table-sm" data-testid="replica-table">
-              <thead><tr><th>Appliance</th><th>Instance</th><th>Status</th><th>Location</th><th>Health</th></tr></thead>
+              <thead><tr><th>Appliance</th><th>Instance</th><th>Status</th><th>Location</th><th>Health</th>{backend.kind === "api" && <th>Access</th>}</tr></thead>
               <tbody>{rows.map((r) => (
                 <tr key={r.instance} className={r.unhealthy ? "bg-warning/10" : ""} data-testid="replica-row" data-unhealthy={r.unhealthy}>
                   <td>{r.appliance}</td><td className="font-mono text-xs">{r.instance}</td><td>{r.status}</td><td>{r.location || "—"}</td><td>{r.unhealthy ? "Unhealthy" : "Healthy"}</td>
+                  {backend.kind === "api" && (
+                    <td>
+                      <div className="flex flex-wrap gap-1">
+                        {(access?.items.find((i) => i.instance === r.instance)?.kinds ?? []).map((k) => (
+                          <span key={k.kind} className="inline-flex flex-col">
+                            <button
+                              type="button"
+                              className="btn btn-xs"
+                              disabled={!k.allowed}
+                              title={k.allowed ? undefined : (k.reason ?? undefined)}
+                              aria-describedby={k.allowed ? undefined : `why-${r.instance}-${k.kind}`}
+                              onClick={() => openSession({ app: name, instance: r.instance, appliance: r.appliance, kind: k.kind, approvalRequired: k.approvalRequired })}
+                              data-testid={`open-${k.kind}`}
+                            >
+                              {KIND_ACTION[k.kind]}{k.allowed && k.approvalRequired ? " · needs approval" : ""}
+                            </button>
+                            {!k.allowed && <span id={`why-${r.instance}-${k.kind}`} className="max-w-48 text-[10px] text-base-content/70" data-testid={`why-${k.kind}`}>{KIND_LABEL[k.kind]}: {k.reason}</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}</tbody>
             </table>

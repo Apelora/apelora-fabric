@@ -3,11 +3,12 @@ import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STRO
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
 import { ms } from "./motion";
+import { sessionMenuItems } from "../sessions/menu";
 
 export type MenuItem =
   | { type: "header"; label: string }
   | { type: "separator" }
-  | { type: "item"; id: string; label: string; shortcut?: string; checked?: boolean; disabled?: boolean; danger?: boolean; run?: () => void; children?: MenuItem[] };
+  | { type: "item"; id: string; label: string; shortcut?: string; checked?: boolean; disabled?: boolean; hint?: string; danger?: boolean; run?: () => void; children?: MenuItem[] };
 
 export interface MenuModel { title: string; items: MenuItem[] }
 
@@ -17,6 +18,8 @@ export interface RfActions {
 
 const item = (id: string, label: string, run: () => void, o: Partial<Extract<MenuItem, { type: "item" }>> = {}): MenuItem => ({ type: "item", id, label, run, ...o });
 const sep: MenuItem = { type: "separator" };
+/** Entries for a deployed application's instances, set apart from the design actions; nothing when there are none. */
+const withSeparator = (items: MenuItem[]): MenuItem[] => (items.length ? [sep, { type: "header", label: "Running instance" }, ...items] : []);
 
 /** Focuses a field in the inspector once React has rendered the selection. */
 function focusField(selector: string) {
@@ -93,6 +96,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
         item("reset-size", "Reset size", () => s().resetSize(app.id), { disabled: !layout?.custom }),
         item("disconnect", cables ? `Unplug all cables (${cables})` : "Unplug all cables", () => s().disconnectAllCables(app.id), { disabled: cables === 0 }),
         item("zoom", "Zoom to appliance", () => rf.fitView({ nodes: [{ id: app.id }], padding: 0.8, maxZoom: 1.5, duration: ms(250) })),
+        ...withSeparator(sessionMenuItems(app.id)),
         sep,
         ...(cls?.composition ? [item("ungroup", "Ungroup component", () => s().ungroupSelection(app.id), { shortcut: "Ctrl+Shift+G" })] : []),
         item("save-class", "Save as custom appliance…", () => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config)), { disabled: !!cls?.composition }),

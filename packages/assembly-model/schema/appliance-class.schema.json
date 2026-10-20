@@ -234,6 +234,13 @@
                 "singleton",
                 "stateful"
               ]
+            },
+            "guestOs": {
+              "type": "string",
+              "enum": [
+                "linux",
+                "windows"
+              ]
             }
           },
           "required": [

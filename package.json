@@ -21,12 +21,15 @@
     "schema": "npm run schema -w @apelora/assembly-model",
     "catalog:doc": "npm run catalog:doc -w @apelora/appliance-catalog",
     "dev:console": "npm run dev -w @apelora/fabric-console",
-    "api:generate": "cargo run -q -p apelora-control-plane -- openapi > packages/api-client/openapi.json && npm run generate -w @apelora/api-client"
+    "api:generate": "cargo run -q -p apelora-control-plane -- openapi > packages/api-client/openapi.json && npm run generate -w @apelora/api-client",
+    "mutation": "stryker run",
+    "mutation:rust": "cargo mutants --no-shuffle -j 4"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.64.1",
+    "@stryker-mutator/core": "^10.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

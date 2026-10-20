@@ -14,6 +14,7 @@ import { AppShell } from "./AppShell";
 import { DeployVersionDialog } from "./DeployVersionDialog";
 import { LifecycleActions } from "./LifecycleActions";
 import { PublishDialog } from "./PublishDialog";
+import { SessionHost } from "../sessions/SessionHost";
 import { AppIcon, DesignBadge, Empty, ErrorState, RuntimeBadge, Skeleton } from "./common";
 import { Deployments } from "./tabs/Deployments";
 import { Monitoring } from "./tabs/Monitoring";
@@ -135,6 +136,7 @@ export function ApplicationRoute({ app, tab }: { app: string; tab: AppTab }) {
   return (
     <AppShell route={{ name: "application", app, tab }} bare={tab === "designer"}>
       <Workspace app={app} tab={tab} />
+      <SessionHost app={app} />
     </AppShell>
   );
 }
