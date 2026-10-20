@@ -247,7 +247,7 @@ test.describe("fabric console views", () => {
     expect(revoked).toBe(1);
   });
 
-  test("operators are not offered membership or the audit log", async ({ page }) => {
+  test("operators are not offered membership, the audit log or token administration", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
@@ -255,7 +255,7 @@ test.describe("fabric console views", () => {
     });
     await page.goto("/#/membership");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link")).toHaveText(["Overview", "Instances", "Preflight", "Networks & storage"]);
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
     await expect(page.getByTestId("whoami")).toHaveText("alex · operator");
   });
@@ -326,5 +326,68 @@ test.describe("fabric console on a phone", () => {
       expect(box.height, name).toBeGreaterThanOrEqual(44);
       expect(box.x + box.width, name).toBeLessThanOrEqual(390);
     }
+  });
+});
+
+test.describe("fabric console operations and administration", () => {
+  test.beforeEach(async ({ page }) => { await page.route("**/api/**", (route) => route.abort()); });
+
+  test("operations lists jobs with their outcome and refreshes while some are in progress", async ({ page }) => {
+    let finished = false;
+    const job = (id: string, kind: string, status: string, lastError: string | null, attempts = 1) =>
+      ({ id, kind, status, attempts, maxAttempts: 5, lastError, incusOperation: null, request: { project: "apelora", name: "web-01" }, createdAt: now, updatedAt: now });
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/jobs": () => ({ json: { items: [
+        job("j2", "instance.stop", finished ? "succeeded" : "running", null),
+        job("j1", "instance.create", "failed", "no cluster member has a supported architecture (x86_64)"),
+      ] } }),
+    });
+    await page.goto("/#/operations");
+    const rows = page.getByTestId("job-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1)).toContainText("Create instance");
+    await expect(rows.nth(1)).toContainText("apelora/web-01");
+    await expect(rows.nth(1).getByTestId("job-error")).toContainText("supported architecture");
+    await expect(rows.nth(0)).toContainText("Running");
+    finished = true; // the page refreshes on its own while a job is in progress
+    await expect(rows.nth(0)).toContainText("Done", { timeout: 8000 });
+  });
+
+  test("an administrator creates a token shown once, sees running versus pinned Incus, and revokes", async ({ page }) => {
+    let items = [{ id: "t1", name: "admin", role: "fabric-admin", createdAt: now, expiresAt: null, revokedAt: null, lastUsedAt: now }];
+    let body: unknown = null;
+    let revoked = "";
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2" } }),
+      "GET /api/v1/tokens": () => ({ json: { items } }),
+      "POST /api/v1/tokens": (req) => {
+        body = req.postDataJSON();
+        const info = { id: "t2", name: "ci", role: "auditor", createdAt: now, expiresAt: "2027-01-18T00:00:00Z", revokedAt: null, lastUsedAt: null };
+        items = [...items, info];
+        return { status: 201, json: { token: "apl_" + "b".repeat(64), info } };
+      },
+      "DELETE /api/v1/tokens/t2": () => { revoked = "t2"; items = items.map((t) => (t.id === "t2" ? { ...t, revokedAt: now } : t)); return { status: 204 }; },
+    });
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("system")).toContainText("7.0.3 (7.0 LTS series) · running 7.0.2 differs");
+    await page.getByTestId("token-open").click();
+    await page.getByTestId("token-name").fill("ci");
+    await page.getByTestId("token-role").selectOption("auditor");
+    await page.getByTestId("token-days").fill("30");
+    await page.getByTestId("token-submit").click();
+    expect(body).toEqual({ name: "ci", role: "auditor", expiresInDays: 30 });
+    await expect(page.getByTestId("new-token-value")).toHaveValue("apl_" + "b".repeat(64));
+    await page.getByRole("button", { name: "Hide token" }).click();
+    await expect(page.getByTestId("new-token")).toHaveCount(0);
+    await expect(page.getByTestId("token-row")).toHaveCount(2);
+    await page.getByRole("button", { name: "Revoke token ci" }).click();
+    await expect(page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.getByTestId("confirm-action").click();
+    await expect(page.getByTestId("token-row").nth(1)).toContainText("Revoked");
+    expect(revoked).toBe("t2");
   });
 });

@@ -4,10 +4,12 @@ import { ApiRequestError, type ClusterResponse, type Health, type Permission, ty
 
 import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
 import { client, useLoad, writeToken } from "./lib/api";
+import { AdministrationView } from "./views/Administration";
 import { AuditView } from "./views/Audit";
 import { InfrastructureView } from "./views/Infrastructure";
 import { InstancesView } from "./views/Instances";
 import { MembershipView } from "./views/Membership";
+import { OperationsView } from "./views/Operations";
 import { PreflightView } from "./views/Preflight";
 
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
@@ -16,14 +18,16 @@ type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: 
 const VIEWS = [
   { id: "overview", label: "Overview" },
   { id: "instances", label: "Instances" },
+  { id: "operations", label: "Operations" },
   { id: "preflight", label: "Preflight" },
   { id: "infrastructure", label: "Networks & storage" },
   { id: "membership", label: "Membership", needs: "manage-infrastructure" as Permission },
   { id: "audit", label: "Audit log", needs: "read-audit" as Permission },
+  { id: "administration", label: "Administration" },
 ] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 /** Views with one section use that section's header as their page title. */
-const SINGLE_SECTION = new Set<ViewId>(["instances", "preflight", "audit"]);
+const SINGLE_SECTION = new Set<ViewId>(["instances", "operations", "preflight", "audit"]);
 
 const viewFromHash = (): ViewId => {
   const id = window.location.hash.replace(/^#\/?/, "");
@@ -191,6 +195,8 @@ export function App() {
                 {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}
                 {current === "membership" && <MembershipView onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
+                {current === "operations" && <OperationsView onAuth={onAuth} />}
+                {current === "administration" && <AdministrationView me={me} health={up} onAuth={onAuth} />}
               </div>
             )}
           </div>

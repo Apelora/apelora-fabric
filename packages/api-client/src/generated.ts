@@ -54,6 +54,14 @@ export type CreateJoinToken = {
   memberName: string;
 };
 
+export type CreateToken = {
+  /** 1–365 days; 90 when omitted. */
+  expiresInDays?: number | null;
+  /** Who or what uses it, e.g. "ci" or a person's name. */
+  name: string;
+  role: Role;
+};
+
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
   error: ErrorDetail;
@@ -164,6 +172,10 @@ export type JobAccepted = {
   jobId: string;
 };
 
+export type JobList = {
+  items: Job[];
+};
+
 export type JoinTokenCreated = {
   /** RFC 3339, as Incus reports it. */
   expiresAt: string;
@@ -264,6 +276,39 @@ export type StoragePoolList = {
   source: Source;
 };
 
+/** Facts about this control plane and the Incus release it is pinned to. */
+export type SystemInfo = {
+  apiVersion: string;
+  /** Incus release Apelora is tested against (`upstream.lock.yaml`). */
+  incusPinned: string;
+  /** Incus LTS series the pin follows, e.g. "7.0". */
+  incusSeries: string;
+  /** Evidence recorded for the pin. */
+  incusTestedWith: string;
+  version: string;
+};
+
+export type TokenCreated = {
+  info: TokenInfo;
+  /** The token itself, shown only in this response. */
+  token: string;
+};
+
+export type TokenInfo = {
+  /** RFC 3339. */
+  createdAt: string;
+  expiresAt?: string | null;
+  id: string;
+  lastUsedAt?: string | null;
+  name: string;
+  revokedAt?: string | null;
+  role: Role;
+};
+
+export type TokenList = {
+  items: TokenInfo[];
+};
+
 export type WhoAmI = {
   /** Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`). */
   deployProjects: string[];
@@ -284,11 +329,16 @@ export const operations = {
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
   delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
   change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
+  jobs: { method: "GET", path: "/api/v1/jobs", params: [], public: false },
   job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
+  system: { method: "GET", path: "/api/v1/system", params: [], public: false },
+  tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
+  create_token: { method: "POST", path: "/api/v1/tokens", params: [], public: false },
+  revoke_token: { method: "DELETE", path: "/api/v1/tokens/{id}", params: ["id"], public: false },
   whoami: { method: "GET", path: "/api/v1/whoami", params: [], public: false },
 } as const;
 
@@ -314,6 +364,8 @@ export type Responses = {
   delete_instance: JobAccepted;
   /** Queues starting or stopping an Apelora instance. Needs `deploy`. */
   change_state: JobAccepted;
+  /** The 100 most recent jobs, newest first. Needs `read-inventory`. */
+  jobs: JobList;
   /** A queued job and its progress. Needs `read-inventory`. */
   job: Job;
   /** Networks in all projects. Needs `read-inventory`. */
@@ -324,6 +376,14 @@ export type Responses = {
   projects: ProjectList;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
+  /** Versions of this control plane and the Incus release it is pinned to. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
+  system: SystemInfo;
+  /** API tokens, active and revoked (never the tokens themselves). Needs `manage-tokens`. */
+  tokens: TokenList;
+  /** Creates an API token, shown only in this response. Needs `manage-tokens`. */
+  create_token: TokenCreated;
+  /** Revokes an API token; it stops working at once. Needs `manage-tokens`. */
+  revoke_token: null;
   /** The caller's name, role and the permissions that role grants. */
   whoami: WhoAmI;
 };
@@ -340,10 +400,15 @@ export type Bodies = {
   create_instance: InstanceSpec;
   delete_instance: never;
   change_state: StateChange;
+  jobs: never;
   job: never;
   networks: never;
   preflight: never;
   projects: never;
   storage_pools: never;
+  system: never;
+  tokens: never;
+  create_token: CreateToken;
+  revoke_token: never;
   whoami: never;
 };

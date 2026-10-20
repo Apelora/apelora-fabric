@@ -227,6 +227,29 @@ pub(super) async fn delete_instance(
     queue(&state, &p, &headers, "instance.delete", &target, payload).await
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct JobList {
+    pub items: Vec<Job>,
+}
+
+/// The 100 most recent jobs, newest first. Needs `read-inventory`.
+#[utoipa::path(get, path = "/api/v1/jobs", tag = "deployment", operation_id = "jobs",
+    responses((status = 200, body = JobList), (status = 401, body = ErrorBody),
+        (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn jobs(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<JobList>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
+    let pool = store(&state)?;
+    let items = apelora_persistence::recent_jobs(pool, 100)
+        .await?
+        .into_iter()
+        .map(Job::from)
+        .collect();
+    Ok(Json(JobList { items }))
+}
+
 /// A queued job and its progress. Needs `read-inventory`.
 #[utoipa::path(get, path = "/api/v1/jobs/{id}", tag = "deployment",
     params(("id" = Uuid, Path, description = "Job id")),

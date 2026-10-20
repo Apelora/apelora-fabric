@@ -71,20 +71,25 @@ describe("api client", () => {
     expect(Object.values(operations).map((o) => `${o.method} ${o.path}`).sort()).toEqual([
       "DELETE /api/v1/cluster/join-tokens/{member}",
       "DELETE /api/v1/instances/{project}/{name}",
+      "DELETE /api/v1/tokens/{id}",
       "GET /api/v1/audit",
       "GET /api/v1/cluster",
       "GET /api/v1/cluster/join-tokens",
       "GET /api/v1/health",
       "GET /api/v1/instances",
+      "GET /api/v1/jobs",
       "GET /api/v1/jobs/{id}",
       "GET /api/v1/networks",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
       "GET /api/v1/storage-pools",
+      "GET /api/v1/system",
+      "GET /api/v1/tokens",
       "GET /api/v1/whoami",
       "POST /api/v1/cluster/join-tokens",
       "POST /api/v1/instances",
       "POST /api/v1/instances/{project}/{name}/state",
+      "POST /api/v1/tokens",
     ]);
   });
 });

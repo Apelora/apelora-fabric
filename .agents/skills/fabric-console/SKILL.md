@@ -14,7 +14,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/App.tsx` | Shell: 48px header, side navigation (wraps into rows under `md`), hash routing (`#/instances`), health check, sign-in, `whoami` |
 | `src/lib/api.ts` | `client`, token in `sessionStorage` only, `useLoad` (401 → sign-in), `followJob` (polls `GET /jobs/{id}` until final), `idempotencyKey` |
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
-| `src/views/*.tsx` | One file per view: Instances (+ deploy dialog), Preflight, Infrastructure, Membership, Audit |
+| `src/views/*.tsx` | One file per view: Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership, Audit, Administration (API tokens, System) |
 
 ## Rules
 
@@ -23,7 +23,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 3. **Instance actions** only on `instance.managed` instances in `whoami.deployProjects`; others say "Not managed by Apelora". Each action sends an `Idempotency-Key`, then follows its job: the row shows "Stopping…", retries (`attempt n`) and the job's `lastError`; the list reloads when the job ends.
 4. **Deploy** offers only catalog classes with a `runtime` and builds the body with `instanceRequestFor` (`@apelora/assembly-model`); the image choice follows the class's `imageBy` setting.
 5. **Destructive actions** use `ConfirmDialog`: the consequence in the copy, Cancel focused by default, the action quieter (`btn-ghost text-error`); deleting an instance requires typing its name (focus goes to that field).
-6. **Secrets shown once:** a join token appears in a read-only field with "Copy token" and "Hide token"; it is never stored (not in state after hiding, not in storage, not in the URL).
+6. **Secrets shown once:** a join token or a new API token appears in a read-only field with "Copy token" and "Hide token"; it is never stored (not in state after hiding, not in storage, not in the URL).
 7. **One page title:** views with a single section pass `level={1}` so their section header is the `h1`; multi-section views get the shell's `h1`. One `btn-primary` per view.
 8. **Phones:** no sideways page scroll at 390px; secondary table columns use `max-sm:hidden` so row actions stay visible; on touch screens (`pointer: coarse`, `styles/index.css`) controls get a 44px hit area while desktop keeps compact `btn-sm`/`btn-xs`.
 

@@ -262,3 +262,27 @@ async fn audit_events_are_recorded(pool: PgPool) {
         .expect("row");
     assert_eq!(action, "application.create");
 }
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn recent_jobs_are_newest_first_and_bounded(pool: PgPool) {
+    let mut ids = Vec::new();
+    for n in 0..3 {
+        ids.push(
+            enqueue_job(&pool, "noop", None, &json!({ "n": n }), None)
+                .await
+                .expect("enqueue")
+                .id(),
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let jobs = recent_jobs(&pool, 2).await.expect("jobs");
+    assert_eq!(
+        jobs.iter().map(|j| j.id).collect::<Vec<_>>(),
+        vec![ids[2], ids[1]]
+    );
+    assert_eq!(
+        recent_jobs(&pool, 0).await.expect("jobs").len(),
+        1,
+        "at least one"
+    );
+}

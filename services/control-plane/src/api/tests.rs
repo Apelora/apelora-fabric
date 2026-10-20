@@ -233,6 +233,10 @@ async fn openapi_document_is_public_and_lists_every_route() {
     assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["get"].is_object());
     assert!(doc["paths"]["/api/v1/cluster/join-tokens/{member}"]["delete"].is_object());
+    assert!(doc["paths"]["/api/v1/tokens"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/tokens/{id}"]["delete"].is_object());
+    assert!(doc["paths"]["/api/v1/jobs"]["get"].is_object());
+    assert!(doc["paths"]["/api/v1/system"]["get"].is_object());
     assert_eq!(
         doc["paths"]["/api/v1/health"]["get"]["security"],
         json!([{}]),
@@ -653,4 +657,150 @@ fn long_lived_join_tokens_get_a_warning() {
     let w = cluster_admin::lifetime_warnings("2026-10-20T03:00:00.123456789+00:00", now);
     assert!(w[0].contains("cluster.join_token_expiry"), "{w:?}");
     assert!(cluster_admin::lifetime_warnings("mock: never used", now).is_empty());
+}
+
+// ---- Administration ------------------------------------------------------------------------
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn api_tokens_are_created_once_listed_without_secrets_and_revoked(pool: Pool) {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+
+    let (status, _) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/tokens",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    for (body, why) in [
+        (json!({ "name": "", "role": "auditor" }), "empty name"),
+        (json!({ "name": "ci", "role": "root" }), "unknown role"),
+        (
+            json!({ "name": "ci", "role": "auditor", "expiresInDays": 0 }),
+            "no lifetime",
+        ),
+        (
+            json!({ "name": "ci", "role": "auditor", "expiresInDays": 366 }),
+            "over a year",
+        ),
+    ] {
+        let (status, _) = send(
+            state.clone(),
+            "POST",
+            "/api/v1/tokens",
+            &admin,
+            Some(body),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}");
+    }
+
+    let res = router(state.clone())
+        .oneshot(
+            Request::post("/api/v1/tokens")
+                .header(header::AUTHORIZATION, format!("Bearer {admin}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({ "name": "ci", "role": "auditor", "expiresInDays": 7 }).to_string(),
+                ))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.headers()[header::CACHE_CONTROL], "no-store");
+    let created: Value =
+        serde_json::from_slice(&res.into_body().collect().await.expect("body").to_bytes())
+            .expect("json");
+    let secret = created["token"].as_str().expect("token").to_owned();
+    assert_eq!(created["info"]["role"], "auditor");
+    assert!(
+        created["info"]["expiresAt"].is_string(),
+        "API tokens always expire"
+    );
+
+    let (status, me) = send(state.clone(), "GET", "/api/v1/whoami", &secret, None, None).await;
+    assert_eq!(
+        (status, me["role"].as_str()),
+        (StatusCode::OK, Some("auditor"))
+    );
+    let (_, list) = send(state.clone(), "GET", "/api/v1/tokens", &admin, None, None).await;
+    assert_eq!(list["items"].as_array().map(Vec::len), Some(3));
+    assert!(!list.to_string().contains(&secret));
+
+    let id = created["info"]["id"].as_str().expect("id").to_owned();
+    let path = format!("/api/v1/tokens/{id}");
+    assert_eq!(
+        send(state.clone(), "DELETE", &path, &admin, None, None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        send(state.clone(), "DELETE", &path, &admin, None, None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let (status, _) = send(state.clone(), "GET", "/api/v1/whoami", &secret, None, None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "revoked at once");
+
+    let audit: Vec<(String, String)> =
+        sqlx::query_as("SELECT action, detail::text FROM audit_events ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .expect("audit");
+    assert_eq!(
+        audit.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(),
+        ["token.create", "token.revoke"]
+    );
+    assert!(audit.iter().all(|(_, d)| !d.contains(&secret)));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    let auditor = apelora_persistence::create_token(&pool, "audit", "auditor", None)
+        .await
+        .expect("token")
+        .0;
+    apelora_persistence::enqueue_job(
+        &pool,
+        "instance.stop",
+        None,
+        &json!({ "project": "apelora", "name": "web-01" }),
+        None,
+    )
+    .await
+    .expect("enqueue");
+    let (status, jobs) = send(state.clone(), "GET", "/api/v1/jobs", &auditor, None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(jobs["items"][0]["kind"], "instance.stop");
+    assert_eq!(jobs["items"][0]["request"]["name"], "web-01");
+    let (status, system) = send(state, "GET", "/api/v1/system", &auditor, None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(system["incusSeries"], "7.0");
+    assert!(
+        system["incusPinned"]
+            .as_str()
+            .is_some_and(|v| v.starts_with("v7.0."))
+    );
 }

@@ -19,6 +19,7 @@ pub struct TokenRecord {
     pub created_at: OffsetDateTime,
     pub expires_at: Option<OffsetDateTime>,
     pub revoked_at: Option<OffsetDateTime>,
+    pub last_used_at: Option<OffsetDateTime>,
 }
 
 fn hash(token: &str) -> Vec<u8> {
@@ -45,7 +46,7 @@ pub async fn create_token(
     let secret = new_secret()?;
     let rec = sqlx::query_as::<_, TokenRecord>(
         "INSERT INTO api_tokens (id, name, token_hash, role, expires_at) VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, name, role, created_at, expires_at, revoked_at",
+         RETURNING id, name, role, created_at, expires_at, revoked_at, last_used_at",
     )
     .bind(Uuid::new_v4())
     .bind(name)
@@ -66,7 +67,7 @@ pub async fn authenticate(pool: &Pool, presented: &str) -> Result<Option<TokenRe
     Ok(sqlx::query_as::<_, TokenRecord>(
         "UPDATE api_tokens SET last_used_at = now()
          WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())
-         RETURNING id, name, role, created_at, expires_at, revoked_at",
+         RETURNING id, name, role, created_at, expires_at, revoked_at, last_used_at",
     )
     .bind(hash(presented))
     .fetch_optional(pool)
@@ -89,7 +90,7 @@ pub async fn revoke_token(pool: &Pool, id: Uuid) -> Result<()> {
 }
 
 pub async fn list_tokens(pool: &Pool) -> Result<Vec<TokenRecord>> {
-    Ok(sqlx::query_as::<_, TokenRecord>("SELECT id, name, role, created_at, expires_at, revoked_at FROM api_tokens ORDER BY created_at")
+    Ok(sqlx::query_as::<_, TokenRecord>("SELECT id, name, role, created_at, expires_at, revoked_at, last_used_at FROM api_tokens ORDER BY created_at")
         .fetch_all(pool)
         .await?)
 }
@@ -111,6 +112,12 @@ mod tests {
                 .expect("auth")
                 .map(|r| r.id),
             Some(rec.id)
+        );
+        assert!(
+            list_tokens(&pool).await.expect("list")[0]
+                .last_used_at
+                .is_some(),
+            "use is recorded"
         );
         let stored: Vec<u8> = sqlx::query_scalar("SELECT token_hash FROM api_tokens")
             .fetch_one(&pool)

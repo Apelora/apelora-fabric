@@ -15,6 +15,6 @@ upstreams:
     support: LTS until June 2031 (bug and security fixes for two years, then security only)
     host_minimums: Linux kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables 1.0
     required_api_extensions: instance_create_start, operation_wait; instance_oci for OCI (checked by preflight against a real 7.0.1 server)
-    tested_with: "REAL INCUS TESTED 2026-10-20 with 7.0.1 (lts-7.0 packages, Debian 13 arm64, one-member cluster, docs/development/TEST-CLUSTER.md): inventory, preflight, LXC/OCI/VM lifecycle; 7.0.2 itself not yet run"
+    tested_with: "REAL INCUS TESTED 2026-10-20 with 7.0.1 (lts-7.0 packages, Debian 13 arm64, two-member cluster, docs/development/TEST-CLUSTER.md): inventory, preflight, LXC/OCI/VM lifecycle, join tokens; 7.0.2 itself not yet run"
     upgrade_policy: update pull request only; human review; no automatic production upgrades
     verified: 2026-10-20

@@ -322,6 +322,18 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
     .ok_or_else(|| StoreError::NotFound(format!("job {id}")))
 }
 
+/// The most recently created jobs, newest first.
+pub async fn recent_jobs(pool: &PgPool, limit: i64) -> Result<Vec<JobView>> {
+    Ok(sqlx::query_as::<_, JobView>(
+        "SELECT id, kind, status, attempts, max_attempts, last_error, external_operation, payload,
+                created_at, updated_at
+         FROM jobs ORDER BY created_at DESC, id LIMIT $1",
+    )
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?)
+}
+
 fn fenced(rows: u64, job: &ClaimedJob) -> Result<()> {
     if rows == 1 {
         Ok(())
