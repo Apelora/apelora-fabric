@@ -4,6 +4,16 @@
 
 <h1 align="center">Apelora Fabric</h1>
 
+<p align="center">
+  <a href="https://github.com/Apelora/apelora-fabric/actions/workflows/ci.yml"><img src="https://github.com/Apelora/apelora-fabric/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/Apelora/apelora-fabric/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/Apelora/apelora-fabric/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/Apelora/apelora-fabric/actions/workflows/upstream-check.yml"><img src="https://github.com/Apelora/apelora-fabric/actions/workflows/upstream-check.yml/badge.svg" alt="Upstream check"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
+  <a href="upstream.lock.yaml"><img src="https://img.shields.io/badge/Incus-7.0%20LTS-orange" alt="Incus 7.0 LTS"></a>
+  <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.88%2B-informational" alt="Rust 1.88 or later"></a>
+  <a href="docs/architecture/current-state.md"><img src="https://img.shields.io/badge/status-early%20development-lightgrey" alt="Status: early development"></a>
+</p>
+
 **Distributed Application OS** — an open-source platform for composing, connecting, deploying, and operating distributed applications from reusable appliances on a cluster of Linux servers. Appliances run on [Incus](https://linuxcontainers.org/incus/) as lightweight containers (or VMs where needed); Apelora adds the application layer on top.
 
 > Status: early-stage research and development. The orchestration system is not production-ready.
