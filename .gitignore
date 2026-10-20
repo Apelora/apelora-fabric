@@ -42,3 +42,9 @@ tmp/
 
 # Optional read-only upstream source checkouts (Phase 02)
 /upstream/
+
+# Mutation testing output
+.stryker-tmp/
+mutants.out/
+mutants.out.old/
+reports/

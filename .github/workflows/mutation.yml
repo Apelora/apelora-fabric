@@ -1,0 +1,71 @@
+name: Mutation testing
+
+# Mutation testing changes the code in small ways and checks that the tests notice. It is slow,
+# so it runs weekly, on demand, and on pull requests that touch the authorisation rules (where a
+# surviving mutant means a security rule no test protects). See
+# docs/development/MUTATION-TESTING.md. No secrets; nothing touches real infrastructure.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/auth/**"
+      - "crates/domain/src/access.rs"
+      - "crates/domain/src/lifecycle.rs"
+      - ".cargo/mutants.toml"
+      - ".github/workflows/mutation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-rules:
+    name: Rust authorisation and lifecycle rules (every mutant must be caught)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/bin/cargo-mutants
+            target
+          key: mutants-${{ hashFiles('Cargo.lock') }}
+      - run: command -v cargo-mutants || cargo install cargo-mutants --locked --version 27.1.0
+      - name: Authorisation crate
+        run: cargo mutants -p apelora-auth --no-shuffle -j 2
+      - name: Interactive access and lifecycle rules
+        run: cargo mutants -p apelora-domain --no-shuffle -j 2 -f crates/domain/src/access.rs -f crates/domain/src/lifecycle.rs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutants-rust
+          path: mutants.out
+          retention-days: 14
+
+  typescript-rules:
+    name: TypeScript model rules (score reported)
+    # Only the weekly and manual runs: the score is a trend, not a gate.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx stryker run --reporters clear-text,json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutants-typescript
+          path: reports/mutation
+          retention-days: 14

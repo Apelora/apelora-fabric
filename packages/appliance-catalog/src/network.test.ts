@@ -75,4 +75,56 @@ describe("network intents", () => {
     expect(publishedPorts(plan, gateways, new Set(["nginx-01"])), "a design-only target is not published").toEqual([]);
     expect(publishedPorts(plan, new Set(), new Set(["haproxy-01"])), "no gateway, nothing published").toEqual([]);
   });
+
+  it("a rule opens one source to one target: neither side can be swapped for another appliance", () => {
+    const plan = compileNetwork(sampleCommerceStack(), "shop");
+    // Declared: nginx-01 -> postgresql-01 on 5432, haproxy-01 -> nginx-01 on 80.
+    expect(allows(plan, "nginx-01", "nginx-02", 5432), "same port, other target").toBe(false);
+    expect(allows(plan, "nginx-01", "haproxy-01", 80)).toBe(false);
+    expect(allows(plan, "nginx-02", "nginx-01", 80)).toBe(false);
+    expect(allows(plan, "haproxy-01", "postgresql-01", 5432), "other source, declared target").toBe(false);
+    expect(allows(plan, "ghost", "postgresql-01", 5432)).toBe(false);
+    expect(allows(plan, "nginx-01", "ghost", 5432)).toBe(false);
+    expect(allows(plan, "haproxy-01", "nginx-01", 80)).toBe(true);
+    expect(allows(plan, "haproxy-01", "nginx-02", 80)).toBe(true);
+  });
+
+  it("a rule without a well-known port opens every port of that one pair, nothing else", () => {
+    const plan = compileNetwork(sampleCommerceStack(), "shop");
+    const anyPort = { ...plan, intents: [{ ...plan.intents[0]!, number: null }] };
+    const { from, to } = anyPort.intents[0]!;
+    expect(allows(anyPort, from, to, 1)).toBe(true);
+    expect(allows(anyPort, from, to, 65535)).toBe(true);
+    expect(allows(anyPort, to, from, 1)).toBe(false);
+  });
+
+  it("publishes each port once, sorted by appliance, ignoring rules that have no port", () => {
+    const plan = compileNetwork(sampleCommerceStack(), "shop");
+    const gw = plan.intents.find((i) => i.from === "gateway-01")!;
+    const twice = { ...plan, intents: [{ ...gw, to: "zz", from: "gateway-01" }, gw, { ...gw }, { ...gw, to: "aa" }, { ...gw, to: "bb", number: null }] };
+    expect(publishedPorts(twice, new Set(["gateway-01"]), new Set(["haproxy-01", "zz", "aa", "bb"]))).toEqual([
+      { appliance: "aa", transport: "tcp", port: 80 },
+      { appliance: "haproxy-01", transport: "tcp", port: 80 },
+      { appliance: "zz", transport: "tcp", port: 80 },
+    ]);
+  });
+
+  it("cables only count between an output and an input of two different appliances", () => {
+    let a = createEmptyAssembly("direction");
+    const place = (cls: string) => { const r = addAppliance(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
+    const web = place("nginx");
+    const db = place("postgresql");
+    const r = connect(a, { applianceId: web, portId: "db" }, { applianceId: db, portId: "postgres" });
+    if ("error" in r) throw new Error(r.error.message);
+    const plan = compileNetwork(r.assembly, "d");
+    expect(plan.intents.map((i) => `${i.from}->${i.to}`)).toEqual([`${web}->${db}`]);
+    // A cable written backwards still means the output reaches the input, never the reverse.
+    const flipped: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, source: c.target, target: c.source })) } };
+    expect(compileNetwork(flipped, "d").intents.map((i) => `${i.from}->${i.to}`)).toEqual([`${web}->${db}`]);
+    // Two outputs, or a cable from an appliance to itself, open nothing.
+    const outputs: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { applianceId: web, portId: "db" } })) } };
+    expect(compileNetwork(outputs, "d").intents).toEqual([]);
+    const itself: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, target: { applianceId: web, portId: "http" } })) } };
+    expect(compileNetwork(itself, "d").intents).toEqual([]);
+  });
 });

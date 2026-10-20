@@ -1,0 +1,14 @@
+# Mutation testing (cargo-mutants, MIT): `cargo mutants` changes the code in small ways and
+# fails to "catch" a change only when no test notices. Scope: the code whose mistakes are
+# security holes. See docs/development/MUTATION-TESTING.md.
+examine_globs = [
+    "crates/auth/src/*.rs",
+    "crates/domain/src/access.rs",
+    "crates/domain/src/lifecycle.rs",
+    "services/control-plane/src/api/sessions.rs",
+    "services/control-plane/src/api/authz.rs",
+]
+exclude_globs = ["**/tests.rs", "**/*_tests.rs"]
+# Test code and derived plumbing add noise, not signal.
+# Excluded as equivalent: `Resource::platform()` is `Default::default()` by definition.
+exclude_re = ["impl (Debug|Default) for", "Resource::platform"]
