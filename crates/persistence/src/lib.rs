@@ -11,7 +11,12 @@ use uuid::Uuid;
 
 pub use sqlx::PgPool as Pool;
 
+mod machines;
 mod tokens;
+pub use machines::{
+    MachineRecord, admit_machine, approve_machine, machine, machines, register_machine,
+    remove_machine, withdraw_approval,
+};
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 
 /// Embedded migrations (`crates/persistence/migrations`).

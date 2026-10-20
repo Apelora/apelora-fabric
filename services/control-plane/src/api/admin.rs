@@ -71,7 +71,7 @@ pub struct SystemInfo {
     pub incus_tested_with: String,
 }
 
-fn rfc3339(t: time::OffsetDateTime) -> String {
+pub(super) fn rfc3339(t: time::OffsetDateTime) -> String {
     t.format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
 }

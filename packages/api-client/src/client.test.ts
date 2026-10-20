@@ -81,6 +81,8 @@ describe("api client", () => {
     expect(Object.values(operations).map((o) => `${o.method} ${o.path}`).sort()).toEqual([
       "DELETE /api/v1/cluster/join-tokens/{member}",
       "DELETE /api/v1/instances/{project}/{name}",
+      "DELETE /api/v1/machines/{name}",
+      "DELETE /api/v1/machines/{name}/approval",
       "DELETE /api/v1/tokens/{id}",
       "GET /api/v1/applications",
       "GET /api/v1/applications/{name}/status",
@@ -92,6 +94,8 @@ describe("api client", () => {
       "GET /api/v1/instances",
       "GET /api/v1/jobs",
       "GET /api/v1/jobs/{id}",
+      "GET /api/v1/machines",
+      "GET /api/v1/machines/{name}/admission",
       "GET /api/v1/networks",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
@@ -106,6 +110,9 @@ describe("api client", () => {
       "POST /api/v1/cluster/members/{member}/restore",
       "POST /api/v1/instances",
       "POST /api/v1/instances/{project}/{name}/state",
+      "POST /api/v1/machines",
+      "POST /api/v1/machines/{name}/admit",
+      "POST /api/v1/machines/{name}/approve",
       "POST /api/v1/tokens",
     ]);
   });

@@ -145,6 +145,21 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/cluster/members/{member}/restore",
             post(cluster_admin::restore),
         )
+        .route(
+            "/api/v1/machines",
+            get(machines::list).post(machines::register),
+        )
+        .route("/api/v1/machines/{name}", delete(machines::remove))
+        .route("/api/v1/machines/{name}/approve", post(machines::approve))
+        .route(
+            "/api/v1/machines/{name}/approval",
+            delete(machines::withdraw),
+        )
+        .route(
+            "/api/v1/machines/{name}/admission",
+            get(machines::preview_admission),
+        )
+        .route("/api/v1/machines/{name}/admit", post(machines::admit))
         .route("/api/v1/preflight", get(preflight))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
@@ -656,7 +671,9 @@ impl Modify for BearerAuth {
         admin::list, admin::create, admin::revoke, admin::system,
         applications::list, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
-        cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore),
+        cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
+        machines::list, machines::register, machines::approve, machines::withdraw,
+        machines::preview_admission, machines::admit, machines::remove),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"))
@@ -682,6 +699,7 @@ mod admin;
 mod applications;
 mod cluster_admin;
 mod deploy;
+mod machines;
 
 #[cfg(test)]
 mod tests;

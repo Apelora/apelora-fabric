@@ -225,6 +225,7 @@ mod tests {
             failure_domain: "default".into(),
             database: true,
             groups: vec![],
+            scheduler: "all".into(),
         }
     }
 

@@ -4,6 +4,9 @@ import type { Source } from "@apelora/api-client";
 
 import type { Load } from "../lib/api";
 
+/** The API's messages are clauses; shown on their own they start with a capital. */
+export const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export function StatusRow({ label, tone, value }: { label: string; tone: "ok" | "off" | "pending"; value: string }) {
   const dot = tone === "ok" ? "status-success" : tone === "off" ? "status-error" : "status-neutral";
   return (

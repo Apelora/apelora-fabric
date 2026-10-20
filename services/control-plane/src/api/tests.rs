@@ -1817,3 +1817,306 @@ async fn consumers_are_created_knowing_where_their_providers_are(pool: Pool) {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+// ---- Machines and enrolment (Phase 09) -----------------------------------------------------
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_machine_is_registered_approved_joined_held_admitted_and_audited(pool: Pool) {
+    let mock = Provider::Mock(MockIncus::default());
+    let state =
+        AppState::new(mock.clone(), Auth::Tokens(pool.clone())).with_admin(Some(mock.clone()));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let Provider::Mock(incus) = &mock else {
+        unreachable!()
+    };
+    let state_of = |list: &Value, name: &str| {
+        list["items"]
+            .as_array()
+            .and_then(|a| a.iter().find(|m| m["name"] == name))
+            .map(|m| m["state"].as_str().unwrap_or_default().to_owned())
+    };
+    let register = json!({ "name": "mock-member-04", "description": "rack 2, slot 7" });
+
+    // Operators cannot enrol machines; only manual machines can be registered for now.
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines",
+        &operator,
+        Some(register.clone()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines",
+        &admin,
+        Some(json!({ "name": "m9", "provider": "maas" })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("provisioner_not_configured"))
+    );
+
+    let (status, m) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines",
+        &admin,
+        Some(register.clone()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{m}");
+    assert_eq!(
+        (m["state"].as_str(), m["provider"].as_str()),
+        (Some("registered"), Some("manual"))
+    );
+    assert_eq!(m["capabilities"]["installs"], false);
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines",
+        &admin,
+        Some(register),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    // An existing member is adopted as already admitted.
+    let (_, adopted) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines",
+        &admin,
+        Some(json!({ "name": "mock-member-01" })),
+        None,
+    )
+    .await;
+    assert_eq!(adopted["state"], "eligible");
+    assert_eq!(adopted["warnings"], json!([]));
+
+    // Not joined yet: no admission checks.
+    let (status, err) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/machines/mock-member-04/admission",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("not_a_member"))
+    );
+
+    // Approval: the token once, with the command; a second approval waits for a withdrawal.
+    let approve = "/api/v1/machines/mock-member-04/approve";
+    let (status, approved) = send(state.clone(), "POST", approve, &admin, None, None).await;
+    assert_eq!(status, StatusCode::CREATED, "{approved}");
+    let secret = approved["token"].as_str().expect("token").to_owned();
+    assert!(
+        approved["enrolCommand"]
+            .as_str()
+            .is_some_and(|c| c.contains("--name mock-member-04") && !c.contains(&secret))
+    );
+    let (status, err) = send(state.clone(), "POST", approve, &admin, None, None).await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("approval_pending"))
+    );
+    let (_, list) = send(state.clone(), "GET", "/api/v1/machines", &admin, None, None).await;
+    assert_eq!(
+        state_of(&list, "mock-member-04").as_deref(),
+        Some("approved")
+    );
+    assert!(!list.to_string().contains(&secret));
+
+    // Withdrawn, then approved again.
+    let (status, _) = send(
+        state.clone(),
+        "DELETE",
+        "/api/v1/machines/mock-member-04/approval",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, list) = send(state.clone(), "GET", "/api/v1/machines", &admin, None, None).await;
+    assert_eq!(
+        state_of(&list, "mock-member-04").as_deref(),
+        Some("registered")
+    );
+    let (status, _) = send(state.clone(), "POST", approve, &admin, None, None).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    // The server joins and holds itself (the enrolment script does this).
+    assert!(incus.join("mock-member-04", true));
+    let (_, list) = send(state.clone(), "GET", "/api/v1/machines", &admin, None, None).await;
+    assert_eq!(state_of(&list, "mock-member-04").as_deref(), Some("held"));
+    let (status, checks) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/machines/mock-member-04/admission",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{checks}");
+    assert_eq!(checks["admissible"], true, "{checks}");
+    let (status, err) = send(
+        state.clone(),
+        "DELETE",
+        "/api/v1/machines/mock-member-04",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("still_a_member"))
+    );
+
+    let (status, admitted) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines/mock-member-04/admit",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{admitted}");
+    let (_, list) = send(state.clone(), "GET", "/api/v1/machines", &admin, None, None).await;
+    assert_eq!(
+        state_of(&list, "mock-member-04").as_deref(),
+        Some("eligible")
+    );
+    let members = mock.cluster_members().await.expect("members");
+    assert_eq!(
+        members
+            .iter()
+            .find(|m| m.name == "mock-member-04")
+            .map(|m| m.scheduler.as_str()),
+        Some("all")
+    );
+
+    let audit: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT action, target, detail::text FROM audit_events ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .expect("audit");
+    let actions: Vec<&str> = audit.iter().map(|(a, _, _)| a.as_str()).collect();
+    assert_eq!(
+        actions,
+        [
+            "machine.register",
+            "machine.register",
+            "machine.approve",
+            "machine.approval.withdraw",
+            "machine.approve",
+            "machine.admit"
+        ]
+    );
+    assert!(audit.iter().all(|(_, _, d)| !d.contains(&secret)));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_failing_check_blocks_admission_and_a_member_that_skipped_the_hold_is_flagged(
+    pool: Pool,
+) {
+    let mock = Provider::Mock(MockIncus::default());
+    let state =
+        AppState::new(mock.clone(), Auth::Tokens(pool.clone())).with_admin(Some(mock.clone()));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let Provider::Mock(incus) = &mock else {
+        unreachable!()
+    };
+    for name in ["mock-member-04", "mock-member-05"] {
+        send(
+            state.clone(),
+            "POST",
+            "/api/v1/machines",
+            &admin,
+            Some(json!({ "name": name })),
+            None,
+        )
+        .await;
+        let path = format!("/api/v1/machines/{name}/approve");
+        assert_eq!(
+            send(state.clone(), "POST", &path, &admin, None, None)
+                .await
+                .0,
+            StatusCode::CREATED
+        );
+    }
+    // 04 joins held, then goes offline before it is admitted.
+    assert!(incus.join("mock-member-04", true));
+    incus
+        .members
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter_mut()
+        .filter(|m| m.name == "mock-member-04")
+        .for_each(|m| m.status = "Offline".into());
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/machines/mock-member-04/admit",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("admission_blocked"))
+    );
+    assert!(
+        err["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Member online: Offline")),
+        "{err}"
+    );
+    let members = mock.cluster_members().await.expect("members");
+    assert_eq!(
+        members
+            .iter()
+            .find(|m| m.name == "mock-member-04")
+            .map(|m| m.scheduler.as_str()),
+        Some(apelora_domain::enrolment::HELD)
+    );
+
+    // 05 joins without holding itself: eligible, with a warning.
+    assert!(incus.join("mock-member-05", false));
+    let (_, list) = send(state.clone(), "GET", "/api/v1/machines", &admin, None, None).await;
+    let m05 = list["items"]
+        .as_array()
+        .and_then(|a| a.iter().find(|m| m["name"] == "mock-member-05"))
+        .cloned()
+        .expect("listed");
+    assert_eq!(m05["state"], "eligible");
+    assert!(
+        m05["warnings"][0]
+            .as_str()
+            .is_some_and(|w| w.contains("without being held"))
+    );
+}

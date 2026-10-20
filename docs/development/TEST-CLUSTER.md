@@ -51,12 +51,14 @@ npm run -s runtime-requests -w @apelora/appliance-catalog > /tmp/requests.json
 APELORA_TEST_CATALOG_REQUESTS=/tmp/requests.json cargo test -p apelora-deployment-worker --test real_incus -- --ignored catalog_runtimes
 ```
 
-Add a member (another VM), approved through Apelora: a fabric administrator asks for a join token and the token goes straight to the new VM over standard input:
+Add a member (another VM), enrolled through Apelora (runbook: `docs/runbooks/member-join.md`): register and approve the machine, pipe the join token straight into the new VM (`add-member.sh` runs `scripts/enrol/enrol-member.sh` there, which also configures OVN when the cluster uses it and holds the member), then admit it:
 
 ```sh
-curl -s -X POST -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"memberName":"apelora-test-2"}' http://127.0.0.1:8080/api/v1/cluster/join-tokens |
-  jq -r .token | bash scripts/test-cluster/add-member.sh 2
+api() { curl -s -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: application/json' "$@"; }
+api -d '{"name":"apelora-test-4"}' http://127.0.0.1:8080/api/v1/machines >/dev/null
+api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/approve | jq -r .token |
+  bash scripts/test-cluster/add-member.sh 4
+api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/admit | jq '.checks[] | [.id, .status]'
 ```
 
 Add OVN (optional, after `add-member.sh`) so network intents can be enforced:
@@ -97,11 +99,13 @@ bash scripts/test-cluster/down.sh
 - **`incus launch` reads YAML from standard input**: in a script fed to `bash -s`, give it `</dev/null`, or it consumes the rest of the script.
 - **Hot-plugging a NIC into a running OCI container leaves it without an address** (no DHCP client runs inside); set a NIC's ACLs when the instance is created.
 - **Placement scriptlet:** `get_instances(location, project)` called with positional arguments returned no instances on Incus 7.0.1; keyword arguments (`location = …, project = …`) work. The scriptlet sees the new instance's `config`, so Apelora's labels drive the choice. `incus config set KEY VALUE` reads KEY as an instance name when VALUE contains `=`; use `KEY=VALUE`.
+- **Holding a member out of placement:** `scheduler.instance=manual` on a member kept six new instances off it while an instance targeted at it still landed there (REAL INCUS TESTED, 2026-10-20). Incus cannot preset it before the member joins, so `scripts/enrol/enrol-member.sh` sets it right after the join. Updating a member (`PATCH /1.0/cluster/members/<name>`) without `roles` is read as dropping them (`The "database" role cannot be dropped`): send the member's roles, groups, failure domain and description back with the config; an empty value removes a config key.
+- **Locations:** unmanaged host interfaces are listed with `"locations": null`; OVN networks list only the members that existed when they were created (the fourth member was missing from `apelora-default` and its instances still worked on it), so per-member checks look at bridges and pools only. `GET /1.0?target=<member>` returns that member's own Incus and kernel version.
 - A restricted client certificate can still read cluster members, managed networks and storage pools, so inventory and preflight work with least privilege; it sees only its own projects.
 
 ## Limits
 
-- Three members (all database voters since the third joined, 2026-10-20), all aarch64: no mixed-architecture evidence yet. With two members the second was only a database standby; with three, the cluster keeps quorum when one member is lost.
+- Four members (three database voters and a standby since the fourth was enrolled through Apelora, 2026-10-20), all aarch64: no mixed-architecture evidence yet. With two members the second was only a database standby; with three, the cluster keeps quorum when one member is lost.
 - The packaging repository may ship a different 7.0.x than `pinned_tag`; `up.sh` prints the running version, and evidence names the version it was produced with.
 - Clock drift and member latency are not measurable through the Incus API; preflight reports them as not checked.
 - Public image servers keep only recent builds: a fingerprint pin of an image they have dropped fails to download, and the job retries until it gives up. Pin images from a server you control (or mirror them) for anything that must keep working.

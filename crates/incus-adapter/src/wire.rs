@@ -52,6 +52,9 @@ pub(crate) struct ClusterMember {
     pub failure_domain: String,
     pub database: bool,
     pub groups: Vec<String>,
+    /// `null` from some servers; treated as empty.
+    pub config: Option<BTreeMap<String, String>>,
+    pub description: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -213,6 +216,8 @@ pub(crate) struct Network {
     pub managed: bool,
     pub status: String,
     pub description: String,
+    /// `null` for unmanaged host interfaces.
+    pub locations: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -222,6 +227,8 @@ pub(crate) struct StoragePool {
     pub driver: String,
     pub status: String,
     pub description: String,
+    /// `null` for unmanaged host interfaces.
+    pub locations: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

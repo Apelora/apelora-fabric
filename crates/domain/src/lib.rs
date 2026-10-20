@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod enrolment;
 pub mod evacuation;
 pub mod network;
 pub mod plan;
@@ -74,6 +75,14 @@ pub struct ClusterMember {
     pub failure_domain: String,
     pub database: bool,
     pub groups: Vec<String>,
+    /// Incus's `scheduler.instance` for this member: `all` (the default), `manual` (only
+    /// instances targeted at it are placed there) or `group`.
+    #[serde(default = "default_scheduler")]
+    pub scheduler: String,
+}
+
+fn default_scheduler() -> String {
+    "all".into()
 }
 
 /// Observed state of one Incus instance.
@@ -162,6 +171,9 @@ pub struct Network {
     pub managed: bool,
     pub status: String,
     pub description: String,
+    /// Cluster members it is created on; empty when not per member (or unknown).
+    #[serde(default)]
+    pub locations: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,6 +184,9 @@ pub struct StoragePool {
     pub driver: String,
     pub status: String,
     pub description: String,
+    /// Cluster members it is created on; empty when unknown.
+    #[serde(default)]
+    pub locations: Vec<String>,
 }
 
 /// Facts about the Incus server the adapter is talking to.

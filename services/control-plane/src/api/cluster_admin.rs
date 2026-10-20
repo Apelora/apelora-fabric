@@ -48,7 +48,7 @@ pub struct JoinTokenList {
     pub items: Vec<PendingJoin>,
 }
 
-fn admin(state: &AppState) -> Result<&Provider, ApiError> {
+pub(super) fn admin(state: &AppState) -> Result<&Provider, ApiError> {
     state.admin.as_deref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -60,7 +60,7 @@ fn admin(state: &AppState) -> Result<&Provider, ApiError> {
 }
 
 /// Membership changes are always audited, so they need the database.
-fn audit_store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
+pub(super) fn audit_store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
     match &state.auth {
         Auth::Tokens(pool) => Ok(pool),
         Auth::DisabledForDevelopment => Err(ApiError::new(
@@ -71,7 +71,7 @@ fn audit_store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError>
     }
 }
 
-fn member_name(name: &str) -> Result<(), ApiError> {
+pub(super) fn member_name(name: &str) -> Result<(), ApiError> {
     if is_valid_name(name) {
         Ok(())
     } else {

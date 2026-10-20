@@ -19,6 +19,7 @@ Browser (Studio / Fabric Console) -> Apelora API -> deployment worker -> Incus a
 - **Supply chain**: pinned dependencies, `cargo audit`/`npm audit` clean, lockfiles committed.
 - **Web**: CSP, CSRF protection for cookie auth, sanitized SVG (catalog logos), no `dangerouslySetInnerHTML` with user data.
 - **Audit**: security-relevant actions logged with actor and resource.
+- **Enrolment**: a join token is returned once (`Cache-Control: no-store`), never stored, logged or audited, and reaches the server on standard input or a hidden prompt, never a command line; a new member stays held from placement until it is admitted after checks; BMC credentials stay in the provisioner (ADR 0002).
 
 ## Output
 

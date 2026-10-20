@@ -20,6 +20,7 @@ pub use wire::Operation;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use apelora_domain::enrolment::HELD;
 use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::{
     ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network,
@@ -161,14 +162,31 @@ impl Provider {
 
     pub async fn networks(&self) -> Result<Vec<Network>, AdapterError> {
         match self {
-            Provider::Mock(m) => Ok(m.networks.clone()),
+            // Like a join: managed networks and pools are created on every member.
+            Provider::Mock(m) => Ok(m
+                .networks
+                .iter()
+                .cloned()
+                .map(|mut n| {
+                    n.locations = m.member_names();
+                    n
+                })
+                .collect()),
             Provider::Incus(c) => c.networks().await,
         }
     }
 
     pub async fn storage_pools(&self) -> Result<Vec<StoragePool>, AdapterError> {
         match self {
-            Provider::Mock(m) => Ok(m.pools.clone()),
+            Provider::Mock(m) => Ok(m
+                .pools
+                .iter()
+                .cloned()
+                .map(|mut p| {
+                    p.locations = m.member_names();
+                    p
+                })
+                .collect()),
             Provider::Incus(c) => c.storage_pools().await,
         }
     }
@@ -391,6 +409,36 @@ impl Provider {
                 c.delete_owned(kind.collection(), project, name, application)
                     .await
             }
+        }
+    }
+
+    /// One member's own server facts (Incus and kernel version). Needs a valid member name.
+    pub async fn member_server_info(&self, member: &str) -> Result<ServerInfo, AdapterError> {
+        valid_member(member)?;
+        match self {
+            Provider::Mock(m) => {
+                m.member(member)?;
+                Ok(m.server.clone())
+            }
+            Provider::Incus(c) => c.member_server_info(member).await,
+        }
+    }
+
+    /// Holds a member out of automatic placement, or makes it eligible again (Phase 09).
+    /// Needs an unrestricted identity.
+    pub async fn set_member_held(&self, member: &str, held: bool) -> Result<(), AdapterError> {
+        valid_member(member)?;
+        match self {
+            Provider::Mock(m) => {
+                let mut members = m.members.lock().unwrap_or_else(|e| e.into_inner());
+                let found = members
+                    .iter_mut()
+                    .find(|x| x.name == member)
+                    .ok_or_else(|| AdapterError::NotFound(format!("cluster member {member}")))?;
+                found.scheduler = if held { HELD } else { "all" }.into();
+                Ok(())
+            }
+            Provider::Incus(c) => c.set_member_held(member, held).await,
         }
     }
 
@@ -809,6 +857,46 @@ impl MockIncus {
         Ok(self.op())
     }
 
+    fn member_names(&self) -> Vec<String> {
+        self.members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|m| m.name.clone())
+            .collect()
+    }
+
+    fn member(&self, name: &str) -> Result<ClusterMember, AdapterError> {
+        self.members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|m| m.name == name)
+            .cloned()
+            .ok_or_else(|| AdapterError::NotFound(format!("cluster member {name}")))
+    }
+
+    /// Simulates a server joining with its pending token (as `incus admin init` would), held
+    /// out of placement when `held` (as the enrolment script does). `false` without a token.
+    pub fn join(&self, member: &str, held: bool) -> bool {
+        let mut tokens = self.join_tokens.lock().unwrap_or_else(|e| e.into_inner());
+        let before = tokens.len();
+        tokens.retain(|t| t.member_name != member);
+        if tokens.len() == before {
+            return false;
+        }
+        drop(tokens);
+        let mut members = self.members.lock().unwrap_or_else(|e| e.into_inner());
+        let mut m = members[0].clone();
+        m.name = member.to_owned();
+        m.url = format!("https://{member}.invalid:8443");
+        m.roles = Vec::new();
+        m.database = false;
+        m.scheduler = if held { HELD } else { "all" }.into();
+        members.push(m);
+        true
+    }
+
     fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {
         if self
             .members
@@ -859,6 +947,7 @@ impl Default for MockIncus {
             failure_domain: "default".into(),
             database: true,
             groups: vec!["default".into()],
+            scheduler: "all".into(),
         };
         let instance = |name: &str, kind: InstanceKind, loc: u8| Instance {
             name: name.into(),
@@ -925,14 +1014,26 @@ impl Default for MockIncus {
                 managed: true,
                 status: "Created".into(),
                 description: "mock data".into(),
+                locations: Vec::new(),
             }],
             pools: vec![StoragePool {
                 name: "mock-local".into(),
                 driver: "zfs".into(),
                 status: "Created".into(),
                 description: "mock data".into(),
+                locations: Vec::new(),
             }],
         }
+    }
+}
+
+fn valid_member(name: &str) -> Result<(), AdapterError> {
+    if is_valid_name(name) {
+        Ok(())
+    } else {
+        Err(AdapterError::InvalidConfig(format!(
+            "invalid member name {name:?}"
+        )))
     }
 }
 

@@ -1,6 +1,6 @@
 ---
 name: fabric-console
-description: Build and change the Apelora Fabric Console (apps/fabric-console) — the administrator UI for cluster status, instances, deployments, preflight, networks and storage, membership (join tokens, evacuate/restore members) and the audit log. Use for any console view, action, dialog or API wiring.
+description: Build and change the Apelora Fabric Console (apps/fabric-console) — the administrator UI for cluster status, instances, deployments, preflight, networks and storage, membership (machine enrolment, evacuate/restore members, join tokens) and the audit log. Use for any console view, action, dialog or API wiring.
 ---
 
 # Fabric Console
@@ -14,7 +14,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/App.tsx` | Shell: 48px header, side navigation (wraps into rows under `md`), hash routing (`#/instances`), health check, sign-in, `whoami` |
 | `src/lib/api.ts` | `client`, token in `sessionStorage` only, `useLoad` (401 → sign-in), `followJob` (polls `GET /jobs/{id}` until final), `idempotencyKey` |
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
-| `src/views/*.tsx` | One file per view: Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (members with evacuate/restore, join tokens), Audit, Administration (API tokens, System) |
+| `src/views/*.tsx` | One file per view: Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
 
 ## Rules
 
@@ -37,5 +37,6 @@ The console is a thin, honest client of the Rust API: every action goes through 
 
 - **High-impact actions** (evacuate a member, delete an instance): show what will happen first (a dry run from the API, never computed in the browser), then require the target's name typed; Cancel is the default focus and the destructive button stays secondary (`btn-ghost text-error`). `FormDialog wide` for dialogs holding a table.
 - **API messages** are clauses; show them with `sentence()` (capital first letter) rather than changing the API text.
+- **Lifecycle tables** (Machines): one row per object with its state in words (status dot + label), the API's `nextStep` and only the actions that state allows (at most two); the server derives state and next step, the browser never infers them. On phones (`useWide` below `sm`) the next step, warnings and actions move under the state, so the table never scrolls sideways; render actions in one place only (no hidden duplicates — they break test ids).
 - **Several `ConfirmDialog`s on one view**: tests scope to `page.locator("dialog[open]")`.
 - **Real-browser checks with a token**: never type it into the transcript; fulfil a routed URL from a git-ignored file and store it in `sessionStorage` after the first page load (a 401 on load clears it).

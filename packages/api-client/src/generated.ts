@@ -3,6 +3,14 @@
 
 export const API_VERSION = "v1";
 
+export type Admission = {
+  /** No check failed: the machine can be admitted. */
+  admissible: boolean;
+  checks: Check[];
+  name: string;
+  source: Source;
+};
+
 export type ApplianceStatus = {
   appliance: string;
   instance: string;
@@ -49,6 +57,13 @@ export type AuthMode = "tokens" | "disabled-development";
 /** How an appliance may be run and recovered (from its catalog class). */
 export type Availability = "stateless" | "singleton" | "stateful";
 
+/** What a provisioner can do to a machine without someone at the server. */
+export type Capabilities = {
+  discovers: boolean;
+  installs: boolean;
+  powers: boolean;
+};
+
 export type Check = {
   detail: string;
   /** Stable identifier, e.g. `kernel-version`. */
@@ -68,6 +83,8 @@ export type ClusterMember = {
   message: string;
   name: string;
   roles: string[];
+  /** Incus's `scheduler.instance` for this member: `all` (the default), `manual` (only instances targeted at it are placed there) or `group`. */
+  scheduler?: string;
   status: string;
   url: string;
 };
@@ -313,6 +330,48 @@ export type JoinTokenList = {
   source: Source;
 };
 
+export type Machine = {
+  admittedAt?: string | null;
+  admittedBy?: string | null;
+  /** When the approval's join token stops working, as Incus reported it. */
+  approvalExpiresAt?: string | null;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  architecture?: string | null;
+  /** What the provider can do without someone at the server. */
+  capabilities: Capabilities;
+  description: string;
+  /** The cluster member's status (`Online`, `Offline`, `Evacuated`…) once it has joined. */
+  memberStatus?: string | null;
+  name: string;
+  /** What the administrator does next. */
+  nextStep: string;
+  provider: ProvisionerKind;
+  registeredAt: string;
+  registeredBy: string;
+  state: MachineState;
+  warnings: string[];
+};
+
+export type MachineApproved = {
+  /** What to run on the server; it asks for the token without echoing it. */
+  enrolCommand: string;
+  /** RFC 3339, as Incus reports it. */
+  expiresAt: string;
+  name: string;
+  /** Single-use join token for the enrolment script. Shown only in this response. */
+  token: string;
+  warnings: string[];
+};
+
+export type MachineList = {
+  items: Machine[];
+  source: Source;
+};
+
+/** Where a machine is in enrolment. Derived from the record and from Incus, never stored. */
+export type MachineState = "registered" | "approved" | "approval-expired" | "held" | "eligible" | "left";
+
 export type MemberStateStarted = {
   member: string;
   /** Incus operation carrying out the evacuation or restore. */
@@ -322,6 +381,8 @@ export type MemberStateStarted = {
 export type Network = {
   description: string;
   kind: string;
+  /** Cluster members it is created on; empty when not per member (or unknown). */
+  locations?: string[];
   managed: boolean;
   name: string;
   project: string;
@@ -407,6 +468,9 @@ export type ProjectList = {
 /** Where the backend's view of the infrastructure comes from. */
 export type ProviderMode = "mock" | "incus";
 
+/** What installs and powers a machine. Every provisioner enrols the same way. */
+export type ProvisionerKind = "manual" | "maas";
+
 /** A port of an appliance reachable from outside the application (in the Studio: connected from a gateway). Only ports with a number can be published. */
 export type Published = {
   appliance: string;
@@ -420,6 +484,13 @@ export type QueuedChange = {
   appliance: string;
   instance: string;
   jobId: string;
+};
+
+export type RegisterMachine = {
+  description?: string;
+  /** The name it will have as a cluster member. */
+  name: string;
+  provider?: unknown | ProvisionerKind;
 };
 
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */
@@ -460,6 +531,8 @@ export type StateChange = {
 export type StoragePool = {
   description: string;
   driver: string;
+  /** Cluster members it is created on; empty when unknown. */
+  locations?: string[];
   name: string;
   status: string;
 };
@@ -531,6 +604,13 @@ export const operations = {
   change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
   jobs: { method: "GET", path: "/api/v1/jobs", params: [], public: false },
   job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
+  list_machines: { method: "GET", path: "/api/v1/machines", params: [], public: false },
+  register_machine: { method: "POST", path: "/api/v1/machines", params: [], public: false },
+  remove_machine: { method: "DELETE", path: "/api/v1/machines/{name}", params: ["name"], public: false },
+  machine_admission: { method: "GET", path: "/api/v1/machines/{name}/admission", params: ["name"], public: false },
+  admit_machine: { method: "POST", path: "/api/v1/machines/{name}/admit", params: ["name"], public: false },
+  withdraw_machine_approval: { method: "DELETE", path: "/api/v1/machines/{name}/approval", params: ["name"], public: false },
+  approve_machine: { method: "POST", path: "/api/v1/machines/{name}/approve", params: ["name"], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
@@ -582,6 +662,20 @@ export type Responses = {
   jobs: JobList;
   /** A queued job and its progress. Needs `read-inventory`. */
   job: Job;
+  /** Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`. */
+  list_machines: MachineList;
+  /** Registers a machine. A name that is already an eligible member is adopted as admitted. Needs `manage-infrastructure`; audited. */
+  register_machine: Machine;
+  /** Forgets a machine that is not a cluster member (revoking an unused join token). Needs `manage-infrastructure`; audited. */
+  remove_machine: null;
+  /** The admission checks for a joined machine (dry run; changes nothing). Needs `manage-infrastructure`. */
+  machine_admission: Admission;
+  /** Admits a joined machine: re-runs the admission checks and, when none fails, lets Incus place instances on it. Needs `manage-infrastructure`; audited. */
+  admit_machine: Admission;
+  /** Withdraws an approval: revokes the machine's unused join token. Needs `manage-infrastructure`; audited. */
+  withdraw_machine_approval: null;
+  /** Approves a machine: asks Incus for its single-use join token, returned only in this response with the command to run on the server. Needs `manage-infrastructure`; audited without the token. */
+  approve_machine: MachineApproved;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
   /** Read-only readiness checks of the Incus server or cluster and of the projects Apelora deploys into. Changes nothing. Needs `read-inventory`. */
@@ -623,6 +717,13 @@ export type Bodies = {
   change_state: StateChange;
   jobs: never;
   job: never;
+  list_machines: never;
+  register_machine: RegisterMachine;
+  remove_machine: never;
+  machine_admission: never;
+  admit_machine: never;
+  withdraw_machine_approval: never;
+  approve_machine: never;
   networks: never;
   preflight: never;
   projects: never;

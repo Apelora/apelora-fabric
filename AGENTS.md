@@ -9,7 +9,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 ## What exists now
 
 - `apps/studio` — the designer: Vite + React + TypeScript + React Flow (`@xyflow/react`) + Tailwind CSS 4 + daisyUI 5; deploys designs through the API and overlays live state.
-- `apps/fabric-console` — administrator console: inventory, instances, operations, preflight, membership (join tokens, evacuation), audit, tokens.
+- `apps/fabric-console` — administrator console: inventory, instances, operations, preflight, membership (machine enrolment, evacuation, join tokens), audit, tokens.
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, network intent compiler, (de)serialisation, generated JSON Schema.
 - `packages/appliance-catalog` — original appliance class manifests, runtimes (NGINX, Debian), bundled logos (with attribution), sample assembly.

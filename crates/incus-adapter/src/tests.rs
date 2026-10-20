@@ -183,7 +183,9 @@ async fn maps_instance_kinds_and_ignores_unknown_fields() {
 async fn reads_projects_networks_and_pools() {
     let base = fixture_server(vec![
         ("/1.0/projects?recursion=1", sync(json!([{ "name": "default", "description": "Default Incus project", "config": {}, "used_by": [] }, { "name": "apelora", "description": "", "config": { "restricted": "true", "features.images": "true" }, "used_by": [] }]))),
-        ("/1.0/networks?recursion=1&all-projects=true", sync(json!([{ "name": "incusbr0", "project": "default", "type": "bridge", "managed": true, "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
+        ("/1.0/networks?recursion=1&all-projects=true", sync(json!([{ "name": "incusbr0", "project": "default", "type": "bridge", "managed": true, "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] },
+            // Unmanaged host interfaces have no locations (null, as Incus 7.0.1 sends them).
+            { "name": "eth0", "project": "default", "type": "physical", "managed": false, "status": "", "description": "", "locations": null, "config": {}, "used_by": [] }]))),
         ("/1.0/storage-pools?recursion=1", sync(json!([{ "name": "local", "driver": "zfs", "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
     ]).await;
     let p = Provider::Incus(IncusClient::plain_for_tests(&base));
@@ -197,6 +199,8 @@ async fn reads_projects_networks_and_pools() {
     );
     let nets = p.networks().await.expect("networks");
     assert_eq!((nets[0].kind.as_str(), nets[0].managed), ("bridge", true));
+    assert_eq!(nets[0].locations, ["node-1"]);
+    assert!(nets[1].locations.is_empty());
     assert_eq!(p.storage_pools().await.expect("pools")[0].driver, "zfs");
 }
 

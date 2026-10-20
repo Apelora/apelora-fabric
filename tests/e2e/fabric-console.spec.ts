@@ -215,37 +215,85 @@ test.describe("fabric console views", () => {
     });
   });
 
-  test("an administrator issues a join token that is shown once and revokes it with confirmation", async ({ page }) => {
+  test("an administrator adds a machine, sees its join token once, and admits it after the checks", async ({ page }) => {
+    type Row = { name: string; description: string; state: string; nextStep: string; warnings: string[] };
+    let machines: Row[] = [];
     let pending: { memberName: string; expiresAt: string }[] = [];
     let revoked = 0;
+    let admitted = 0;
+    let admissible = false;
     const token = "eyJzZXJ2ZXJfbmFtZSI6InNlcnZlci0wNCJ9";
+    const row = (name: string, description: string, state: string, nextStep: string): Row => ({ name, description, state, nextStep, warnings: [] });
+    const check = (id: string, title: string, status: string, detail: string) => ({ id, title, status, detail });
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: pending } }),
-      "POST /api/v1/cluster/join-tokens": (req) => {
-        const { memberName } = req.postDataJSON() as { memberName: string };
-        pending = [{ memberName, expiresAt: "2026-10-20T03:00:00Z" }];
-        return { status: 201, json: { memberName, expiresAt: "2026-10-20T03:00:00Z", token, warnings: ["this token stays valid until 2026-10-20T03:00:00Z; set the Incus option cluster.join_token_expiry to 1H or less"] } };
+      "DELETE /api/v1/cluster/join-tokens/server-04": () => { revoked += 1; pending = []; machines = machines.map((m) => ({ ...m, state: "approval-expired" })); return { status: 204 }; },
+      "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: machines } }),
+      "POST /api/v1/machines": (req) => {
+        const { name, description } = req.postDataJSON() as { name: string; description: string };
+        machines = [row(name, description, "registered", "Install Incus on the server, then approve it.")];
+        return { status: 201, json: machines[0] };
       },
-      "DELETE /api/v1/cluster/join-tokens/server-04": () => { revoked += 1; pending = []; return { status: 204 }; },
+      "POST /api/v1/machines/server-04/approve": () => {
+        pending = [{ memberName: "server-04", expiresAt: "2026-10-20T03:00:00Z" }];
+        machines = [{ ...machines[0], state: "approved", nextStep: "Run the enrolment script on the server and paste the join token." }];
+        return { status: 201, json: { name: "server-04", expiresAt: "2026-10-20T03:00:00Z", token, enrolCommand: "sudo bash scripts/enrol/enrol-member.sh --name server-04 --address <this server's cluster address>", warnings: ["this token stays valid until 2026-10-20T03:00:00Z; set the Incus option cluster.join_token_expiry to 1H or less"] } };
+      },
+      "GET /api/v1/machines/server-04/admission": () => ({ json: { source: { provider: "incus", observedAt: now }, name: "server-04", admissible, checks: [
+        check("member-online", "Member online", "pass", "online"),
+        check("storage-pools", "Storage pools", admissible ? "pass" : "fail", admissible ? "1 created on the member" : "not created on the member: local"),
+        check("clock", "Clock", "not-checked", "the Incus API cannot measure clock drift"),
+      ] } }),
+      "POST /api/v1/machines/server-04/admit": () => { admitted += 1; machines = [{ ...machines[0], state: "eligible", nextStep: "None." }]; return { json: { source: { provider: "incus", observedAt: now }, name: "server-04", admissible: true, checks: [] } }; },
     });
     await page.goto("/#/membership");
-    await page.getByTestId("member-name").fill("server-04");
-    await page.getByTestId("create-join-token").click();
+    await expect(page.getByText("No machines yet.")).toBeVisible();
+    await page.getByTestId("machine-name").fill("2server");
+    await expect(page.getByTestId("register-machine")).toBeDisabled();
+    await page.getByTestId("machine-name").fill("server-04");
+    await page.getByTestId("machine-description").fill("Rack 2, slot 7");
+    await page.getByTestId("register-machine").click();
+    await expect(page.getByTestId("machine-state")).toHaveText("Not approved");
+    await expect(page.getByTestId("machine-row")).toContainText("Rack 2, slot 7");
+
+    // Approval: the token and the command, once.
+    await page.getByTestId("approve-machine").click();
     await expect(page.getByTestId("issued-token-value")).toHaveValue(token);
+    await expect(page.getByTestId("enrol-command")).toContainText("--name server-04");
     await expect(page.getByTestId("issued-token")).toContainText("Shown only once");
     await expect(page.getByTestId("issued-token")).toContainText("cluster.join_token_expiry");
+    await expect(page.getByTestId("machine-state")).toHaveText("Waiting to join");
     await expect(page.getByTestId("join-token-row")).toHaveCount(1);
     await page.getByRole("button", { name: "Hide token" }).click();
     await expect(page.getByTestId("issued-token")).toHaveCount(0);
     await expect(page.getByText(token)).toHaveCount(0);
+
+    // The token can still be revoked from the list of unused tokens.
     await page.getByRole("button", { name: "Revoke the join token for server-04" }).click();
     const open = page.locator("dialog[open]");
     await expect(open.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel" })).toBeFocused();
     await open.getByTestId("confirm-action").click();
     await expect(page.getByText("No unused join tokens.")).toBeVisible();
     expect(revoked).toBe(1);
+
+    // The server joined (held): a failed check blocks admission until it is fixed.
+    machines = [{ ...machines[0], state: "held", nextStep: "Check and admit it." }];
+    await page.reload();
+    await expect(page.getByTestId("machine-state")).toHaveText("Joined, not admitted");
+    await page.getByTestId("admit-machine").click();
+    const dialog = page.getByTestId("admit-dialog");
+    await expect(dialog.getByTestId("admission-check")).toHaveCount(3);
+    await expect(dialog.getByTestId("admission-blocked")).toBeVisible();
+    await expect(dialog.getByTestId("admit-start")).toHaveCount(0);
+    admissible = true;
+    await dialog.getByRole("button", { name: "Check again" }).click();
+    await expect(dialog.getByTestId("admission-check").nth(1)).toContainText("Passed");
+    await dialog.getByTestId("admit-start").click();
+    await expect(page.getByTestId("machines-notice")).toContainText("server-04 is in service");
+    await expect(page.getByTestId("machine-state")).toHaveText("In service");
+    expect(admitted).toBe(1);
   });
 
   test("an administrator evacuates a member only after the dry run and typing its name, then restores it", async ({ page }) => {
@@ -263,6 +311,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), member("node-2", status)] } }),
       "GET /api/v1/cluster/members/node-2/evacuation": () => ({ json: plan(blocked) }),
       "POST /api/v1/cluster/members/node-2/evacuate": (req) => { sent.push({ path: "evacuate", body: req.postDataJSON() }); status = "Evacuated"; return { status: 202, json: { member: "node-2", operation: "op-1" } }; },
@@ -351,6 +400,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster": () => ({ json: cluster("incus", ["node-1", "node-2"]) }),
     });
     for (const view of ["instances", "membership"]) {
@@ -382,6 +432,29 @@ test.describe("fabric console on a phone", () => {
       expect(box.height, name).toBeGreaterThanOrEqual(44);
       expect(box.x + box.width, name).toBeLessThanOrEqual(390);
     }
+  });
+
+  test("machines show their next step and actions under the state, touch-sized and without sideways scrolling", async ({ page }) => {
+    await page.route("**/api/**", (route) => route.abort());
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: health("incus", true) }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "fabric-admin", permissions: ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"], deployProjects: ["apelora"] } }));
+    await page.route("**/api/v1/machines", (route) => route.fulfill({ json: { source: { provider: "incus", observedAt: now }, items: [
+      { name: "server-04", description: "fourth member, enrolled by hand", state: "eligible", nextStep: "None.", warnings: [] },
+      { name: "server-05", description: "rack 1, slot 3", state: "registered", nextStep: "Install Incus on the server, then approve it.", warnings: [] },
+    ] } }));
+    await page.goto("/#/membership");
+    await expect(page.getByTestId("machine-row")).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    const frame = page.getByTestId("machines").locator("div.overflow-x-auto");
+    expect(await frame.evaluate((d) => d.scrollWidth - d.clientWidth)).toBeLessThanOrEqual(0);
+    await expect(page.getByTestId("machine-row").nth(1)).toContainText("Install Incus on the server, then approve it.");
+    for (const name of ["Add machine", "Approve", "Remove server-05"]) {
+      const box = (await page.getByRole("button", { name, exact: true }).boundingBox())!;
+      expect(box.height, name).toBeGreaterThanOrEqual(44);
+      expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+    }
+    const input = (await page.getByTestId("machine-name").boundingBox())!;
+    expect(input.height).toBeGreaterThanOrEqual(44);
   });
 });
 

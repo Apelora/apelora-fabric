@@ -1,6 +1,6 @@
 # Current state
 
-Updated: 2026-10-20 (after Phase 08 slice 4, Phase 07 slice 4, Phase 10 slice 2) · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md), [runbooks](../runbooks/README.md). The Phase 01 audit this file started as is summarised under *Earlier Xen-based assumptions* below.
+Updated: 2026-10-20 (after Phase 09 slice 1, Phase 07 slice 5, Phase 10 slice 3) · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md), [runbooks](../runbooks/README.md). The Phase 01 audit this file started as is summarised under *Earlier Xen-based assumptions* below.
 
 Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/development/TEST-CLUSTER.md), **MOCK VERIFIED** (against the mock provider), **CONTRACT VERIFIED** (against recorded Incus responses).
 
@@ -9,14 +9,14 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Area | Location | State |
 |---|---|---|
 | Apelora Studio (designer) | `apps/studio` | Catalog, canvas with typed terminals, cables and link tags, properties (resources, availability and replicas, internet access, configuration, ports), components, zones, undo/redo, import/export, validation; deploy dialog (plan preview, network rules, published ports, jobs) and a live overlay of every replica and service address. |
-| Fabric Console | `apps/fabric-console` | Overview, instances (deploy, stop, delete), operations, preflight, networks and storage, membership (members with evacuate/restore and dry run, join tokens), audit log, administration (API tokens, versions). |
-| Control plane | `services/control-plane` | Axum API (OpenAPI 3 document, generated TypeScript client), API tokens and roles, inventory, preflight, instances, applications (plan, deploy, revisions, status with services), cluster administration (join tokens, evacuation) through a separate admin identity, audit log. |
+| Fabric Console | `apps/fabric-console` | Overview, instances (deploy, stop, delete), operations, preflight, networks and storage, membership (machines: add, approve, check and admit; members with evacuate/restore and dry run; unused join tokens), audit log, administration (API tokens, versions). |
+| Control plane | `services/control-plane` | Axum API (OpenAPI 3 document, generated TypeScript client), API tokens and roles, inventory, preflight, instances, applications (plan, deploy, revisions, status with services), cluster administration (machine enrolment, join tokens, evacuation) through a separate admin identity, audit log. |
 | Deployment worker | `services/deployment-worker` | Job queue with leases and fencing; instance lifecycle; `network.sync` (OVN networks, ACLs, address sets, load balancers with health-check repair, publishing, internet access); replica supervisor (recreate, restart, substitute on failed members, retire, sync retry). |
-| Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0007, Incus REST client with TLS pinning and a mock provider. |
+| Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0008, Incus REST client with TLS pinning and a mock provider. |
 | Catalog and model | `packages/` | 83 original appliance classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
-| Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 109 Rust tests, 74 unit tests, 85 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the three-member test cluster. |
+| Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 119 Rust tests, 75 unit tests, 86 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright, dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check. |
-| Test cluster and drills | `scripts/test-cluster/` | Three Lima VMs with Incus 7.0.1 (all database voters), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration. |
+| Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
 
 ## Earlier Xen-based assumptions
 
@@ -68,7 +68,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Evacuation with dry run (API, console), audited; supervisor stays out of the way | Done; REAL INCUS TESTED (two members) and verified in a real browser | 08 |
 | Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
 | Health with hysteresis beyond the port check, service names (DNS), rebalancing | Missing | 08 |
-| Bare-metal provisioning and enrolment | Missing; ADR 0002 accepted | 09 |
+| Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
+| MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
 | Secret scanning in CI; release workflow (draft releases, not exercised yet); end-to-end demonstration (`demo.sh`); certificate rotation | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
@@ -84,8 +85,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 - **Health** is Incus status plus the load balancer's port check; no application-level readiness or hysteresis beyond the recovery delay.
 - **Load balancer quirks (Incus 7.0.1):** updates may be refused while a member is down — in one drill for the whole outage (retried; the substitute joins once they succeed) — and may drop the OVN health check (detected through the state endpoint and re-applied).
 - **Offline detection:** in one drill Incus briefly reported a member that was not stopped as Offline; keep the recovery delay well above that (default 120 s).
-- **Bare-metal provisioning** (Phase 09): ADR 0002 accepted (MAAS as the first adapter behind a provider-neutral interface; manual installation stays supported); not implemented yet.
-- **Releases:** no release artefacts or staged upgrade procedure yet.
+- **Bare-metal provisioning** (Phase 09): servers installed by hand are enrolled, held and admitted through Apelora; the MAAS adapter (discovery, installation, power) is not implemented yet, and removing a member from the cluster is not offered. Incus cannot hold a member before it joins, so the enrolment script holds it right after the join; a member that joins another way is flagged, not blocked.
+- **Releases:** `v0.1.0-alpha.1` exists as a draft release (artefacts and checksums built by the release workflow); no staged upgrade procedure yet.
 
 ## Deviations from the incoming specification (deliberate)
 

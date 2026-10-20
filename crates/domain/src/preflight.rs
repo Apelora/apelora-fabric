@@ -47,7 +47,12 @@ pub struct Observed<'a> {
     pub deploy_projects: &'a [String],
 }
 
-fn check(id: &str, title: &str, status: CheckStatus, detail: impl Into<String>) -> Check {
+pub(crate) fn check(
+    id: &str,
+    title: &str,
+    status: CheckStatus,
+    detail: impl Into<String>,
+) -> Check {
     Check {
         id: id.into(),
         title: title.into(),
@@ -57,7 +62,7 @@ fn check(id: &str, title: &str, status: CheckStatus, detail: impl Into<String>) 
 }
 
 /// Leading `major.minor` of a version string such as `7.0.2` or `6.12.0-1-amd64`.
-fn major_minor(v: &str) -> Option<(u32, u32)> {
+pub(crate) fn major_minor(v: &str) -> Option<(u32, u32)> {
     let mut parts = v.split(|c: char| !c.is_ascii_digit());
     let major = parts.next()?.parse().ok()?;
     let minor = parts.next().and_then(|m| m.parse().ok()).unwrap_or(0);
@@ -295,6 +300,7 @@ mod tests {
             failure_domain: String::new(),
             database: true,
             groups: vec![],
+            scheduler: "all".into(),
         }
     }
     fn status_of(checks: &[Check], id: &str) -> CheckStatus {
@@ -323,6 +329,7 @@ mod tests {
             driver: "zfs".into(),
             status: "Created".into(),
             description: String::new(),
+            locations: vec![],
         }];
         let networks = [Network {
             name: "br0".into(),
@@ -331,6 +338,7 @@ mod tests {
             managed: true,
             status: "Created".into(),
             description: String::new(),
+            locations: vec![],
         }];
         let deploy = ["apelora".to_owned()];
         let checks = evaluate(&Observed {

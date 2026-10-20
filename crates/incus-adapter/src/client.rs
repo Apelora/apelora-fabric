@@ -778,7 +778,35 @@ impl IncusClient {
     }
 
     pub async fn server_info(&self) -> Result<ServerInfo, AdapterError> {
-        let s: wire::Server = self.get("/1.0").await?;
+        self.server_info_at("/1.0").await
+    }
+
+    /// One member's own server facts (`GET /1.0?target=<member>`): its Incus and kernel version.
+    pub async fn member_server_info(&self, member: &str) -> Result<ServerInfo, AdapterError> {
+        self.server_info_at(&format!("/1.0?target={member}")).await
+    }
+
+    /// Holds a member out of automatic placement (`scheduler.instance=manual`) or returns it to
+    /// the default. Incus reads a member update without roles as dropping them, so the
+    /// member's roles, groups, failure domain and description are sent back unchanged.
+    pub async fn set_member_held(&self, member: &str, held: bool) -> Result<(), AdapterError> {
+        let path = format!("/1.0/cluster/members/{member}");
+        let m: wire::ClusterMember = self.get(&path).await?;
+        let body = json!({
+            "roles": m.roles,
+            "groups": m.groups,
+            "failure_domain": m.failure_domain,
+            "description": m.description,
+            // An empty value removes the key: the member goes back to Incus's default.
+            "config": { "scheduler.instance": if held { apelora_domain::enrolment::HELD } else { "" } },
+        });
+        self.call::<Value>(Method::PATCH, &path, Some(&body))
+            .await
+            .map(|_| ())
+    }
+
+    async fn server_info_at(&self, path: &str) -> Result<ServerInfo, AdapterError> {
+        let s: wire::Server = self.get(path).await?;
         Ok(ServerInfo {
             api_version: s.api_version,
             server_version: Some(s.environment.server_version).filter(|v| !v.is_empty()),
@@ -805,6 +833,13 @@ impl IncusClient {
                 failure_domain: m.failure_domain,
                 database: m.database,
                 groups: m.groups,
+                scheduler: m
+                    .config
+                    .as_ref()
+                    .and_then(|c| c.get("scheduler.instance"))
+                    .filter(|s| !s.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| "all".into()),
             })
             .collect())
     }
@@ -875,6 +910,7 @@ impl IncusClient {
                 managed: n.managed,
                 status: n.status,
                 description: n.description,
+                locations: n.locations.unwrap_or_default(),
             })
             .collect())
     }
@@ -888,6 +924,7 @@ impl IncusClient {
                 driver: p.driver,
                 status: p.status,
                 description: p.description,
+                locations: p.locations.unwrap_or_default(),
             })
             .collect())
     }

@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# Adds a member to the disposable Incus test cluster: creates another Lima VM and joins it
-# with a join token read from standard input (never from the command line, so it does not
-# end up in shell history or process listings). Get the token from Apelora:
+# Adds a member to the disposable Incus test cluster: creates another Lima VM and enrols it with
+# scripts/enrol/enrol-member.sh (the same script a hand-installed server runs), passing the join
+# token on standard input (never on a command line, so it stays out of shell history and process
+# listings). The new member is held from placement until it is admitted in Apelora. Get the
+# token by registering and approving the machine:
 #
-#   curl -s -X POST -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: application/json' \
-#     -d '{"memberName":"apelora-test-2"}' http://127.0.0.1:8080/api/v1/cluster/join-tokens |
-#     jq -r .token | bash scripts/test-cluster/add-member.sh 2
+#   api() { curl -s -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: application/json' "$@"; }
+#   api -d '{"name":"apelora-test-4"}' http://127.0.0.1:8080/api/v1/machines >/dev/null
+#   api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/approve |
+#     jq -r .token | bash scripts/test-cluster/add-member.sh 4
+#   api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/admit
 #
 # See docs/development/TEST-CLUSTER.md.
 set -euo pipefail
@@ -21,6 +25,7 @@ IFS= read -r token || true
 [[ $token =~ ^[A-Za-z0-9+/=]{20,}$ ]] || { echo "expected a join token on standard input" >&2; exit 1; }
 
 vm() { limactl shell --workdir / "$VM" "$@"; }
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 state=$(limactl list --format '{{.Status}}' "$VM" 2>/dev/null || true)
 case "$state" in
@@ -37,17 +42,19 @@ fi
 addr=$(vm ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1 | head -1)
 [ -n "$addr" ] || { echo "the VM has no address on eth0" >&2; exit 1; }
 
-# The preseed (with the token) goes over standard input as well.
-vm sudo incus admin init --preseed <<PRESEED
-cluster:
-  enabled: true
-  server_name: $MEMBER
-  server_address: "$addr:8443"
-  cluster_token: "$token"
-  member_config:
-    - entity: storage-pool
-      name: local
-      key: size
-      value: 20GiB
-PRESEED
-vm sudo incus cluster list -c nusr
+# The lab's storage pool is a loop file: give the new member its size.
+printf -- '- entity: storage-pool\n  name: local\n  key: size\n  value: 20GiB\n' >"$tmp/member-config.yaml"
+args=(--name "$MEMBER" --address "$addr" --member-config /tmp/apelora-member-config.yaml)
+# When the cluster uses OVN (ovn.sh), the new member needs its OVN controller.
+first=${APELORA_TEST_VM:-apelora-incus}
+if [ -n "$(limactl shell --workdir / "$first" sudo incus config get network.ovn.northbound_connection </dev/null)" ]; then
+  vm sudo env DEBIAN_FRONTEND=noninteractive apt-get install -yq ovn-host </dev/null >/dev/null
+  central=$(limactl shell --workdir / "$first" ip -4 -o addr show dev eth0 </dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+  args+=(--ovn-remote "tcp:$central:6642" --ovn-encap-ip "$addr")
+fi
+limactl copy "$here/../enrol/enrol-member.sh" "$VM:/tmp/apelora-enrol-member.sh"
+limactl copy "$tmp/member-config.yaml" "$VM:/tmp/apelora-member-config.yaml"
+printf '%s\n' "$token" | vm sudo bash /tmp/apelora-enrol-member.sh "${args[@]}"
+unset token
+vm rm -f /tmp/apelora-enrol-member.sh /tmp/apelora-member-config.yaml
+vm sudo incus cluster list -c nusr </dev/null

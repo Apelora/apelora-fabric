@@ -1432,6 +1432,642 @@
         }
       }
     },
+    "/api/v1/machines": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`.",
+        "operationId": "list_machines",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Registers a machine. A name that is already an eligible member is adopted as admitted.\nNeeds `manage-infrastructure`; audited.",
+        "operationId": "register_machine",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterMachine"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Machine"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{name}": {
+      "delete": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Forgets a machine that is not a cluster member (revoking an unused join token). Needs\n`manage-infrastructure`; audited.",
+        "operationId": "remove_machine",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Machine name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{name}/admission": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "The admission checks for a joined machine (dry run; changes nothing). Needs\n`manage-infrastructure`.",
+        "operationId": "machine_admission",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Machine name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Admission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{name}/admit": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Admits a joined machine: re-runs the admission checks and, when none fails, lets Incus\nplace instances on it. Needs `manage-infrastructure`; audited.",
+        "operationId": "admit_machine",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Machine name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Admission"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{name}/approval": {
+      "delete": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Withdraws an approval: revokes the machine's unused join token. Needs\n`manage-infrastructure`; audited.",
+        "operationId": "withdraw_machine_approval",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Machine name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/machines/{name}/approve": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Approves a machine: asks Incus for its single-use join token, returned only in this\nresponse with the command to run on the server. Needs `manage-infrastructure`; audited\nwithout the token.",
+        "operationId": "approve_machine",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Machine name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineApproved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/networks": {
       "get": {
         "tags": [
@@ -1897,6 +2533,33 @@
   },
   "components": {
     "schemas": {
+      "Admission": {
+        "type": "object",
+        "required": [
+          "source",
+          "name",
+          "admissible",
+          "checks"
+        ],
+        "properties": {
+          "admissible": {
+            "type": "boolean",
+            "description": "No check failed: the machine can be admitted."
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "ApplianceStatus": {
         "type": "object",
         "required": [
@@ -2051,6 +2714,26 @@
           "stateful"
         ]
       },
+      "Capabilities": {
+        "type": "object",
+        "description": "What a provisioner can do to a machine without someone at the server.",
+        "required": [
+          "discovers",
+          "installs",
+          "powers"
+        ],
+        "properties": {
+          "discovers": {
+            "type": "boolean"
+          },
+          "installs": {
+            "type": "boolean"
+          },
+          "powers": {
+            "type": "boolean"
+          }
+        }
+      },
       "Check": {
         "type": "object",
         "required": [
@@ -2125,6 +2808,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "scheduler": {
+            "type": "string",
+            "description": "Incus's `scheduler.instance` for this member: `all` (the default), `manual` (only\ninstances targeted at it are placed there) or `group`."
           },
           "status": {
             "type": "string"
@@ -2897,6 +3584,161 @@
           }
         }
       },
+      "Machine": {
+        "type": "object",
+        "required": [
+          "name",
+          "provider",
+          "capabilities",
+          "description",
+          "state",
+          "nextStep",
+          "warnings",
+          "registeredBy",
+          "registeredAt"
+        ],
+        "properties": {
+          "admittedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "admittedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvalExpiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the approval's join token stops working, as Incus reported it."
+          },
+          "approvedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "architecture": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities",
+            "description": "What the provider can do without someone at the server."
+          },
+          "description": {
+            "type": "string"
+          },
+          "memberStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cluster member's status (`Online`, `Offline`, `Evacuated`…) once it has joined."
+          },
+          "name": {
+            "type": "string"
+          },
+          "nextStep": {
+            "type": "string",
+            "description": "What the administrator does next."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProvisionerKind"
+          },
+          "registeredAt": {
+            "type": "string"
+          },
+          "registeredBy": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MachineState"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MachineApproved": {
+        "type": "object",
+        "required": [
+          "name",
+          "expiresAt",
+          "token",
+          "enrolCommand",
+          "warnings"
+        ],
+        "properties": {
+          "enrolCommand": {
+            "type": "string",
+            "description": "What to run on the server; it asks for the token without echoing it."
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "RFC 3339, as Incus reports it."
+          },
+          "name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Single-use join token for the enrolment script. Shown only in this response."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "MachineList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Machine"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "MachineState": {
+        "type": "string",
+        "description": "Where a machine is in enrolment. Derived from the record and from Incus, never stored.",
+        "enum": [
+          "registered",
+          "approved",
+          "approval-expired",
+          "held",
+          "eligible",
+          "left"
+        ]
+      },
       "MemberStateStarted": {
         "type": "object",
         "required": [
@@ -2929,6 +3771,13 @@
           },
           "kind": {
             "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cluster members it is created on; empty when not per member (or unknown)."
           },
           "managed": {
             "type": "boolean"
@@ -3199,6 +4048,14 @@
           "incus"
         ]
       },
+      "ProvisionerKind": {
+        "type": "string",
+        "description": "What installs and powers a machine. Every provisioner enrols the same way.",
+        "enum": [
+          "manual",
+          "maas"
+        ]
+      },
       "Published": {
         "type": "object",
         "description": "A port of an appliance reachable from outside the application (in the Studio: connected\nfrom a gateway). Only ports with a number can be published.",
@@ -3243,6 +4100,32 @@
           "jobId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "RegisterMachine": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name it will have as a cluster member."
+          },
+          "provider": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProvisionerKind",
+                "description": "Defaults to `manual`."
+              }
+            ]
           }
         }
       },
@@ -3368,6 +4251,13 @@
           },
           "driver": {
             "type": "string"
+          },
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Cluster members it is created on; empty when unknown."
           },
           "name": {
             "type": "string"

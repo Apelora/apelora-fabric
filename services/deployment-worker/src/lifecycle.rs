@@ -377,6 +377,7 @@ mod tests {
             failure_domain: String::new(),
             database: false,
             groups: vec![],
+            scheduler: "all".into(),
         };
         let x86 = pinned(FP, &["x86_64"]);
         let mut x86_by_alias = x86.clone();
