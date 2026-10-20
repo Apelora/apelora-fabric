@@ -67,6 +67,14 @@ pub struct InstanceState {
     pub volume_devices: Vec<String>,
 }
 
+/// A snapshot of a volume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotInfo {
+    pub name: String,
+    /// RFC 3339, as Incus reports it.
+    pub created_at: String,
+}
+
 /// What Apelora needs to know about an existing custom volume.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VolumeState {
@@ -829,6 +837,174 @@ impl Provider {
         self.finish(op, &format!("growing volume {name}")).await
     }
 
+    /// The volume's snapshots, oldest first.
+    pub async fn volume_snapshots(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+    ) -> Result<Vec<SnapshotInfo>, AdapterError> {
+        valid_names(&[project, pool, name])?;
+        if let Some(m) = member {
+            valid_member(m)?;
+        }
+        match self {
+            Provider::Mock(m) => Ok(m
+                .storage()
+                .snapshots
+                .get(&mock_key(project, pool, member, name))
+                .cloned()
+                .unwrap_or_default()),
+            Provider::Incus(c) => c.volume_snapshots(project, pool, member, name).await,
+        }
+    }
+
+    /// Takes a snapshot of a volume Apelora created for `application`. Incus refuses unless
+    /// the project allows snapshots (`restricted.snapshots=allow`). While its instance runs the
+    /// snapshot is only crash-consistent.
+    pub async fn snapshot_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+        snapshot: &str,
+    ) -> Result<(), AdapterError> {
+        self.owned_volume(project, pool, member, name, application)
+            .await?;
+        valid_names(&[snapshot])?;
+        let op = match self {
+            Provider::Mock(m) => {
+                let mut st = m.storage();
+                let list = st
+                    .snapshots
+                    .entry(mock_key(project, pool, member, name))
+                    .or_default();
+                if list.iter().any(|s| s.name == snapshot) {
+                    return Err(AdapterError::Api {
+                        status: 409,
+                        message: "Snapshot already exists".into(),
+                    });
+                }
+                list.push(SnapshotInfo {
+                    name: snapshot.to_owned(),
+                    created_at: format!("mock: snapshot {}", list.len() + 1),
+                });
+                None
+            }
+            Provider::Incus(c) => {
+                c.snapshot_volume(project, pool, member, name, snapshot)
+                    .await?
+            }
+        };
+        self.finish(op, &format!("snapshotting volume {name}"))
+            .await
+    }
+
+    /// Puts a volume back to one of its snapshots: its data since then is lost. Incus refuses
+    /// while a running instance uses the volume.
+    pub async fn restore_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+        snapshot: &str,
+    ) -> Result<(), AdapterError> {
+        let v = self
+            .owned_volume(project, pool, member, name, application)
+            .await?;
+        valid_names(&[snapshot])?;
+        if !self
+            .volume_snapshots(project, pool, member, name)
+            .await?
+            .iter()
+            .any(|s| s.name == snapshot)
+        {
+            return Err(AdapterError::NotFound(format!(
+                "snapshot {snapshot} of volume {name}"
+            )));
+        }
+        let op = match self {
+            Provider::Mock(m) => {
+                if !v.used_by.is_empty() && m.storage().fail_attach.contains("running") {
+                    return Err(AdapterError::Api {
+                        status: 400,
+                        message: "Cannot restore custom volume used by running instances".into(),
+                    });
+                }
+                m.storage().restores.push(format!("{name}/{snapshot}"));
+                None
+            }
+            Provider::Incus(c) => {
+                c.restore_volume(project, pool, member, name, snapshot)
+                    .await?
+            }
+        };
+        self.finish(op, &format!("restoring volume {name}")).await
+    }
+
+    /// Deletes one snapshot of a volume Apelora created for `application`.
+    pub async fn delete_snapshot(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+        snapshot: &str,
+    ) -> Result<(), AdapterError> {
+        self.owned_volume(project, pool, member, name, application)
+            .await?;
+        valid_names(&[snapshot])?;
+        let op = match self {
+            Provider::Mock(m) => {
+                let mut st = m.storage();
+                let list = st
+                    .snapshots
+                    .entry(mock_key(project, pool, member, name))
+                    .or_default();
+                let before = list.len();
+                list.retain(|s| s.name != snapshot);
+                if list.len() == before {
+                    return Err(AdapterError::NotFound(format!("snapshot {snapshot}")));
+                }
+                None
+            }
+            Provider::Incus(c) => {
+                c.delete_snapshot(project, pool, member, name, snapshot)
+                    .await?
+            }
+        };
+        self.finish(op, &format!("deleting snapshot {snapshot}"))
+            .await
+    }
+
+    /// The volume, when it exists and Apelora created it for `application`.
+    async fn owned_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+    ) -> Result<VolumeState, AdapterError> {
+        let v = self
+            .volume(project, pool, member, name)
+            .await?
+            .ok_or_else(|| AdapterError::NotFound(format!("volume {name}")))?;
+        if !v.managed || v.application.as_deref() != Some(application) {
+            return Err(AdapterError::Api {
+                status: 409,
+                message: format!("volume {name} does not belong to application {application}"),
+            });
+        }
+        Ok(v)
+    }
+
     /// Deletes a volume Apelora created for `application`, with its snapshots; `false` when it
     /// did not exist. Incus refuses while an instance uses it.
     pub async fn delete_volume(
@@ -1015,8 +1191,13 @@ pub struct MockStorage {
     pub volumes: std::collections::BTreeMap<String, VolumeState>,
     /// Volumes (Incus names) whose creation fails, as on a full pool (tests).
     pub fail_create: std::collections::BTreeSet<String>,
-    /// Volumes whose attachment fails (tests).
+    /// Volumes whose attachment fails (tests); `running` makes restores of used volumes fail
+    /// as Incus does while their instance runs.
     pub fail_attach: std::collections::BTreeSet<String>,
+    /// Snapshots per volume (same keys as `volumes`).
+    pub snapshots: std::collections::BTreeMap<String, Vec<SnapshotInfo>>,
+    /// Restores carried out, `volume/snapshot` (tests).
+    pub restores: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

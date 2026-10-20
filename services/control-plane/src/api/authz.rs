@@ -360,6 +360,26 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["application.deploy"],
     ),
     (
+        "GET",
+        "/api/v1/applications/{name}/volumes/{volume}/snapshots",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/snapshots",
+        &["application.operate"],
+    ),
+    (
+        "DELETE",
+        "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}",
+        &["application.delete"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}/restore",
+        &["application.operate"],
+    ),
+    (
         "POST",
         "/api/v1/applications/{name}/plan",
         &["application.design", "application.deploy"],

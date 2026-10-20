@@ -2658,3 +2658,115 @@ async fn a_member_is_removed_only_when_evacuated_empty_and_confirmed(pool: Pool)
     let (status, _) = preview("mock-member-04").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn snapshots_are_taken_listed_restored_only_when_stopped_and_deleted(pool: Pool) {
+    let Provider::Mock(m) = Provider::Mock(MockIncus::default()) else {
+        unreachable!()
+    };
+    let provider = Provider::Mock(m.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("mock-local".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut db = module("db-01");
+    db["availability"] = json!("stateful");
+    db["spec"]["volumes"] = json!([{ "name": "data", "sizeMib": 1024, "path": "/data" }]);
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(json!({ "project": "apelora", "document": {}, "modules": [db] })),
+        Some("snap-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    let base = "/api/v1/applications/shop/volumes/shop-db-01-data/snapshots";
+
+    let (status, taken) = send(state.clone(), "POST", base, &operator, None, None).await;
+    assert_eq!(status, StatusCode::CREATED, "{taken}");
+    assert_eq!(
+        taken["consistency"], "crash-consistent",
+        "the instance was running"
+    );
+    let snap = taken["name"].as_str().expect("name").to_owned();
+    assert!(snap.starts_with("snap-"), "{snap}");
+    let (_, list) = send(state.clone(), "GET", base, &operator, None, None).await;
+    assert_eq!(list["items"][0]["name"], snap.as_str(), "{list}");
+
+    let restore = |confirm: String| {
+        let (state, operator, path) = (
+            state.clone(),
+            operator.clone(),
+            format!("{base}/{snap}/restore"),
+        );
+        async move {
+            send(
+                state,
+                "POST",
+                &path,
+                &operator,
+                Some(json!({ "confirm": confirm })),
+                None,
+            )
+            .await
+        }
+    };
+    let (status, body) = restore(snap.clone()).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("stop shop-db-01 first"),
+        "{body}"
+    );
+    provider
+        .change_state(
+            "apelora",
+            "shop-db-01",
+            apelora_domain::InstanceAction::Stop,
+            false,
+        )
+        .await
+        .expect("stop");
+    let (status, _) = restore("snap-wrong".into()).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = restore(snap.clone()).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(
+        m.storage().restores,
+        vec![format!("shop-db-01-data/{snap}")]
+    );
+
+    let (status, _) = send(
+        state.clone(),
+        "DELETE",
+        &format!("{base}/{snap}"),
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, list) = send(state.clone(), "GET", base, &operator, None, None).await;
+    assert_eq!(list["items"], json!([]));
+    let actions: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM audit_events WHERE action LIKE 'application.volume.%' ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(
+        actions,
+        [
+            "application.volume.snapshot",
+            "application.volume.restore",
+            "application.volume.snapshot.delete"
+        ]
+    );
+}

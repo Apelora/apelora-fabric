@@ -223,6 +223,11 @@ export type ConfirmMember = {
   force?: boolean;
 };
 
+export type ConfirmSnapshot = {
+  /** The snapshot's name again, typed by the person restoring it. */
+  confirm: string;
+};
+
 export type ConfirmVolume = {
   /** The volume's Incus name again, typed by the person deleting it. */
   confirm: string;
@@ -1180,6 +1185,24 @@ export type SessionTicket = {
   ticket: string;
 };
 
+export type SnapshotItem = {
+  /** When Incus took it (RFC 3339). */
+  createdAt: string;
+  name: string;
+};
+
+export type SnapshotList = {
+  /** Oldest first. */
+  items: SnapshotItem[];
+  source: Source;
+};
+
+export type SnapshotTaken = {
+  /** `crash-consistent` when an instance was running, else `stopped`: a snapshot of a running database is what a power cut would leave behind. */
+  consistency: string;
+  name: string;
+};
+
 /** Where inventory data came from and when it was read. */
 export type Source = {
   /** RFC 3339 timestamp (UTC). */
@@ -1371,6 +1394,10 @@ export const operations = {
   application_volumes: { method: "GET", path: "/api/v1/applications/{name}/volumes", params: ["name"], public: false },
   grow_application_volume: { method: "PATCH", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   delete_application_volume: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
+  volume_snapshots: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots", params: ["name","volume"], public: false },
+  take_volume_snapshot: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots", params: ["name","volume"], public: false },
+  delete_volume_snapshot: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}", params: ["name","volume","snapshot"], public: false },
+  restore_volume_snapshot: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}/restore", params: ["name","volume","snapshot"], public: false },
   approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
   request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
   approve_request: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
@@ -1493,6 +1520,14 @@ export type Responses = {
   grow_application_volume: null;
   /** Deletes one of the application's volumes and its snapshots, for good. The volume's Incus name must be typed again; refused while an instance uses it. Needs `application.delete` (and an approval where the policy asks for one); audited. */
   delete_application_volume: null;
+  /** The volume's snapshots, oldest first. Needs `application.view`. */
+  volume_snapshots: SnapshotList;
+  /** Takes a snapshot of the volume, named after the time (`snap-YYYYMMDD-HHMMSS`). While an instance runs the snapshot is only crash-consistent; the response says which. Snapshots are not backups: they live in the same pool. Needs `application.operate`; audited. */
+  take_volume_snapshot: SnapshotTaken;
+  /** Deletes one snapshot of the volume. Needs `application.delete`; audited. */
+  delete_volume_snapshot: null;
+  /** Puts the volume back to a snapshot: everything written since is lost. The snapshot's name must be typed again, and every instance using the volume must be stopped. Needs `application.operate` (and an approval where the policy asks for one); audited. */
+  restore_volume_snapshot: null;
   /** Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`. */
   approvals: ApprovalList;
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
@@ -1664,6 +1699,10 @@ export type Bodies = {
   application_volumes: never;
   grow_application_volume: GrowVolume;
   delete_application_volume: ConfirmVolume;
+  volume_snapshots: never;
+  take_volume_snapshot: never;
+  delete_volume_snapshot: never;
+  restore_volume_snapshot: ConfirmSnapshot;
   approvals: never;
   request_approval: NewApproval;
   approve_request: never;

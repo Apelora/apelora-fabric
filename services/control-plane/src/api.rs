@@ -184,6 +184,18 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/applications/{name}/volumes/{volume}",
             delete(volumes::delete).patch(volumes::grow),
         )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/snapshots",
+            get(volumes::snapshots).post(volumes::take_snapshot),
+        )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}",
+            delete(volumes::delete_snapshot),
+        )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}/restore",
+            post(volumes::restore_snapshot),
+        )
         .route("/api/v1/applications/{name}/access", get(sessions::access))
         .route(
             "/api/v1/applications/{name}/instances/{instance}/sessions",
@@ -1104,7 +1116,7 @@ impl Modify for BearerAuth {
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
-        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, applications::preview, applications::deploy, applications::status,
+        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,

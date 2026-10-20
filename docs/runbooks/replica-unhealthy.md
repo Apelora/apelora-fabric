@@ -17,7 +17,7 @@ What happens on its own:
    passes), `GET /api/v1/applications/<name>/status` reports `health: unhealthy` with the
    reason.
 3. A **stateless** replica unhealthy for `APELORA_HEALTH_RESTART_AFTER_SECS` (default 60 s) is
-   restarted once (audit: `application.replica.restart-unhealthy`). Only one replica of an
+   restarted once (audit: `application.replica.restart-unhealthy`). Only one replica of a
    module is restarted per pass, and the same replica not again within five minutes, so a
    replica that stays broken is not restarted in a loop. Singleton and stateful modules are
    never restarted automatically.

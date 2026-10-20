@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
-use crate::{AdapterError, InstanceState, VolumeState};
+use crate::{AdapterError, InstanceState, SnapshotInfo, VolumeState};
 use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::storage::{VOLUME_KEY, VolumeMount};
 use apelora_domain::{JoinToken, PendingJoin};
@@ -561,6 +561,79 @@ impl IncusClient {
             Err(AdapterError::NotFound(_)) => Ok(false),
             Err(e) => Err(e),
         }
+    }
+
+    /// The volume's snapshots, oldest first.
+    pub async fn volume_snapshots(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+    ) -> Result<Vec<SnapshotInfo>, AdapterError> {
+        let path = volume_path(project, pool, member, &format!("{name}/snapshots")).replacen(
+            '?',
+            "?recursion=1&",
+            1,
+        );
+        let mut all: Vec<wire::VolumeSnapshot> = self.get(&path).await?;
+        all.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        Ok(all
+            .into_iter()
+            .map(|s| SnapshotInfo {
+                // Some releases report `<volume>/<snapshot>`.
+                name: s.name.rsplit('/').next().unwrap_or_default().to_owned(),
+                created_at: s.created_at,
+            })
+            .collect())
+    }
+
+    /// `POST …/volumes/custom/<name>/snapshots`.
+    pub async fn snapshot_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        snapshot: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let path = volume_path(project, pool, member, &format!("{name}/snapshots"));
+        self.maybe_operation(Method::POST, &path, Some(&json!({ "name": snapshot })))
+            .await
+    }
+
+    /// Restores a volume from a snapshot: `PUT` of the volume with `restore`, keeping its
+    /// config and description.
+    pub async fn restore_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        snapshot: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let path = volume_path(project, pool, member, name);
+        let v: wire::Volume = self.get(&path).await?;
+        let body = json!({ "config": v.config, "description": v.description, "restore": snapshot });
+        self.maybe_operation(Method::PUT, &path, Some(&body)).await
+    }
+
+    /// `DELETE …/volumes/custom/<name>/snapshots/<snapshot>`.
+    pub async fn delete_snapshot(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        snapshot: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let path = volume_path(
+            project,
+            pool,
+            member,
+            &format!("{name}/snapshots/{snapshot}"),
+        );
+        self.maybe_operation(Method::DELETE, &path, None).await
     }
 
     /// Sends a request that Incus answers either synchronously or with an operation.

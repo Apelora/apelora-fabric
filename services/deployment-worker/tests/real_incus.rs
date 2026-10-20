@@ -496,6 +496,50 @@ async fn volumes_follow_the_instance_and_outlive_it(pool: Pool) {
         "a shrink must be refused"
     );
 
+    // Snapshots: taken while running (crash-consistent), restored only once the instance stops.
+    let (app, vp) = ("apl-volume-test", volume_pool.as_str());
+    provider
+        .snapshot_volume(&project, vp, member, &volume_name, app, "snap0")
+        .await
+        .expect("snapshot");
+    let snaps = provider
+        .volume_snapshots(&project, vp, member, &volume_name)
+        .await
+        .expect("list snapshots");
+    assert_eq!(
+        snaps.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
+        ["snap0"]
+    );
+    assert!(
+        provider
+            .restore_volume(&project, vp, member, &volume_name, app, "snap0")
+            .await
+            .is_err(),
+        "Incus refuses a restore while the instance runs"
+    );
+    converge(
+        &pool,
+        &provider,
+        "instance.stop",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    provider
+        .restore_volume(&project, vp, member, &volume_name, app, "snap0")
+        .await
+        .expect("restore after stop");
+    provider
+        .delete_snapshot(&project, vp, member, &volume_name, app, "snap0")
+        .await
+        .expect("delete snapshot");
+    assert!(
+        provider
+            .volume_snapshots(&project, vp, member, &volume_name)
+            .await
+            .expect("list snapshots")
+            .is_empty()
+    );
+
     // Creating again converges without a second volume or device.
     converge(&pool, &provider, "instance.create", &spec).await;
     converge(

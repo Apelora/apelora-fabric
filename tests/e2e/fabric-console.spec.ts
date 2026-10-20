@@ -517,6 +517,40 @@ test.describe("fabric console views", () => {
     expect(sent.at(-1)).toEqual({ sizeMib: 4096 });
   });
 
+  test("a volume's snapshots are taken, restored only with the name typed, and deleted", async ({ page }) => {
+    let snaps: { name: string; createdAt: string }[] = [];
+    const sent: { what: string; body: unknown }[] = [];
+    const vol = { module: "db-01", instance: "shop-db-01", name: "data", incusName: "shop-db-01-data", pool: "local", member: "node-2", sizeMib: 2048, content: "filesystem", class: "data-local", state: "attached", usedBy: ["shop-db-01"], createdAt: now };
+    const base = "/api/v1/applications/shop/volumes/shop-db-01-data/snapshots";
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/applications": () => ({ json: { items: [{ name: "shop", createdAt: now, latestRevision: 1 }] } }),
+      "GET /api/v1/applications/shop/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [], services: [] } }),
+      "GET /api/v1/applications/shop/volumes": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [vol] } }),
+      [`GET ${base}`]: () => ({ json: { source: { provider: "incus", observedAt: now }, items: snaps } }),
+      [`POST ${base}`]: () => { snaps = [...snaps, { name: "snap-20261021-101500", createdAt: now }]; sent.push({ what: "take", body: null }); return { status: 201, json: { name: "snap-20261021-101500", consistency: "crash-consistent" } }; },
+      [`POST ${base}/snap-20261021-101500/restore`]: (req) => { sent.push({ what: "restore", body: req.postDataJSON() }); return { status: 204 }; },
+      [`DELETE ${base}/snap-20261021-101500`]: () => { snaps = []; sent.push({ what: "delete", body: null }); return { status: 204 }; },
+    });
+    await page.goto("/#/applications");
+    await page.getByTestId("application-toggle").click();
+    await page.getByRole("button", { name: "Snapshots of shop-db-01-data" }).click();
+    const dialog = page.getByTestId("snapshots-dialog");
+    await expect(dialog).toContainText("No snapshots yet.");
+    await dialog.getByTestId("take-snapshot").click();
+    await expect(dialog.getByTestId("snapshots-notice")).toContainText("taken while the instance runs");
+    await expect(dialog.getByTestId("snapshot-row")).toHaveCount(1);
+    await dialog.getByRole("button", { name: "Restore snap-20261021-101500" }).click();
+    await expect(dialog.getByTestId("restore-start")).toBeDisabled();
+    await dialog.getByTestId("restore-confirm").fill("snap-20261021-101500");
+    await dialog.getByTestId("restore-start").click();
+    await expect(dialog.getByTestId("snapshots-notice")).toContainText("is back to snap-20261021-101500");
+    await dialog.getByRole("button", { name: "Delete snap-20261021-101500" }).click();
+    await expect(dialog).toContainText("No snapshots yet.");
+    expect(sent).toEqual([{ what: "take", body: null }, { what: "restore", body: { confirm: "snap-20261021-101500" } }, { what: "delete", body: null }]);
+  });
+
   test("each view keeps one primary action", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),

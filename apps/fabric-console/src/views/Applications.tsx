@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, VolumeItem } from "@apelora/api-client";
+import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, SnapshotList, VolumeItem } from "@apelora/api-client";
 
 import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -87,6 +87,94 @@ function DeleteVolumeDialog({ application, volume, onClose, onDeleted }: { appli
   );
 }
 
+/**
+ * A volume's snapshots: take one (crash-consistent while its instance runs), restore one with
+ * its name typed once the instance is stopped, delete one.
+ */
+function SnapshotsDialog({ application, volume, onClose }: { application: string; volume: VolumeItem | null; onClose: () => void }) {
+  const [list, setList] = useState<SnapshotList | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [round, setRound] = useState(0);
+  const last = useRef<VolumeItem | null>(null);
+  if (volume) last.current = volume;
+  const shown = volume ?? last.current;
+  const params = { name: application, volume: shown?.incusName ?? "" };
+  useEffect(() => { setNotice(null); setRestoring(null); setTyped(""); }, [volume]);
+  useEffect(() => {
+    if (!volume) return;
+    let current = true;
+    setError(null);
+    client.request("volume_snapshots", { params: { name: application, volume: volume.incusName } }).then(
+      (l) => { if (current) setList(l); },
+      (e: unknown) => { if (current) setError(messageOf(e)); },
+    );
+    return () => { current = false; };
+  }, [application, volume, round]);
+  const act = async (fn: () => Promise<string>) => {
+    setBusy(true);
+    setError(null);
+    try { setNotice(await fn()); setRestoring(null); setTyped(""); setRound((r) => r + 1); } catch (e) { setError(messageOf(e)); } finally { setBusy(false); }
+  };
+  const take = () => act(async () => {
+    const t = await client.request("take_volume_snapshot", { params });
+    return t.consistency === "crash-consistent"
+      ? `Snapshot ${t.name} taken while the instance runs: like after a power cut, so a database replays its log on restore.`
+      : `Snapshot ${t.name} taken.`;
+  });
+  const restore = (snapshot: string) => act(async () => {
+    await client.request("restore_volume_snapshot", { params: { ...params, snapshot }, body: { confirm: typed } });
+    return `Volume ${shown?.incusName ?? ""} is back to ${snapshot}. Start the module again.`;
+  });
+  const remove = (snapshot: string) => act(async () => {
+    await client.request("delete_volume_snapshot", { params: { ...params, snapshot } });
+    return `Snapshot ${snapshot} deleted.`;
+  });
+  return (
+    <FormDialog open={!!volume} title={`Snapshots of ${shown?.incusName ?? ""}`} onClose={onClose} testId="snapshots-dialog" wide>
+      <p className="text-sm text-base-content/80">Snapshots stay in the same pool as the volume: they protect against mistakes, not against losing the server.</p>
+      {notice && <p className="text-sm" role="status" data-testid="snapshots-notice">{notice}</p>}
+      {!list && !error && <p className="text-sm text-base-content/60" role="status">Reading snapshots…</p>}
+      {list && (list.items.length === 0 ? <p className="text-sm text-base-content/70">No snapshots yet.</p> : (
+        <TableFrame>
+          <thead><tr><th>Snapshot</th><th className="max-sm:hidden">Taken</th><th><span className="sr-only">Actions</span></th></tr></thead>
+          <tbody>
+            {list.items.map((sn) => (
+              <tr key={sn.name} data-testid="snapshot-row">
+                <td className="font-mono text-sm">{sn.name}</td>
+                <td className="max-sm:hidden text-sm">{Number.isNaN(Date.parse(sn.createdAt)) ? sn.createdAt : new Date(sn.createdAt).toLocaleString()}</td>
+                <td className="text-right">
+                  {restoring === sn.name ? (
+                    <span className="inline-flex flex-wrap items-center justify-end gap-1">
+                      <input className="input input-xs w-44 font-mono" aria-label={`Type ${sn.name} to restore it`} placeholder={sn.name} autoComplete="off" spellCheck={false} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="restore-confirm" />
+                      <button type="button" className="btn btn-xs btn-ghost text-error" disabled={typed !== sn.name || busy} onClick={() => void restore(sn.name)} data-testid="restore-start">Restore</button>
+                      <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setRestoring(null); setTyped(""); }}>Cancel</button>
+                    </span>
+                  ) : (
+                    <span className="inline-flex justify-end gap-1">
+                      <button type="button" className="btn btn-xs btn-ghost" aria-label={`Restore ${sn.name}`} onClick={() => { setRestoring(sn.name); setTyped(""); }} data-testid="restore-snapshot">Restore…</button>
+                      <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${sn.name}`} disabled={busy} onClick={() => void remove(sn.name)} data-testid="delete-snapshot">Delete</button>
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </TableFrame>
+      ))}
+      {restoring && <p className="text-sm text-base-content/70">Restoring replaces everything written since {restoring}. Stop the module first; type the snapshot's name to confirm.</p>}
+      {error && <ErrorPanel message={error} testId="snapshots-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Close</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => void take()} data-testid="take-snapshot">{busy ? "Working…" : "Take snapshot"}</button>
+      </div>
+    </FormDialog>
+  );
+}
+
 /** Growing a volume, also while it is in use. Volumes only grow, so the new size starts at the current one. */
 function GrowVolumeDialog({ application, volume, onClose, onGrown }: { application: string; volume: VolumeItem | null; onClose: () => void; onGrown: (message: string) => void }) {
   const [gib, setGib] = useState("");
@@ -137,6 +225,7 @@ function Volumes({ application }: { application: string }) {
   const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; data: ApplicationVolumes } | { kind: "error"; message: string }>({ kind: "loading" });
   const [deleting, setDeleting] = useState<VolumeItem | null>(null);
   const [growing, setGrowing] = useState<VolumeItem | null>(null);
+  const [snapshotting, setSnapshotting] = useState<VolumeItem | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [round, setRound] = useState(0);
   useEffect(() => {
@@ -166,6 +255,7 @@ function Volumes({ application }: { application: string }) {
                   <td className="text-sm"><span className={`status mr-2 ${st.dot}`} aria-hidden="true" />{st.label}<span className="block text-xs text-base-content/60 sm:hidden">{size(v.sizeMib)}</span></td>
                   <td className="text-right">
                     <div className="flex flex-wrap justify-end gap-1">
+                      {v.state !== "missing" && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Snapshots of ${v.incusName}`} onClick={() => { setDone(null); setSnapshotting(v); }} data-testid="volume-snapshots">Snapshots…</button>}
                       {v.state !== "missing" && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Grow ${v.incusName}`} onClick={() => { setDone(null); setGrowing(v); }} data-testid="grow-volume">Grow…</button>}
                       {v.state !== "attached" && (
                         <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${v.incusName}`} onClick={() => { setDone(null); setDeleting(v); }} data-testid="delete-volume">Delete…</button>
@@ -178,6 +268,7 @@ function Volumes({ application }: { application: string }) {
           </tbody>
         </TableFrame>
       ))}
+      <SnapshotsDialog application={application} volume={snapshotting} onClose={() => setSnapshotting(null)} />
       <GrowVolumeDialog
         application={application}
         volume={growing}

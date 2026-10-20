@@ -15,6 +15,7 @@ Incus owns pools and drivers; Apelora asks for volumes through `apelora_incus_ad
 - One volume per instance, `<instance>-<volume>`, device `vol-<volume>`, labels `user.apelora.managed|application|module|volume`.
 - Worker order (Incus does not follow a member-local volume): create the instance stopped → volume on its member → attach → start. Stateless modules cannot have volumes.
 - Deleting an instance keeps its volumes; deleting a volume is explicit and only for its own application.
+- Grow is online and grow-only (`grow_volume`); snapshots (`snapshot_volume`, `volume_snapshots`, `restore_volume`, `delete_snapshot`) need `restricted.snapshots=allow` on the project, and Incus refuses a restore while a running instance uses the volume (the API checks first and says which instance to stop).
 
 ## Model
 

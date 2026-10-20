@@ -108,6 +108,7 @@ describe("api client", () => {
   it("covers every route of the control plane", () => {
     expect(Object.values(operations).map((o) => `${o.method} ${o.path}`).sort()).toEqual([
       "DELETE /api/v1/applications/{name}/volumes/{volume}",
+      "DELETE /api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}",
       "DELETE /api/v1/cluster/join-tokens/{member}",
       "DELETE /api/v1/identity/assignments/{assignment}",
       "DELETE /api/v1/identity/groups/{group}/members/{user}",
@@ -129,6 +130,7 @@ describe("api client", () => {
       "GET /api/v1/applications/{name}/versions",
       "GET /api/v1/applications/{name}/versions/{revision}",
       "GET /api/v1/applications/{name}/volumes",
+      "GET /api/v1/applications/{name}/volumes/{volume}/snapshots",
       "GET /api/v1/approvals",
       "GET /api/v1/audit",
       "GET /api/v1/cluster",
@@ -172,6 +174,8 @@ describe("api client", () => {
       "POST /api/v1/applications/{name}/plan",
       "POST /api/v1/applications/{name}/restore",
       "POST /api/v1/applications/{name}/versions",
+      "POST /api/v1/applications/{name}/volumes/{volume}/snapshots",
+      "POST /api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}/restore",
       "POST /api/v1/approvals",
       "POST /api/v1/approvals/{id}/approve",
       "POST /api/v1/approvals/{id}/cancel",
