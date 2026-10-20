@@ -11,7 +11,9 @@ use uuid::Uuid;
 
 pub use sqlx::PgPool as Pool;
 
+mod health;
 mod machines;
+pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
 pub use machines::{
     MachineRecord, admit_machine, approve_machine, machine, machines, register_machine,
@@ -406,7 +408,7 @@ pub async fn last_lifecycle_job(
 ) -> Result<Option<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "SELECT kind FROM jobs
-         WHERE kind IN ('instance.create', 'instance.start', 'instance.stop', 'instance.delete')
+         WHERE kind IN ('instance.create', 'instance.start', 'instance.stop', 'instance.restart', 'instance.delete')
            AND payload->>'project' = $1 AND payload->>'name' = $2
          ORDER BY created_at DESC, id DESC LIMIT 1",
     )

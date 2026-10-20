@@ -225,7 +225,12 @@ impl Provider {
         force: bool,
     ) -> Result<String, AdapterError> {
         match self {
-            Provider::Mock(m) => m.set_status(project, name, action.target_status()),
+            Provider::Mock(m) => {
+                if action == InstanceAction::Restart {
+                    m.net().restarts.push(name.to_owned());
+                }
+                m.set_status(project, name, action.target_status())
+            }
             Provider::Incus(c) => c.change_state(project, name, action, force).await,
         }
     }
@@ -521,17 +526,28 @@ impl Provider {
         address: &str,
     ) -> Result<Vec<(String, String)>, AdapterError> {
         match self {
-            Provider::Mock(m) => Ok(m
-                .net()
-                .load_balancers
-                .get(&format!("{project}/{network}/{address}"))
-                .map(|(_, lb)| {
-                    lb.backends
-                        .iter()
-                        .map(|b| (b.name.clone(), "online".to_owned()))
-                        .collect()
-                })
-                .unwrap_or_default()),
+            Provider::Mock(m) => {
+                let net = m.net();
+                Ok(net
+                    .load_balancers
+                    .get(&format!("{project}/{network}/{address}"))
+                    .map(|(_, lb)| {
+                        let failing = &net.failing;
+                        lb.backends
+                            .iter()
+                            .map(|b| {
+                                let instance = b.description.split(' ').next().unwrap_or_default();
+                                let status = if failing.contains(instance) {
+                                    "offline"
+                                } else {
+                                    "online"
+                                };
+                                (b.name.clone(), status.to_owned())
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default())
+            }
             Provider::Incus(c) => c.load_balancer_health(project, network, address).await,
         }
     }
@@ -697,6 +713,10 @@ pub struct MockNetwork {
     pub load_balancers: std::collections::BTreeMap<String, (String, LoadBalancer)>,
     /// How often a health check was re-applied.
     pub health_check_repairs: u32,
+    /// Instances whose load balancer check fails (tests): their backends report `offline`.
+    pub failing: std::collections::BTreeSet<String>,
+    /// Instances restarted, in order (tests).
+    pub restarts: Vec<String>,
 }
 
 impl MockNetwork {

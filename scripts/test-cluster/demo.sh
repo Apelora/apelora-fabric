@@ -3,7 +3,8 @@
 # End-to-end demonstration on the disposable test cluster (Phase 10): deploys an application
 # through the real control plane and worker, then checks, step by step, what the platform
 # promises — replicas apart, a service address, enforced connections, internet access,
-# publishing, recovery from a failed member, evacuation — and removes everything again.
+# a replica failing its health check, publishing, recovery from a failed member, evacuation —
+# and removes everything again.
 # Every check prints PASS or FAIL; the first FAIL stops the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (three members), the dev
@@ -72,7 +73,7 @@ say "Apelora end-to-end demonstration — run directory $run"
 members=$(incus_ cluster list --format csv -c ns)
 say "members: $(echo "$members" | tr '\n' ' ')"
 [ "$(echo "$members" | grep -c ONLINE)" -ge 3 ] || fail "three online members are needed"
-pass "three members online"
+pass "$(echo "$members" | grep -c ONLINE) members online (three needed)"
 
 # --- Control plane and worker, with a short-lived administrator token ------------------
 (cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker)
@@ -81,7 +82,8 @@ out=$("$repo/target/debug/apelora-control-plane" token create --name demo --role
 echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
 echo "$out" | grep -o '^Created token [a-f0-9-]*' | awk '{print $3}' > "$run/token-id"
 export APELORA_NETWORK_UPLINK=incusbr0 APELORA_SERVICE_ADDRESSES=198.18.100.0/28 \
-  APELORA_SUPERVISE_SECS=10 APELORA_RECOVER_AFTER_SECS=30 RUST_LOG=info
+  APELORA_SUPERVISE_SECS=10 APELORA_RECOVER_AFTER_SECS=30 APELORA_HEALTH_RESTART_AFTER_SECS=30 \
+  RUST_LOG=info
 nohup "$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1 &
 nohup "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 &
 sleep 3
@@ -121,6 +123,30 @@ inet=$(echo "incus exec $APP-client-01 --project apelora -- bash -c \"timeout 6 
 [[ $inet == HTTP/1.1\ 200* ]] && pass "client reaches the internet on port 80 (web access)" || fail "internet access: $inet"
 blocked=$(echo "incus exec $APP-client-01 --project apelora -- bash -c \"timeout 5 bash -c 'exec 3<>/dev/tcp/1.1.1.1/22' 2>/dev/null && echo OPEN || echo blocked\" </dev/null" | member apelora-incus)
 [ "$blocked" = blocked ] && pass "other internet ports stay blocked" || fail "port 22 outside is open"
+
+# --- A replica fails its health check (running, but its port is closed) ------------------
+sick=$APP-web-01-r2
+health_of() { api "$API/applications/$APP/status" | jq -r --arg i "$1" '.items[] | select(.instance==$i) | .health.health // "none"'; }
+restarts_of() { api "$API/audit" | jq --arg t "apelora/$1" '[.items[] | select(.action=="application.replica.restart-unhealthy" and .target==$t)] | length'; }
+nginx_port() {   # moves the replica's NGINX to another port (the change survives a restart)
+  echo "incus exec $sick --project apelora -- sh -c \"sed -i 's/listen  *$1;/listen $2;/; s/listen  *\\[::\\]:$1;/listen [::]:$2;/' /etc/nginx/conf.d/default.conf && nginx -s reload\" </dev/null" | member apelora-incus
+}
+[ "$(health_of "$sick")" = healthy ] || sleep 30
+[ "$(health_of "$sick")" = healthy ] && pass "$sick reported healthy (port check passing)" || fail "$sick health: $(health_of "$sick")"
+nginx_port 80 8081
+t0=$(date +%s)
+for _ in $(seq 1 18); do sleep 5; [ "$(health_of "$sick")" = unhealthy ] && break; done
+[ "$(health_of "$sick")" = unhealthy ] && pass "$sick unhealthy $(( $(date +%s) - t0 )) s after its port closed" || fail "$sick not reported unhealthy"
+out=$(probe "$svc"); say "service while $sick fails: $out"
+[[ $out != *FAIL* && $out != *"$sick"* ]] && pass "service answers from the healthy replica only" || fail "service: $out"
+for _ in $(seq 1 18); do sleep 5; [ "$(restarts_of "$sick")" -ge 1 ] && break; done
+[ "$(restarts_of "$sick")" -eq 1 ] && pass "$sick restarted once by the supervisor $(( $(date +%s) - t0 )) s after its port closed" || fail "restarts: $(restarts_of "$sick")"
+sleep 40   # still failing after the restart (the change persisted): no second restart within the cooldown
+[ "$(restarts_of "$sick")" -eq 1 ] && pass "no restart loop: still one restart while it keeps failing" || fail "restarted $(restarts_of "$sick") times"
+nginx_port 8081 80
+t0=$(date +%s)
+for _ in $(seq 1 18); do sleep 5; [ "$(health_of "$sick")" = healthy ] && break; done
+[ "$(health_of "$sick")" = healthy ] && pass "$sick healthy again $(( $(date +%s) - t0 )) s after its port reopened" || fail "$sick did not recover"
 
 # --- Publishing (the outside network routes the address to the application's router) --
 router=$(incus_ network get "$APP" volatile.network.ipv4.address --project apelora)

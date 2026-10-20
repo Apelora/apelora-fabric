@@ -2573,6 +2573,17 @@
           "appliance": {
             "type": "string"
           },
+          "health": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InstanceHealth",
+                "description": "What the worker decided from the instance's port check, with hysteresis; absent for\ninstances that are not checked (no service address, not running, or no database)."
+              }
+            ]
+          },
           "instance": {
             "type": "string"
           },
@@ -3200,6 +3211,15 @@
           }
         }
       },
+      "HealthState": {
+        "type": "string",
+        "description": "The decided health of an instance.",
+        "enum": [
+          "unknown",
+          "healthy",
+          "unhealthy"
+        ]
+      },
       "ImageProtocol": {
         "type": "string",
         "description": "How Incus fetches an image.",
@@ -3333,8 +3353,37 @@
         "description": "A state change Apelora can request for one of its instances.",
         "enum": [
           "start",
-          "stop"
+          "stop",
+          "restart"
         ]
+      },
+      "InstanceHealth": {
+        "type": "object",
+        "required": [
+          "health",
+          "since",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "What the decision rests on, e.g. `port check failing`."
+          },
+          "health": {
+            "$ref": "#/components/schemas/HealthState"
+          },
+          "restartedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339: when the worker last restarted it for failing its check."
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC 3339: since when it has had this health."
+          }
+        }
       },
       "InstanceKind": {
         "type": "string",

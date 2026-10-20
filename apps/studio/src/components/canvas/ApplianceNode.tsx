@@ -81,7 +81,7 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
         {live !== undefined && (
           <span
-            className={`apl-live status ${live.state === "Running" ? "status-success" : live.state === "absent" ? "status-neutral" : "status-warning"}`}
+            className={`apl-live status ${live.state === "Running" ? "status-success" : live.state === "absent" ? "status-neutral" : live.state === "Unhealthy" ? "status-error" : "status-warning"}`}
             data-testid="live-status"
             data-state={live.state}
             role="img"

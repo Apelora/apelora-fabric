@@ -101,6 +101,23 @@ pub struct ApplianceStatus {
     /// Incus status, e.g. `Running`.
     pub status: String,
     pub location: String,
+    /// What the worker decided from the instance's port check, with hysteresis; absent for
+    /// instances that are not checked (no service address, not running, or no database).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<InstanceHealth>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceHealth {
+    pub health: apelora_domain::health::HealthState,
+    /// RFC 3339: since when it has had this health.
+    pub since: String,
+    /// What the decision rests on, e.g. `port check failing`.
+    pub detail: String,
+    /// RFC 3339: when the worker last restarted it for failing its check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restarted_at: Option<String>,
 }
 
 /// A stateless appliance's service address: a load balancer over its healthy replicas.
@@ -586,6 +603,14 @@ pub(super) async fn status(
     if !is_valid_name(&name) {
         return Err(bad_request(format!("invalid application name {name:?}")));
     }
+    let mut health = match &state.auth {
+        Auth::Tokens(pool) => apelora_persistence::application_health(pool, &name).await?,
+        Auth::DisabledForDevelopment => Vec::new(),
+    };
+    let rfc3339 = |t: time::OffsetDateTime| {
+        t.format(&time::format_description::well_known::Rfc3339)
+            .unwrap_or_default()
+    };
     let items = state
         .provider
         .instances()
@@ -594,12 +619,24 @@ pub(super) async fn status(
         .filter(|i| i.managed && q.project.as_ref().is_none_or(|p| &i.project == p))
         .filter_map(|i| {
             let o = i.owner.filter(|o| o.application == name)?;
+            // Only a running instance's recorded health is current.
+            let h = health
+                .iter()
+                .position(|h| h.project == i.project && h.instance == i.name)
+                .map(|at| health.swap_remove(at))
+                .filter(|_| i.status == "Running");
             Some(ApplianceStatus {
                 appliance: o.appliance,
                 instance: i.name,
                 project: i.project,
                 status: i.status,
                 location: i.location,
+                health: h.map(|h| InstanceHealth {
+                    health: apelora_domain::health::HealthState::parse(&h.health),
+                    since: rfc3339(h.since),
+                    detail: h.detail,
+                    restarted_at: h.restarted_at.map(rfc3339),
+                }),
             })
         })
         .collect();

@@ -13,6 +13,7 @@ export type Admission = {
 
 export type ApplianceStatus = {
   appliance: string;
+  health?: null | InstanceHealth;
   instance: string;
   location: string;
   project: string;
@@ -212,6 +213,9 @@ export type Health = {
   version: string;
 };
 
+/** The decided health of an instance. */
+export type HealthState = "unknown" | "healthy" | "unhealthy";
+
 /** How Incus fetches an image. */
 export type ImageProtocol = "simplestreams" | "oci";
 
@@ -247,7 +251,7 @@ export type Instance = {
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
   managed?: boolean;
   name: string;
-  owner?: unknown | Owner;
+  owner?: null | Owner;
   project: string;
   status: string;
   /** Incus cannot report its configuration because its member is unreachable, so its labels (and `managed`, `owner`) are unknown, not absent. */
@@ -255,7 +259,17 @@ export type Instance = {
 };
 
 /** A state change Apelora can request for one of its instances. */
-export type InstanceAction = "start" | "stop";
+export type InstanceAction = "start" | "stop" | "restart";
+
+export type InstanceHealth = {
+  /** What the decision rests on, e.g. `port check failing`. */
+  detail: string;
+  health: HealthState;
+  /** RFC 3339: when the worker last restarted it for failing its check. */
+  restartedAt?: string | null;
+  /** RFC 3339: since when it has had this health. */
+  since: string;
+};
 
 /** Kind of Incus instance as reported by the cluster. */
 export type InstanceKind = "container" | "virtual-machine" | "unknown";
@@ -274,8 +288,8 @@ export type InstanceSpec = {
   /** `container` (system or OCI) or `virtual-machine`. */
   kind: InstanceKind;
   name: string;
-  network?: unknown | NetworkAttachment;
-  owner?: unknown | Owner;
+  network?: null | NetworkAttachment;
+  owner?: null | Owner;
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
@@ -490,7 +504,7 @@ export type RegisterMachine = {
   description?: string;
   /** The name it will have as a cluster member. */
   name: string;
-  provider?: unknown | ProvisionerKind;
+  provider?: null | ProvisionerKind;
 };
 
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */

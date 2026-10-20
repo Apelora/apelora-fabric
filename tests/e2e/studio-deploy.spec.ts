@@ -50,7 +50,7 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/applications/commerce-stack/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: done ? [
         { appliance: "nginx-01", instance: "commerce-stack-nginx-01", project: "apelora", status: "Running", location: "node-1" },
         { appliance: "nginx-01", instance: "commerce-stack-nginx-01-r2", project: "apelora", status: "Stopped", location: "node-2" },
-        { appliance: "nginx-02", instance: "commerce-stack-nginx-02", project: "apelora", status: "Stopped", location: "node-2" },
+        { appliance: "nginx-02", instance: "commerce-stack-nginx-02", project: "apelora", status: "Running", location: "node-2", health: { health: "unhealthy", since: now, detail: "port check failing" } },
       ] : [], services: done ? [{ appliance: "nginx-01", project: "apelora", address: "198.18.100.1" }] : [] } }),
     });
     await open(page);
@@ -96,9 +96,11 @@ test.describe("deploying from the Studio", () => {
     // One of nginx-01's two replicas is down: degraded, with every replica and the service address listed.
     await expect(liveOf("nginx-01")).toHaveAttribute("data-state", "Degraded");
     await expect(liveOf("nginx-01")).toHaveAttribute("title", /commerce-stack-nginx-01-r2: Stopped on node-2[\s\S]*Service address 198\.18\.100\.1/);
-    await expect(liveOf("nginx-02")).toHaveAttribute("data-state", "Stopped");
+    // nginx-02 runs but fails its port check: not serving.
+    await expect(liveOf("nginx-02")).toHaveAttribute("data-state", "Unhealthy");
+    await expect(liveOf("nginx-02")).toHaveAttribute("title", /commerce-stack-nginx-02: Running, failing its port check on node-2/);
     await expect(liveOf("postgresql-01")).toHaveAttribute("data-state", "absent");
-    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 1 running in Incus");
+    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running in Incus");
     expect(await page.evaluate(() => localStorage.getItem("apelora.studio.v1")), "the overlay never changes the design").toBe(before);
   });
 

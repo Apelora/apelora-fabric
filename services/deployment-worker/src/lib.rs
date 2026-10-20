@@ -3,6 +3,7 @@
 //! outcome fenced by the claim's generation. Instance lifecycle jobs change Incus through the
 //! [`Provider`]; see [`lifecycle`].
 
+pub mod health;
 pub mod lifecycle;
 pub mod network;
 pub mod supervisor;

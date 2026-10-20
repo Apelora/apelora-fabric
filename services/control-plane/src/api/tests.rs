@@ -2120,3 +2120,104 @@ async fn a_failing_check_blocks_admission_and_a_member_that_skipped_the_hold_is_
             .is_some_and(|w| w.contains("without being held"))
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn status_reports_the_health_the_worker_decided_for_running_instances(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut web = appliance("web-01");
+    web["replicas"] = json!(2);
+    web["availability"] = json!("stateless");
+    let body = json!({ "project": "apelora", "document": {}, "appliances": [web] });
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body),
+        Some("health-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    let app = apelora_persistence::ensure_application(&pool, "shop")
+        .await
+        .expect("app");
+    let since = time::OffsetDateTime::now_utc();
+    for (instance, health, detail) in [
+        ("shop-web-01", "healthy", "port check passing"),
+        ("shop-web-01-r2", "unhealthy", "port check failing"),
+    ] {
+        apelora_persistence::record_health(
+            &pool,
+            &apelora_persistence::NewHealth {
+                application_id: app.id,
+                project: "apelora",
+                instance,
+                appliance: "web-01",
+                health,
+                since,
+                detail,
+                restarted_at: (health == "unhealthy").then_some(since),
+            },
+        )
+        .await
+        .expect("record");
+    }
+    let (status, body) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let health = |instance: &str| {
+        body["items"]
+            .as_array()
+            .and_then(|a| a.iter().find(|i| i["instance"] == instance))
+            .map(|i| i["health"].clone())
+            .expect("listed")
+    };
+    assert_eq!(health("shop-web-01")["health"], "healthy");
+    assert!(health("shop-web-01")["restartedAt"].is_null());
+    assert_eq!(
+        (
+            health("shop-web-01-r2")["health"].as_str(),
+            health("shop-web-01-r2")["detail"].as_str()
+        ),
+        (Some("unhealthy"), Some("port check failing"))
+    );
+    assert!(health("shop-web-01-r2")["restartedAt"].is_string());
+
+    // A stopped instance's recorded health is not current: not reported.
+    provider
+        .change_state(
+            "apelora",
+            "shop-web-01-r2",
+            apelora_domain::InstanceAction::Stop,
+            true,
+        )
+        .await
+        .expect("stop");
+    let (_, body) = send(
+        state,
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    let r2 = body["items"]
+        .as_array()
+        .and_then(|a| a.iter().find(|i| i["instance"] == "shop-web-01-r2"))
+        .expect("listed");
+    assert!(r2.get("health").is_none(), "{r2}");
+}

@@ -26,12 +26,17 @@ type LiveState = {
 
 const POLL_MS = 5000;
 
-/** One state for an appliance's instances: all running, some running (degraded), or the first's. */
+/**
+ * One state for an appliance's instances: all serving (`Running`), some (`Degraded`), running
+ * but all failing their check (`Unhealthy`), or the first instance's status. A replica serves
+ * when it runs and the worker has not found it unhealthy.
+ */
 export function liveSummary(instances: readonly ApplianceStatus[] | undefined, service?: string): { state: string; label: string } {
   if (!instances?.length) return { state: "absent", label: "Not deployed" };
-  const running = instances.filter((i) => i.status === "Running").length;
-  const state = running === instances.length ? "Running" : running > 0 ? "Degraded" : instances[0]!.status;
-  const lines = instances.map((i) => `${i.instance}: ${i.status} on ${i.location}`);
+  const running = instances.filter((i) => i.status === "Running");
+  const serving = running.filter((i) => i.health?.health !== "unhealthy").length;
+  const state = serving === instances.length ? "Running" : serving > 0 ? "Degraded" : running.length > 0 ? "Unhealthy" : instances[0]!.status;
+  const lines = instances.map((i) => `${i.instance}: ${i.status}${i.health?.health === "unhealthy" ? ", failing its port check" : ""} on ${i.location}`);
   if (service) lines.push(`Service address ${service}`);
   return { state, label: lines.join("\n") };
 }

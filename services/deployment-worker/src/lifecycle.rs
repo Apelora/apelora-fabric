@@ -24,6 +24,9 @@ const MAX_STEPS: usize = 4;
 pub enum Goal {
     Exists(Box<InstanceSpec>),
     State(Target, InstanceAction),
+    /// Restarted once by this job (a stopped instance is started): an event, not a state, so
+    /// the job is done as soon as one restart operation it started has finished.
+    Restarted(Target),
     Absent(Target),
 }
 
@@ -53,6 +56,7 @@ impl Goal {
                 .and_then(|s| s.validate().map(|()| Goal::Exists(Box::new(s)))),
             "instance.start" => target().map(|t| Goal::State(t, InstanceAction::Start)),
             "instance.stop" => target().map(|t| Goal::State(t, InstanceAction::Stop)),
+            "instance.restart" => target().map(Goal::Restarted),
             "instance.delete" => target().map(Goal::Absent),
             _ => return None,
         })
@@ -61,7 +65,7 @@ impl Goal {
     fn target(&self) -> (&str, &str) {
         match self {
             Goal::Exists(s) => (&s.project, &s.name),
-            Goal::State(t, _) | Goal::Absent(t) => (&t.project, &t.name),
+            Goal::State(t, _) | Goal::Restarted(t) | Goal::Absent(t) => (&t.project, &t.name),
         }
     }
 }
@@ -102,6 +106,15 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
         (Goal::State(..), Some(s)) if !s.managed => not_ours(),
         (Goal::State(_, a), Some(s)) if s.status == a.target_status() => Step::Done,
         (Goal::State(_, a), Some(_)) => Step::Change(*a, false),
+        (Goal::Restarted(_), None) => {
+            Step::Reject(format!("instance {project}/{name} does not exist"))
+        }
+        (Goal::Restarted(_), Some(s)) if !s.managed => not_ours(),
+        (Goal::Restarted(_), Some(s)) if s.status != "Running" => {
+            Step::Change(InstanceAction::Start, false)
+        }
+        // A replica restarted for failing its check is already out of its service: no grace.
+        (Goal::Restarted(_), Some(_)) => Step::Change(InstanceAction::Restart, true),
         (Goal::Absent(_), None) => Step::Done,
         (Goal::Absent(_), Some(s)) if !s.managed => not_ours(),
         // Incus refuses to delete a running instance; it is being deleted anyway.
@@ -229,6 +242,11 @@ async fn converge(
                     "Incus operation {op} is still running"
                 )));
             }
+            // A restart an earlier attempt started has happened (or been overtaken): done.
+            Ok(OperationOutcome::Succeeded) if matches!(goal, Goal::Restarted(_)) => {
+                record_operation(pool, job, worker, None).await?;
+                return Ok(Outcome::Succeeded);
+            }
             // Finished, failed or no longer known to Incus: decide again from the instance.
             Ok(_) | Err(AdapterError::NotFound(_)) => {
                 record_operation(pool, job, worker, None).await?
@@ -283,7 +301,12 @@ async fn converge(
         record_operation(pool, job, worker, Some(&op)).await?;
         tracing::info!(job = %job.id, operation = %op, instance = %format!("{project}/{name}"), provider = ?provider.mode(), "started operation");
         match provider.wait_operation(&op, OPERATION_BUDGET).await? {
-            OperationOutcome::Succeeded => record_operation(pool, job, worker, None).await?,
+            OperationOutcome::Succeeded => {
+                record_operation(pool, job, worker, None).await?;
+                if matches!(goal, Goal::Restarted(_)) {
+                    return Ok(Outcome::Succeeded);
+                }
+            }
             OperationOutcome::Failed(e) => {
                 record_operation(pool, job, worker, None).await?;
                 return Err(Failure::Retry(format!("Incus operation {op} failed: {e}")));
@@ -474,5 +497,28 @@ mod tests {
             Some(Err(_))
         ));
         assert_eq!(Goal::from_job("noop", &ok), None);
+    }
+
+    #[test]
+    fn a_restart_restarts_a_running_instance_and_starts_a_stopped_one() {
+        let goal = Goal::Restarted(t());
+        assert_eq!(
+            next_step(&goal, st("Running", true).as_ref()),
+            Step::Change(InstanceAction::Restart, true)
+        );
+        assert_eq!(
+            next_step(&goal, st("Stopped", true).as_ref()),
+            Step::Change(InstanceAction::Start, false)
+        );
+        assert!(matches!(next_step(&goal, None), Step::Reject(_)));
+        assert!(matches!(
+            next_step(&goal, st("Running", false).as_ref()),
+            Step::Reject(_)
+        ));
+        let payload = serde_json::json!({ "project": "apelora", "name": "web-01" });
+        assert!(matches!(
+            Goal::from_job("instance.restart", &payload),
+            Some(Ok(Goal::Restarted(_)))
+        ));
     }
 }

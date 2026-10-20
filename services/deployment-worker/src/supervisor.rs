@@ -16,11 +16,15 @@
 //! every instance is on a failed member gets a *substitute* on another member
 //! (`<replica>-s<n>`, same labels). When the member is back, the slot holds two instances and
 //! the one that keeps replicas apart stays; the other is retired (deleted). Both are audited.
+//!
+//! Each pass also observes the health of running service replicas ([`crate::health`]) and
+//! restarts a stateless replica that keeps failing its port check.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use apelora_domain::Instance;
+use apelora_domain::health::HealthPolicy;
 use apelora_domain::network::{Connection, SyncRequest, discovery_env, with_discovery};
 use apelora_domain::plan::{
     Availability, DesiredAppliance, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
@@ -28,6 +32,8 @@ use apelora_domain::plan::{
 use apelora_incus_adapter::Provider;
 use apelora_persistence::{Pool, StoreError};
 use serde_json::json;
+
+use crate::health::HealthWatch;
 
 /// After a failed recreation, wait this long before trying again.
 const BACKOFF_SECS: i64 = 300;
@@ -37,15 +43,20 @@ const SYNC_RETRY_SECS: f64 = 60.0;
 
 /// Remembers since when each member has been offline, so a short outage (a reboot, a network
 /// blip) does not trigger recovery: hysteresis across passes.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Supervisor {
     recover_after: Duration,
     offline_since: HashMap<String, Instant>,
+    health: HealthWatch,
 }
 
-/// One supervision pass with no memory: offline members count as failed at once.
+/// One supervision pass with no memory: offline members count as failed at once, and one
+/// failing health observation is enough to act.
 pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<String>, StoreError> {
-    Supervisor::new(Duration::ZERO).pass(pool, provider).await
+    Supervisor::new(Duration::ZERO)
+        .with_health(HealthPolicy::immediate())
+        .pass(pool, provider)
+        .await
 }
 
 impl Supervisor {
@@ -53,7 +64,13 @@ impl Supervisor {
         Supervisor {
             recover_after,
             offline_since: HashMap::new(),
+            health: HealthWatch::new(HealthPolicy::default()),
         }
+    }
+
+    pub fn with_health(mut self, policy: HealthPolicy) -> Self {
+        self.health = HealthWatch::new(policy);
+        self
     }
 
     /// One supervision pass. Returns the instances it queued for creation, restart or retirement.
@@ -413,6 +430,11 @@ impl Supervisor {
                 )
                 .await?;
             }
+            recreated.extend(
+                self.health
+                    .check(pool, provider, &d, &desired, &observed, &unavailable)
+                    .await?,
+            );
         }
         Ok(recreated)
     }
@@ -445,8 +467,14 @@ fn keeper<'a>(slot: &[&'a Instance], observed: &[Instance]) -> Option<&'a Instan
 
 /// Runs supervision passes every `every` until the task is dropped; a member counts as failed
 /// once it has been offline for `recover_after`.
-pub async fn supervise(pool: Pool, provider: Provider, every: Duration, recover_after: Duration) {
-    let mut supervisor = Supervisor::new(recover_after);
+pub async fn supervise(
+    pool: Pool,
+    provider: Provider,
+    every: Duration,
+    recover_after: Duration,
+    health: HealthPolicy,
+) {
+    let mut supervisor = Supervisor::new(recover_after).with_health(health);
     loop {
         if let Err(e) = supervisor.pass(&pool, &provider).await {
             tracing::error!(error = %e, "supervisor pass failed");
@@ -946,6 +974,155 @@ mod tests {
             names.len(),
             2,
             "one instance per replica, none lost: {names:?}"
+        );
+    }
+
+    /// `shop`'s web service with a load balancer over both replicas (as `network.sync` makes it).
+    async fn web_service(pool: &Pool, provider: &Provider) {
+        use apelora_domain::network::{Backend, LoadBalancer, network_name};
+        use apelora_domain::plan::replica_name;
+        let app = apelora_persistence::ensure_application(pool, "shop")
+            .await
+            .expect("app");
+        let address = apelora_persistence::service_address(
+            pool,
+            app.id,
+            PROJECT,
+            "web-01",
+            &["198.18.100.1".to_owned()],
+        )
+        .await
+        .expect("allocate")
+        .expect("address");
+        let backend = |r: u8, last: u8| Backend {
+            name: format!("r{r}"),
+            address: std::net::Ipv4Addr::new(10, 0, 0, last),
+            description: format!("{} uuid-{r}", replica_name("shop", "web-01", r)),
+        };
+        let lb = LoadBalancer {
+            listen_address: address.parse().expect("ipv4"),
+            appliance: "web-01".into(),
+            backends: vec![backend(1, 2), backend(2, 3)],
+            ports: vec![("tcp".into(), 80)],
+        };
+        provider
+            .ensure_load_balancer(PROJECT, &network_name("shop"), &lb, "shop")
+            .await
+            .expect("load balancer");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_replica_failing_its_check_is_restarted_once_per_cooldown_and_recorded(pool: Pool) {
+        use apelora_domain::plan::replica_name;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        web_service(&pool, &provider).await;
+        let (r1, r2) = (
+            replica_name("shop", "web-01", 1),
+            replica_name("shop", "web-01", 2),
+        );
+        let policy = HealthPolicy {
+            restart_cooldown: 3600.0,
+            ..HealthPolicy::immediate()
+        };
+        let mut supervisor = Supervisor::new(Duration::ZERO).with_health(policy);
+
+        // Both pass: healthy, nothing queued.
+        assert!(
+            supervisor
+                .pass(&pool, &provider)
+                .await
+                .expect("pass")
+                .is_empty()
+        );
+        let health = |pool: Pool| async move {
+            apelora_persistence::application_health(&pool, "shop")
+                .await
+                .expect("health")
+                .into_iter()
+                .map(|h| (h.instance, h.health))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            health(pool.clone()).await,
+            [
+                (r1.clone(), "healthy".to_owned()),
+                (r2.clone(), "healthy".to_owned())
+            ]
+        );
+
+        // r2 fails its port check: unhealthy, restarted once and audited.
+        mock.net().failing.insert(r2.clone());
+        assert_eq!(
+            supervisor.pass(&pool, &provider).await.expect("pass"),
+            std::slice::from_ref(&r2)
+        );
+        drain(&pool, &provider).await;
+        assert_eq!(mock.net().restarts, std::slice::from_ref(&r2));
+        assert_eq!(
+            health(pool.clone()).await,
+            [
+                (r1.clone(), "healthy".to_owned()),
+                (r2.clone(), "unhealthy".to_owned())
+            ]
+        );
+        // Still failing: not restarted again within the cooldown.
+        assert!(
+            supervisor
+                .pass(&pool, &provider)
+                .await
+                .expect("pass")
+                .is_empty()
+        );
+        drain(&pool, &provider).await;
+        assert_eq!(mock.net().restarts.len(), 1);
+        let audit = recent_audit(&pool, 50).await.expect("audit");
+        let restarts: Vec<&str> = audit
+            .iter()
+            .filter(|e| e.action == "application.replica.restart-unhealthy")
+            .map(|e| e.target.as_str())
+            .collect();
+        assert_eq!(restarts, [format!("{PROJECT}/{r2}")]);
+
+        // Passing again: healthy.
+        mock.net().failing.clear();
+        supervisor.pass(&pool, &provider).await.expect("pass");
+        assert_eq!(
+            health(pool.clone()).await,
+            [(r1, "healthy".to_owned()), (r2, "healthy".to_owned())]
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn when_every_replica_fails_one_is_restarted_per_pass(pool: Pool) {
+        use apelora_domain::plan::replica_name;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        web_service(&pool, &provider).await;
+        for r in 1..=2 {
+            mock.net().failing.insert(replica_name("shop", "web-01", r));
+        }
+        let mut supervisor = Supervisor::new(Duration::ZERO).with_health(HealthPolicy::immediate());
+        assert_eq!(
+            supervisor.pass(&pool, &provider).await.expect("pass").len(),
+            1
+        );
+        drain(&pool, &provider).await;
+        assert_eq!(
+            supervisor.pass(&pool, &provider).await.expect("pass").len(),
+            1
+        );
+        drain(&pool, &provider).await;
+        let mut restarted = mock.net().restarts.clone();
+        restarted.sort();
+        assert_eq!(
+            restarted,
+            [
+                replica_name("shop", "web-01", 1),
+                replica_name("shop", "web-01", 2)
+            ]
         );
     }
 }

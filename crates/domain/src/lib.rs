@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod enrolment;
 pub mod evacuation;
+pub mod health;
 pub mod network;
 pub mod plan;
 pub mod preflight;
@@ -429,6 +430,8 @@ pub struct PendingJoin {
 pub enum InstanceAction {
     Start,
     Stop,
+    /// Stop and start again (a running instance) in one Incus operation.
+    Restart,
 }
 
 impl InstanceAction {
@@ -436,13 +439,14 @@ impl InstanceAction {
         match self {
             InstanceAction::Start => "start",
             InstanceAction::Stop => "stop",
+            InstanceAction::Restart => "restart",
         }
     }
 
     /// The Incus status an instance has once the action has taken effect.
     pub fn target_status(self) -> &'static str {
         match self {
-            InstanceAction::Start => "Running",
+            InstanceAction::Start | InstanceAction::Restart => "Running",
             InstanceAction::Stop => "Stopped",
         }
     }

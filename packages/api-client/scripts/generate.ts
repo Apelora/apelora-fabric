@@ -52,7 +52,8 @@ function ts(s: Schema, indent: string): string {
       const fields = Object.entries(s.properties).map(([k, v]) => `${comment(v.description, inner)}${inner}${k}${req.has(k) ? "" : "?"}: ${ts(v, inner)};`);
       return `{\n${fields.join("\n")}\n${indent}}${nullable}`;
     }
-    case undefined: return "unknown";
+    // `{"type": "null"}` (an optional reference is `oneOf: [null, $ref]`).
+    case undefined: return types.includes("null") ? "null" : "unknown";
     default: throw new Error(`unsupported type ${JSON.stringify(s)}`);
   }
 }
