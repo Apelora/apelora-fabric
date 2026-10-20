@@ -193,6 +193,35 @@
                   "web",
                   "any"
                 ]
+              },
+              "volumes": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$"
+                    },
+                    "sizeMiB": {
+                      "type": "integer",
+                      "minimum": 64,
+                      "maximum": 4194304
+                    },
+                    "path": {
+                      "type": "string",
+                      "maxLength": 255,
+                      "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "sizeMiB",
+                    "path"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -669,6 +698,35 @@
                           "singleton",
                           "stateful"
                         ]
+                      },
+                      "volumes": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$"
+                            },
+                            "sizeMiB": {
+                              "type": "integer",
+                              "minimum": 64,
+                              "maximum": 4194304
+                            },
+                            "path": {
+                              "type": "string",
+                              "maxLength": 255,
+                              "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "sizeMiB",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": [
@@ -768,6 +826,35 @@
                           "linux",
                           "windows"
                         ]
+                      },
+                      "volumes": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$"
+                            },
+                            "sizeMiB": {
+                              "type": "integer",
+                              "minimum": 64,
+                              "maximum": 4194304
+                            },
+                            "path": {
+                              "type": "string",
+                              "maxLength": 255,
+                              "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "sizeMiB",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": [
@@ -858,6 +945,35 @@
                           "singleton",
                           "stateful"
                         ]
+                      },
+                      "volumes": {
+                        "maxItems": 4,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$"
+                            },
+                            "sizeMiB": {
+                              "type": "integer",
+                              "minimum": 64,
+                              "maximum": 4194304
+                            },
+                            "path": {
+                              "type": "string",
+                              "maxLength": 255,
+                              "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "sizeMiB",
+                            "path"
+                          ],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": [
@@ -1214,6 +1330,35 @@
                             "web",
                             "any"
                           ]
+                        },
+                        "volumes": {
+                          "maxItems": 4,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string",
+                                "pattern": "^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$"
+                              },
+                              "sizeMiB": {
+                                "type": "integer",
+                                "minimum": 64,
+                                "maximum": 4194304
+                              },
+                              "path": {
+                                "type": "string",
+                                "maxLength": 255,
+                                "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                              }
+                            },
+                            "required": [
+                              "name",
+                              "sizeMiB",
+                              "path"
+                            ],
+                            "additionalProperties": false
+                          }
                         }
                       },
                       "required": [

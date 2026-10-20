@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, ApplianceInstanceSchema, applicationName, deploymentAppliances, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setReplicas, setVolumes, volumesOf, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -150,3 +150,45 @@ describe("runtimes", () => {
     expect(trimHyphens("---")).toBe("");
   });
 });
+
+describe("volumes", () => {
+  const data = { name: "data", sizeMiB: 2048, path: "/var/lib/data" };
+  it("come from the class unless the design sets its own, and travel in the request", () => {
+    const debian = get("debian");
+    const withDefault = { ...debian, runtime: { ...debian.runtime!, volumes: [data] } } as ApplianceClass;
+    expect(volumesOf(withDefault, {})).toEqual([data]);
+    expect(volumesOf(withDefault, { volumes: [] })).toEqual([]);
+    const r = instanceRequestFor(withDefault, { config: {} }, target);
+    expect(r.ok && r.request.volumes).toEqual([{ name: "data", sizeMib: 2048, path: "/var/lib/data" }]);
+    const spec: InstanceSpec | undefined = r.ok ? r.request : undefined;
+    expect(spec?.volumes?.[0]?.sizeMib).toBe(2048);
+    const none = instanceRequestFor(debian, { config: {} }, target);
+    expect(none.ok && "volumes" in none.request).toBe(false);
+  });
+
+  it("are refused for stateless classes, whose replicas are recreated anywhere", () => {
+    const r = instanceRequestFor(get("nginx"), { config: {}, volumes: [data] }, target);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("cannot keep volumes");
+  });
+
+  it("need a safe absolute mount path, unique names and paths, and bounded sizes", () => {
+    const ok = (volumes: unknown) => ApplianceInstanceSchema.shape.volumes.safeParse(volumes).success;
+    expect(ok([data, { name: "logs", sizeMiB: 512, path: "/var/log/app" }])).toBe(true);
+    for (const path of ["relative", "/", "/srv/../etc", "/srv/./x", "/./x", "/a\nb"]) expect(ok([{ ...data, path }]), path).toBe(false);
+    for (const name of ["Data", "-x", "x-", "a_b", "abcdefghijklmnopq"]) expect(ok([{ ...data, name }]), name).toBe(false);
+    expect(ok([{ ...data, sizeMiB: 63 }])).toBe(false);
+    expect(ok([data, { ...data, path: "/other" }])).toBe(false);
+    expect(ok([data, { ...data, name: "two", path: "/var/lib/data/" }])).toBe(false);
+    expect(ok(Array.from({ length: 5 }, (_, i) => ({ ...data, name: `v${i}`, path: `/v${i}` })))).toBe(false);
+  });
+
+  it("are set per appliance and go back to the class's when cleared", () => {
+    const a = sampleCommerceStack();
+    const id = a.spec.appliances[0]!.id;
+    const set = setVolumes(a, id, [data]);
+    expect(set.spec.appliances[0]!.volumes).toEqual([data]);
+    expect("volumes" in setVolumes(set, id, undefined).spec.appliances[0]!).toBe(false);
+  });
+});
+

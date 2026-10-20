@@ -35,3 +35,7 @@ The manifest is the contract shared by Studio (TypeScript), Controller and Node 
 ## Configuration properties
 
 Classes may declare `properties` (typed fields: string, int, bool, enum, secret; default, required, min/max, options, group, description). Instances store only overrides in `config`. `secret` fields hold a reference name, never the secret. Property ids are stable identifiers; never derive them again from a renamed label. Validation lives in `packages/assembly-model/src/config.ts`.
+
+## Volumes
+
+A class's runtime may declare default `volumes` (`{ name, sizeMiB, path }`: name lowercase, at most 16; size 64 MiB–4 TiB; absolute mount path without `.` or `..`; names and paths unique; at most four). An appliance's own `volumes` replace them (an empty list means none). Stateless classes cannot have volumes: `instanceRequestFor` refuses them. Designs never name a pool; the control plane maps the `data-local` class to `APELORA_VOLUME_POOL`. Design and verified Incus behaviour: `docs/architecture/STORAGE.md`.

@@ -49,6 +49,32 @@ export const ResourcesSchema = z.object({
   memoryMiB: z.number().positive().max(4_194_304),
 });
 
+/**
+ * A persistent volume an appliance keeps (docs/architecture/STORAGE.md): each of its instances
+ * gets its own, on the cluster member it runs on, mounted at `path`. Removing the appliance keeps
+ * the volume; it is deleted on purpose in the Fabric Console. The pool is chosen by the platform.
+ */
+export const MIN_VOLUME_MIB = 64;
+export const MAX_VOLUME_MIB = 4 * 1024 * 1024;
+export const MAX_VOLUMES = 4;
+export const VolumeSchema = z.object({
+  name: z.string().regex(/^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$/, "lowercase letters, digits and hyphens, at most 16, starting with a letter"),
+  sizeMiB: z.number().int().min(MIN_VOLUME_MIB).max(MAX_VOLUME_MIB),
+  path: z.string().max(255).regex(/^(?!.*(?:^|\/)\.\.?(?:\/|$))\/[^\0\r\n]+$/, "an absolute path below /, without . or .. segments"),
+});
+const volumeList = z.array(VolumeSchema).max(MAX_VOLUMES).superRefine((vs, ctx) => {
+  const seen = (key: (v: z.infer<typeof VolumeSchema>) => string, what: string) => {
+    const s = new Set<string>();
+    vs.forEach((v, i) => {
+      const k = key(v);
+      if (s.has(k)) ctx.addIssue({ code: "custom", path: [i], message: `two volumes have the same ${what} (${k})` });
+      s.add(k);
+    });
+  };
+  seen((v) => v.name, "name");
+  seen((v) => v.path.replace(/\/+$/, ""), "mount path");
+});
+
 export const ApplianceInstanceSchema = z.object({
   id: entityId,
   name: z.string().min(1).max(48),
@@ -61,6 +87,8 @@ export const ApplianceInstanceSchema = z.object({
   replicas: z.number().int().min(1).max(9).optional(),
   /** What it may reach outside the application; absent means nothing. */
   internet: z.enum(["none", "web", "any"]).optional(),
+  /** Its persistent volumes; absent means the class's (an empty list: none). */
+  volumes: volumeList.optional(),
 });
 
 /** Outbound access to the internet, per appliance. Inside the application only cables count. */
@@ -166,10 +194,13 @@ const availability = z.enum(AVAILABILITIES).optional();
 export const GUEST_OS = ["linux", "windows"] as const;
 export type GuestOs = (typeof GUEST_OS)[number];
 
+/** Volumes a class's appliances get unless the design changes them (e.g. a database's data). */
+const volumes = volumeList.optional();
+
 export const RuntimeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability }),
-  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional() }),
-  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability }),
+  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, volumes }),
+  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional(), volumes }),
+  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes }),
 ]);
 
 export const ApplianceClassSchema = z.object({
@@ -225,6 +256,7 @@ export type Runtime = z.infer<typeof RuntimeSchema>;
 export type SystemImage = z.infer<typeof SystemImageSchema>;
 export type OciImage = z.infer<typeof OciImageSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
+export type Volume = z.infer<typeof VolumeSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type CableStyle = z.infer<typeof CableStyleSchema>;
 export type Composition = z.infer<typeof CompositionSchema>;

@@ -72,7 +72,8 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 | Resources per appliance as Incus limits (CPU, memory, fractional CPU quota) | Done; REAL INCUS TESTED (catalog runtimes) | 06 |
 | Volumes per appliance (backend): `data-local` class, pool from `APELORA_VOLUME_POOL`, one volume per instance created on the member Incus placed it on, attached before start, kept when the instance is deleted, never adopted | Done; REAL INCUS TESTED (`volumes_follow_the_instance_and_outlive_it`) | 06 |
 | Volume records (`volumes`, migration 0012), listing with live state (attached, kept, missing), explicit delete with the name typed (`application.delete`, audited); Fabric Console Volumes panel | Done; REAL INCUS TESTED (four members) and verified in a real browser | 06 |
-| Volumes in the catalog and Studio, resize, snapshots | Missing | 06 |
+| Volumes in designs: class defaults (`runtime.volumes`), per-appliance volumes in the Studio Properties window (checked against the schema, refused for stateless classes), listed in the deploy review and sent with the plan | Done; MOCK VERIFIED in the browser (stubbed control plane); the request shape is the one REAL INCUS TESTED through the API | 06 |
+| Volume resize, snapshots and backups, relocation of `data-local` volumes | Missing | 06 |
 | Resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
 | MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |

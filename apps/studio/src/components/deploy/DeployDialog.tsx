@@ -220,7 +220,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
             <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-appliances">
               {split.deployable.map((d) => (
                 <li key={d.appliance} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
-                  <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}<span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-resources">{d.resources.cpu} CPU · {d.resources.memoryMiB} MiB{d.replicas > 1 ? " each" : ""}</span></span>
+                  <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}<span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-resources">{d.resources.cpu} CPU · {d.resources.memoryMiB} MiB{d.replicas > 1 ? " each" : ""}</span>{d.volumes.length > 0 && <span className="block text-xs font-normal text-base-content/60" data-testid="deploy-volumes">Keeps {d.volumes.map((v) => `${v.name} (${v.sizeMiB >= 1024 && v.sizeMiB % 1024 === 0 ? `${v.sizeMiB / 1024} GiB` : `${v.sizeMiB} MiB`}) at ${v.path}`).join(", ")}</span>}</span>
                   <span className="truncate font-mono text-xs text-base-content/60">{d.spec.source.alias}</span>
                 </li>
               ))}

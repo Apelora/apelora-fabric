@@ -1,6 +1,6 @@
 import { trimHyphens } from "./ops";
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -15,6 +15,8 @@ export interface InstanceRequest {
   start: boolean;
   /** Incus instance options; Apelora sets the resource limits here. */
   config?: Record<string, string>;
+  /** Persistent volumes (filesystems); the control plane picks their pool. */
+  volumes?: { name: string; sizeMib: number; path?: string }[];
 }
 
 /**
@@ -66,7 +68,7 @@ const isOci = (rt: Runtime, _image: SystemImage | OciImage): _image is OciImage 
  */
 export function instanceRequestFor(
   cls: ApplianceClass,
-  appliance: Pick<ApplianceInstance, "config"> & { resources?: Resources },
+  appliance: Pick<ApplianceInstance, "config"> & { resources?: Resources; volumes?: Volume[] },
   target: { project: string; name: string; start?: boolean },
 ): { ok: true; request: InstanceRequest } | { ok: false; error: string } {
   const rt = cls.runtime;
@@ -79,6 +81,10 @@ export function instanceRequestFor(
     ? { protocol: "oci", server: image.registry, alias: image.reference }
     : { protocol: "simplestreams", server: image.server, alias: image.alias, ...(image.fingerprint ? { fingerprint: image.fingerprint } : {}) };
   const kind = rt.kind === "incus-vm" ? "virtual-machine" : "container";
+  const volumes = volumesOf(cls, appliance);
+  if (volumes.length && availabilityOf(cls) === "stateless") {
+    return { ok: false, error: `${cls.displayName} is stateless: its replicas cannot keep volumes` };
+  }
   return {
     ok: true,
     request: {
@@ -91,9 +97,14 @@ export function instanceRequestFor(
       start: target.start ?? true,
       // The appliance's own resources (set in the Studio), else its class's.
       config: resourceLimits(kind, appliance.resources ?? cls.resources),
+      ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path })) } : {}),
     },
   };
 }
+
+/** An appliance's volumes: its own when the design sets them, else its class's. */
+export const volumesOf = (cls: ApplianceClass | undefined, appliance: { volumes?: Volume[] }): Volume[] =>
+  appliance.volumes ?? cls?.runtime?.volumes ?? [];
 
 /** How a class's instances survive failures (`singleton` unless its runtime says otherwise). */
 export const availabilityOf = (cls: ApplianceClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";
@@ -116,6 +127,8 @@ export interface DeployableAppliance {
   guestOs: GuestOs;
   /** What each instance gets (also in `spec.config` as Incus limits). */
   resources: Resources;
+  /** Volumes each instance keeps (also in `spec.volumes`). */
+  volumes: Volume[];
 }
 
 /** An appliance that stays in the design only, and why. */
@@ -142,7 +155,7 @@ export function deploymentAppliances(
     if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a) });
     else skip(r.error);
   }
   return { deployable, designOnly };

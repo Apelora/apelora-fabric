@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, type ApplicationAssembly, type InternetAccess, type PlatformId } from "@apelora/assembly-model";
+import { ApplianceInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ApplianceClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -25,6 +25,68 @@ function Section({ title, children, right }: { title: string; children: React.Re
       <div className="mb-1.5 flex items-center justify-between"><h4 className="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">{title}</h4>{right}</div>
       {children}
     </section>
+  );
+}
+
+/** A volume name not used yet: `data`, then `data-2`… */
+const freeVolumeName = (vs: Volume[]) => {
+  const names = new Set(vs.map((v) => v.name));
+  for (let i = 1; ; i++) { const n = i === 1 ? "data" : `data-${i}`; if (!names.has(n)) return n; }
+};
+
+/**
+ * The appliance's persistent volumes. Every change is checked against the schema before it is
+ * kept; an invalid one is refused with the reason and the field goes back to its value.
+ */
+function VolumesSection({ appId, cls, volumes }: { appId: string; cls: ApplianceClass; volumes: Volume[] }) {
+  const api = useStudioApi();
+  const [error, setError] = useState<string | null>(null);
+  const stateless = availabilityOf(cls) === "stateless";
+  const commit = (next: Volume[]): boolean => {
+    const r = ApplianceInstanceSchema.shape.volumes.safeParse(next);
+    if (!r.success) { setError(r.error.issues[0]?.message ?? "invalid volume"); return false; }
+    setError(null);
+    api.getState().setApplianceVolumes(appId, next);
+    return true;
+  };
+  const change = (i: number, patch: Partial<Volume>) => commit(volumes.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+  if (stateless) {
+    return <Section title="Volumes"><p className="text-xs text-base-content/60" data-testid="volumes-stateless">Stateless appliances keep no data: their replicas can be recreated on any server.</p></Section>;
+  }
+  return (
+    <Section title={`Volumes (${volumes.length})`} right={volumes.length < MAX_VOLUMES ? (
+      <button className="btn btn-ghost btn-xs" data-testid="add-volume" onClick={() => commit([...volumes, { name: freeVolumeName(volumes), sizeMiB: 1024, path: `/srv/${freeVolumeName(volumes)}` }])}>Add volume</button>
+    ) : undefined}>
+      <div data-testid="volumes">
+        {volumes.length === 0 ? <p className="text-xs text-base-content/60">None. Add one for data that must survive restarts and redeployments.</p> : (
+          <ul className="flex flex-col gap-1.5">
+            {volumes.map((v, i) => (
+              <li key={`${i}-${v.name}`} className="rounded-box border border-base-300 p-1.5" data-testid="volume-row">
+                <div className="flex items-center gap-1">
+                  <input key={v.name} defaultValue={v.name} aria-label={`Name of volume ${i + 1}`} className="input input-xs min-w-0 flex-1 font-mono" data-testid="volume-name"
+                    onBlur={(e) => { const n = e.currentTarget.value.trim(); if (n !== v.name && !change(i, { name: n })) e.currentTarget.value = v.name; }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                  <button className="btn btn-ghost btn-xs" aria-label={`Remove volume ${v.name}`} data-testid="remove-volume" onClick={() => commit(volumes.filter((_, j) => j !== i))}><IconTrash size={12} /></button>
+                </div>
+                <div className="mt-1 flex gap-1">
+                  <input key={v.path} defaultValue={v.path} aria-label={`Mount path of ${v.name}`} className="input input-xs min-w-0 flex-[2] font-mono" data-testid="volume-path"
+                    onBlur={(e) => { const p = e.currentTarget.value.trim(); if (p !== v.path && !change(i, { path: p })) e.currentTarget.value = v.path; }}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                  <label className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-base-content/70">
+                    <input key={v.sizeMiB} type="number" min={1} step={1} defaultValue={v.sizeMiB / 1024} aria-label={`Size of ${v.name} in GiB`} className="input input-xs min-w-0 flex-1 tabular-nums" data-testid="volume-size"
+                      onBlur={(e) => { const g = Number(e.currentTarget.value); const mib = Math.round(g * 1024); if (mib !== v.sizeMiB && (!Number.isFinite(g) || !change(i, { sizeMiB: mib }))) e.currentTarget.value = String(v.sizeMiB / 1024); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+                    GiB
+                  </label>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        {error && <p role="alert" className="mt-1 text-xs text-error" data-testid="volume-error">{error}</p>}
+        <p className="mt-1 text-xs text-base-content/60">Each instance gets its own. Removing the appliance keeps the data; delete it in the Fabric Console.</p>
+      </div>
+    </Section>
   );
 }
 
@@ -81,6 +143,7 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
           )}
         </Section>
       )}
+      {cls?.runtime && <VolumesSection appId={app.id} cls={cls} volumes={volumesOf(cls, app)} />}
       {cls?.runtime && (
         <Section title="Internet access">
           <label className="fieldset">
