@@ -1,23 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { createClient, type ApiRequestError, type ClusterResponse, type Health, type Instance, type InstanceList, type Source } from "@apelora/api-client";
+import { ApiRequestError, type ClusterResponse, type Health, type Permission, type WhoAmI } from "@apelora/api-client";
 
-type Load<T> = { kind: "loading" } | { kind: "ok"; data: T } | { kind: "error"; message: string };
+import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
+import { client, useLoad, writeToken } from "./lib/api";
+import { AuditView } from "./views/Audit";
+import { InfrastructureView } from "./views/Infrastructure";
+import { InstancesView } from "./views/Instances";
+import { MembershipView } from "./views/Membership";
+import { PreflightView } from "./views/Preflight";
+
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
 
-/** The API token lives only in this browser tab (sessionStorage), never in localStorage. */
-const TOKEN_KEY = "apelora.apiToken";
-const readToken = (): string | null => { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } };
-const writeToken = (t: string | null) => { try { if (t) sessionStorage.setItem(TOKEN_KEY, t); else sessionStorage.removeItem(TOKEN_KEY); } catch { /* storage unavailable */ } };
+/** Views, in navigation order. A view whose permission the caller lacks is not offered. */
+const VIEWS = [
+  { id: "overview", label: "Overview" },
+  { id: "instances", label: "Instances" },
+  { id: "preflight", label: "Preflight" },
+  { id: "infrastructure", label: "Networks & storage" },
+  { id: "membership", label: "Membership", needs: "manage-infrastructure" as Permission },
+  { id: "audit", label: "Audit log", needs: "read-audit" as Permission },
+] as const;
+type ViewId = (typeof VIEWS)[number]["id"];
+/** Views with one section use that section's header as their page title. */
+const SINGLE_SECTION = new Set<ViewId>(["instances", "preflight", "audit"]);
 
-const client = createClient({ token: readToken });
-
-function load<T>(request: Promise<T>, set: (l: Load<T>) => void, onAuth: (msg: string) => void) {
-  set({ kind: "loading" });
-  request
-    .then((data) => set({ kind: "ok", data }))
-    .catch((e: ApiRequestError) => { if (e.unauthenticated) onAuth(e.message); set({ kind: "error", message: e.message }); });
-}
+const viewFromHash = (): ViewId => {
+  const id = window.location.hash.replace(/^#\/?/, "");
+  return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
+};
 
 function SignIn({ message, onSubmit }: { message: string; onSubmit: (token: string) => void }) {
   const [value, setValue] = useState("");
@@ -34,50 +45,51 @@ function SignIn({ message, onSubmit }: { message: string; onSubmit: (token: stri
   );
 }
 
-function StatusRow({ label, tone, value }: { label: string; tone: "ok" | "off" | "pending"; value: string }) {
-  const dot = tone === "ok" ? "status-success" : tone === "off" ? "status-error" : "status-neutral";
+function Members({ onAuth }: { onAuth: (m: string) => void }) {
+  const [cluster, reload] = useLoad<ClusterResponse>(() => client.get("cluster"), onAuth);
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-3">
-      <span className="text-sm font-medium">{label}</span>
-      <span className="flex items-center gap-2 text-sm text-base-content/70">
-        <span className={`status ${dot}`} aria-hidden="true" />
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function SourceNote({ source }: { source: Source }) {
-  const time = new Date(source.observedAt).toLocaleTimeString();
-  return source.provider === "mock" ? (
-    <span className="badge badge-sm badge-ghost" data-testid="source-note">Mock data · not a real cluster</span>
-  ) : (
-    <span className="text-xs text-base-content/60" data-testid="source-note">From Incus · observed {time}</span>
-  );
-}
-
-function Section<T>({ title, state, testId, children }: { title: string; state: Load<T>; testId: string; children: (data: T) => React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2" aria-label={title} data-testid={testId}>
-      {state.kind === "loading" && <h2 className="font-semibold">{title}</h2>}
-      {state.kind === "error" && (
+    <Section title="Cluster members" state={cluster} testId="members" onRetry={reload}>
+      {(c) => (
         <>
-          <h2 className="font-semibold">{title}</h2>
-          <p role="alert" className="rounded-box border border-error/40 px-4 py-3 text-sm text-error" data-testid={`${testId}-error`}>{state.message}</p>
+          <SectionHeader title="Cluster members" count={c.members.length} source={c.source} />
+          {c.members.length === 0 ? (
+            <p className="text-sm text-base-content/70">{c.server.clustered ? "The cluster reports no members." : "This Incus server is not clustered."}</p>
+          ) : (
+            <TableFrame>
+              <thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Failure domain</th><th>Architecture</th></tr></thead>
+              <tbody>
+                {c.members.map((m) => (
+                  <tr key={m.name} data-testid="member-row">
+                    <td className="font-medium">{m.name}</td>
+                    <td title={m.message}><span className={`status ${m.status === "Online" ? "status-success" : "status-error"} mr-2`} aria-hidden="true" />{m.status}</td>
+                    <td>{m.roles.join(", ") || "—"}</td>
+                    <td>{m.failureDomain || "—"}</td>
+                    <td>{m.architecture}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </TableFrame>
+          )}
         </>
       )}
-      {state.kind === "ok" && children(state.data)}
-    </section>
+    </Section>
   );
 }
-
-const KIND_LABEL: Record<Instance["kind"], string> = { container: "Container", "virtual-machine": "Virtual machine", unknown: "Unknown" };
 
 export function App() {
   const [api, setApi] = useState<ApiState>({ kind: "checking" });
-  const [cluster, setCluster] = useState<Load<ClusterResponse>>({ kind: "loading" });
-  const [instances, setInstances] = useState<Load<InstanceList>>({ kind: "loading" });
   const [authNeeded, setAuthNeeded] = useState<string | null>(null);
+  const [me, setMe] = useState<WhoAmI | null>(null);
+  const [view, setView] = useState<ViewId>(viewFromHash);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    const onHash = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const onAuth = useCallback((msg: string) => { writeToken(null); setMe(null); setAuthNeeded(msg); }, []);
 
   const check = useCallback(() => {
     setApi({ kind: "checking" });
@@ -85,12 +97,13 @@ export function App() {
     client.get("health")
       .then((health) => {
         setApi({ kind: "up", health });
-        const onAuth = (msg: string) => { writeToken(null); setAuthNeeded(msg); };
-        load(client.get("cluster"), setCluster, onAuth);
-        load(client.get("instances"), setInstances, onAuth);
+        setAttempt((n) => n + 1);
+        client.get("whoami")
+          .then(setMe)
+          .catch((e: unknown) => { if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message); });
       })
       .catch(() => setApi({ kind: "down" }));
-  }, []);
+  }, [onAuth]);
 
   useEffect(check, [check]);
 
@@ -108,112 +121,81 @@ export function App() {
       : { tone: "off" as const, value: up.provider === "incus" && up.incus.error ? "Unreachable" : "Not connected" }
     : { tone: "pending" as const, value: "Unknown" };
   const badge = incusConnected ? "Connected" : up?.provider === "mock" ? "Mock data" : "Not connected";
+  const ready = !!up && !authNeeded;
+  const views = VIEWS.filter((v) => !("needs" in v) || !me || me.permissions.includes(v.needs));
+  const current = views.some((v) => v.id === view) ? view : "overview";
 
   return (
-    <div className="flex h-full flex-col overflow-auto bg-base-100 text-base-content">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-base-300 px-4">
-        <img src="/logo.svg" alt="" className="size-6" />
-        <span className="text-sm font-semibold">Apelora Fabric Console</span>
-        <span className="badge badge-sm badge-ghost" data-testid="mock-badge" title="Shows whether the data below comes from a real Incus cluster.">{badge}</span>
+    <div className="flex h-full flex-col overflow-hidden bg-base-100 text-base-content">
+      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-base-300 px-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <img src="/logo.svg" alt="" className="size-6" />
+          <span className="whitespace-nowrap text-sm font-semibold">Apelora Fabric Console</span>
+          <span className="badge badge-sm badge-ghost" data-testid="mock-badge" title="Shows whether the data below comes from a real Incus cluster.">{badge}</span>
+        </div>
+        {me && <span className="hidden truncate text-xs text-base-content/60 sm:inline" data-testid="whoami">{me.name} · {me.role}</span>}
       </header>
 
-      <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8">
-        <h1 className="text-lg font-semibold">Cluster</h1>
-
-        <section aria-label="Service status" aria-live="polite" className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="status">
-          <StatusRow label="Control plane" {...controlPlane} />
-          <StatusRow label="Incus cluster" {...incus} />
-          {up && <StatusRow label="Authentication" tone={up.auth === "tokens" ? "ok" : "off"} value={up.auth === "tokens" ? "API tokens required" : "Disabled (development only)"} />}
-        </section>
-
-        {authNeeded && <SignIn message={authNeeded} onSubmit={(t) => { writeToken(t); check(); }} />}
-
-        {!incusConnected && (
-          <section className="flex flex-col items-start gap-3 rounded-box border border-dashed border-base-300 p-6" data-testid="empty-state">
-            <h2 className="font-semibold">No cluster connected yet</h2>
-            {api.kind === "down" ? (
-              <p className="text-sm text-base-content/70">
-                Start the control plane with <code className="rounded bg-base-200 px-1 py-0.5 text-xs">cargo run -p apelora-control-plane</code>, then check again.
-              </p>
-            ) : up?.provider === "incus" ? (
-              <p className="text-sm text-base-content/70">The control plane is configured for Incus but cannot reach it: {up.incus.error}</p>
-            ) : (
-              <p className="text-sm text-base-content/70">
-                The tables below show mock data. Set <code className="rounded bg-base-200 px-1 py-0.5 text-xs">APELORA_INCUS_URL</code> and the certificate paths for the control plane to read a real cluster.
-              </p>
-            )}
-            <button type="button" className={`btn btn-sm ${authNeeded ? "btn-outline" : "btn-primary"}`} onClick={check} disabled={api.kind === "checking"}>
-              Check again
-            </button>
-          </section>
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        {ready && (
+          <nav aria-label="Console" className="shrink-0 border-b border-base-300 md:w-48 md:border-r md:border-b-0">
+            <ul className="menu menu-horizontal menu-sm w-full flex-wrap md:menu-vertical md:flex-nowrap md:gap-0.5 md:p-2">
+              {views.map((v) => (
+                <li key={v.id}>
+                  <a href={`#/${v.id}`} aria-current={current === v.id ? "page" : undefined} className={current === v.id ? "menu-active" : undefined}>{v.label}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
         )}
 
-        {up && !authNeeded && (
-          <Section title="Cluster members" state={cluster} testId="members">
-            {(c) => (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="font-semibold">Cluster members <span className="font-normal text-base-content/60">({c.members.length})</span></h2>
-                  <SourceNote source={c.source} />
-                </div>
-                {c.members.length === 0 ? (
-                  <p className="text-sm text-base-content/70">{c.server.clustered ? "The cluster reports no members." : "This Incus server is not clustered."}</p>
+        <main className="min-w-0 flex-1 overflow-auto">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
+            {(!ready || !SINGLE_SECTION.has(current)) && <h1 className="text-lg font-semibold">{VIEWS.find((v) => v.id === current)?.label}</h1>}
+
+            {current === "overview" && (
+              <section aria-label="Service status" aria-live="polite" className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="status">
+                <StatusRow label="Control plane" {...controlPlane} />
+                <StatusRow label="Incus cluster" {...incus} />
+                {up && <StatusRow label="Authentication" tone={up.auth === "tokens" ? "ok" : "off"} value={up.auth === "tokens" ? "API tokens required" : "Disabled (development only)"} />}
+              </section>
+            )}
+
+            {authNeeded && <SignIn message={authNeeded} onSubmit={(t) => { writeToken(t); check(); }} />}
+
+            {current === "overview" && !incusConnected && (
+              <section className="flex flex-col items-start gap-3 rounded-box border border-dashed border-base-300 p-6" data-testid="empty-state">
+                <h2 className="font-semibold">No cluster connected yet</h2>
+                {api.kind === "down" ? (
+                  <p className="text-sm text-base-content/70">
+                    Start the control plane with <code className="rounded bg-base-200 px-1 py-0.5 text-xs">cargo run -p apelora-control-plane</code>, then check again.
+                  </p>
+                ) : up?.provider === "incus" ? (
+                  <p className="text-sm text-base-content/70">The control plane is configured for Incus but cannot reach it: {up.incus.error}</p>
                 ) : (
-                  <div className="overflow-x-auto rounded-box border border-base-300">
-                    <table className="table table-sm">
-                      <thead><tr><th>Member</th><th>Status</th><th>Roles</th><th>Failure domain</th><th>Architecture</th></tr></thead>
-                      <tbody>
-                        {c.members.map((m) => (
-                          <tr key={m.name} data-testid="member-row">
-                            <td className="font-medium">{m.name}</td>
-                            <td title={m.message}><span className={`status ${m.status === "Online" ? "status-success" : "status-error"} mr-2`} aria-hidden="true" />{m.status}</td>
-                            <td>{m.roles.join(", ") || "—"}</td>
-                            <td>{m.failureDomain || "—"}</td>
-                            <td>{m.architecture}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <p className="text-sm text-base-content/70">
+                    The tables show mock data. Set <code className="rounded bg-base-200 px-1 py-0.5 text-xs">APELORA_INCUS_URL</code> and the certificate paths for the control plane to read a real cluster.
+                  </p>
                 )}
-              </>
+                <button type="button" className={`btn btn-sm ${authNeeded ? "btn-outline" : "btn-primary"}`} onClick={check} disabled={api.kind === "checking"}>
+                  Check again
+                </button>
+              </section>
             )}
-          </Section>
-        )}
 
-        {up && !authNeeded && (
-          <Section title="Instances" state={instances} testId="instances">
-            {(l) => (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <h2 className="font-semibold">Instances <span className="font-normal text-base-content/60">({l.items.length})</span></h2>
-                  <SourceNote source={l.source} />
-                </div>
-                {l.items.length === 0 ? (
-                  <p className="text-sm text-base-content/70">No instances yet.</p>
-                ) : (
-                  <div className="overflow-x-auto rounded-box border border-base-300">
-                    <table className="table table-sm">
-                      <thead><tr><th>Instance</th><th>Kind</th><th>Status</th><th>Member</th><th>Project</th></tr></thead>
-                      <tbody>
-                        {l.items.map((i) => (
-                          <tr key={`${i.project}/${i.name}`} data-testid="instance-row">
-                            <td className="font-medium">{i.name}</td>
-                            <td>{KIND_LABEL[i.kind]}</td>
-                            <td>{i.status}</td>
-                            <td>{i.location || "—"}</td>
-                            <td>{i.project}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </>
+            {ready && (
+              <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
+                {current === "overview" && <Members onAuth={onAuth} />}
+                {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
+                {current === "preflight" && <PreflightView onAuth={onAuth} />}
+                {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}
+                {current === "membership" && <MembershipView onAuth={onAuth} />}
+                {current === "audit" && <AuditView onAuth={onAuth} />}
+              </div>
             )}
-          </Section>
-        )}
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

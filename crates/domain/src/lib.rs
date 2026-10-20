@@ -85,6 +85,9 @@ pub struct Instance {
     pub location: String,
     pub architecture: String,
     pub description: String,
+    /// Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora.
+    #[serde(default)]
+    pub managed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

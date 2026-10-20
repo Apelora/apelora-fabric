@@ -105,6 +105,8 @@ export type Instance = {
   description: string;
   kind: InstanceKind;
   location: string;
+  /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
+  managed?: boolean;
   name: string;
   project: string;
   status: string;
@@ -263,6 +265,8 @@ export type StoragePoolList = {
 };
 
 export type WhoAmI = {
+  /** Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`). */
+  deployProjects: string[];
   name: string;
   permissions: Permission[];
   role: Role;

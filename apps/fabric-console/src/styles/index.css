@@ -25,3 +25,8 @@
 }
 
 html, body, #root { height: 100%; }
+
+/* Touch screens: controls keep the compact desktop look but get a 44px hit area. */
+@media (pointer: coarse) {
+  .btn, .menu :where(li > a), .input, .select { min-height: 2.75rem; }
+}

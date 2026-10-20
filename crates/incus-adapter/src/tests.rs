@@ -119,7 +119,7 @@ async fn maps_instance_kinds_and_ignores_unknown_fields() {
     let base = fixture_server(vec![(
         "/1.0/instances?recursion=1&all-projects=true",
         sync(json!([
-            { "name": "web-01", "project": "shop", "type": "container", "status": "Running", "status_code": 103, "location": "node-1", "architecture": "x86_64", "description": "", "config": {}, "devices": {}, "a_future_field": 1 },
+            { "name": "web-01", "project": "shop", "type": "container", "status": "Running", "status_code": 103, "location": "node-1", "architecture": "x86_64", "description": "", "config": { "user.apelora.managed": "true" }, "devices": {}, "a_future_field": 1 },
             { "name": "win-01", "project": "default", "type": "virtual-machine", "status": "Stopped", "status_code": 102, "location": "node-2", "architecture": "x86_64", "description": "" },
             { "name": "odd-01", "type": "something-new" }
         ])),
@@ -137,6 +137,11 @@ async fn maps_instance_kinds_and_ignores_unknown_fields() {
         ]
     );
     assert_eq!(list[0].project, "shop");
+    assert_eq!(
+        list.iter().map(|i| i.managed).collect::<Vec<_>>(),
+        vec![true, false, false],
+        "only the ownership marker makes an instance Apelora's"
+    );
     assert_eq!(
         list[2].project, "",
         "missing fields default instead of failing"

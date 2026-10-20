@@ -1318,6 +1318,10 @@
           "location": {
             "type": "string"
           },
+          "managed": {
+            "type": "boolean",
+            "description": "Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora."
+          },
           "name": {
             "type": "string"
           },
@@ -1820,9 +1824,17 @@
         "required": [
           "name",
           "role",
-          "permissions"
+          "permissions",
+          "deployProjects"
         ],
         "properties": {
+          "deployProjects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`)."
+          },
           "name": {
             "type": "string"
           },

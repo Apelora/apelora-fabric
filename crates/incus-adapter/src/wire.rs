@@ -65,6 +65,7 @@ pub(crate) struct Instance {
     pub location: String,
     pub architecture: String,
     pub description: String,
+    pub config: BTreeMap<String, String>,
 }
 
 /// `GET /1.0/instances/<name>`: only what lifecycle decisions need.

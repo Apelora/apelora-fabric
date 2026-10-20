@@ -22,6 +22,10 @@ async function api(page: Page, routes: Record<string, { status?: number; json: u
 }
 
 test.describe("fabric console", () => {
+  // Never reach a real control plane: anything a test does not stub fails like a network error.
+  // (Routes registered later take precedence over this one.)
+  test.beforeEach(async ({ page }) => { await page.route("**/api/**", (route) => route.abort()); });
+
   test("control plane down: says so, shows how to start it, retries into mock data that is labelled", async ({ page }) => {
     let up = false;
     await page.route("**/api/v1/health", (route) => (up ? route.fulfill({ json: health("mock", false) }) : route.abort()));
@@ -38,9 +42,12 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("mock-badge")).toHaveText("Mock data");
     await expect(page.getByTestId("empty-state")).toContainText("APELORA_INCUS_URL");
     await expect(page.getByTestId("member-row")).toHaveCount(3);
+    for (const note of await page.getByTestId("source-note").all()) await expect(note).toHaveText("Mock data · not a real cluster");
+    await page.getByRole("navigation", { name: "Console" }).getByRole("link", { name: "Instances" }).click();
+    await expect(page).toHaveURL(/#\/instances$/);
     await expect(page.getByTestId("instance-row")).toHaveCount(2);
     await expect(page.getByTestId("instance-row").nth(1)).toContainText("Virtual machine");
-    for (const note of await page.getByTestId("source-note").all()) await expect(note).toHaveText("Mock data · not a real cluster");
+    await expect(page.getByTestId("source-note")).toHaveText("Mock data · not a real cluster");
   });
 
   test("Incus connected: real data is attributed to Incus, no mock badge or empty state", async ({ page }) => {
@@ -65,8 +72,9 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("mock-badge")).toHaveText("Not connected");
     await expect(page.getByTestId("empty-state")).toContainText(message);
     await expect(page.getByTestId("members-error")).toHaveText(message);
-    await expect(page.getByTestId("instances-error")).toHaveText(message);
     await expect(page.getByTestId("member-row")).toHaveCount(0);
+    await page.goto("/#/instances");
+    await expect(page.getByTestId("instances-error")).toHaveText(message);
   });
 
   test("token mode: asks for a token, sends it as a Bearer header, keeps it only for the tab", async ({ page }) => {
@@ -105,5 +113,218 @@ test.describe("fabric console", () => {
     expect((await header.boundingBox())!.height).toBeCloseTo(48, 0);
     expect(await page.locator("body > #root > div").evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("oklch(1 0 0)");
     await expect(page.locator(".btn-primary")).toHaveCount(1);
+  });
+});
+
+// ---- Views and actions (Phase 05) ----------------------------------------------------------
+
+type Perm = "read-inventory" | "read-audit" | "manage-tokens" | "manage-infrastructure" | "design-applications" | "deploy";
+const OPERATOR: Perm[] = ["read-inventory", "design-applications", "deploy"];
+const ADMIN: Perm[] = ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"];
+const whoami = (role: string, permissions: Perm[]) => ({ name: "alex", role, permissions, deployProjects: ["apelora"] });
+const inst = (name: string, project: string, status: string, managed: boolean) =>
+  ({ name, project, kind: "container", status, location: "node-1", architecture: "x86_64", description: "", managed });
+
+/** Stubs the API: each entry answers one method + path; functions may change answers between calls. */
+async function stub(page: Page, routes: Record<string, (req: import("@playwright/test").Request) => { status?: number; json?: unknown }>) {
+  await page.route("**/api/v1/**", async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const handler = routes[`${req.method()} ${path}`];
+    if (!handler) return route.fulfill({ status: 404, json: { error: { code: "not_found", message: `no stub for ${req.method()} ${path}` } } });
+    const r = handler(req);
+    return r.json === undefined ? route.fulfill({ status: r.status ?? 204, body: "" }) : route.fulfill({ status: r.status ?? 200, json: r.json });
+  });
+}
+
+test.describe("fabric console views", () => {
+  test("only Apelora's instances in deploy projects get actions; stopping follows the job", async ({ page }) => {
+    let stopped = false;
+    let polls = 0;
+    const sent: { body: unknown; key: string | undefined }[] = [];
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("web-01", "apelora", stopped ? "Stopped" : "Running", true), inst("legacy-01", "default", "Running", false)] } }),
+      "POST /api/v1/instances/apelora/web-01/state": (req) => { sent.push({ body: req.postDataJSON(), key: req.headers()["idempotency-key"] }); return { status: 202, json: { jobId: "j1", created: true } }; },
+      "GET /api/v1/jobs/j1": () => { polls += 1; if (polls > 1) stopped = true; return { json: { id: "j1", kind: "instance.stop", status: polls > 1 ? "succeeded" : "running", attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: now, updatedAt: now } }; },
+    });
+    await page.goto("/#/instances");
+    const rows = page.getByTestId("instance-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(1)).toContainText("Not managed by Apelora");
+    await expect(rows.nth(1).getByRole("button")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Deploy appliance" })).toBeVisible();
+    await rows.nth(0).getByRole("button", { name: "Stop web-01" }).click();
+    await expect(rows.nth(0)).toContainText("Stopped");
+    await expect(rows.nth(0).getByRole("button", { name: "Start web-01" })).toBeVisible();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.body).toEqual({ action: "stop" });
+    expect(sent[0]!.key).toBeTruthy();
+  });
+
+  test("deleting needs the instance name typed before it can be confirmed", async ({ page }) => {
+    let deleted = 0;
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: deleted ? [] : [inst("web-01", "apelora", "Running", true)] } }),
+      "DELETE /api/v1/instances/apelora/web-01": () => { deleted += 1; return { status: 202, json: { jobId: "j2", created: true } }; },
+      "GET /api/v1/jobs/j2": () => ({ json: { id: "j2", kind: "instance.delete", status: "succeeded", attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: now, updatedAt: now } }),
+    });
+    await page.goto("/#/instances");
+    await page.getByRole("button", { name: "Delete web-01" }).click();
+    const dialog = page.getByTestId("confirm-dialog");
+    await expect(dialog).toContainText("cannot be undone");
+    await expect(page.getByTestId("confirm-input")).toBeFocused();
+    const confirm = page.getByTestId("confirm-action");
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId("confirm-input").fill("web-1");
+    await expect(confirm).toBeDisabled();
+    await page.getByTestId("confirm-input").fill("web-01");
+    await confirm.click();
+    await expect(page.getByText("No instances yet.")).toBeVisible();
+    expect(deleted).toBe(1);
+  });
+
+  test("the deploy form builds the request from the catalog runtime", async ({ page }) => {
+    let body: unknown = null;
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "POST /api/v1/instances": (req) => { body = req.postDataJSON(); return { status: 202, json: { jobId: "j3", created: true } }; },
+      "GET /api/v1/jobs/j3": () => ({ json: { id: "j3", kind: "instance.create", status: "pending", attempts: 2, maxAttempts: 5, lastError: "Incus operation failed: image download timed out", incusOperation: null, request: {}, createdAt: now, updatedAt: now } }),
+    });
+    await page.goto("/#/instances");
+    await page.getByRole("button", { name: "Deploy appliance" }).click();
+    const dialog = page.getByTestId("deploy-dialog");
+    await dialog.getByTestId("deploy-class").selectOption({ label: "NGINX" });
+    await dialog.getByTestId("deploy-setting").selectOption("mainline");
+    await expect(dialog.getByTestId("deploy-setting")).toContainText("mainline (1.31.7)");
+    await dialog.getByTestId("deploy-name").fill("2web");
+    await expect(dialog).toContainText("starting with a letter");
+    await expect(dialog.getByTestId("deploy-submit")).toBeDisabled();
+    await dialog.getByTestId("deploy-name").fill("web-02");
+    await dialog.getByTestId("deploy-submit").click();
+    await expect(page.getByTestId("pending-deploy")).toContainText("apelora/web-02");
+    await expect(page.getByTestId("pending-deploy")).toContainText("attempt 2");
+    expect(body).toEqual({
+      project: "apelora", name: "web-02", kind: "container", start: true, architectures: ["x86_64", "aarch64"],
+      source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724" },
+    });
+  });
+
+  test("an administrator issues a join token that is shown once and revokes it with confirmation", async ({ page }) => {
+    let pending: { memberName: string; expiresAt: string }[] = [];
+    let revoked = 0;
+    const token = "eyJzZXJ2ZXJfbmFtZSI6InNlcnZlci0wNCJ9";
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: pending } }),
+      "POST /api/v1/cluster/join-tokens": (req) => {
+        const { memberName } = req.postDataJSON() as { memberName: string };
+        pending = [{ memberName, expiresAt: "2026-10-20T03:00:00Z" }];
+        return { status: 201, json: { memberName, expiresAt: "2026-10-20T03:00:00Z", token, warnings: ["this token stays valid until 2026-10-20T03:00:00Z; set the Incus option cluster.join_token_expiry to 1H or less"] } };
+      },
+      "DELETE /api/v1/cluster/join-tokens/server-04": () => { revoked += 1; pending = []; return { status: 204 }; },
+    });
+    await page.goto("/#/membership");
+    await page.getByTestId("member-name").fill("server-04");
+    await page.getByTestId("create-join-token").click();
+    await expect(page.getByTestId("issued-token-value")).toHaveValue(token);
+    await expect(page.getByTestId("issued-token")).toContainText("Shown only once");
+    await expect(page.getByTestId("issued-token")).toContainText("cluster.join_token_expiry");
+    await expect(page.getByTestId("join-token-row")).toHaveCount(1);
+    await page.getByRole("button", { name: "Hide token" }).click();
+    await expect(page.getByTestId("issued-token")).toHaveCount(0);
+    await expect(page.getByText(token)).toHaveCount(0);
+    await page.getByRole("button", { name: "Revoke the join token for server-04" }).click();
+    await expect(page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel" })).toBeFocused();
+    await page.getByTestId("confirm-action").click();
+    await expect(page.getByText("No unused join tokens.")).toBeVisible();
+    expect(revoked).toBe(1);
+  });
+
+  test("operators are not offered membership or the audit log", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/cluster": () => ({ json: cluster("incus", ["node-1"]) }),
+    });
+    await page.goto("/#/membership");
+    const nav = page.getByRole("navigation", { name: "Console" });
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Instances", "Preflight", "Networks & storage"]);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
+    await expect(page.getByTestId("whoami")).toHaveText("alex · operator");
+  });
+
+  test("preflight, networks and storage, and the audit log show what the API returns", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/preflight": () => ({ json: { source: { provider: "incus", observedAt: now }, overall: "warn", checks: [
+        { id: "incus-version", title: "Incus version", status: "pass", detail: "Incus 7.0.1" },
+        { id: "project-apelora", title: "Project apelora", status: "warn", detail: "exists but is not restricted" },
+        { id: "clock", title: "Clock agreement between members", status: "not-checked", detail: "not measurable through the Incus API" },
+      ] } }),
+      "GET /api/v1/projects": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [{ name: "apelora", description: "", restricted: true }] } }),
+      "GET /api/v1/networks": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
+        { name: "incusbr0", project: "default", kind: "bridge", managed: true, status: "Created", description: "" },
+        { name: "eth0", project: "default", kind: "physical", managed: false, status: "", description: "" },
+      ] } }),
+      "GET /api/v1/storage-pools": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [{ name: "local", driver: "btrfs", status: "Created", description: "" }] } }),
+      "GET /api/v1/audit": () => ({ json: { items: [{ id: 1, at: now, actor: "alex", action: "cluster.join-token.created", target: "server-04", detail: {} }] } }),
+    });
+    await page.goto("/#/preflight");
+    await expect(page.getByTestId("preflight-check")).toHaveCount(3);
+    await expect(page.getByTestId("preflight-overall")).toContainText("need attention");
+    await expect(page.getByTestId("preflight-check").nth(2)).toContainText("Not checked");
+    await page.goto("/#/infrastructure");
+    await expect(page.getByTestId("project-row")).toContainText("Yes");
+    await expect(page.getByTestId("network-row")).toHaveCount(1);
+    await expect(page.getByText("1 host interfaces not managed by Incus are not shown.")).toBeVisible();
+    await expect(page.getByTestId("pool-row")).toContainText("btrfs");
+    await page.goto("/#/audit");
+    await expect(page.getByTestId("audit-row")).toContainText("Cluster join token created");
+  });
+
+  test("each view keeps one primary action", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+    });
+    for (const view of ["instances", "membership"]) {
+      await page.goto(`/#/${view}`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+      await expect(page.locator(".btn-primary:visible")).toHaveCount(1);
+    }
+  });
+});
+
+test.describe("fabric console on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test("every view is reachable without sideways scrolling and controls are touch-sized", async ({ page }) => {
+    await page.route("**/api/**", (route) => route.abort());
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: health("incus", true) }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "fabric-admin", permissions: ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"], deployProjects: ["apelora"] } }));
+    await page.route("**/api/v1/instances", (route) => route.fulfill({ json: { source: { provider: "incus", observedAt: now }, items: [{ name: "web-01", project: "apelora", kind: "container", status: "Running", location: "node-1", architecture: "aarch64", description: "", managed: true }] } }));
+    await page.goto("/#/instances");
+    await expect(page.getByTestId("instance-row")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    for (const link of await page.getByRole("navigation", { name: "Console" }).getByRole("link").all()) {
+      const box = (await link.boundingBox())!;
+      expect(box.x + box.width, await link.innerText()).toBeLessThanOrEqual(390);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    for (const name of ["Deploy appliance", "Stop web-01", "Delete web-01"]) {
+      const box = (await page.getByRole("button", { name }).boundingBox())!;
+      expect(box.height, name).toBeGreaterThanOrEqual(44);
+      expect(box.x + box.width, name).toBeLessThanOrEqual(390);
+    }
   });
 });

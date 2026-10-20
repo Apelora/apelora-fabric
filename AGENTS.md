@@ -9,7 +9,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 ## What exists now
 
 - `apps/studio` — working, browser-only designer: Vite + React + TypeScript + React Flow (`@xyflow/react`) + Tailwind CSS 4 + daisyUI 5.
-- `apps/fabric-console` — administrator console placeholder; shows control-plane and Incus status honestly.
+- `apps/fabric-console` — administrator console: status, members, instances with deploy/start/stop/delete (followed to completion through jobs), preflight, networks and storage, membership (join tokens), audit log. Talks only to the Apelora API.
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema.
 - `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly, and Incus runtimes (`src/runtimes.ts`) for the classes whose images have run on the test cluster.
@@ -67,6 +67,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 
 | Task | Skills |
 |---|---|
+| Fabric Console views and actions | `fabric-console`, `studio-design-system`, `daisyui`, `playwright-qa` |
 | Studio canvas, nodes, interactions | `visual-designer`, `compact-appliance`, `react-flow-interactions`, `studio-reactflow`, `studio-design-system`, `daisyui` |
 | Catalog and schema | `appliance-catalog`, `appliance-schema`, `application-assembly`, `topology-validation` |
 | Rust API, worker, jobs | `rust-control-plane`, `security-tenancy`, `observability` |

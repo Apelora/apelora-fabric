@@ -321,6 +321,9 @@ pub struct WhoAmI {
     pub name: String,
     pub role: Role,
     pub permissions: Vec<Permission>,
+    /// Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`).
+    #[serde(rename = "deployProjects")]
+    pub deploy_projects: Vec<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -442,7 +445,7 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
 /// The caller's name, role and the permissions that role grants.
 #[utoipa::path(get, path = "/api/v1/whoami", tag = "system",
     responses((status = 200, body = WhoAmI), (status = 401, body = ErrorBody)))]
-async fn whoami(Extension(p): Extension<Principal>) -> Json<WhoAmI> {
+async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal>) -> Json<WhoAmI> {
     let permissions = [
         Permission::ReadInventory,
         Permission::ReadAudit,
@@ -458,6 +461,7 @@ async fn whoami(Extension(p): Extension<Principal>) -> Json<WhoAmI> {
         name: p.name,
         role: p.role,
         permissions,
+        deploy_projects: state.deploy_projects.to_vec(),
     })
 }
 

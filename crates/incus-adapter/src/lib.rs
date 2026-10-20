@@ -157,7 +157,7 @@ impl Provider {
         match self {
             Provider::Mock(m) => Ok(m.find(project, name).map(|i| InstanceState {
                 status: i.instance.status.clone(),
-                managed: i.managed,
+                managed: i.instance.managed,
                 architecture: i.instance.architecture.clone(),
                 base_image: i.base_image.clone(),
             })),
@@ -281,7 +281,6 @@ pub struct MockIncus {
 #[derive(Debug, Clone)]
 pub struct MockInstance {
     pub instance: Instance,
-    pub managed: bool,
     pub base_image: Option<String>,
 }
 
@@ -320,8 +319,8 @@ impl MockIncus {
                 location: "mock-member-01".into(),
                 architecture: "x86_64".into(),
                 description: "mock data".into(),
+                managed: true,
             },
-            managed: true,
             base_image: spec.source.fingerprint.clone(),
         });
         Ok(self.op())
@@ -408,6 +407,7 @@ impl Default for MockIncus {
             location: format!("mock-member-0{loc}"),
             architecture: "x86_64".into(),
             description: "mock data".into(),
+            managed: false,
         };
         Self {
             server: ServerInfo {
@@ -434,7 +434,6 @@ impl Default for MockIncus {
                 .into_iter()
                 .map(|instance| MockInstance {
                     instance,
-                    managed: false,
                     base_image: None,
                 })
                 .collect(),

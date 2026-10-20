@@ -390,6 +390,7 @@ impl IncusClient {
                     "virtual-machine" => InstanceKind::VirtualMachine,
                     _ => InstanceKind::Unknown,
                 },
+                managed: i.config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
                 name: i.name,
                 project: i.project,
                 status: i.status,
