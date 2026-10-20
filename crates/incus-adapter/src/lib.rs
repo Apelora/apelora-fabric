@@ -24,8 +24,9 @@ use std::time::{Duration, Instant};
 
 use apelora_domain::enrolment::HELD;
 use apelora_domain::network::{AclRule, LoadBalancer};
+use apelora_domain::storage::{VolumeMount, volume_name};
 use apelora_domain::{
-    ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network,
+    ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network, Owner,
     PendingJoin, Project, ProviderMode, ServerInfo, StoragePool, is_valid_name,
 };
 
@@ -60,6 +61,26 @@ pub struct InstanceState {
     pub architecture: String,
     /// Fingerprint of the image the instance was built from (`volatile.base_image`).
     pub base_image: Option<String>,
+    /// The member it runs on; empty (or `none`) on a standalone server.
+    pub location: String,
+    /// Names of the instance's own disk devices backed by a pool volume.
+    pub volume_devices: Vec<String>,
+}
+
+/// What Apelora needs to know about an existing custom volume.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeState {
+    /// Carries Apelora's ownership marker.
+    pub managed: bool,
+    /// The application it was created for (`user.apelora.application`).
+    pub application: Option<String>,
+    /// `filesystem` or `block`.
+    pub content: String,
+    /// Size in MiB as configured (`size`), when it is set in a unit Apelora reads.
+    pub size_mib: Option<u32>,
+    pub location: String,
+    /// Instances using it, as Incus API paths.
+    pub used_by: Vec<String>,
 }
 
 /// The result of waiting on an Incus operation.
@@ -70,6 +91,9 @@ pub enum OperationOutcome {
     /// Not finished within the wait budget; wait again later rather than repeating the call.
     StillRunning,
 }
+
+/// How long creating or attaching a volume may take before the job retries.
+const VOLUME_BUDGET: Duration = Duration::from_secs(300);
 
 /// Server-side wait per request; below the client's 20 s request timeout.
 const WAIT_STEP_SECS: u32 = 15;
@@ -218,6 +242,8 @@ impl Provider {
                 managed: i.instance.managed,
                 architecture: i.instance.architecture.clone(),
                 base_image: i.base_image.clone(),
+                location: i.instance.location.clone(),
+                volume_devices: i.volume_devices.clone(),
             })),
             Provider::Incus(c) => c.instance(project, name).await,
         }
@@ -657,6 +683,119 @@ impl Provider {
         }
     }
 
+    /// The volume `mount` asks for, for `instance` on `member` (where the instance runs):
+    /// created when missing and labelled with its owner. One that exists for another
+    /// application or without Apelora's marker is refused, never adopted.
+    pub async fn ensure_volume(
+        &self,
+        project: &str,
+        member: &str,
+        instance: &str,
+        mount: &VolumeMount,
+        owner: &Owner,
+    ) -> Result<(), AdapterError> {
+        let (pool, name, member) = volume_target(project, member, instance, mount)?;
+        match self.volume(project, &pool, member, &name).await? {
+            Some(v) if v.managed && v.application.as_deref() == Some(&owner.application) => {
+                return Ok(());
+            }
+            Some(_) => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: format!(
+                        "volume {name} exists but was not created by Apelora for application {}",
+                        owner.application
+                    ),
+                });
+            }
+            None => {}
+        }
+        let op = match self {
+            Provider::Mock(m) => m.create_volume(project, member, &name, mount, owner)?,
+            Provider::Incus(c) => {
+                c.create_volume(project, member, &name, mount, owner)
+                    .await?
+            }
+        };
+        self.finish(op, &format!("creating volume {name}")).await
+    }
+
+    /// Attaches the instance's volume as its disk device (see [`VolumeMount::device`]).
+    pub async fn attach_volume(
+        &self,
+        project: &str,
+        instance: &str,
+        mount: &VolumeMount,
+    ) -> Result<(), AdapterError> {
+        let (_, name, _) = volume_target(project, "", instance, mount)?;
+        let op = match self {
+            Provider::Mock(m) => m.attach_volume(project, instance, &name, mount)?,
+            Provider::Incus(c) => c.attach_volume(project, instance, &name, mount).await?,
+        };
+        self.finish(op, &format!("attaching volume {name}")).await
+    }
+
+    /// A custom volume, `None` if it does not exist. `member` only for member-local pools.
+    pub async fn volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+    ) -> Result<Option<VolumeState>, AdapterError> {
+        valid_names(&[project, pool, name])?;
+        if let Some(m) = member {
+            valid_member(m)?;
+        }
+        match self {
+            Provider::Mock(m) => Ok(m
+                .storage()
+                .volumes
+                .get(&mock_key(project, pool, member, name))
+                .cloned()),
+            Provider::Incus(c) => c.volume(project, pool, member, name).await,
+        }
+    }
+
+    /// Deletes a volume Apelora created for `application`, with its snapshots; `false` when it
+    /// did not exist. Incus refuses while an instance uses it.
+    pub async fn delete_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        valid_names(&[project, pool, name])?;
+        if let Some(m) = member {
+            valid_member(m)?;
+        }
+        match self {
+            Provider::Mock(m) => m.delete_volume(project, pool, member, name, application),
+            Provider::Incus(c) => {
+                c.delete_volume(project, pool, member, name, application)
+                    .await
+            }
+        }
+    }
+
+    /// Waits on an operation a synchronous-looking call started, if it started one.
+    async fn finish(&self, op: Option<String>, what: &str) -> Result<(), AdapterError> {
+        let Some(op) = op else { return Ok(()) };
+        match self.wait_operation(&op, VOLUME_BUDGET).await? {
+            OperationOutcome::Succeeded => Ok(()),
+            OperationOutcome::Failed(e) => Err(AdapterError::Api {
+                status: 500,
+                message: format!("{what} failed: {e}"),
+            }),
+            OperationOutcome::StillRunning => Err(AdapterError::Api {
+                status: 504,
+                message: format!("{what} is still running (operation {op})"),
+            }),
+        }
+    }
+
     /// Waits for an operation to finish, for at most about `budget`.
     pub async fn wait_operation(
         &self,
@@ -692,6 +831,7 @@ pub struct MockIncus {
     pub instances: Arc<Mutex<Vec<MockInstance>>>,
     pub join_tokens: Arc<Mutex<Vec<PendingJoin>>>,
     pub network: Arc<Mutex<MockNetwork>>,
+    pub storage: Arc<Mutex<MockStorage>>,
     pub projects: Vec<Project>,
     pub networks: Vec<Network>,
     pub pools: Vec<StoragePool>,
@@ -797,10 +937,22 @@ impl MockNetwork {
     }
 }
 
+/// Custom volumes the mock holds, keyed `project/pool/member/name`, and faults to inject.
+#[derive(Debug, Clone, Default)]
+pub struct MockStorage {
+    pub volumes: std::collections::BTreeMap<String, VolumeState>,
+    /// Volumes (Incus names) whose creation fails, as on a full pool (tests).
+    pub fail_create: std::collections::BTreeSet<String>,
+    /// Volumes whose attachment fails (tests).
+    pub fail_attach: std::collections::BTreeSet<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct MockInstance {
     pub instance: Instance,
     pub base_image: Option<String>,
+    /// Disk devices backed by a volume.
+    pub volume_devices: Vec<String>,
     /// New for every created instance, like Incus's `volatile.uuid`.
     pub uuid: String,
 }
@@ -860,8 +1012,104 @@ impl MockIncus {
                 unreachable: false,
             },
             base_image: spec.source.fingerprint.clone(),
+            volume_devices: Vec::new(),
         });
         Ok(self.op())
+    }
+
+    pub fn storage(&self) -> std::sync::MutexGuard<'_, MockStorage> {
+        self.storage.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn create_volume(
+        &self,
+        project: &str,
+        member: Option<&str>,
+        name: &str,
+        mount: &VolumeMount,
+        owner: &Owner,
+    ) -> Result<Option<String>, AdapterError> {
+        let pool = mount.pool.as_deref().unwrap_or_default();
+        let mut st = self.storage();
+        if st.fail_create.contains(name) {
+            return Err(AdapterError::Api {
+                status: 500,
+                message: format!("mock: pool {pool} is full"),
+            });
+        }
+        st.volumes.insert(
+            mock_key(project, pool, member, name),
+            VolumeState {
+                managed: true,
+                application: Some(owner.application.clone()),
+                content: mount.content.as_str().into(),
+                size_mib: Some(mount.size_mib),
+                location: member.unwrap_or("none").into(),
+                used_by: Vec::new(),
+            },
+        );
+        Ok(None)
+    }
+
+    fn attach_volume(
+        &self,
+        project: &str,
+        instance: &str,
+        name: &str,
+        mount: &VolumeMount,
+    ) -> Result<Option<String>, AdapterError> {
+        let pool = mount.pool.as_deref().unwrap_or_default();
+        let mut st = self.storage();
+        if st.fail_attach.contains(name) {
+            return Err(AdapterError::Api {
+                status: 500,
+                message: format!("mock: cannot attach {name}"),
+            });
+        }
+        let mut all = self.lock();
+        let i = all
+            .iter_mut()
+            .find(|i| i.instance.project == project && i.instance.name == instance)
+            .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{instance}")))?;
+        // Like Incus: the volume must be on the instance's member.
+        let key = mock_key(project, pool, Some(&i.instance.location), name);
+        let v = st.volumes.get_mut(&key).ok_or_else(|| AdapterError::Api {
+            status: 404,
+            message: "Storage volume not found".into(),
+        })?;
+        v.used_by
+            .push(format!("/1.0/instances/{instance}?project={project}"));
+        let dev = mount.device();
+        if !i.volume_devices.contains(&dev) {
+            i.volume_devices.push(dev);
+        }
+        Ok(None)
+    }
+
+    fn delete_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        let key = mock_key(project, pool, member, name);
+        let mut st = self.storage();
+        match st.volumes.get(&key) {
+            None => Ok(false),
+            Some(v) if !v.managed || v.application.as_deref() != Some(application) => {
+                Err(AdapterError::Api {
+                    status: 409,
+                    message: format!("volume {name} does not belong to application {application}"),
+                })
+            }
+            Some(v) if !v.used_by.is_empty() => Err(AdapterError::Api {
+                status: 400,
+                message: "The storage volume is still in use".into(),
+            }),
+            Some(_) => Ok(st.volumes.remove(&key).is_some()),
+        }
     }
 
     fn set_status(&self, project: &str, name: &str, status: &str) -> Result<String, AdapterError> {
@@ -887,8 +1135,13 @@ impl MockIncus {
                 message: "Instance is running".into(),
             });
         }
-        all.remove(at);
+        let gone = all.remove(at);
         drop(all);
+        let used = format!("/1.0/instances/{name}?project={project}");
+        for v in self.storage().volumes.values_mut() {
+            v.used_by.retain(|u| *u != used);
+        }
+        drop(gone);
         Ok(self.op())
     }
 
@@ -1024,12 +1277,14 @@ impl Default for MockIncus {
                     uuid: format!("seed-{}", instance.name),
                     instance,
                     base_image: None,
+                    volume_devices: Vec::new(),
                 })
                 .collect(),
             )),
             next_op: Arc::new(Mutex::new(0)),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
+            storage: Arc::default(),
             projects: vec![
                 Project {
                     name: "default".into(),
@@ -1060,6 +1315,38 @@ impl Default for MockIncus {
             }],
         }
     }
+}
+
+fn valid_names(names: &[&str]) -> Result<(), AdapterError> {
+    match names.iter().find(|n| !is_valid_name(n)) {
+        Some(bad) => Err(AdapterError::InvalidConfig(format!("invalid name {bad:?}"))),
+        None => Ok(()),
+    }
+}
+
+/// The pool, Incus volume name and target member of an instance's volume, all checked.
+/// A standalone server reports its location as `none` (or nothing): no target then.
+fn volume_target<'a>(
+    project: &str,
+    member: &'a str,
+    instance: &str,
+    mount: &VolumeMount,
+) -> Result<(String, String, Option<&'a str>), AdapterError> {
+    let pool = mount
+        .pool
+        .clone()
+        .ok_or_else(|| AdapterError::InvalidConfig(format!("volume {} has no pool", mount.name)))?;
+    let name = volume_name(instance, &mount.name);
+    valid_names(&[project, &pool, &name, instance])?;
+    let member = Some(member).filter(|m| !m.is_empty() && *m != "none");
+    if let Some(m) = member {
+        valid_member(m)?;
+    }
+    Ok((pool, name, member))
+}
+
+fn mock_key(project: &str, pool: &str, member: Option<&str>, name: &str) -> String {
+    format!("{project}/{pool}/{}/{name}", member.unwrap_or("-"))
 }
 
 fn valid_member(name: &str) -> Result<(), AdapterError> {

@@ -196,6 +196,19 @@ pub(crate) struct InstanceDetail {
     pub status: String,
     pub architecture: String,
     pub config: BTreeMap<String, String>,
+    pub location: String,
+    /// The instance's own devices (not its profiles').
+    pub devices: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// A custom storage volume (`/1.0/storage-pools/<pool>/volumes/custom/<name>`).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct Volume {
+    pub config: BTreeMap<String, String>,
+    pub content_type: String,
+    pub location: String,
+    pub used_by: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

@@ -575,6 +575,8 @@ export type InstanceSpec = {
   source: ImageSource;
   /** Start the instance once created. */
   start?: boolean;
+  /** Persistent volumes, each created for this instance on the member it runs on. */
+  volumes?: VolumeMount[];
 };
 
 /** What an appliance may reach outside the application (the internet, through the uplink). Inside the application only connections count, whatever this says. */
@@ -1248,6 +1250,25 @@ export type VersionInfo = {
 
 export type VersionList = {
   items: VersionInfo[];
+};
+
+/** The policy a volume is created under. Only `data-local` exists so far: persistent, one writer, on the member's own pool; moving it means stopping the instance. */
+export type VolumeClass = "data-local";
+
+/** What the volume holds: a mounted filesystem or a raw disk (virtual machines only). */
+export type VolumeContent = "filesystem" | "block";
+
+/** A volume an appliance asks for. */
+export type VolumeMount = {
+  class?: VolumeClass;
+  content?: VolumeContent;
+  /** Name in the design, e.g. `data`: lowercase letters, digits and `-`, at most 16. */
+  name: string;
+  /** Where a filesystem volume is mounted inside the instance; none for a block volume. */
+  path?: string | null;
+  /** The pool the class resolves to. Set by the control plane, never by a caller. */
+  pool?: string | null;
+  sizeMib: number;
 };
 
 export type WhoAmI = {

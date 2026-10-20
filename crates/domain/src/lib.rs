@@ -11,6 +11,7 @@ pub mod lifecycle;
 pub mod network;
 pub mod plan;
 pub mod preflight;
+pub mod storage;
 
 /// Version segment of the Apelora REST API (`/api/v1`).
 pub const API_VERSION: &str = "v1";
@@ -310,6 +311,9 @@ pub struct InstanceSpec {
     /// joins the application's network with its own ACL (unmatched traffic rejected).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network: Option<network::NetworkAttachment>,
+    /// Persistent volumes, each created for this instance on the member it runs on.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<storage::VolumeMount>,
 }
 
 impl InstanceSpec {
@@ -373,7 +377,7 @@ impl InstanceSpec {
         if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
             return Err(format!("config key {k} is reserved for Apelora"));
         }
-        Ok(())
+        storage::validate_volumes(&self.name, self.kind, &self.volumes)
     }
 
     /// [`validate`](Self::validate), plus what only Apelora may set: a caller's spec must not
@@ -386,6 +390,12 @@ impl InstanceSpec {
             .find(|k| k.starts_with("environment.APELORA_"))
         {
             return Err(format!("config key {k} is reserved for Apelora"));
+        }
+        if let Some(v) = self.volumes.iter().find(|v| v.pool.is_some()) {
+            return Err(format!(
+                "volume {}: the pool is chosen by Apelora from the volume class",
+                v.name
+            ));
         }
         Ok(())
     }
@@ -588,6 +598,7 @@ mod tests {
             architectures: vec![],
             owner: None,
             network: None,
+            volumes: Vec::new(),
         }
     }
 

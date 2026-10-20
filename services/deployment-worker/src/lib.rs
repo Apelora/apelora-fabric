@@ -244,6 +244,162 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn volumes_are_created_where_incus_placed_the_instance_and_outlive_it(pool: Pool) {
+        let Provider::Mock(m) = mock() else {
+            unreachable!()
+        };
+        let provider = Provider::Mock(m.clone());
+        let spec = json!({ "project": "apelora", "name": "shop-db-01", "kind": "container",
+            "source": { "protocol": "oci", "server": "https://registry.example", "alias": "postgres:18" },
+            "start": true,
+            "owner": { "application": "shop", "appliance": "db", "replica": 1 },
+            "volumes": [{ "name": "data", "sizeMib": 1024, "path": "/var/lib/postgresql", "pool": "local" }] });
+        // The pool is full at first: the job fails and nothing is started without its data.
+        m.storage().fail_create.insert("shop-db-01-data".into());
+        let create = job(&pool, "instance.create", spec).await;
+        sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
+            .bind(create)
+            .execute(&pool)
+            .await
+            .expect("cap");
+        drain(&pool, &provider).await;
+        let (status, _, err) = job_status(&pool, create).await.expect("status");
+        assert_eq!(status, "failed");
+        assert!(err.unwrap_or_default().contains("pool local is full"));
+        let state = provider
+            .instance("apelora", "shop-db-01")
+            .await
+            .expect("read")
+            .expect("created");
+        assert_eq!(
+            (state.status.as_str(), state.volume_devices.len()),
+            ("Stopped", 0)
+        );
+
+        // Room again: a new attempt creates the volume on the instance's member, attaches, starts.
+        m.storage().fail_create.clear();
+        let retry = enqueue_job(
+            &pool,
+            "instance.create",
+            None,
+            &get_job(&pool, create).await.expect("job").payload,
+            None,
+        )
+        .await
+        .expect("enqueue")
+        .id();
+        drain(&pool, &provider).await;
+        assert_eq!(
+            get_job(&pool, retry).await.expect("job").status,
+            "succeeded"
+        );
+        let state = provider
+            .instance("apelora", "shop-db-01")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(
+            (state.status.as_str(), state.volume_devices.clone()),
+            ("Running", vec!["vol-data".to_owned()])
+        );
+        let volume = provider
+            .volume("apelora", "local", Some(&state.location), "shop-db-01-data")
+            .await
+            .expect("read")
+            .expect("volume on the instance's member");
+        assert_eq!(
+            (volume.size_mib, volume.application.as_deref()),
+            (Some(1024), Some("shop"))
+        );
+        assert_eq!(volume.used_by.len(), 1);
+
+        // Deleting the instance keeps its data.
+        let delete = job(
+            &pool,
+            "instance.delete",
+            json!({ "project": "apelora", "name": "shop-db-01" }),
+        )
+        .await;
+        drain(&pool, &provider).await;
+        assert_eq!(
+            get_job(&pool, delete).await.expect("job").status,
+            "succeeded"
+        );
+        let kept = provider
+            .volume("apelora", "local", Some(&state.location), "shop-db-01-data")
+            .await
+            .expect("read")
+            .expect("volume kept");
+        assert!(kept.used_by.is_empty());
+        // Only its own application may delete it.
+        assert!(
+            provider
+                .delete_volume(
+                    "apelora",
+                    "local",
+                    Some(&state.location),
+                    "shop-db-01-data",
+                    "other"
+                )
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            provider
+                .delete_volume(
+                    "apelora",
+                    "local",
+                    Some(&state.location),
+                    "shop-db-01-data",
+                    "shop"
+                )
+                .await,
+            Ok(true)
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_volume_that_is_not_ours_is_never_adopted(pool: Pool) {
+        let Provider::Mock(m) = mock() else {
+            unreachable!()
+        };
+        let provider = Provider::Mock(m.clone());
+        m.storage().volumes.insert(
+            "apelora/local/mock-member-01/shop-db-01-data".into(),
+            apelora_incus_adapter::VolumeState {
+                managed: false,
+                application: None,
+                content: "filesystem".into(),
+                size_mib: Some(1024),
+                location: "mock-member-01".into(),
+                used_by: Vec::new(),
+            },
+        );
+        let create = job(&pool, "instance.create", json!({ "project": "apelora", "name": "shop-db-01", "kind": "container",
+            "source": { "protocol": "oci", "server": "https://registry.example", "alias": "postgres:18" },
+            "start": true, "owner": { "application": "shop", "appliance": "db", "replica": 1 },
+            "volumes": [{ "name": "data", "sizeMib": 1024, "path": "/data", "pool": "local" }] })).await;
+        sqlx::query("UPDATE jobs SET max_attempts = 1 WHERE id = $1")
+            .bind(create)
+            .execute(&pool)
+            .await
+            .expect("cap");
+        drain(&pool, &provider).await;
+        let (status, _, err) = job_status(&pool, create).await.expect("status");
+        assert_eq!(status, "failed");
+        assert!(
+            err.unwrap_or_default()
+                .contains("was not created by Apelora")
+        );
+        let state = provider
+            .instance("apelora", "shop-db-01")
+            .await
+            .expect("read")
+            .expect("created");
+        assert_eq!(state.status, "Stopped");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn foreign_instances_are_never_changed(pool: Pool) {
         let provider = mock();
         let before = provider.instances().await.expect("instances");

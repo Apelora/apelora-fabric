@@ -405,6 +405,7 @@ fn oci_spec() -> InstanceSpec {
         architectures: vec![],
         owner: None,
         network: None,
+        volumes: Vec::new(),
     }
 }
 
@@ -520,6 +521,8 @@ async fn reads_ownership_and_reports_failed_operations() {
             managed: true,
             architecture: "aarch64".into(),
             base_image: Some(FP.into()),
+            location: String::new(),
+            volume_devices: Vec::new(),
         }))
     );
     assert_eq!(
@@ -584,6 +587,8 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
             managed: true,
             architecture: "x86_64".into(),
             base_image: None,
+            location: "mock-member-01".into(),
+            volume_devices: Vec::new(),
         }))
     );
     assert_eq!(
@@ -773,4 +778,15 @@ async fn an_attached_instance_gets_its_nic_on_the_application_network_with_its_a
         json!({ "type": "nic", "name": "eth0", "network": "shop", "security.acls": "shop-web-01",
                 "security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject" })
     );
+}
+
+#[test]
+fn volume_sizes_are_read_in_the_units_incus_stores() {
+    use crate::client::parse_mib;
+    assert_eq!(parse_mib("256MiB"), Some(256));
+    assert_eq!(parse_mib("2GiB"), Some(2048));
+    assert_eq!(parse_mib("1TiB"), Some(1024 * 1024));
+    assert_eq!(parse_mib("1GB"), None);
+    assert_eq!(parse_mib("GiB"), None);
+    assert_eq!(parse_mib(""), None);
 }

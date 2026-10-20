@@ -316,6 +316,42 @@ fn check(name: &str, project: &str, appliances: &[DesiredAppliance]) -> Result<(
     Ok(())
 }
 
+/// Puts the pool behind each volume's class into the spec, so the worker (and the replica
+/// supervisor, which reads the saved revision) creates volumes where the administrator said.
+/// Refuses when no pool is configured for the class or Incus does not have it: a design never
+/// silently falls back to another pool.
+async fn resolve_volume_pools(
+    state: &AppState,
+    appliances: &mut [DesiredAppliance],
+) -> Result<(), ApiError> {
+    if appliances.iter().all(|d| d.spec.volumes.is_empty()) {
+        return Ok(());
+    }
+    let Some(pool) = state.volume_pool.as_deref() else {
+        return Err(bad_request(
+            "this design has volumes, but no storage pool is configured for volume class data-local (APELORA_VOLUME_POOL)",
+        ));
+    };
+    if !state
+        .provider
+        .storage_pools()
+        .await?
+        .iter()
+        .any(|p| p.name == pool)
+    {
+        return Err(bad_request(format!(
+            "volume class data-local: storage pool {pool} does not exist in Incus"
+        )));
+    }
+    for v in appliances
+        .iter_mut()
+        .flat_map(|d| d.spec.volumes.iter_mut())
+    {
+        v.pool = Some(pool.to_owned());
+    }
+    Ok(())
+}
+
 async fn current_plan(
     state: &AppState,
     name: &str,
@@ -411,7 +447,7 @@ pub(super) async fn preview(
     Path(name): Path<String>,
     body: Result<Json<PlanRequest>, JsonRejection>,
 ) -> Result<Json<Plan>, ApiError> {
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Json(mut req) = body.map_err(|e| bad_request(e.body_text()))?;
     check(&name, &req.project, &req.appliances)?;
     let target = resolve_target(&state, &p, &name, &req.project).await?;
     if p.caller.is_some() {
@@ -426,6 +462,7 @@ pub(super) async fn preview(
     ensure_project_allowed(&state, &req.project).await?;
     check_connections(&req.appliances, req.connections.as_deref())?;
     check_published(&req.appliances, &req.published)?;
+    resolve_volume_pools(&state, &mut req.appliances).await?;
     let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
     network_warnings(
         &state,
@@ -452,7 +489,7 @@ pub(super) async fn deploy(
     headers: HeaderMap,
     body: Result<Json<DeployRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<DeployResponse>), ApiError> {
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Json(mut req) = body.map_err(|e| bad_request(e.body_text()))?;
     if !req.document.is_object() {
         return Err(bad_request(
             "the document must be a Studio application document",
@@ -471,6 +508,7 @@ pub(super) async fn deploy(
     ensure_project_allowed(&state, &req.project).await?;
     check_connections(&req.appliances, req.connections.as_deref())?;
     check_published(&req.appliances, &req.published)?;
+    resolve_volume_pools(&state, &mut req.appliances).await?;
     let pool = store(&state)?;
     let key = idempotency_key(&headers, &p)?;
     // Removing every appliance also removes the application's network objects, even when the

@@ -122,6 +122,13 @@ impl DesiredAppliance {
                 self.appliance
             ));
         }
+        // A stateless replica may be recreated anywhere, which a member-local volume cannot follow.
+        if !self.spec.volumes.is_empty() && self.availability == Availability::Stateless {
+            return Err(format!(
+                "{}: stateless appliances cannot have volumes; make it a singleton or stateful",
+                self.appliance
+            ));
+        }
         Ok(())
     }
 }
@@ -339,6 +346,7 @@ mod tests {
                 architectures: vec![],
                 owner: None,
                 network: None,
+                volumes: Vec::new(),
             },
             replicas: 1,
             availability: Availability::Singleton,

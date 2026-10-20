@@ -7431,6 +7431,13 @@
           "start": {
             "type": "boolean",
             "description": "Start the instance once created."
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeMount"
+            },
+            "description": "Persistent volumes, each created for this instance on the member it runs on."
           }
         }
       },
@@ -9786,6 +9793,60 @@
             "items": {
               "$ref": "#/components/schemas/VersionInfo"
             }
+          }
+        }
+      },
+      "VolumeClass": {
+        "type": "string",
+        "description": "The policy a volume is created under. Only `data-local` exists so far: persistent, one\nwriter, on the member's own pool; moving it means stopping the instance.",
+        "enum": [
+          "data-local"
+        ]
+      },
+      "VolumeContent": {
+        "type": "string",
+        "description": "What the volume holds: a mounted filesystem or a raw disk (virtual machines only).",
+        "enum": [
+          "filesystem",
+          "block"
+        ]
+      },
+      "VolumeMount": {
+        "type": "object",
+        "description": "A volume an appliance asks for.",
+        "required": [
+          "name",
+          "sizeMib"
+        ],
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/VolumeClass"
+          },
+          "content": {
+            "$ref": "#/components/schemas/VolumeContent"
+          },
+          "name": {
+            "type": "string",
+            "description": "Name in the design, e.g. `data`: lowercase letters, digits and `-`, at most 16."
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where a filesystem volume is mounted inside the instance; none for a block volume."
+          },
+          "pool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pool the class resolves to. Set by the control plane, never by a caller."
+          },
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

@@ -13,8 +13,9 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
-use crate::{AdapterError, InstanceState};
+use crate::{AdapterError, InstanceState, VolumeState};
 use apelora_domain::network::{AclRule, LoadBalancer};
+use apelora_domain::storage::{VOLUME_KEY, VolumeMount};
 use apelora_domain::{JoinToken, PendingJoin};
 use base64::Engine as _;
 
@@ -137,6 +138,27 @@ fn owned_by_config(config: &std::collections::BTreeMap<String, String>, applicat
 
 fn owned_by(o: &wire::Owned, application: &str) -> bool {
     owned_by_config(&o.config, application)
+}
+
+fn volume_path(project: &str, pool: &str, member: Option<&str>, name: &str) -> String {
+    let mut path = format!("/1.0/storage-pools/{pool}/volumes/custom/{name}?project={project}");
+    if let Some(m) = member {
+        path.push_str(&format!("&target={m}"));
+    }
+    path
+}
+
+/// A volume size as Incus stores it (`256MiB`, `1GiB`, `1TiB`) in MiB; `None` for other units.
+pub(crate) fn parse_mib(size: &str) -> Option<u32> {
+    let (n, unit) = size.split_at(size.find(|c: char| !c.is_ascii_digit())?);
+    let n: u64 = n.parse().ok()?;
+    let mib = match unit {
+        "MiB" => n,
+        "GiB" => n * 1024,
+        "TiB" => n * 1024 * 1024,
+        _ => return None,
+    };
+    u32::try_from(mib).ok()
 }
 
 /// Operation ids are UUIDs; anything else must never reach an API path.
@@ -346,6 +368,17 @@ impl IncusClient {
                 base_image: d.config.get("volatile.base_image").cloned(),
                 status: d.status,
                 architecture: d.architecture,
+                location: d.location,
+                volume_devices: d
+                    .devices
+                    .into_iter()
+                    .filter(|(_, dev)| {
+                        dev.get("type").is_some_and(|t| t == "disk")
+                            && dev.contains_key("pool")
+                            && dev.get("path").is_none_or(|p| p != "/")
+                    })
+                    .map(|(name, _)| name)
+                    .collect(),
             })),
             Err(AdapterError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
@@ -405,6 +438,131 @@ impl IncusClient {
             Some(&body),
         )
         .await
+    }
+
+    /// A custom volume in `pool`, on `member` when the pool is member-local; `None` if missing.
+    pub async fn volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+    ) -> Result<Option<VolumeState>, AdapterError> {
+        let path = volume_path(project, pool, member, name);
+        match self.get::<wire::Volume>(&path).await {
+            Ok(v) => Ok(Some(VolumeState {
+                managed: v.config.get(MANAGED_KEY).is_some_and(|x| x == "true"),
+                application: v.config.get(APPLICATION_KEY).cloned(),
+                size_mib: v.config.get("size").and_then(|s| parse_mib(s)),
+                content: v.content_type,
+                location: v.location,
+                used_by: v.used_by,
+            })),
+            Err(AdapterError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `POST /1.0/storage-pools/<pool>/volumes/custom`, labelled with its owner. Returns the
+    /// operation id when Incus creates it asynchronously.
+    pub async fn create_volume(
+        &self,
+        project: &str,
+        member: Option<&str>,
+        name: &str,
+        mount: &VolumeMount,
+        owner: &Owner,
+    ) -> Result<Option<String>, AdapterError> {
+        let pool = mount.pool.as_deref().unwrap_or_default();
+        let body = json!({
+            "name": name,
+            "content_type": mount.content.as_str(),
+            "description": "Apelora volume",
+            "config": {
+                "size": format!("{}MiB", mount.size_mib),
+                MANAGED_KEY: "true",
+                APPLICATION_KEY: owner.application,
+                APPLIANCE_KEY: owner.appliance,
+                VOLUME_KEY: mount.name,
+            },
+        });
+        let mut path = format!("/1.0/storage-pools/{pool}/volumes/custom?project={project}");
+        if let Some(m) = member {
+            path.push_str(&format!("&target={m}"));
+        }
+        self.maybe_operation(Method::POST, &path, Some(&body)).await
+    }
+
+    /// Adds the volume as a disk device of the instance. Incus merges the devices of a `PATCH`
+    /// with the instance's existing ones.
+    pub async fn attach_volume(
+        &self,
+        project: &str,
+        instance: &str,
+        name: &str,
+        mount: &VolumeMount,
+    ) -> Result<Option<String>, AdapterError> {
+        let mut dev = json!({
+            "type": "disk",
+            "pool": mount.pool.as_deref().unwrap_or_default(),
+            "source": name,
+        });
+        if let Some(p) = &mount.path {
+            dev["path"] = json!(p);
+        }
+        let body = json!({ "devices": { mount.device(): dev } });
+        self.maybe_operation(
+            Method::PATCH,
+            &format!("/1.0/instances/{instance}?project={project}"),
+            Some(&body),
+        )
+        .await
+    }
+
+    /// Deletes a volume Apelora created for `application` (with its snapshots); `false` when
+    /// it did not exist. Incus refuses while an instance uses it.
+    pub async fn delete_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        let path = volume_path(project, pool, member, name);
+        match self.get::<wire::Volume>(&path).await {
+            Ok(v) if owned_by_config(&v.config, application) => self
+                .maybe_operation(Method::DELETE, &path, None)
+                .await
+                .map(|_| true),
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!("volume {name} does not belong to application {application}"),
+            }),
+            Err(AdapterError::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Sends a request that Incus answers either synchronously or with an operation.
+    async fn maybe_operation(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Option<String>, AdapterError> {
+        let env: Envelope<Value> = self.call(method, path, body).await?;
+        if env.kind != "async" {
+            return Ok(None);
+        }
+        let id = env.operation.rsplit('/').next().unwrap_or_default();
+        if is_operation_id(id) {
+            Ok(Some(id.to_owned()))
+        } else {
+            Err(AdapterError::Decode(format!(
+                "{path}: invalid operation id"
+            )))
+        }
     }
 
     /// `PUT /1.0/instances/<name>/state`.

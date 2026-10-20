@@ -268,6 +268,7 @@ mod tests {
                 architectures: vec![],
                 owner: None,
                 network: None,
+                volumes: Vec::new(),
             },
             replicas: 2,
             availability,

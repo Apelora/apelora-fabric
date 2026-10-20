@@ -242,6 +242,11 @@ pub(super) async fn create_instance(
     let Json(spec) = body.map_err(|e| bad_request(e.body_text()))?;
     authorize_instance(&state, &p, &spec.project).await?;
     spec.validate_from_caller().map_err(bad_request)?;
+    if !spec.volumes.is_empty() {
+        return Err(bad_request(
+            "volumes belong to an application's appliance; deploy them with the application",
+        ));
+    }
     ensure_project_allowed(&state, &spec.project).await?;
     let target = format!("{}/{}", spec.project, spec.name);
     let payload = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;

@@ -7,7 +7,14 @@ description: Design provider-neutral persistent volumes — creation, attachment
 
 ## Abstraction
 
-A `VolumeProvider` trait (create, delete, resize, attach, detach, snapshot, restore, clone, status) with backends such as local file/LVM/ZFS/Ceph added behind it. The Controller reasons only about the trait.
+Incus owns pools and drivers; Apelora asks for volumes through `apelora_incus_adapter::Provider` (`ensure_volume`, `attach_volume`, `volume`, `delete_volume`; the mock injects failures through `MockStorage`). Designs name a volume class, never a pool: the control plane resolves `data-local` to `APELORA_VOLUME_POOL`. Design and verified Incus behaviour: `docs/architecture/STORAGE.md` (§10 lists what the pinned release really does).
+
+## As built
+
+- `apelora_domain::storage::VolumeMount` in `InstanceSpec.volumes`; `validate_volumes` checks names, sizes, paths and Incus name length; `check_resize` is grow-only.
+- One volume per instance, `<instance>-<volume>`, device `vol-<volume>`, labels `user.apelora.managed|application|appliance|volume`.
+- Worker order (Incus does not follow a member-local volume): create the instance stopped → volume on its member → attach → start. Stateless appliances cannot have volumes.
+- Deleting an instance keeps its volumes; deleting a volume is explicit and only for its own application.
 
 ## Model
 

@@ -432,3 +432,69 @@ async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
         .await;
     }
 }
+
+/// A volume is created on the member Incus placed its instance on (Incus does not follow a
+/// member-local volume), attached before the instance starts, and kept when the instance is
+/// deleted. Needs a pool named by `APELORA_TEST_VOLUME_POOL` (default `local`).
+#[ignore = "needs a disposable Incus: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn volumes_follow_the_instance_and_outlive_it(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let volume_pool = std::env::var("APELORA_TEST_VOLUME_POOL").unwrap_or_else(|_| "local".into());
+    let name = unique("apl-vol");
+    let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "owner": { "application": "apl-volume-test", "appliance": "db", "replica": 1 },
+        "volumes": [{ "name": "data", "sizeMib": 256, "path": "/srv/data", "pool": volume_pool }] });
+    converge(&pool, &provider, "instance.create", &spec).await;
+    let created = status(&provider, &project, &name).await.expect("created");
+    assert_eq!(created.status, "Running");
+    assert_eq!(created.volume_devices, vec!["vol-data".to_owned()]);
+    let volume_name = format!("{name}-data");
+    let member = Some(created.location.as_str()).filter(|m| !m.is_empty() && *m != "none");
+    let volume = provider
+        .volume(&project, &volume_pool, member, &volume_name)
+        .await
+        .expect("read volume")
+        .expect("volume on the instance's member");
+    assert_eq!(volume.size_mib, Some(256));
+    assert_eq!(volume.application.as_deref(), Some("apl-volume-test"));
+    assert!(volume.managed);
+    assert_eq!(volume.used_by.len(), 1, "{:?}", volume.used_by);
+
+    // Creating again converges without a second volume or device.
+    converge(&pool, &provider, "instance.create", &spec).await;
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    let kept = provider
+        .volume(&project, &volume_pool, member, &volume_name)
+        .await
+        .expect("read volume")
+        .expect("volume kept after the instance is deleted");
+    assert!(kept.used_by.is_empty());
+    assert!(
+        provider
+            .delete_volume(&project, &volume_pool, member, &volume_name, "someone-else")
+            .await
+            .is_err(),
+        "another application's volume must not be deleted"
+    );
+    assert_eq!(
+        provider
+            .delete_volume(
+                &project,
+                &volume_pool,
+                member,
+                &volume_name,
+                "apl-volume-test"
+            )
+            .await,
+        Ok(true)
+    );
+}

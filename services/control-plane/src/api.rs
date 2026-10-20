@@ -47,6 +47,9 @@ pub struct AppState {
     /// Routed IPv4 range for service addresses (`APELORA_SERVICE_ADDRESSES`); `None`: no
     /// load balancers. Used only together with the uplink.
     service_range: Option<Arc<str>>,
+    /// Pool behind the `data-local` volume class (`APELORA_VOLUME_POOL`); `None`: designs with
+    /// volumes are refused.
+    volume_pool: Option<Arc<str>>,
     /// OIDC token validation; `None`: people cannot sign in with an identity provider yet.
     oidc: Option<Arc<apelora_identity::Verifier>>,
     /// Accept legacy platform-wide `apl_…` API tokens (default). Turn off to require OIDC
@@ -70,6 +73,7 @@ impl AppState {
             admin: None,
             network_uplink: None,
             service_range: None,
+            volume_pool: None,
             oidc: None,
             legacy_tokens: true,
             console: Arc::new(sessions::ConsoleSettings::default()),
@@ -99,6 +103,11 @@ impl AppState {
 
     pub fn with_service_range(mut self, range: Option<String>) -> Self {
         self.service_range = range.map(Arc::from);
+        self
+    }
+
+    pub fn with_volume_pool(mut self, pool: Option<String>) -> Self {
+        self.volume_pool = pool.map(Arc::from);
         self
     }
 

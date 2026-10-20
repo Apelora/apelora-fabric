@@ -2270,3 +2270,118 @@ async fn removing_every_appliance_without_connections_still_removes_the_network(
     assert!(net.acls.keys().all(|k| !k.contains("shop")));
     assert!(net.address_sets.keys().all(|k| !k.contains("shop")));
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn volumes_go_to_the_configured_pool_and_a_design_never_names_one(pool: Pool) {
+    let Provider::Mock(m) = Provider::Mock(MockIncus::default()) else {
+        unreachable!()
+    };
+    let provider = Provider::Mock(m.clone());
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let design = |pool_field: Option<&str>| {
+        let mut db = appliance("db-01");
+        db["availability"] = json!("stateful");
+        let mut volume = json!({ "name": "data", "sizeMib": 2048, "path": "/var/lib/postgresql" });
+        if let Some(p) = pool_field {
+            volume["pool"] = json!(p);
+        }
+        db["spec"]["volumes"] = json!([volume]);
+        json!({ "project": "apelora", "document": {}, "appliances": [db] })
+    };
+    let plan = |state: AppState, body: Value| {
+        let operator = operator.clone();
+        async move {
+            send(
+                state,
+                "POST",
+                "/api/v1/applications/shop/plan",
+                &operator,
+                Some(body),
+                None,
+            )
+            .await
+        }
+    };
+
+    // No pool for the class: refused, with the reason.
+    let unconfigured = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let (status, body) = plan(unconfigured, design(None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("APELORA_VOLUME_POOL"),
+        "{body}"
+    );
+
+    // A configured pool Incus does not have: refused, never a fallback.
+    let missing = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("fast-ssd".into()));
+    let (status, body) = plan(missing, design(None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("fast-ssd does not exist"),
+        "{body}"
+    );
+
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("mock-local".into()));
+    // A design that names a pool is refused: pools are the administrator's choice.
+    let (status, body) = plan(state.clone(), design(Some("mock-local"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    // Stateless appliances cannot have volumes.
+    let mut stateless = design(None);
+    stateless["appliances"][0]["availability"] = json!("stateless");
+    let (status, _) = plan(state.clone(), stateless).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, body) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(design(None)),
+        Some("volumes-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain(&pool, &provider).await;
+    let db = provider
+        .instance("apelora", "shop-db-01")
+        .await
+        .expect("read")
+        .expect("created");
+    assert_eq!(db.volume_devices, vec!["vol-data".to_owned()]);
+    let volume = provider
+        .volume(
+            "apelora",
+            "mock-local",
+            Some(&db.location),
+            "shop-db-01-data",
+        )
+        .await
+        .expect("read")
+        .expect("created in the configured pool");
+    assert_eq!(volume.size_mib, Some(2048));
+
+    // A direct instance request cannot carry volumes.
+    let mut spec = web_spec("apelora", "lone-01");
+    spec["volumes"] = json!([{ "name": "data", "sizeMib": 128, "path": "/data" }]);
+    let (status, _) = send(
+        state,
+        "POST",
+        "/api/v1/instances",
+        &operator,
+        Some(spec),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

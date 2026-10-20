@@ -724,6 +724,7 @@ mod tests {
             architectures: vec![],
             owner: None,
             network: None,
+            volumes: Vec::new(),
         };
         let with = with_discovery(spec.clone(), &env);
         assert_eq!(

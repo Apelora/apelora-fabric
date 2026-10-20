@@ -70,7 +70,9 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 | Health with hysteresis from the load balancer's port check; restart of failing stateless replicas (paced, audited); health in status and Studio | Done; REAL INCUS TESTED (four members, `demo.sh`) | 08 |
 | Application-level (HTTP) readiness, service names (DNS), rebalancing | Missing | 08 |
 | Resources per appliance as Incus limits (CPU, memory, fractional CPU quota) | Done; REAL INCUS TESTED (catalog runtimes) | 06 |
-| Volumes per appliance; resizing existing instances | Missing | 06 |
+| Volumes per appliance (backend): `data-local` class, pool from `APELORA_VOLUME_POOL`, one volume per instance created on the member Incus placed it on, attached before start, kept when the instance is deleted, never adopted | Done; REAL INCUS TESTED (`volumes_follow_the_instance_and_outlive_it`) | 06 |
+| Volumes in the catalog and Studio, volume records and listing, explicit delete, resize, snapshots | Missing | 06 |
+| Resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
 | MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |

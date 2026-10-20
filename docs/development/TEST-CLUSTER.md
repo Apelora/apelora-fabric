@@ -69,7 +69,7 @@ bash scripts/test-cluster/ovn.sh
 
 It installs the OVN database on the first member and the OVN controller on every member (tunnels over the members' private network), points Incus at it, gives `incusbr0` uplink ranges, and recreates the empty `apelora` project with `features.networks=true` and `restricted.networks.uplinks=incusbr0`, so the restricted deploy identity owns its OVN networks and ACLs. A shared `apelora-default` OVN network backs the project's default profile. Test-only shortcuts: one OVN database (OVN itself not highly available) without TLS on the private network.
 
-With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0` to enforce application connections.
+With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0` to enforce application connections. Add `APELORA_VOLUME_POOL=local` to deploy appliances with volumes.
 
 Install replica anti-affinity (Incus's placement scriptlet, cluster-wide; `--remove` restores Incus's own placement) and check it:
 

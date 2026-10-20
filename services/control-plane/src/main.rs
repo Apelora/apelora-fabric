@@ -104,6 +104,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tracing::info!(range = %r, addresses = n, "stateless appliances get service addresses");
     }
+    let volume_pool = std::env::var("APELORA_VOLUME_POOL")
+        .ok()
+        .filter(|p| !p.trim().is_empty());
+    if let Some(p) = &volume_pool {
+        if !apelora_domain::is_valid_name(p) {
+            return Err(format!("APELORA_VOLUME_POOL: invalid pool name {p:?}").into());
+        }
+        tracing::info!(pool = %p, "volumes of class data-local are created in this pool");
+    }
     let oidc = oidc_from_env(|k| std::env::var(k).ok())?;
     let legacy_tokens = !matches!(
         std::env::var("APELORA_LEGACY_TOKENS").ok().as_deref(),
@@ -131,7 +140,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_deploy_projects(projects)
         .with_admin(admin)
         .with_network_uplink(uplink)
-        .with_service_range(services);
+        .with_service_range(services)
+        .with_volume_pool(volume_pool);
     axum::serve(
         listener,
         api::router(state).into_make_service_with_connect_info::<SocketAddr>(),

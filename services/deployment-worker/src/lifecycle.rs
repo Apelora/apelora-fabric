@@ -16,7 +16,7 @@ use serde::Deserialize;
 /// How long one attempt waits on an Incus operation (image downloads can be slow). The lease
 /// is renewed meanwhile.
 const OPERATION_BUDGET: Duration = Duration::from_secs(600);
-/// Calls one job may make; each converges one step (e.g. stop, then delete).
+/// Calls one job may make; each converges one step (e.g. create, add volumes, start).
 const MAX_STEPS: usize = 4;
 
 /// What a lifecycle job wants to be true.
@@ -77,6 +77,8 @@ pub enum Step {
     /// Cannot be achieved by retrying.
     Reject(String),
     Create,
+    /// Create the instance's missing volumes on its member and attach them.
+    Volumes,
     Change(InstanceAction, bool),
     Delete,
 }
@@ -95,6 +97,13 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
             Some(why) => Step::Reject(format!(
                 "instance {project}/{name} {why}; delete it to create it again"
             )),
+            None if spec
+                .volumes
+                .iter()
+                .any(|v| !s.volume_devices.contains(&v.device())) =>
+            {
+                Step::Volumes
+            }
             None if spec.start && s.status != "Running" => {
                 Step::Change(InstanceAction::Start, false)
             }
@@ -287,11 +296,43 @@ async fn converge(
                     provider.ensure_acl(project, &n.acl, app).await?;
                     provider.ensure_address_set(project, &n.acl, app).await?;
                 }
+                // Incus does not place an instance next to a member-local volume: create it
+                // stopped, then its volumes where Incus put it, then start it.
+                let spec = if spec.volumes.is_empty() {
+                    std::borrow::Cow::Borrowed(spec.as_ref())
+                } else {
+                    std::borrow::Cow::Owned(InstanceSpec {
+                        start: false,
+                        ..spec.as_ref().clone()
+                    })
+                };
                 match fits {
-                    Ok(()) => provider.create_instance(spec).await?,
+                    Ok(()) => provider.create_instance(&spec).await?,
                     Err((false, msg)) => return Ok(Outcome::Rejected(msg)),
                     Err((true, msg)) => return Err(Failure::Retry(msg)),
                 }
+            }
+            Step::Volumes => {
+                let (Goal::Exists(spec), Some(now)) = (goal, now.as_ref()) else {
+                    unreachable!("volumes are only decided for an existing instance")
+                };
+                let Some(owner) = &spec.owner else {
+                    return Ok(Outcome::Rejected(
+                        "volumes can only be created for an application's instance".into(),
+                    ));
+                };
+                for v in spec
+                    .volumes
+                    .iter()
+                    .filter(|v| !now.volume_devices.contains(&v.device()))
+                {
+                    provider
+                        .ensure_volume(project, &now.location, name, v, owner)
+                        .await?;
+                    provider.attach_volume(project, name, v).await?;
+                    tracing::info!(job = %job.id, instance = %format!("{project}/{name}"), volume = %v.name, member = %now.location, "volume attached");
+                }
+                continue;
             }
             Step::Change(action, force) => {
                 provider.change_state(project, name, action, force).await?
@@ -345,6 +386,7 @@ mod tests {
             architectures: vec![],
             owner: None,
             network: None,
+            volumes: Vec::new(),
         }))
     }
     fn t() -> Target {
@@ -359,6 +401,8 @@ mod tests {
             managed,
             architecture: "aarch64".into(),
             base_image: Some(FP.into()),
+            location: "member-1".into(),
+            volume_devices: Vec::new(),
         })
     }
 
@@ -520,5 +564,37 @@ mod tests {
             Goal::from_job("instance.restart", &payload),
             Some(Ok(Goal::Restarted(_)))
         ));
+    }
+
+    #[test]
+    fn an_instance_gets_its_volumes_before_it_is_started() {
+        let Goal::Exists(mut s) = spec(true) else {
+            unreachable!()
+        };
+        s.volumes = vec![apelora_domain::storage::VolumeMount {
+            name: "data".into(),
+            size_mib: 1024,
+            content: Default::default(),
+            class: Default::default(),
+            path: Some("/data".into()),
+            pool: Some("local".into()),
+        }];
+        let goal = Goal::Exists(s);
+        let mut now = InstanceState {
+            base_image: None,
+            ..st("Stopped", true).expect("state")
+        };
+        assert_eq!(next_step(&goal, None), Step::Create);
+        assert_eq!(next_step(&goal, Some(&now)), Step::Volumes);
+        now.volume_devices.push("vol-data".into());
+        assert_eq!(
+            next_step(&goal, Some(&now)),
+            Step::Change(InstanceAction::Start, false)
+        );
+        now.status = "Running".into();
+        assert_eq!(next_step(&goal, Some(&now)), Step::Done);
+        // A volume added to the design of a running instance is attached to it.
+        now.volume_devices.clear();
+        assert_eq!(next_step(&goal, Some(&now)), Step::Volumes);
     }
 }
