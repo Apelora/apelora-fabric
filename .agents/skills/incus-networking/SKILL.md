@@ -29,3 +29,11 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - https://linuxcontainers.org/incus/docs/main/
 - https://github.com/lxc/incus
 - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+## Facts from the test cluster (REAL INCUS TESTED, Incus 7.0.1, OVN 25.03, 2026-10-20)
+
+- `features.networks=true` gives a project its own OVN networks and ACLs (needs OVN; can only change on an empty project); `restricted.networks.uplinks` limits which uplink they use. A managed bridge (`incusbr0` with `ipv4.ovn.ranges`) works as the uplink for east-west testing.
+- OVN networks resolve instances by name (`<name>.incus`) across members; Lima's `user-v2` network carries the Geneve tunnels.
+- **Use IP addresses or address sets in ACL rules, not ACL subject selectors, when instances can be on different members:** selector rules matched only same-member traffic (the remote member answered SYN with RST; `ovn-trace` claimed allow).
+- A NIC with ACLs rejects unmatched traffic both ways; egress and ingress allows combine with OR (either side's allow passes the flow), and default egress `allow` on a consumer outranks the provider's ingress rejection. Write matching rules on both sides; never relax a default.
+- Test listeners carefully: a name resolving to IPv6 first while the service listens on IPv4 only looks like a block.

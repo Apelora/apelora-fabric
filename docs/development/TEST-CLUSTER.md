@@ -59,6 +59,14 @@ curl -s -X POST -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: appl
   jq -r .token | bash scripts/test-cluster/add-member.sh 2
 ```
 
+Add OVN (optional, after `add-member.sh`) so network intents can be enforced:
+
+```sh
+bash scripts/test-cluster/ovn.sh
+```
+
+It installs the OVN database on the first member and the OVN controller on every member (tunnels over the members' private network), points Incus at it, gives `incusbr0` uplink ranges, and recreates the empty `apelora` project with `features.networks=true` and `restricted.networks.uplinks=incusbr0`, so the restricted deploy identity owns its OVN networks and ACLs. A shared `apelora-default` OVN network backs the project's default profile. Test-only shortcuts: one OVN database (OVN itself not highly available) without TLS on the private network.
+
 Remove everything (the VMs and the credentials):
 
 ```sh
@@ -79,4 +87,5 @@ bash scripts/test-cluster/down.sh
 - The packaging repository may ship a different 7.0.x than `pinned_tag`; `up.sh` prints the running version, and evidence names the version it was produced with.
 - Clock drift and member latency are not measurable through the Incus API; preflight reports them as not checked.
 - Public image servers keep only recent builds: a fingerprint pin of an image they have dropped fails to download, and the job retries until it gives up. Pin images from a server you control (or mirror them) for anything that must keep working.
+- **OVN findings (Incus 7.0.1, OVN 25.03, two members):** instances on different members reach each other by name (`<instance>.incus`) on an OVN network. ACL rules whose source or destination is *another ACL* (subject selectors) work only between instances on the same member: across members the destination member rejects the connection although `ovn-trace` allows it (`ovn-monitor-all` did not change that). Rules on IP addresses (and so address sets) work across members. Once an ACL is on a NIC, unmatched traffic is rejected in both directions, so consumers need egress rules; a consumer's egress allow and a provider's ingress allow combine with OR, so Apelora writes both sides; setting a NIC's default egress to allow overrides the provider's ingress rejection and must not be used.
 - A spec that lists `architectures` is refused in a cluster that also runs other architectures unless the image is pinned by fingerprint, because Incus may place a multi-architecture alias on any of them.
