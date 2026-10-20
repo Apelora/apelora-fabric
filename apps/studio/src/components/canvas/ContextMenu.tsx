@@ -62,7 +62,9 @@ function Panel({ items, level, title, pos, onRun, onClose, autoFocus }: {
               data-testid={`menu-${it.id}`}
               tabIndex={-1}
               className={`flex w-full items-center gap-2 py-1 ${it.danger ? "text-error" : ""}`}
-              onClick={() => { if (hasSub) { setSub(open ? null : it.id); return; } onRun(); it.run?.(); }}
+              // A submenu opens on hover and on click; a click never closes it (the pointer has
+              // usually opened it on the way, so toggling would close it again).
+              onClick={() => { if (hasSub) { setSub(it.id); return; } onRun(); it.run?.(); }}
               onKeyDown={(e) => { if (hasSub && (e.key === "ArrowRight" || e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); setSub(it.id); } }}
             >
               <span className="inline-flex w-3 justify-center">{it.checked ? <IconCheck size={12} /> : null}</span>

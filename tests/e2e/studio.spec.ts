@@ -981,7 +981,11 @@ test.describe("zones and shapes", () => {
     await page.getByTestId("menu-fill-violet").click();
     expect((await shapes(page))[0]).toMatchObject({ fill: "#8b5cf6", stroke: "#8b5cf6" });
     await lab.click({ button: "right" });
+    // Hovering opens the submenu; clicking the same item afterwards must not close it again.
+    await page.getByTestId("menu-border-style").hover();
+    await expect(page.getByTestId("context-submenu")).toBeVisible();
     await page.getByTestId("menu-border-style").click();
+    await expect(page.getByTestId("context-submenu")).toBeVisible();
     await page.getByTestId("menu-style-dashed").click();
     expect((await shapes(page))[0]!.strokeStyle).toBe("dashed");
     await lab.click({ button: "right" });
