@@ -65,7 +65,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Health with hysteresis beyond the port check, service names (DNS), rebalancing | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
-| Release artefacts, runbooks, three-member end-to-end demonstration | Missing | 10 |
+| Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
+| Release artefacts, remaining runbooks, end-to-end demonstration with status matrix | Missing | 10 |
 
 ## Deviations from the incoming specification (deliberate)
 

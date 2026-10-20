@@ -98,7 +98,7 @@ bash scripts/test-cluster/down.sh
 
 ## Limits
 
-- Two members at most so far, both aarch64: no failover, mixed-architecture or cross-member networking evidence yet.
+- Three members (all database voters since the third joined, 2026-10-20), all aarch64: no mixed-architecture evidence yet. With two members the second was only a database standby; with three, the cluster keeps quorum when one member is lost.
 - The packaging repository may ship a different 7.0.x than `pinned_tag`; `up.sh` prints the running version, and evidence names the version it was produced with.
 - Clock drift and member latency are not measurable through the Incus API; preflight reports them as not checked.
 - Public image servers keep only recent builds: a fingerprint pin of an image they have dropped fails to download, and the job retries until it gives up. Pin images from a server you control (or mirror them) for anything that must keep working.

@@ -199,7 +199,13 @@ pub fn evaluate(o: &Observed<'_>) -> Vec<Check> {
                 &id,
                 &title,
                 Fail,
-                format!("project {name} does not exist; create it with restricted=true"),
+                // A restricted identity only sees the projects it may use, so a project that
+                // exists but was not granted (or lost its grant when it was recreated) looks
+                // the same as a missing one.
+                format!(
+                    "project {name} is not visible to Apelora's Incus identity: create it with \
+                     restricted=true, or grant it to the identity (its certificate's projects)"
+                ),
             ),
             Some(p) if !p.restricted => check(
                 &id,
