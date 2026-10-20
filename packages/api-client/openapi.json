@@ -668,6 +668,302 @@
         }
       }
     },
+    "/api/v1/cluster/members/{member}/evacuate": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Evacuates a cluster member through Incus after re-running the dry run: refused while\nanything blocks it. Needs `manage-infrastructure` and the admin identity; audited.",
+        "operationId": "evacuate_member",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberStateStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/members/{member}/evacuation": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Dry run of evacuating a cluster member: per instance, what Incus will do and what it means\nfor the application; what blocks it; what to accept. Changes nothing.",
+        "operationId": "preview_evacuation",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvacuationPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/members/{member}/restore": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Restores an evacuated member: Incus moves its instances back and starts them. Needs\n`manage-infrastructure` and the admin identity; audited.",
+        "operationId": "restore_member",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberStateStarted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -1861,6 +2157,18 @@
           }
         }
       },
+      "ConfirmMember": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The member's name again, typed by the administrator."
+          }
+        }
+      },
       "Connection": {
         "type": "object",
         "description": "One connection of the design: `from` may reach `to` (appliance ids).",
@@ -2055,6 +2363,110 @@
           }
         }
       },
+      "EvacuationItem": {
+        "type": "object",
+        "description": "One instance on the member being evacuated.",
+        "required": [
+          "project",
+          "instance",
+          "status",
+          "mode",
+          "outcome",
+          "impact"
+        ],
+        "properties": {
+          "appliance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "impact": {
+            "type": "string",
+            "description": "What it means for the application while the member is evacuated."
+          },
+          "instance": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "description": "Effective `cluster.evacuate` mode (`auto` when unset)."
+          },
+          "outcome": {
+            "type": "string",
+            "description": "What Incus will do with it."
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "EvacuationPlan": {
+        "type": "object",
+        "required": [
+          "member",
+          "targets",
+          "items",
+          "blocked",
+          "warnings"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why evacuating now is refused; empty when it may proceed."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvacuationItem"
+            }
+          },
+          "member": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Members that can take instances (online, other than this one)."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Consequences to accept before proceeding."
+          }
+        }
+      },
+      "EvacuationPreview": {
+        "type": "object",
+        "required": [
+          "source",
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/EvacuationPlan"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -2174,6 +2586,13 @@
           },
           "description": {
             "type": "string"
+          },
+          "evacuate": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What Incus does with it when its member is evacuated (`cluster.evacuate`, with\nprofiles applied); `None`: Incus's default, `auto`."
           },
           "kind": {
             "$ref": "#/components/schemas/InstanceKind"
@@ -2451,6 +2870,22 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "MemberStateStarted": {
+        "type": "object",
+        "required": [
+          "member",
+          "operation"
+        ],
+        "properties": {
+          "member": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string",
+            "description": "Incus operation carrying out the evacuation or restore."
           }
         }
       },

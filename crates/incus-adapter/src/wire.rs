@@ -66,6 +66,8 @@ pub(crate) struct Instance {
     pub architecture: String,
     pub description: String,
     pub config: BTreeMap<String, String>,
+    #[serde(default)]
+    pub expanded_config: BTreeMap<String, String>,
 }
 
 /// Any Apelora-owned object (network, ACL, address set): only its config is read.

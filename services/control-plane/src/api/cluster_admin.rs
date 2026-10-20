@@ -188,3 +188,183 @@ pub(super) async fn revoke(
     .await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+// ---- Evacuation (Phase 08) -------------------------------------------------------------------
+
+#[derive(Serialize, ToSchema)]
+pub struct EvacuationPreview {
+    pub source: Source,
+    pub plan: apelora_domain::evacuation::EvacuationPlan,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfirmMember {
+    /// The member's name again, typed by the administrator.
+    pub confirm: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MemberStateStarted {
+    pub member: String,
+    /// Incus operation carrying out the evacuation or restore.
+    pub operation: String,
+}
+
+/// The dry run: what evacuating `member` does to each instance on it, with what blocks it
+/// and what to accept. Uses the admin identity when configured, so every project is seen.
+async fn evacuation_plan(
+    state: &AppState,
+    member: &str,
+) -> Result<
+    (
+        apelora_domain::evacuation::EvacuationPlan,
+        apelora_domain::ProviderMode,
+    ),
+    ApiError,
+> {
+    use apelora_domain::evacuation::{Deployed, plan_evacuation};
+    use apelora_domain::plan::DesiredAppliance;
+    let provider: &Provider = state.admin.as_deref().unwrap_or(&state.provider);
+    let members = provider.cluster_members().await?;
+    let instances = provider.instances().await?;
+    let records = match &state.auth {
+        Auth::Tokens(pool) => apelora_persistence::list_deployments(pool).await?,
+        Auth::DisabledForDevelopment => Vec::new(),
+    };
+    let desired: Vec<(String, String, Vec<DesiredAppliance>)> = records
+        .into_iter()
+        .filter_map(|r| {
+            Some((
+                r.application,
+                r.project,
+                serde_json::from_value(r.desired).ok()?,
+            ))
+        })
+        .collect();
+    let deployed: Vec<Deployed<'_>> = desired
+        .iter()
+        .map(|(application, project, desired)| Deployed {
+            application,
+            project,
+            desired,
+        })
+        .collect();
+    let mut plan = plan_evacuation(member, &members, &instances, &deployed)
+        .map_err(|e| ApiError::new(StatusCode::NOT_FOUND, "not_found", e))?;
+    if state.admin.is_none() {
+        plan.warnings.push(
+            "only the deploy projects are visible (no admin identity): instances of other projects are not listed".into(),
+        );
+    }
+    Ok((plan, provider.mode()))
+}
+
+/// Dry run of evacuating a cluster member: per instance, what Incus will do and what it means
+/// for the application; what blocks it; what to accept. Changes nothing.
+#[utoipa::path(get, path = "/api/v1/cluster/members/{member}/evacuation", tag = "cluster", operation_id = "preview_evacuation",
+    params(("member" = String, Path, description = "Cluster member name")),
+    responses((status = 200, body = EvacuationPreview), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 502, body = ErrorBody)))]
+pub(super) async fn preview_evacuation(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(member): Path<String>,
+) -> Result<Json<EvacuationPreview>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
+    member_name(&member)?;
+    let (plan, mode) = evacuation_plan(&state, &member).await?;
+    Ok(Json(EvacuationPreview {
+        source: source(mode),
+        plan,
+    }))
+}
+
+fn confirm(req: Result<Json<ConfirmMember>, JsonRejection>, member: &str) -> Result<(), ApiError> {
+    let Json(req) =
+        req.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
+    if req.confirm != member {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "confirmation_mismatch",
+            format!("type the member's name ({member}) to confirm"),
+        ));
+    }
+    Ok(())
+}
+
+/// Evacuates a cluster member through Incus after re-running the dry run: refused while
+/// anything blocks it. Needs `manage-infrastructure` and the admin identity; audited.
+#[utoipa::path(post, path = "/api/v1/cluster/members/{member}/evacuate", tag = "cluster", operation_id = "evacuate_member",
+    params(("member" = String, Path, description = "Cluster member name")), request_body = ConfirmMember,
+    responses((status = 202, body = MemberStateStarted), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 409, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn evacuate(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(member): Path<String>,
+    body: Result<Json<ConfirmMember>, JsonRejection>,
+) -> Result<(StatusCode, Json<MemberStateStarted>), ApiError> {
+    require(&p, Permission::ManageInfrastructure)?;
+    member_name(&member)?;
+    confirm(body, &member)?;
+    let pool = audit_store(&state)?;
+    let provider = admin(&state)?;
+    let (plan, _) = evacuation_plan(&state, &member).await?;
+    if !plan.blocked.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "evacuation_blocked",
+            format!("nothing was changed: {}", plan.blocked.join("; ")),
+        ));
+    }
+    let operation = provider.member_state(&member, false).await?;
+    apelora_persistence::audit(
+        pool,
+        &p.name,
+        "cluster.member.evacuate",
+        &member,
+        &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings }),
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(MemberStateStarted { member, operation }),
+    ))
+}
+
+/// Restores an evacuated member: Incus moves its instances back and starts them. Needs
+/// `manage-infrastructure` and the admin identity; audited.
+#[utoipa::path(post, path = "/api/v1/cluster/members/{member}/restore", tag = "cluster", operation_id = "restore_member",
+    params(("member" = String, Path, description = "Cluster member name")), request_body = ConfirmMember,
+    responses((status = 202, body = MemberStateStarted), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn restore(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(member): Path<String>,
+    body: Result<Json<ConfirmMember>, JsonRejection>,
+) -> Result<(StatusCode, Json<MemberStateStarted>), ApiError> {
+    require(&p, Permission::ManageInfrastructure)?;
+    member_name(&member)?;
+    confirm(body, &member)?;
+    let pool = audit_store(&state)?;
+    let provider = admin(&state)?;
+    let operation = provider.member_state(&member, true).await?;
+    apelora_persistence::audit(
+        pool,
+        &p.name,
+        "cluster.member.restore",
+        &member,
+        &json!({ "role": p.role, "operation": operation }),
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(MemberStateStarted { member, operation }),
+    ))
+}

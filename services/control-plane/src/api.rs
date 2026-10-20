@@ -133,6 +133,18 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/cluster/join-tokens/{member}",
             delete(cluster_admin::revoke),
         )
+        .route(
+            "/api/v1/cluster/members/{member}/evacuation",
+            get(cluster_admin::preview_evacuation),
+        )
+        .route(
+            "/api/v1/cluster/members/{member}/evacuate",
+            post(cluster_admin::evacuate),
+        )
+        .route(
+            "/api/v1/cluster/members/{member}/restore",
+            post(cluster_admin::restore),
+        )
         .route("/api/v1/preflight", get(preflight))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
@@ -643,7 +655,8 @@ impl Modify for BearerAuth {
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
         applications::list, applications::preview, applications::deploy, applications::status,
-        cluster_admin::create, cluster_admin::list, cluster_admin::revoke),
+        cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
+        cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"))

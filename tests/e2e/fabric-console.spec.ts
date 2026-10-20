@@ -241,10 +241,65 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("issued-token")).toHaveCount(0);
     await expect(page.getByText(token)).toHaveCount(0);
     await page.getByRole("button", { name: "Revoke the join token for server-04" }).click();
-    await expect(page.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel" })).toBeFocused();
-    await page.getByTestId("confirm-action").click();
+    const open = page.locator("dialog[open]");
+    await expect(open.getByTestId("confirm-dialog").getByRole("button", { name: "Cancel" })).toBeFocused();
+    await open.getByTestId("confirm-action").click();
     await expect(page.getByText("No unused join tokens.")).toBeVisible();
     expect(revoked).toBe(1);
+  });
+
+  test("an administrator evacuates a member only after the dry run and typing its name, then restores it", async ({ page }) => {
+    let status = "Online";
+    const sent: { path: string; body: unknown }[] = [];
+    const plan = (blocked: string[]) => ({ source: { provider: "incus", observedAt: now }, plan: {
+      member: "node-2", targets: ["node-1"], blocked,
+      warnings: ["replicas of shop/web-01 share node-1 until restore: one failure takes them all", "down during the evacuation: shop-db-01"],
+      items: [
+        { project: "apelora", instance: "shop-web-01-r2", status: "Running", mode: "auto", outcome: "moves if it can; stopped during the move", application: "shop", appliance: "web-01", impact: "stays up (1 other replica)" },
+        { project: "apelora", instance: "shop-db-01", status: "Running", mode: "stop", outcome: "stops here until restore", application: "shop", appliance: "db-01", impact: "down until restore (stateful)" },
+      ] } });
+    let blocked: string[] = [];
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), member("node-2", status)] } }),
+      "GET /api/v1/cluster/members/node-2/evacuation": () => ({ json: plan(blocked) }),
+      "POST /api/v1/cluster/members/node-2/evacuate": (req) => { sent.push({ path: "evacuate", body: req.postDataJSON() }); status = "Evacuated"; return { status: 202, json: { member: "node-2", operation: "op-1" } }; },
+      "POST /api/v1/cluster/members/node-2/restore": (req) => { sent.push({ path: "restore", body: req.postDataJSON() }); status = "Online"; return { status: 202, json: { member: "node-2", operation: "op-2" } }; },
+    });
+    await page.goto("/#/membership");
+    await expect(page.getByTestId("membership-member")).toHaveCount(2);
+
+    // Blocked: explained, and nothing can be confirmed.
+    blocked = ["no other online member can take its instances"];
+    await page.getByTestId("evacuate-member").nth(1).click();
+    const dialog = page.getByTestId("evacuate-dialog");
+    await expect(dialog.getByTestId("evacuation-blocked")).toHaveText("Cannot evacuate: no other online member can take its instances");
+    await expect(dialog.getByTestId("evacuate-confirm")).toHaveCount(0);
+    await expect(dialog.getByTestId("evacuate-start")).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    // Not blocked: every instance's fate is shown; the name must be typed.
+    blocked = [];
+    await page.getByTestId("evacuate-member").nth(1).click();
+    await expect(dialog.getByTestId("evacuation-item")).toHaveCount(2);
+    await expect(dialog.getByTestId("evacuation-item").nth(1)).toContainText("Down until restore (stateful)");
+    await expect(dialog.getByTestId("evacuation-warning").first()).toContainText("share node-1 until restore");
+    await expect(dialog.getByTestId("evacuate-start")).toBeDisabled();
+    await dialog.getByTestId("evacuate-confirm").fill("node-1");
+    await expect(dialog.getByTestId("evacuate-start")).toBeDisabled();
+    await dialog.getByTestId("evacuate-confirm").fill("node-2");
+    await dialog.getByTestId("evacuate-start").click();
+    await expect(page.getByTestId("membership-notice")).toContainText("Evacuating node-2");
+    await expect(page.getByTestId("restore-member")).toHaveCount(1);
+
+    await page.getByTestId("restore-member").click();
+    const open = page.locator("dialog[open]");
+    await open.getByTestId("confirm-input").fill("node-2");
+    await open.getByTestId("confirm-action").click();
+    await expect(page.getByTestId("membership-notice")).toContainText("Restoring node-2");
+    expect(sent).toEqual([{ path: "evacuate", body: { confirm: "node-2" } }, { path: "restore", body: { confirm: "node-2" } }]);
   });
 
   test("operators are not offered membership, the audit log or token administration", async ({ page }) => {
@@ -296,6 +351,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/cluster": () => ({ json: cluster("incus", ["node-1", "node-2"]) }),
     });
     for (const view of ["instances", "membership"]) {
       await page.goto(`/#/${view}`);

@@ -79,6 +79,11 @@ export type ClusterResponse = {
   source: Source;
 };
 
+export type ConfirmMember = {
+  /** The member's name again, typed by the administrator. */
+  confirm: string;
+};
+
 /** One connection of the design: `from` may reach `to` (appliance ids). */
 export type Connection = {
   from: string;
@@ -145,6 +150,37 @@ export type ErrorDetail = {
   message: string;
 };
 
+/** One instance on the member being evacuated. */
+export type EvacuationItem = {
+  appliance?: string | null;
+  application?: string | null;
+  /** What it means for the application while the member is evacuated. */
+  impact: string;
+  instance: string;
+  /** Effective `cluster.evacuate` mode (`auto` when unset). */
+  mode: string;
+  /** What Incus will do with it. */
+  outcome: string;
+  project: string;
+  status: string;
+};
+
+export type EvacuationPlan = {
+  /** Why evacuating now is refused; empty when it may proceed. */
+  blocked: string[];
+  items: EvacuationItem[];
+  member: string;
+  /** Members that can take instances (online, other than this one). */
+  targets: string[];
+  /** Consequences to accept before proceeding. */
+  warnings: string[];
+};
+
+export type EvacuationPreview = {
+  plan: EvacuationPlan;
+  source: Source;
+};
+
 export type Health = {
   apiVersion: string;
   auth: AuthMode;
@@ -183,6 +219,8 @@ export type IncusStatus = {
 export type Instance = {
   architecture: string;
   description: string;
+  /** What Incus does with it when its member is evacuated (`cluster.evacuate`, with profiles applied); `None`: Incus's default, `auto`. */
+  evacuate?: string | null;
   kind: InstanceKind;
   location: string;
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
@@ -264,6 +302,12 @@ export type JoinTokenCreated = {
 export type JoinTokenList = {
   items: PendingJoin[];
   source: Source;
+};
+
+export type MemberStateStarted = {
+  member: string;
+  /** Incus operation carrying out the evacuation or restore. */
+  operation: string;
 };
 
 export type Network = {
@@ -458,6 +502,9 @@ export const operations = {
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   create_join_token: { method: "POST", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   revoke_join_token: { method: "DELETE", path: "/api/v1/cluster/join-tokens/{member}", params: ["member"], public: false },
+  evacuate_member: { method: "POST", path: "/api/v1/cluster/members/{member}/evacuate", params: ["member"], public: false },
+  preview_evacuation: { method: "GET", path: "/api/v1/cluster/members/{member}/evacuation", params: ["member"], public: false },
+  restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
@@ -496,6 +543,12 @@ export type Responses = {
   create_join_token: JoinTokenCreated;
   /** Withdraws a new member's approval: revokes its unused join token. Needs `manage-infrastructure`. */
   revoke_join_token: null;
+  /** Evacuates a cluster member through Incus after re-running the dry run: refused while anything blocks it. Needs `manage-infrastructure` and the admin identity; audited. */
+  evacuate_member: MemberStateStarted;
+  /** Dry run of evacuating a cluster member: per instance, what Incus will do and what it means for the application; what blocks it; what to accept. Changes nothing. */
+  preview_evacuation: EvacuationPreview;
+  /** Restores an evacuated member: Incus moves its instances back and starts them. Needs `manage-infrastructure` and the admin identity; audited. */
+  restore_member: MemberStateStarted;
   /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
   health: Health;
   /** Instances in all projects. Needs `read-inventory`. */
@@ -541,6 +594,9 @@ export type Bodies = {
   list_join_tokens: never;
   create_join_token: CreateJoinToken;
   revoke_join_token: never;
+  evacuate_member: ConfirmMember;
+  preview_evacuation: never;
+  restore_member: ConfirmMember;
   health: never;
   instances: never;
   create_instance: InstanceSpec;

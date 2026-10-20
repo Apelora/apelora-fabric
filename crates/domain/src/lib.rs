@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod evacuation;
 pub mod network;
 pub mod plan;
 pub mod preflight;
@@ -93,6 +94,10 @@ pub struct Instance {
     /// The application and appliance this instance was deployed for (Apelora's labels).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Owner>,
+    /// What Incus does with it when its member is evacuated (`cluster.evacuate`, with
+    /// profiles applied); `None`: Incus's default, `auto`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evacuate: Option<String>,
 }
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application

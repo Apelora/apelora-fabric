@@ -36,6 +36,16 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             return Ok(Vec::new());
         }
     };
+    // Instances on a member that is not Online (evacuated, being evacuated, offline) are
+    // Incus's to handle: restarting them would fight a maintenance evacuation.
+    let unavailable: Vec<String> = match provider.cluster_members().await {
+        Ok(members) => members
+            .into_iter()
+            .filter(|m| m.status != "Online")
+            .map(|m| m.name)
+            .collect(),
+        Err(_) => Vec::new(),
+    };
     let mut recreated = Vec::new();
     for d in deployments {
         let Ok(desired) = serde_json::from_value::<Vec<DesiredAppliance>>(d.desired.clone()) else {
@@ -56,14 +66,12 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             let stopped = item.action == PlanAction::Keep
                 && da.spec.start
                 && observed.iter().any(|i| {
-                    i.project == d.project && i.name == item.instance && i.status == "Stopped"
+                    i.project == d.project
+                        && i.name == item.instance
+                        && i.status == "Stopped"
+                        && !unavailable.contains(&i.location)
                 });
             if item.action != PlanAction::Create && !stopped {
-                continue;
-            }
-            if da.availability != Availability::Stateless {
-                tracing::warn!(application = %d.application, instance = %item.instance, availability = ?da.availability,
-                    "supervisor: instance is missing or stopped; only stateless replicas are restored automatically");
                 continue;
             }
             let kind = if stopped {
@@ -71,6 +79,16 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             } else {
                 "instance.create"
             };
+            if da.availability != Availability::Stateless {
+                // Still being created or started by a job: nothing is lost yet.
+                if !apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
+                    .await?
+                {
+                    tracing::warn!(application = %d.application, instance = %item.instance, availability = ?da.availability,
+                        "supervisor: instance is missing or stopped; only stateless replicas are restored automatically");
+                }
+                continue;
+            }
             if stopped
                 && apelora_persistence::last_lifecycle_job(pool, &d.project, &item.instance)
                     .await?
@@ -434,6 +452,38 @@ mod tests {
         assert_eq!(
             supervise_once(&pool, &provider).await.expect("pass"),
             Vec::<String>::new()
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn replicas_stopped_by_an_evacuation_are_left_to_incus(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        provider
+            .change_state(
+                PROJECT,
+                "shop-web-01",
+                apelora_domain::InstanceAction::Stop,
+                true,
+            )
+            .await
+            .expect("stopped by the evacuation");
+        // The mock places every instance on mock-member-01.
+        provider
+            .member_state("mock-member-01", false)
+            .await
+            .expect("evacuate");
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            Vec::<String>::new()
+        );
+        provider
+            .member_state("mock-member-01", true)
+            .await
+            .expect("restore");
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            vec!["shop-web-01".to_owned()]
         );
     }
 }

@@ -233,6 +233,9 @@ async fn openapi_document_is_public_and_lists_every_route() {
     assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["get"].is_object());
     assert!(doc["paths"]["/api/v1/cluster/join-tokens/{member}"]["delete"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/members/{member}/evacuation"]["get"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/members/{member}/evacuate"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/members/{member}/restore"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/tokens"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/tokens/{id}"]["delete"].is_object());
     assert!(doc["paths"]["/api/v1/jobs"]["get"].is_object());
@@ -1432,4 +1435,158 @@ async fn connected_stateless_appliances_get_a_service_address_until_removed(pool
     )
     .await;
     assert_eq!(status["services"], json!([]));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn evacuation_is_previewed_then_confirmed_audited_and_restored(pool: Pool) {
+    let mock = Provider::Mock(MockIncus::default());
+    let state =
+        AppState::new(mock.clone(), Auth::Tokens(pool.clone())).with_admin(Some(mock.clone()));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let base = "/api/v1/cluster/members/mock-member-02";
+
+    // Anyone who reads the inventory may preview; it changes nothing.
+    let (status, plan) = send(
+        state.clone(),
+        "GET",
+        &format!("{base}/evacuation"),
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{plan}");
+    assert_eq!(plan["plan"]["member"], "mock-member-02");
+    assert_eq!(
+        plan["plan"]["targets"],
+        json!(["mock-member-01", "mock-member-03"])
+    );
+    assert_eq!(plan["plan"]["blocked"], json!([]));
+    let items = plan["plan"]["items"].as_array().expect("items");
+    assert!(
+        items
+            .iter()
+            .any(|i| i["instance"] == "mock-web-02" && i["impact"] == "not Apelora's")
+    );
+    let (status, _) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/cluster/members/nope/evacuation",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Evacuating needs manage-infrastructure and the member's name typed again.
+    let confirm = |name: &str| Some(json!({ "confirm": name }));
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &operator,
+        confirm("mock-member-02"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm("mock-member-03"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("confirmation_mismatch"))
+    );
+    let (status, started) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm("mock-member-02"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert!(started["operation"].as_str().is_some_and(|o| !o.is_empty()));
+
+    // An evacuated member cannot be evacuated again; restoring brings it back.
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm("mock-member-02"),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("evacuation_blocked"))
+    );
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/restore"),
+        &admin,
+        confirm("mock-member-02"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let actions: Vec<String> = apelora_persistence::recent_audit(&pool, 10)
+        .await
+        .expect("audit")
+        .into_iter()
+        .filter(|e| e.target == "mock-member-02")
+        .map(|e| e.action)
+        .collect();
+    assert_eq!(
+        actions,
+        ["cluster.member.restore", "cluster.member.evacuate"]
+    );
+
+    // Without the admin identity nothing can be evacuated, and the preview says what it cannot see.
+    let restricted = AppState::new(mock, Auth::Tokens(pool.clone()));
+    let (status, _) = send(
+        restricted.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm("mock-member-02"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let (_, plan) = send(
+        restricted,
+        "GET",
+        &format!("{base}/evacuation"),
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert!(
+        plan["plan"]["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|w| w
+                .as_str()
+                .is_some_and(|w| w.contains("only the deploy projects")))
+    );
 }

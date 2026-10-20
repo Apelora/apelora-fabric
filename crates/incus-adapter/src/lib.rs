@@ -110,7 +110,7 @@ impl Provider {
     /// Cluster members; a standalone server is reported as having none.
     pub async fn cluster_members(&self) -> Result<Vec<ClusterMember>, AdapterError> {
         match self {
-            Provider::Mock(m) => Ok(m.members.clone()),
+            Provider::Mock(m) => Ok(m.members.lock().unwrap_or_else(|e| e.into_inner()).clone()),
             Provider::Incus(c) => {
                 if c.server_info().await?.clustered {
                     c.cluster_members().await
@@ -370,6 +370,23 @@ impl Provider {
         }
     }
 
+    /// Evacuates (or restores) a cluster member through Incus; returns the operation.
+    pub async fn member_state(&self, member: &str, restore: bool) -> Result<String, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let mut members = m.members.lock().unwrap_or_else(|e| e.into_inner());
+                let found = members
+                    .iter_mut()
+                    .find(|x| x.name == member)
+                    .ok_or_else(|| AdapterError::NotFound(format!("cluster member {member}")))?;
+                found.status = if restore { "Online" } else { "Evacuated" }.into();
+                drop(members);
+                Ok(m.op())
+            }
+            Provider::Incus(c) => c.member_state(member, restore).await,
+        }
+    }
+
     /// The instance's identity (`volatile.uuid`); `None` when Incus does not report one.
     pub async fn instance_uuid(
         &self,
@@ -520,7 +537,7 @@ impl Provider {
 #[derive(Debug, Clone)]
 pub struct MockIncus {
     pub server: ServerInfo,
-    pub members: Vec<ClusterMember>,
+    pub members: Arc<Mutex<Vec<ClusterMember>>>,
     pub instances: Arc<Mutex<Vec<MockInstance>>>,
     pub join_tokens: Arc<Mutex<Vec<PendingJoin>>>,
     pub network: Arc<Mutex<MockNetwork>>,
@@ -674,6 +691,7 @@ impl MockIncus {
                 description: "mock data".into(),
                 managed: true,
                 owner: spec.owner.clone(),
+                evacuate: spec.config.get("cluster.evacuate").cloned(),
             },
             base_image: spec.source.fingerprint.clone(),
         });
@@ -709,7 +727,13 @@ impl MockIncus {
     }
 
     fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {
-        if self.members.iter().any(|m| m.name == member) {
+        if self
+            .members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .any(|m| m.name == member)
+        {
             return Err(AdapterError::Api {
                 status: 500,
                 message: format!("The cluster already has a member with name: {member}"),
@@ -763,6 +787,7 @@ impl Default for MockIncus {
             description: "mock data".into(),
             managed: false,
             owner: None,
+            evacuate: None,
         };
         Self {
             server: ServerInfo {
@@ -774,11 +799,11 @@ impl Default for MockIncus {
                 clustered: true,
                 auth: "mock".into(),
             },
-            members: vec![
+            members: Arc::new(Mutex::new(vec![
                 member(1, &["database-leader", "database"]),
                 member(2, &["database"]),
                 member(3, &["database"]),
-            ],
+            ])),
             instances: Arc::new(Mutex::new(
                 [
                     instance("mock-web-01", InstanceKind::Container, 1),

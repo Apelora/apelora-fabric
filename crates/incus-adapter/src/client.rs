@@ -379,6 +379,18 @@ impl IncusClient {
         .await
     }
 
+    /// Asks Incus to evacuate (`restore = false`) or restore a cluster member; returns the
+    /// operation. Incus moves or stops each instance per its `cluster.evacuate` mode.
+    pub async fn member_state(&self, member: &str, restore: bool) -> Result<String, AdapterError> {
+        let body = json!({ "action": if restore { "restore" } else { "evacuate" } });
+        self.start_operation(
+            Method::POST,
+            &format!("/1.0/cluster/members/{member}/state"),
+            Some(&body),
+        )
+        .await
+    }
+
     /// `DELETE /1.0/instances/<name>`; Incus refuses to delete a running instance.
     pub async fn delete_instance(&self, project: &str, name: &str) -> Result<String, AdapterError> {
         self.start_operation(
@@ -768,6 +780,7 @@ impl IncusClient {
                     }),
                     _ => None,
                 },
+                evacuate: i.expanded_config.get("cluster.evacuate").cloned(),
                 name: i.name,
                 project: i.project,
                 status: i.status,

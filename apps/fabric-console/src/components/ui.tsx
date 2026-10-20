@@ -122,7 +122,7 @@ export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, 
 }
 
 /** A modal form with its own title; closing it (Escape or Cancel) calls `onClose`. */
-export function FormDialog({ open, title, children, onClose, testId }: { open: boolean; title: string; children: ReactNode; onClose: () => void; testId?: string }) {
+export function FormDialog({ open, title, children, onClose, testId, wide }: { open: boolean; title: string; children: ReactNode; onClose: () => void; testId?: string; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   useEffect(() => {
@@ -133,7 +133,7 @@ export function FormDialog({ open, title, children, onClose, testId }: { open: b
   }, [open]);
   return (
     <dialog ref={ref} className="modal" aria-labelledby={titleId} onCancel={(e) => { e.preventDefault(); onClose(); }}>
-      <div className="modal-box flex flex-col gap-4" data-testid={testId}>
+      <div className={`modal-box flex flex-col gap-4 ${wide ? "max-w-3xl" : ""}`} data-testid={testId}>
         <h3 id={titleId} className="font-semibold">{title}</h3>
         {children}
       </div>

@@ -308,6 +308,7 @@ mod tests {
                 appliance: b.into(),
                 replica: r,
             }),
+            evacuate: None,
         }
     }
 
