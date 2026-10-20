@@ -126,6 +126,8 @@ pub struct ClaimedJob {
     pub attempts: i32,
     pub max_attempts: i32,
     pub generation: i64,
+    /// Incus operation started by an earlier attempt, if any.
+    pub external_operation: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,7 +188,7 @@ pub async fn claim_job(pool: &PgPool, worker: &str, lease_secs: i64) -> Result<O
              FOR UPDATE SKIP LOCKED
              LIMIT 1
          )
-         RETURNING id, kind, application_id, payload, attempts, max_attempts, generation",
+         RETURNING id, kind, application_id, payload, attempts, max_attempts, generation, external_operation",
     )
     .bind(worker)
     .bind(lease_secs as f64)
@@ -220,6 +222,8 @@ pub enum Outcome {
     Succeeded,
     /// Retried with backoff until `max_attempts`, then marked failed.
     Failed(String),
+    /// Marked failed at once: retrying cannot help (e.g. the target is not Apelora's).
+    Rejected(String),
 }
 
 /// Records the result. Rejected with `Conflict` when another worker has claimed the job since.
@@ -254,8 +258,68 @@ pub async fn complete_job(
         .execute(pool)
         .await?
         .rows_affected(),
+        Outcome::Rejected(err) => sqlx::query(
+            "UPDATE jobs SET status = 'failed', lease_owner = NULL, lease_until = NULL, last_error = $4, updated_at = now()
+             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
+        )
+        .bind(job.id)
+        .bind(worker)
+        .bind(job.generation)
+        .bind(err)
+        .execute(pool)
+        .await?
+        .rows_affected(),
     };
     fenced(n, job)
+}
+
+/// Records the Incus operation this attempt started, fenced like every other job write. Call it
+/// before waiting on the operation.
+pub async fn record_operation(
+    pool: &PgPool,
+    job: &ClaimedJob,
+    worker: &str,
+    operation: Option<&str>,
+) -> Result<()> {
+    let n = sqlx::query(
+        "UPDATE jobs SET external_operation = $4, updated_at = now()
+         WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
+    )
+    .bind(job.id)
+    .bind(worker)
+    .bind(job.generation)
+    .bind(operation)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    fenced(n, job)
+}
+
+/// A job as shown to API callers.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct JobView {
+    pub id: Uuid,
+    pub kind: String,
+    pub status: String,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub last_error: Option<String>,
+    pub external_operation: Option<String>,
+    pub payload: Value,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
+}
+
+pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
+    sqlx::query_as::<_, JobView>(
+        "SELECT id, kind, status, attempts, max_attempts, last_error, external_operation, payload,
+                created_at, updated_at
+         FROM jobs WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| StoreError::NotFound(format!("job {id}")))
 }
 
 fn fenced(rows: u64, job: &ClaimedJob) -> Result<()> {

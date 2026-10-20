@@ -129,6 +129,118 @@ pub struct ServerInfo {
     pub auth: String,
 }
 
+/// Instance config key Apelora sets on every instance it creates. Apelora only changes or
+/// deletes instances that carry it with the value `true`; everything else is left untouched.
+pub const MANAGED_KEY: &str = "user.apelora.managed";
+
+/// Whether `name` is a valid Incus instance or project name as Apelora uses them: 1–63
+/// characters of ASCII letters, digits and `-`, starting with a letter and not ending with
+/// `-`. Stricter than Incus where convenient, so a name can never inject into an API path.
+pub fn is_valid_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    (1..=63).contains(&b.len())
+        && b[0].is_ascii_alphabetic()
+        && b[b.len() - 1] != b'-'
+        && b.iter().all(|c| c.is_ascii_alphanumeric() || *c == b'-')
+}
+
+/// How Incus fetches an image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum ImageProtocol {
+    /// System-container and VM images from a simplestreams image server.
+    Simplestreams,
+    /// Application containers from an OCI registry (needs the `instance_oci` API extension).
+    Oci,
+}
+
+/// Where an instance's root image comes from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct ImageSource {
+    pub protocol: ImageProtocol,
+    /// Image server URL, e.g. a simplestreams server or an OCI registry.
+    pub server: String,
+    /// Alias such as `debian/13` or, for OCI, `repository:tag`.
+    pub alias: String,
+}
+
+/// An instance Apelora should create. Apelora's ownership marker is added on creation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceSpec {
+    pub project: String,
+    pub name: String,
+    /// `container` (system or OCI) or `virtual-machine`.
+    pub kind: InstanceKind,
+    pub source: ImageSource,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    /// Extra instance config; keys under `user.apelora.` are reserved.
+    #[serde(default)]
+    pub config: std::collections::BTreeMap<String, String>,
+    /// Start the instance once created.
+    #[serde(default)]
+    pub start: bool,
+}
+
+impl InstanceSpec {
+    /// Checks names, kind and config before anything is sent to Incus.
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_valid_name(&self.project) {
+            return Err(format!("invalid project name {:?}", self.project));
+        }
+        if !is_valid_name(&self.name) {
+            return Err(format!("invalid instance name {:?}", self.name));
+        }
+        if self.kind == InstanceKind::Unknown {
+            return Err("kind must be container or virtual-machine".into());
+        }
+        if self.source.protocol == ImageProtocol::Oci && self.kind != InstanceKind::Container {
+            return Err("OCI images run only as containers".into());
+        }
+        if !self.source.server.starts_with("https://") {
+            return Err("the image server must use https://".into());
+        }
+        if self.source.alias.is_empty() {
+            return Err("an image alias is required".into());
+        }
+        if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
+            return Err(format!("config key {k} is reserved for Apelora"));
+        }
+        Ok(())
+    }
+}
+
+/// A state change Apelora can request for one of its instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum InstanceAction {
+    Start,
+    Stop,
+}
+
+impl InstanceAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            InstanceAction::Start => "start",
+            InstanceAction::Stop => "stop",
+        }
+    }
+
+    /// The Incus status an instance has once the action has taken effect.
+    pub fn target_status(self) -> &'static str {
+        match self {
+            InstanceAction::Start => "Running",
+            InstanceAction::Stop => "Stopped",
+        }
+    }
+}
+
 /// Who may do what. Every API route names the permission it needs; roles map to permissions
 /// here and nowhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -224,6 +336,76 @@ mod tests {
         assert_eq!(json(Runtime::IncusVm), "\"incus-vm\"");
         assert!(!Runtime::Composite.is_incus_instance());
         assert!(Runtime::IncusVm.is_incus_instance());
+    }
+
+    #[test]
+    fn names_are_safe_for_api_paths() {
+        for ok in ["web", "web-01", "a", &"a".repeat(63)] {
+            assert!(is_valid_name(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "1web",
+            "-web",
+            "web-",
+            "web_01",
+            "web/../x",
+            "web?x",
+            "wéb",
+            &"a".repeat(64),
+        ] {
+            assert!(!is_valid_name(bad), "{bad}");
+        }
+    }
+
+    fn spec() -> InstanceSpec {
+        InstanceSpec {
+            project: "apelora".into(),
+            name: "web-01".into(),
+            kind: InstanceKind::Container,
+            source: ImageSource {
+                protocol: ImageProtocol::Oci,
+                server: "https://registry.example".into(),
+                alias: "nginx:1.29".into(),
+            },
+            profiles: vec!["default".into()],
+            config: Default::default(),
+            start: true,
+        }
+    }
+
+    #[test]
+    fn instance_specs_are_validated_before_reaching_incus() {
+        assert_eq!(spec().validate(), Ok(()));
+        let vm_oci = InstanceSpec {
+            kind: InstanceKind::VirtualMachine,
+            ..spec()
+        };
+        assert!(vm_oci.validate().is_err());
+        let http = InstanceSpec {
+            source: ImageSource {
+                server: "http://x".into(),
+                ..spec().source
+            },
+            ..spec()
+        };
+        assert!(http.validate().is_err());
+        let mut reserved = spec();
+        reserved.config.insert(MANAGED_KEY.into(), "false".into());
+        assert!(
+            reserved
+                .validate()
+                .expect_err("reserved key")
+                .contains("reserved")
+        );
+        assert!(
+            InstanceSpec {
+                project: "a/b".into(),
+                ..spec()
+            }
+            .validate()
+            .is_err()
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Apelora deployment worker. Needs `DATABASE_URL`; without it the worker reports that it has
-//! nothing to work from and exits. Read-only: no job handler changes Incus yet.
+//! nothing to work from and exits. Talks to Incus when `APELORA_INCUS_URL` and the certificate
+//! paths are set (the same settings as the control plane), otherwise to the mock provider.
 
 use std::time::Duration;
 
@@ -14,8 +15,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = apelora_persistence::connect(&url).await?;
     let worker = std::env::var("APELORA_WORKER_ID")
         .unwrap_or_else(|_| format!("worker-{}", std::process::id()));
-    tracing::info!(%worker, read_only = true, "deployment worker started");
-    apelora_deployment_worker::run(pool, worker, Duration::from_secs(2), async {
+    let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
+    tracing::info!(%worker, provider = ?provider.mode(), "deployment worker started");
+    apelora_deployment_worker::run(pool, provider, worker, Duration::from_secs(2), async {
         let _ = tokio::signal::ctrl_c().await;
     })
     .await;

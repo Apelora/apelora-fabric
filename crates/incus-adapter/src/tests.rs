@@ -280,3 +280,238 @@ async fn mock_is_labelled_and_claims_no_version() {
             .all(|i| i.name.starts_with("mock-"))
     );
 }
+
+// ---- Lifecycle writes -------------------------------------------------------------------
+
+type Recorded = Arc<std::sync::Mutex<Vec<(String, Value)>>>;
+
+/// Routes on "METHOD path?query" and records every request with its JSON body.
+async fn recording_server(routes: Vec<(&'static str, (u16, Value))>) -> (String, Recorded) {
+    let table: Arc<HashMap<String, (u16, Value)>> =
+        Arc::new(routes.into_iter().map(|(k, v)| (k.to_owned(), v)).collect());
+    let seen: Recorded = Arc::default();
+    let log = seen.clone();
+    let app = Router::new().fallback(
+        move |method: axum::http::Method, uri: Uri, body: axum::body::Bytes| {
+            let (table, log) = (table.clone(), log.clone());
+            async move {
+                let key = format!(
+                    "{method} {}",
+                    uri.path_and_query().map(|p| p.as_str()).unwrap_or_default()
+                );
+                log.lock().expect("log").push((
+                    key.clone(),
+                    serde_json::from_slice(&body).unwrap_or(Value::Null),
+                ));
+                let (status, body) = table
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| error(404, "not found"));
+                (
+                    StatusCode::from_u16(status).expect("status"),
+                    axum::Json(body),
+                )
+                    .into_response()
+            }
+        },
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    (format!("http://{addr}"), seen)
+}
+
+const OP: &str = "5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c";
+
+fn accepted() -> (u16, Value) {
+    (
+        202,
+        json!({ "type": "async", "status": "Operation created", "status_code": 100,
+                "operation": format!("/1.0/operations/{OP}"), "error_code": 0, "error": "",
+                "metadata": { "id": OP, "class": "task", "status": "Running", "status_code": 103 } }),
+    )
+}
+
+fn operation(status: &str, err: &str) -> (u16, Value) {
+    sync(
+        json!({ "id": OP, "class": "task", "description": "Creating instance", "status": status, "err": err, "may_cancel": false }),
+    )
+}
+
+fn oci_spec() -> InstanceSpec {
+    InstanceSpec {
+        project: "apelora".into(),
+        name: "web-01".into(),
+        kind: InstanceKind::Container,
+        source: apelora_domain::ImageSource {
+            protocol: apelora_domain::ImageProtocol::Oci,
+            server: "https://registry.example".into(),
+            alias: "nginx:1.29".into(),
+        },
+        profiles: vec!["default".into()],
+        config: [("limits.cpu".to_owned(), "1".to_owned())].into(),
+        start: true,
+    }
+}
+
+#[tokio::test]
+async fn create_sends_the_spec_with_the_ownership_marker_and_returns_the_operation() {
+    let (base, seen) = recording_server(vec![
+        ("POST /1.0/instances?project=apelora", accepted()),
+        (
+            "GET /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c/wait?timeout=15",
+            operation("Success", ""),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let op = p.create_instance(&oci_spec()).await.expect("create");
+    assert_eq!(op, OP);
+    assert_eq!(
+        p.wait_operation(&op, std::time::Duration::from_secs(60))
+            .await,
+        Ok(OperationOutcome::Succeeded)
+    );
+    let (_, body) = seen.lock().expect("log")[0].clone();
+    assert_eq!(body["name"], "web-01");
+    assert_eq!(body["type"], "container");
+    assert_eq!(
+        body["source"],
+        json!({ "type": "image", "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" })
+    );
+    assert_eq!(body["config"]["user.apelora.managed"], "true");
+    assert_eq!(body["config"]["limits.cpu"], "1");
+    assert_eq!(body["start"], true);
+}
+
+#[tokio::test]
+async fn invalid_specs_never_reach_incus() {
+    let (base, seen) = recording_server(vec![]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let bad = InstanceSpec {
+        name: "../../1.0/cluster".into(),
+        ..oci_spec()
+    };
+    assert!(matches!(
+        p.create_instance(&bad).await,
+        Err(AdapterError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        p.wait_operation("../evil", std::time::Duration::from_secs(1))
+            .await,
+        Err(AdapterError::InvalidConfig(_))
+    ));
+    assert!(seen.lock().expect("log").is_empty());
+}
+
+#[tokio::test]
+async fn reads_ownership_and_reports_failed_operations() {
+    let (base, seen) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            sync(json!({ "name": "web-01", "status": "Running", "config": { "user.apelora.managed": "true", "image.os": "Debian" } })),
+        ),
+        (
+            "GET /1.0/instances/theirs?project=apelora",
+            sync(json!({ "name": "theirs", "status": "Running", "config": {} })),
+        ),
+        ("PUT /1.0/instances/web-01/state?project=apelora", accepted()),
+        ("DELETE /1.0/instances/web-01?project=apelora", accepted()),
+        (
+            "GET /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c/wait?timeout=15",
+            operation("Failure", "Failed to stop instance"),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    assert_eq!(
+        p.instance("apelora", "web-01").await,
+        Ok(Some(InstanceState {
+            status: "Running".into(),
+            managed: true
+        }))
+    );
+    assert_eq!(
+        p.instance("apelora", "theirs")
+            .await
+            .map(|s| s.map(|s| s.managed)),
+        Ok(Some(false))
+    );
+    assert_eq!(p.instance("apelora", "gone").await, Ok(None));
+    let op = p
+        .change_state("apelora", "web-01", InstanceAction::Stop, true)
+        .await
+        .expect("stop");
+    assert_eq!(
+        p.wait_operation(&op, std::time::Duration::from_secs(60))
+            .await,
+        Ok(OperationOutcome::Failed("Failed to stop instance".into()))
+    );
+    assert_eq!(
+        p.delete_instance("apelora", "web-01").await.as_deref(),
+        Ok(OP)
+    );
+    let log = seen.lock().expect("log").clone();
+    let state = log
+        .iter()
+        .find(|(k, _)| k.starts_with("PUT"))
+        .expect("state request");
+    assert_eq!(
+        state.1,
+        json!({ "action": "stop", "timeout": 30, "force": true })
+    );
+}
+
+#[tokio::test]
+async fn a_sync_reply_to_a_write_is_not_mistaken_for_an_operation() {
+    let (base, _) = recording_server(vec![(
+        "DELETE /1.0/instances/web-01?project=apelora",
+        sync(json!({})),
+    )])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    assert!(matches!(
+        p.delete_instance("apelora", "web-01").await,
+        Err(AdapterError::Decode(_))
+    ));
+}
+
+#[tokio::test]
+async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
+    let a = Provider::Mock(MockIncus::default());
+    let b = a.clone();
+    a.create_instance(&InstanceSpec {
+        project: "default".into(),
+        ..oci_spec()
+    })
+    .await
+    .expect("create");
+    assert_eq!(
+        b.instance("default", "web-01").await,
+        Ok(Some(InstanceState {
+            status: "Running".into(),
+            managed: true
+        }))
+    );
+    assert_eq!(
+        b.instance("default", "mock-web-01")
+            .await
+            .map(|s| s.map(|s| s.managed)),
+        Ok(Some(false)),
+        "seeded instances are not Apelora's"
+    );
+    assert!(matches!(
+        b.delete_instance("default", "web-01").await,
+        Err(AdapterError::Api { status: 400, .. })
+    ));
+    b.change_state("default", "web-01", InstanceAction::Stop, false)
+        .await
+        .expect("stop");
+    b.delete_instance("default", "web-01")
+        .await
+        .expect("delete");
+    assert_eq!(a.instance("default", "web-01").await, Ok(None));
+    assert_eq!(a.instances().await.map(|v| v.len()), Ok(4));
+}

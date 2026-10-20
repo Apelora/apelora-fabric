@@ -122,6 +122,9 @@ async fn an_expired_lease_is_reclaimed_and_the_old_worker_is_fenced_out(pool: Pg
             .is_none(),
         "lease still valid"
     );
+    record_operation(&pool, &old, "worker-a", Some("op-1"))
+        .await
+        .expect("owner records its operation");
     tokio::time::sleep(Duration::from_millis(1200)).await;
     let new = claim_job(&pool, "worker-b", 30)
         .await
@@ -129,6 +132,28 @@ async fn an_expired_lease_is_reclaimed_and_the_old_worker_is_fenced_out(pool: Pg
         .expect("reclaimed");
     assert_eq!(new.id, id);
     assert_eq!(new.generation, old.generation + 1);
+    assert_eq!(
+        new.external_operation.as_deref(),
+        Some("op-1"),
+        "the next attempt sees the operation the previous one started"
+    );
+    assert!(matches!(
+        record_operation(&pool, &old, "worker-a", Some("op-2")).await,
+        Err(StoreError::Conflict(_))
+    ));
+    let view = get_job(&pool, id).await.expect("view");
+    assert_eq!(
+        (
+            view.status.as_str(),
+            view.attempts,
+            view.external_operation.as_deref()
+        ),
+        ("running", 2, Some("op-1"))
+    );
+    assert!(matches!(
+        get_job(&pool, Uuid::new_v4()).await,
+        Err(StoreError::NotFound(_))
+    ));
     assert!(matches!(
         renew_lease(&pool, &old, "worker-a", 30).await,
         Err(StoreError::Conflict(_))
@@ -197,6 +222,27 @@ async fn failures_retry_with_backoff_then_fail_permanently(pool: PgPool) {
         claim_job(&pool, "w", 30).await.expect("claim").is_none(),
         "failed jobs are not retried"
     );
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn rejected_jobs_fail_without_retrying(pool: PgPool) {
+    let id = enqueue_job(&pool, "instance.delete", None, &json!({}), None)
+        .await
+        .expect("enqueue")
+        .id();
+    let job = claim_job(&pool, "w", 30)
+        .await
+        .expect("claim")
+        .expect("job");
+    complete_job(&pool, &job, "w", &Outcome::Rejected("not Apelora's".into()))
+        .await
+        .expect("complete");
+    let (status, attempts, err) = job_status(&pool, id).await.expect("status");
+    assert_eq!(
+        (status.as_str(), attempts, err.as_deref()),
+        ("failed", 1, Some("not Apelora's"))
+    );
+    assert!(claim_job(&pool, "w", 30).await.expect("claim").is_none());
 }
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]

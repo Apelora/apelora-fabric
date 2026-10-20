@@ -43,6 +43,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Upstream tracking (`upstream.lock.yaml`, update checks, fork `Apelora/incus`) | Done in Phase 02 (`docs/development/UPSTREAM-INCUS.md`) | 02 |
 | Incus adapter (read-only + mock) and inventory API | Done, CONTRACT VERIFIED (no real cluster yet) | 03 |
 | PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
+| Instance lifecycle (create/start/stop/delete), ownership marker, project allow-list | Done, CONTRACT VERIFIED; needs a disposable Incus for REAL INCUS TESTED | 04 |
+| Host preflight, bootstrap/join, image checks | Missing | 04 |
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |

@@ -15,7 +15,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{delete, get, post};
 use axum::{Extension, Json, Router};
 use serde::Serialize;
 use serde_json::Value;
@@ -35,14 +35,25 @@ pub enum Auth {
 pub struct AppState {
     provider: Arc<Provider>,
     auth: Auth,
+    /// Incus projects Apelora may change (default: `apelora`).
+    deploy_projects: Arc<Vec<String>>,
 }
+
+/// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
+pub const DEFAULT_DEPLOY_PROJECT: &str = "apelora";
 
 impl AppState {
     pub fn new(provider: Provider, auth: Auth) -> Self {
         Self {
             provider: Arc::new(provider),
             auth,
+            deploy_projects: Arc::new(vec![DEFAULT_DEPLOY_PROJECT.to_owned()]),
         }
+    }
+
+    pub fn with_deploy_projects(mut self, projects: Vec<String>) -> Self {
+        self.deploy_projects = Arc::new(projects);
+        self
     }
 }
 
@@ -57,7 +68,19 @@ pub fn router(state: AppState) -> Router {
     let protected = Router::new()
         .route("/api/v1/whoami", get(whoami))
         .route("/api/v1/cluster", get(cluster))
-        .route("/api/v1/instances", get(instances))
+        .route(
+            "/api/v1/instances",
+            get(instances).post(deploy::create_instance),
+        )
+        .route(
+            "/api/v1/instances/{project}/{name}/state",
+            post(deploy::change_state),
+        )
+        .route(
+            "/api/v1/instances/{project}/{name}",
+            delete(deploy::delete_instance),
+        )
+        .route("/api/v1/jobs/{id}", get(deploy::job))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
@@ -134,11 +157,13 @@ impl From<AdapterError> for ApiError {
 
 impl From<apelora_persistence::StoreError> for ApiError {
     fn from(e: apelora_persistence::StoreError) -> Self {
-        ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
-            e.to_string(),
-        )
+        use apelora_persistence::StoreError as E;
+        let (status, code) = match &e {
+            E::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
+            E::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
+            _ => (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable"),
+        };
+        ApiError::new(status, code, e.to_string())
     }
 }
 
@@ -516,10 +541,11 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, whoami, cluster, instances, projects, networks, storage_pools, audit),
+    paths(health, whoami, cluster, instances, projects, networks, storage_pools, audit,
+        deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "audit"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "audit"))
 )]
 pub struct ApiDoc;
 
@@ -537,6 +563,8 @@ pub fn openapi_json() -> String {
 async fn openapi() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/json")], openapi_json())
 }
+
+mod deploy;
 
 #[cfg(test)]
 mod tests;

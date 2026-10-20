@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Chooses the inventory provider from environment variables.
+//! Chooses the Incus provider from environment variables (shared by the control plane and
+//! the deployment worker).
 
-use apelora_incus_adapter::{IncusClient, IncusConfig, MockIncus, Provider};
+use crate::{IncusClient, IncusConfig, MockIncus, Provider};
 
 pub const URL: &str = "APELORA_INCUS_URL";
 pub const CLIENT_CERT: &str = "APELORA_INCUS_CLIENT_CERT";

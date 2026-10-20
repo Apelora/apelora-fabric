@@ -222,9 +222,13 @@ async fn openapi_document_is_public_and_lists_every_route() {
         "/api/v1/networks",
         "/api/v1/storage-pools",
         "/api/v1/audit",
+        "/api/v1/jobs/{id}",
     ] {
         assert!(doc["paths"][route]["get"].is_object(), "{route} missing");
     }
+    assert!(doc["paths"]["/api/v1/instances"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/instances/{project}/{name}/state"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/instances/{project}/{name}"]["delete"].is_object());
     assert_eq!(
         doc["paths"]["/api/v1/health"]["get"]["security"],
         json!([{}]),
@@ -233,5 +237,249 @@ async fn openapi_document_is_public_and_lists_every_route() {
     assert_eq!(
         doc["components"]["securitySchemes"]["bearer"]["scheme"],
         "bearer"
+    );
+}
+
+// ---- Deployment requests ----------------------------------------------------------------
+
+async fn send(
+    state: AppState,
+    method: &str,
+    path: &str,
+    token: &str,
+    body: Option<Value>,
+    idempotency: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut req = Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"));
+    if let Some(k) = idempotency {
+        req = req.header("idempotency-key", k);
+    }
+    let req = match body {
+        Some(b) => req
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(b.to_string())),
+        None => req.body(Body::empty()),
+    }
+    .expect("request");
+    let res = router(state).oneshot(req).await.expect("response");
+    let status = res.status();
+    let bytes = res.into_body().collect().await.expect("body").to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
+}
+
+fn web_spec(project: &str, name: &str) -> Value {
+    json!({ "project": project, "name": name, "kind": "container",
+            "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" },
+            "start": true })
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn deployment_requests_are_checked_queued_audited_and_carried_out(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let token = |role: &'static str| {
+        let pool = pool.clone();
+        async move {
+            apelora_persistence::create_token(&pool, role, role, None)
+                .await
+                .expect("token")
+                .0
+        }
+    };
+    let (operator, designer) = (token("operator").await, token("studio-designer").await);
+
+    // Permission, project allow-list and validation are checked before anything is queued.
+    let checks = [
+        (&designer, web_spec("apelora", "web-01"), 403, "forbidden"),
+        (
+            &operator,
+            web_spec("default", "web-01"),
+            403,
+            "project_not_allowed",
+        ),
+        (
+            &operator,
+            web_spec("apelora", "../x"),
+            400,
+            "invalid_request",
+        ),
+        (
+            &operator,
+            json!({ "name": "web-01" }),
+            400,
+            "invalid_request",
+        ),
+    ];
+    for (tok, body, status, code) in checks {
+        let (s, b) = send(
+            state.clone(),
+            "POST",
+            "/api/v1/instances",
+            tok,
+            Some(body),
+            None,
+        )
+        .await;
+        assert_eq!(
+            (s.as_u16(), b["error"]["code"].as_str()),
+            (status, Some(code)),
+            "{b}"
+        );
+    }
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(queued, 0);
+
+    // Accepted, idempotent per key.
+    let (s, first) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/instances",
+        &operator,
+        Some(web_spec("apelora", "web-01")),
+        Some("k1"),
+    )
+    .await;
+    assert_eq!(
+        (s, first["created"].as_bool()),
+        (StatusCode::ACCEPTED, Some(true))
+    );
+    let (_, again) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/instances",
+        &operator,
+        Some(web_spec("apelora", "web-01")),
+        Some("k1"),
+    )
+    .await;
+    assert_eq!(
+        (again["jobId"].clone(), again["created"].as_bool()),
+        (first["jobId"].clone(), Some(false))
+    );
+    let job_path = format!("/api/v1/jobs/{}", first["jobId"].as_str().expect("id"));
+    let (_, job) = send(state.clone(), "GET", &job_path, &designer, None, None).await;
+    assert_eq!(
+        (job["kind"].as_str(), job["status"].as_str()),
+        (Some("instance.create"), Some("pending"))
+    );
+
+    // The worker carries it out against the same (mock) Incus.
+    while apelora_deployment_worker::run_once(&pool, &provider, "w")
+        .await
+        .expect("run")
+    {}
+    let (_, job) = send(state.clone(), "GET", &job_path, &designer, None, None).await;
+    assert_eq!(job["status"], "succeeded", "{job}");
+    let (_, list) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/instances",
+        &designer,
+        None,
+        None,
+    )
+    .await;
+    let web = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|i| i["name"] == "web-01")
+        .cloned();
+    assert_eq!(
+        web.map(|w| (w["project"].clone(), w["status"].clone())),
+        Some((json!("apelora"), json!("Running")))
+    );
+
+    let (s, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/instances/apelora/web-01/state",
+        &operator,
+        Some(json!({ "action": "stop" })),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    let (s, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/instances/apelora/web-01/state",
+        &operator,
+        Some(json!({ "action": "reboot" })),
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = send(
+        state.clone(),
+        "DELETE",
+        "/api/v1/instances/apelora/web-01",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED);
+    while apelora_deployment_worker::run_once(&pool, &provider, "w")
+        .await
+        .expect("run")
+    {}
+    assert_eq!(provider.instance("apelora", "web-01").await, Ok(None));
+
+    let actions: Vec<String> = sqlx::query_scalar("SELECT action FROM audit_events ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .expect("audit");
+    assert_eq!(
+        actions,
+        [
+            "instance.create.requested",
+            "instance.stop.requested",
+            "instance.delete.requested"
+        ]
+    );
+
+    let (s, b) = send(
+        state.clone(),
+        "GET",
+        &format!("/api/v1/jobs/{}", uuid::Uuid::new_v4()),
+        &designer,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"]["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("not_found"))
+    );
+}
+
+#[tokio::test]
+async fn deployments_need_a_database() {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::DisabledForDevelopment,
+    );
+    let (s, b) = send(
+        state,
+        "POST",
+        "/api/v1/instances",
+        "x",
+        Some(web_spec("apelora", "web-01")),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"]["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("store_unavailable"))
     );
 }

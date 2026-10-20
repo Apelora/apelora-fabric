@@ -13,8 +13,19 @@ type Schema = {
   required?: string[];
   description?: string;
 };
-type Operation = { operationId: string; description?: string; summary?: string; security?: unknown[]; responses: Record<string, { content?: { "application/json"?: { schema: Schema } } }> };
-type Doc = { info: { version: string }; paths: Record<string, { get?: Operation }>; components: { schemas: Record<string, Schema> } };
+type Parameter = { name: string; in: string };
+type Operation = {
+  operationId: string;
+  description?: string;
+  summary?: string;
+  security?: unknown[];
+  parameters?: Parameter[];
+  requestBody?: { content: { "application/json": { schema: Schema } } };
+  responses: Record<string, { content?: { "application/json"?: { schema: Schema } } }>;
+};
+type Doc = { info: { version: string }; paths: Record<string, Partial<Record<Method, Operation>>>; components: { schemas: Record<string, Schema> } };
+const METHODS = ["get", "post", "put", "delete"] as const;
+type Method = (typeof METHODS)[number];
 
 const doc = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8")) as Doc;
 
@@ -58,16 +69,34 @@ for (const [name, s] of Object.entries(doc.components.schemas)) {
   out.push(`${comment(s.description)}export type ${name} = ${ts(s, "")};`, "");
 }
 
-const ops = Object.entries(doc.paths).flatMap(([path, item]) => (item.get ? [{ path, op: item.get }] : []));
-out.push("/** GET operations by operationId: path, success body and whether a token is needed. */");
+const ops = Object.entries(doc.paths).flatMap(([path, item]) =>
+  METHODS.flatMap((method) => (item[method] ? [{ path, method, op: item[method]! }] : [])),
+);
+const isPublic = (op: Operation) => op.security?.length === 1 && JSON.stringify(op.security[0]) === "{}";
+const pathParams = (op: Operation) => (op.parameters ?? []).filter((p) => p.in === "path").map((p) => p.name);
+
+out.push("/** Operations by operationId: method, path template, path parameters and whether a token is needed. */");
 out.push("export const operations = {");
-for (const { path, op } of ops) out.push(`  ${op.operationId}: { path: ${JSON.stringify(path)}, public: ${JSON.stringify(op.security?.length === 1 && JSON.stringify(op.security[0]) === "{}")} },`);
+for (const { path, method, op } of ops) {
+  out.push(`  ${op.operationId}: { method: ${JSON.stringify(method.toUpperCase())}, path: ${JSON.stringify(path)}, params: ${JSON.stringify(pathParams(op))}, public: ${isPublic(op)} },`);
+}
 out.push("} as const;", "");
+
+out.push("/** Success body of each operation. */");
 out.push("export type Responses = {");
 for (const { op } of ops) {
-  const ok = op.responses["200"]?.content?.["application/json"]?.schema;
-  if (!ok) throw new Error(`${op.operationId}: no 200 JSON response`);
+  const code = Object.keys(op.responses).find((c) => c.startsWith("2"));
+  const ok = code && op.responses[code]?.content?.["application/json"]?.schema;
+  if (!ok) throw new Error(`${op.operationId}: no 2xx JSON response`);
   out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ts(ok, "  ")};`);
+}
+out.push("};", "");
+
+out.push("/** Request body of each operation (`never` when it takes none). */");
+out.push("export type Bodies = {");
+for (const { op } of ops) {
+  const body = op.requestBody?.content["application/json"].schema;
+  out.push(`  ${op.operationId}: ${body ? ts(body, "  ") : "never"};`);
 }
 out.push("};", "");
 

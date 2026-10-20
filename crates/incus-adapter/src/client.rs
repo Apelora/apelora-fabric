@@ -4,12 +4,15 @@
 use std::time::Duration;
 
 use apelora_domain::{
-    ClusterMember, Instance, InstanceKind, Network, Project, ServerInfo, StoragePool,
+    ClusterMember, ImageProtocol, Instance, InstanceAction, InstanceKind, InstanceSpec,
+    MANAGED_KEY, Network, Project, ServerInfo, StoragePool,
 };
+use reqwest::Method;
 use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
 
-use crate::AdapterError;
 use crate::wire::{self, Envelope, Operation, OperationList};
+use crate::{AdapterError, InstanceState};
 
 /// Connection settings. Certificates are PEM bytes loaded by the caller from outside the
 /// repository; the server certificate is pinned (no public CA roots are trusted).
@@ -148,10 +151,18 @@ impl IncusClient {
         }
     }
 
-    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, AdapterError> {
-        let res = self
-            .http
-            .get(format!("{}{}", self.base, path))
+    /// Sends a request and checks the Incus envelope. 404s become [`AdapterError::NotFound`].
+    async fn call<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Envelope<T>, AdapterError> {
+        let mut req = self.http.request(method, format!("{}{}", self.base, path));
+        if let Some(b) = body {
+            req = req.json(b);
+        }
+        let res = req
             .send()
             .await
             // Keep the cause chain: it says whether TLS verification, the network or a timeout failed.
@@ -176,8 +187,124 @@ impl IncusClient {
                 },
             });
         }
-        env.metadata
+        Ok(env)
+    }
+
+    async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, AdapterError> {
+        self.call(Method::GET, path, None)
+            .await?
+            .metadata
             .ok_or_else(|| AdapterError::Decode(format!("{path}: response has no metadata")))
+    }
+
+    /// Starts an asynchronous Incus operation and returns its id.
+    async fn start_operation(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<String, AdapterError> {
+        let env: Envelope<Value> = self.call(method, path, body).await?;
+        let id = env
+            .operation
+            .rsplit('/')
+            .next()
+            .filter(|id| !id.is_empty() && env.kind == "async")
+            .ok_or_else(|| {
+                AdapterError::Decode(format!("{path}: expected an asynchronous operation"))
+            })?;
+        Ok(id.to_owned())
+    }
+
+    /// The instance's status and whether Apelora owns it; `None` if it does not exist.
+    pub async fn instance(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<InstanceState>, AdapterError> {
+        let path = format!("/1.0/instances/{name}?project={project}");
+        match self.get::<wire::InstanceDetail>(&path).await {
+            Ok(d) => Ok(Some(InstanceState {
+                managed: d.config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
+                status: d.status,
+            })),
+            Err(AdapterError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `POST /1.0/instances`; the spec must already be validated. Adds the ownership marker.
+    pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
+        let mut config = spec.config.clone();
+        config.insert(MANAGED_KEY.into(), "true".into());
+        let body = json!({
+            "name": spec.name,
+            "type": match spec.kind {
+                InstanceKind::VirtualMachine => "virtual-machine",
+                _ => "container",
+            },
+            "source": {
+                "type": "image",
+                "protocol": match spec.source.protocol {
+                    ImageProtocol::Simplestreams => "simplestreams",
+                    ImageProtocol::Oci => "oci",
+                },
+                "server": spec.source.server,
+                "alias": spec.source.alias,
+            },
+            "profiles": spec.profiles,
+            "config": config,
+            "start": spec.start,
+        });
+        self.start_operation(
+            Method::POST,
+            &format!("/1.0/instances?project={}", spec.project),
+            Some(&body),
+        )
+        .await
+    }
+
+    /// `PUT /1.0/instances/<name>/state`.
+    pub async fn change_state(
+        &self,
+        project: &str,
+        name: &str,
+        action: InstanceAction,
+        force: bool,
+    ) -> Result<String, AdapterError> {
+        let body = json!({ "action": action.as_str(), "timeout": 30, "force": force });
+        self.start_operation(
+            Method::PUT,
+            &format!("/1.0/instances/{name}/state?project={project}"),
+            Some(&body),
+        )
+        .await
+    }
+
+    /// `DELETE /1.0/instances/<name>`; Incus refuses to delete a running instance.
+    pub async fn delete_instance(&self, project: &str, name: &str) -> Result<String, AdapterError> {
+        self.start_operation(
+            Method::DELETE,
+            &format!("/1.0/instances/{name}?project={project}"),
+            None,
+        )
+        .await
+    }
+
+    /// Waits up to `timeout_secs` (kept below the request timeout) for an operation to finish
+    /// and returns its state, which may still be running.
+    pub async fn wait_operation(
+        &self,
+        id: &str,
+        timeout_secs: u32,
+    ) -> Result<Operation, AdapterError> {
+        if id.is_empty() || !id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-') {
+            return Err(AdapterError::InvalidConfig(format!(
+                "invalid operation id {id:?}"
+            )));
+        }
+        self.get(&format!("/1.0/operations/{id}/wait?timeout={timeout_secs}"))
+            .await
     }
 
     pub async fn server_info(&self) -> Result<ServerInfo, AdapterError> {

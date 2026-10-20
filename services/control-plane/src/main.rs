@@ -12,7 +12,6 @@
 //! `APELORA_INCUS_URL` is set, otherwise from labelled mock data.
 
 mod api;
-mod config;
 
 use std::net::SocketAddr;
 
@@ -55,11 +54,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .into());
         }
     };
-    let provider = config::provider_from_env(|k| std::env::var(k).ok())?;
+    let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
     let mode = provider.mode();
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, provider = ?mode, "control plane listening");
-    axum::serve(listener, api::router(api::AppState::new(provider, auth)))
+    let projects: Vec<String> = std::env::var("APELORA_DEPLOY_PROJECTS")
+        .unwrap_or_else(|_| api::DEFAULT_DEPLOY_PROJECT.to_owned())
+        .split(',')
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if let Some(bad) = projects.iter().find(|p| !apelora_domain::is_valid_name(p)) {
+        return Err(format!("APELORA_DEPLOY_PROJECTS: invalid project name {bad:?}").into());
+    }
+    tracing::info!(?projects, "deployments allowed in these Incus projects");
+    let state = api::AppState::new(provider, auth).with_deploy_projects(projects);
+    axum::serve(listener, api::router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
         })

@@ -29,9 +29,49 @@ describe("api client", () => {
     await expect(html.get("health")).rejects.toMatchObject({ status: 502, code: "http_error" });
   });
 
+  it("fills path parameters, sends bodies and idempotency keys", async () => {
+    const fetch = vi.fn(async () => json(202, { jobId: "j1", created: true }));
+    const api = createClient({ token: () => "apl_x", fetch });
+    await api.request("change_state", { params: { project: "apelora", name: "web 01" }, body: { action: "stop" }, idempotencyKey: "k1" });
+    await api.request("delete_instance", { params: { project: "apelora", name: "web-01" } });
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/instances/apelora/web%2001/state");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({ action: "stop" }));
+    expect(init.headers).toMatchObject({ "idempotency-key": "k1", "content-type": "application/json", authorization: "Bearer apl_x" });
+    const [delUrl, delInit] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    expect([delUrl, delInit.method, delInit.body]).toEqual(["/api/v1/instances/apelora/web-01", "DELETE", undefined]);
+  });
+
+  it("rejects incomplete requests at compile time", () => {
+    const api = createClient({ fetch: async () => json(200, {}) });
+    const never = () => {
+      // @ts-expect-error a body is required
+      void api.request("change_state", { params: { project: "a", name: "b" } });
+      // @ts-expect-error path parameters are required
+      void api.request("delete_instance", {});
+      // @ts-expect-error get() is only for operations without parameters or a body
+      void api.get("job");
+      // @ts-expect-error the action must be start or stop
+      void api.request("change_state", { params: { project: "a", name: "b" }, body: { action: "reboot" } });
+    };
+    expect(typeof never).toBe("function");
+  });
+
   it("covers every route of the control plane", () => {
-    expect(Object.values(operations).map((o) => o.path).sort()).toEqual(
-      ["audit", "cluster", "health", "instances", "networks", "projects", "storage-pools", "whoami"].map((p) => `/api/v1/${p}`),
-    );
+    expect(Object.values(operations).map((o) => `${o.method} ${o.path}`).sort()).toEqual([
+      "DELETE /api/v1/instances/{project}/{name}",
+      "GET /api/v1/audit",
+      "GET /api/v1/cluster",
+      "GET /api/v1/health",
+      "GET /api/v1/instances",
+      "GET /api/v1/jobs/{id}",
+      "GET /api/v1/networks",
+      "GET /api/v1/projects",
+      "GET /api/v1/storage-pools",
+      "GET /api/v1/whoami",
+      "POST /api/v1/instances",
+      "POST /api/v1/instances/{project}/{name}/state",
+    ]);
   });
 });

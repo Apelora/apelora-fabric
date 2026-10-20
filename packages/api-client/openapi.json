@@ -185,6 +185,348 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Queues creation of an instance. Needs `deploy`. Apelora marks it as its own; only such\ninstances can later be stopped or deleted through Apelora.",
+        "operationId": "create_instance",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InstanceSpec"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{project}/{name}": {
+      "delete": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Queues deletion of an Apelora instance (stopped first if running). Needs `deploy`.",
+        "operationId": "delete_instance",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{project}/{name}/state": {
+      "post": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Queues starting or stopping an Apelora instance. Needs `deploy`.",
+        "operationId": "change_state",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StateChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}": {
+      "get": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "A queued job and its progress. Needs `read-inventory`.",
+        "operationId": "job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/networks": {
@@ -564,6 +906,36 @@
           }
         }
       },
+      "ImageProtocol": {
+        "type": "string",
+        "description": "How Incus fetches an image.",
+        "enum": [
+          "simplestreams",
+          "oci"
+        ]
+      },
+      "ImageSource": {
+        "type": "object",
+        "description": "Where an instance's root image comes from.",
+        "required": [
+          "protocol",
+          "server",
+          "alias"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Alias such as `debian/13` or, for OCI, `repository:tag`."
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/ImageProtocol"
+          },
+          "server": {
+            "type": "string",
+            "description": "Image server URL, e.g. a simplestreams server or an OCI registry."
+          }
+        }
+      },
       "IncusStatus": {
         "type": "object",
         "description": "What the control plane knows about its Incus connection.",
@@ -629,6 +1001,14 @@
           }
         }
       },
+      "InstanceAction": {
+        "type": "string",
+        "description": "A state change Apelora can request for one of its instances.",
+        "enum": [
+          "start",
+          "stop"
+        ]
+      },
       "InstanceKind": {
         "type": "string",
         "description": "Kind of Incus instance as reported by the cluster.",
@@ -653,6 +1033,127 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "InstanceSpec": {
+        "type": "object",
+        "description": "An instance Apelora should create. Apelora's ownership marker is added on creation.",
+        "required": [
+          "project",
+          "name",
+          "kind",
+          "source"
+        ],
+        "properties": {
+          "config": {
+            "type": "object",
+            "description": "Extra instance config; keys under `user.apelora.` are reserved.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InstanceKind",
+            "description": "`container` (system or OCI) or `virtual-machine`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "project": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ImageSource"
+          },
+          "start": {
+            "type": "boolean",
+            "description": "Start the instance once created."
+          }
+        }
+      },
+      "Job": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "attempts",
+          "maxAttempts",
+          "request",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incusOperation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Incus operation the current attempt is waiting on, if any."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`instance.create`, `instance.start`, `instance.stop` or `instance.delete`."
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "request": {
+            "type": "object"
+          },
+          "status": {
+            "type": "string",
+            "description": "`pending`, `running`, `succeeded`, `failed` or `cancelled`."
+          },
+          "updatedAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          }
+        }
+      },
+      "JobAccepted": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "created"
+        ],
+        "properties": {
+          "created": {
+            "type": "boolean",
+            "description": "False when an earlier request with the same idempotency key already created the job."
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -819,6 +1320,17 @@
           }
         }
       },
+      "StateChange": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/InstanceAction"
+          }
+        }
+      },
       "StoragePool": {
         "type": "object",
         "required": [
@@ -902,6 +1414,9 @@
     },
     {
       "name": "inventory"
+    },
+    {
+      "name": "deployment"
     },
     {
       "name": "audit"

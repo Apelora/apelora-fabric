@@ -60,6 +60,18 @@ export type Health = {
   version: string;
 };
 
+/** How Incus fetches an image. */
+export type ImageProtocol = "simplestreams" | "oci";
+
+/** Where an instance's root image comes from. */
+export type ImageSource = {
+  /** Alias such as `debian/13` or, for OCI, `repository:tag`. */
+  alias: string;
+  protocol: ImageProtocol;
+  /** Image server URL, e.g. a simplestreams server or an OCI registry. */
+  server: string;
+};
+
 /** What the control plane knows about its Incus connection. */
 export type IncusStatus = {
   apiVersion?: string;
@@ -81,12 +93,53 @@ export type Instance = {
   status: string;
 };
 
+/** A state change Apelora can request for one of its instances. */
+export type InstanceAction = "start" | "stop";
+
 /** Kind of Incus instance as reported by the cluster. */
 export type InstanceKind = "container" | "virtual-machine" | "unknown";
 
 export type InstanceList = {
   items: Instance[];
   source: Source;
+};
+
+/** An instance Apelora should create. Apelora's ownership marker is added on creation. */
+export type InstanceSpec = {
+  /** Extra instance config; keys under `user.apelora.` are reserved. */
+  config?: Record<string, unknown>;
+  /** `container` (system or OCI) or `virtual-machine`. */
+  kind: InstanceKind;
+  name: string;
+  profiles?: string[];
+  project: string;
+  source: ImageSource;
+  /** Start the instance once created. */
+  start?: boolean;
+};
+
+export type Job = {
+  attempts: number;
+  /** RFC 3339. */
+  createdAt: string;
+  id: string;
+  /** The Incus operation the current attempt is waiting on, if any. */
+  incusOperation?: string | null;
+  /** `instance.create`, `instance.start`, `instance.stop` or `instance.delete`. */
+  kind: string;
+  lastError?: string | null;
+  maxAttempts: number;
+  request: Record<string, unknown>;
+  /** `pending`, `running`, `succeeded`, `failed` or `cancelled`. */
+  status: string;
+  /** RFC 3339. */
+  updatedAt: string;
+};
+
+export type JobAccepted = {
+  /** False when an earlier request with the same idempotency key already created the job. */
+  created: boolean;
+  jobId: string;
 };
 
 export type Network = {
@@ -138,6 +191,10 @@ export type Source = {
   provider: ProviderMode;
 };
 
+export type StateChange = {
+  action: InstanceAction;
+};
+
 export type StoragePool = {
   description: string;
   driver: string;
@@ -156,18 +213,23 @@ export type WhoAmI = {
   role: Role;
 };
 
-/** GET operations by operationId: path, success body and whether a token is needed. */
+/** Operations by operationId: method, path template, path parameters and whether a token is needed. */
 export const operations = {
-  audit: { path: "/api/v1/audit", public: false },
-  cluster: { path: "/api/v1/cluster", public: false },
-  health: { path: "/api/v1/health", public: true },
-  instances: { path: "/api/v1/instances", public: false },
-  networks: { path: "/api/v1/networks", public: false },
-  projects: { path: "/api/v1/projects", public: false },
-  storage_pools: { path: "/api/v1/storage-pools", public: false },
-  whoami: { path: "/api/v1/whoami", public: false },
+  audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
+  cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
+  health: { method: "GET", path: "/api/v1/health", params: [], public: true },
+  instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
+  create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
+  delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
+  change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
+  job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
+  networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
+  projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
+  storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
+  whoami: { method: "GET", path: "/api/v1/whoami", params: [], public: false },
 } as const;
 
+/** Success body of each operation. */
 export type Responses = {
   /** The 100 most recent audit events, newest first. Needs `read-audit` and a database. */
   audit: AuditList;
@@ -177,6 +239,14 @@ export type Responses = {
   health: Health;
   /** Instances in all projects. Needs `read-inventory`. */
   instances: InstanceList;
+  /** Queues creation of an instance. Needs `deploy`. Apelora marks it as its own; only such instances can later be stopped or deleted through Apelora. */
+  create_instance: JobAccepted;
+  /** Queues deletion of an Apelora instance (stopped first if running). Needs `deploy`. */
+  delete_instance: JobAccepted;
+  /** Queues starting or stopping an Apelora instance. Needs `deploy`. */
+  change_state: JobAccepted;
+  /** A queued job and its progress. Needs `read-inventory`. */
+  job: Job;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
   /** Incus projects. Needs `read-inventory`. */
@@ -185,4 +255,20 @@ export type Responses = {
   storage_pools: StoragePoolList;
   /** The caller's name, role and the permissions that role grants. */
   whoami: WhoAmI;
+};
+
+/** Request body of each operation (`never` when it takes none). */
+export type Bodies = {
+  audit: never;
+  cluster: never;
+  health: never;
+  instances: never;
+  create_instance: InstanceSpec;
+  delete_instance: never;
+  change_state: StateChange;
+  job: never;
+  networks: never;
+  projects: never;
+  storage_pools: never;
+  whoami: never;
 };

@@ -16,6 +16,9 @@ pub(crate) struct Envelope<T> {
     pub error: String,
     #[serde(default)]
     pub error_code: u16,
+    /// For `async` responses: `/1.0/operations/<id>`.
+    #[serde(default)]
+    pub operation: String,
     pub metadata: Option<T>,
 }
 
@@ -62,6 +65,14 @@ pub(crate) struct Instance {
     pub description: String,
 }
 
+/// `GET /1.0/instances/<name>`: only what lifecycle decisions need.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct InstanceDetail {
+    pub status: String,
+    pub config: BTreeMap<String, String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct Project {
@@ -90,7 +101,7 @@ pub(crate) struct StoragePool {
     pub description: String,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Operation {
     pub id: String,
