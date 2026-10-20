@@ -227,6 +227,23 @@ The evacuation dry run lists every volume that blocks a move and why. It never r
 
 ## 10. Build order
 
+**Step 1 progress (REAL INCUS TESTED, 2026-10-20, Incus 7.0.1, btrfs pool `local` on four members, through the restricted deploy identity):**
+
+| Check | Result |
+|---|---|
+| Create a filesystem custom volume in the restricted project | Works (`features.storage.volumes=true`); it lands on the member that received the request unless `target` is given; the restricted identity **may** target volumes (it may not target instances) |
+| Size quota | Enforced: a 1 GiB volume stopped a write at 1.0 GiB (`df` inside shows the pool, not the quota) |
+| Attach at creation | Works when the instance runs on the volume's member |
+| Placement and a member-local volume | **Incus does not follow the volume**: an instance referencing a volume on another member failed (`Storage volume not found`). Working order: create the instance stopped (Incus places it), create the volume on that member, add the disk device, start — verified |
+| Host-path disk in the restricted project | Refused (`Attaching disks not backed by a pool is forbidden`) |
+| Grow while attached and running | Works (512 MiB → 1 GiB) |
+| Shrink | **Accepted by Incus** (1 GiB → 256 MiB): Apelora must enforce grow-only itself |
+| Snapshot | **Refused** in the restricted project (`doesn't allow for snapshot creation`): needs `restricted.snapshots=allow` set by an administrator |
+| Restore | Refused while the instance runs (`Cannot restore custom volume used by running instances`); restore after stop not yet verified (no snapshot could be taken) |
+| `used_by` | Lists the instances the volume is attached to |
+
+Still to verify: snapshot and restore with snapshots allowed, attach to a VM, a volume outliving its deleted instance, delete, and evacuation of an instance with a member-local volume.
+
 1. Verify on the test cluster, labelled REAL INCUS TESTED: custom volume create, attach to a container and to a VM, snapshot, restore, grow, delete, and the project restrictions in §7; write down what the pinned release actually does.
 2. `VolumeProvider` trait, fake provider with fault injection, adapter implementation, `volumes` table and migration.
 3. Appliance class `volumes` field and Studio properties section; planner rules; deploy review.
