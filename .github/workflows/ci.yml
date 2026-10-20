@@ -2,8 +2,9 @@ name: CI
 
 # Regression gate for every push and pull request: frontend checks, Rust checks, generated-file
 # drift, dependency licences and advisories, and the Playwright end-to-end suite (Studio and
-# Fabric Console). No secrets and no Incus
-# credentials are available here; nothing touches real infrastructure.
+# Fabric Console). Pull requests run only the areas they change (scripts/ci/changed-areas.sh);
+# pushes to main and manual runs run everything. No secrets and no Incus credentials are
+# available here; nothing touches real infrastructure.
 on:
   push:
     branches: [main]
@@ -18,8 +19,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      frontend: ${{ steps.areas.outputs.frontend }}
+      rust: ${{ steps.areas.outputs.rust }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: areas
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: bash scripts/ci/changed-areas.sh "$BASE" | tee -a "$GITHUB_OUTPUT"
+
   frontend:
     name: Frontend (typecheck, lint, unit, build, generated files)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -63,6 +81,8 @@ jobs:
 
   rust:
     name: Rust (fmt, clippy, test)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     # Persistence and worker tests run against a real PostgreSQL (fresh database per test).
     services:
@@ -96,6 +116,8 @@ jobs:
 
   e2e:
     name: End-to-end (Playwright)
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

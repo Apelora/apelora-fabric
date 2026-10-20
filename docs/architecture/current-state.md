@@ -15,7 +15,7 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0008, Incus REST client with TLS pinning and a mock provider. |
 | Catalog and model | `packages/` | 83 original appliance classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
 | Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 119 Rust tests, 75 unit tests, 86 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
-| CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright, dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check. |
+| CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
 | Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
 
 ## Earlier Xen-based assumptions
@@ -72,7 +72,7 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
-| Secret scanning in CI; release workflow (draft releases, not exercised yet); end-to-end demonstration (`demo.sh`); certificate rotation | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
+| Secret scanning in CI; release workflow (draft releases; `v0.1.0-alpha.1` built); end-to-end demonstration (`demo.sh`); certificate rotation; path-aware CI | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
 | Staged upgrades with rollback, remaining runbooks | Missing | 10 |
 
 ## Known limitations
