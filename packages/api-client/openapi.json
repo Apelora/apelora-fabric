@@ -1299,6 +1299,182 @@
         }
       }
     },
+    "/api/v1/applications/{name}/volumes": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "The application's volumes, with what Incus says about each now. Needs `application.view`.",
+        "operationId": "application_volumes",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationVolumes"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/volumes/{volume}": {
+      "delete": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Deletes one of the application's volumes and its snapshots, for good. The volume's Incus\nname must be typed again; refused while an instance uses it. Needs `application.delete`\n(and an approval where the policy asks for one); audited.",
+        "operationId": "delete_application_volume",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmVolume"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/approvals": {
       "get": {
         "tags": [
@@ -5809,6 +5985,24 @@
           }
         }
       },
+      "ApplicationVolumes": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeItem"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "ApprovalDto": {
         "type": "object",
         "required": [
@@ -6291,6 +6485,18 @@
           "force": {
             "type": "boolean",
             "description": "Evacuate although the dry run found blockers (a workload may lose service). Needs the\nunsafe-evacuation permission and an approval from another person."
+          }
+        }
+      },
+      "ConfirmVolume": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The volume's Incus name again, typed by the person deleting it."
           }
         }
       },
@@ -9811,6 +10017,69 @@
           "block"
         ]
       },
+      "VolumeItem": {
+        "type": "object",
+        "required": [
+          "appliance",
+          "instance",
+          "name",
+          "incusName",
+          "pool",
+          "member",
+          "sizeMib",
+          "content",
+          "class",
+          "state",
+          "usedBy",
+          "createdAt"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "incusName": {
+            "type": "string",
+            "description": "The Incus volume (`<instance>-<name>`): what to type to delete it."
+          },
+          "instance": {
+            "type": "string"
+          },
+          "member": {
+            "type": "string",
+            "description": "Member of a member-local pool; empty on a standalone server."
+          },
+          "name": {
+            "type": "string",
+            "description": "The design's name (`data`)."
+          },
+          "pool": {
+            "type": "string"
+          },
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VolumeUse"
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Instances using it."
+          }
+        }
+      },
       "VolumeMount": {
         "type": "object",
         "description": "A volume an appliance asks for.",
@@ -9849,6 +10118,15 @@
             "minimum": 0
           }
         }
+      },
+      "VolumeUse": {
+        "type": "string",
+        "description": "What Incus reports about a recorded volume now.",
+        "enum": [
+          "attached",
+          "retained",
+          "missing"
+        ]
       },
       "WhoAmI": {
         "type": "object",

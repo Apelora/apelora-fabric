@@ -2385,3 +2385,109 @@ async fn volumes_go_to_the_configured_pool_and_a_design_never_names_one(pool: Po
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn volumes_are_listed_kept_after_removal_and_deleted_only_on_purpose(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("mock-local".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let designer = apelora_persistence::create_token(&pool, "d", "studio-designer", None)
+        .await
+        .expect("token")
+        .0;
+    let mut db = appliance("db-01");
+    db["availability"] = json!("stateful");
+    db["spec"]["volumes"] =
+        json!([{ "name": "data", "sizeMib": 1024, "path": "/var/lib/postgresql" }]);
+    let deploy = |appliances: Value, key: &'static str| {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move {
+            send(state, "POST", "/api/v1/applications/shop/deployments", &operator,
+                Some(json!({ "project": "apelora", "document": {}, "appliances": appliances, "removeMissing": true })),
+                Some(key)).await
+        }
+    };
+    let (status, body) = deploy(json!([db]), "vol-a").await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain(&pool, &provider).await;
+
+    let list = |token: String| {
+        let state = state.clone();
+        async move {
+            send(
+                state,
+                "GET",
+                "/api/v1/applications/shop/volumes",
+                &token,
+                None,
+                None,
+            )
+            .await
+        }
+    };
+    let (status, body) = list(operator.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["source"]["provider"], "mock");
+    let item = &body["items"][0];
+    assert_eq!(
+        (
+            item["incusName"].as_str(),
+            item["state"].as_str(),
+            item["sizeMib"].as_i64()
+        ),
+        (Some("shop-db-01-data"), Some("attached"), Some(1024)),
+        "{body}"
+    );
+    assert_eq!(item["usedBy"], json!(["shop-db-01"]));
+
+    let delete = |token: String, confirm: &'static str| {
+        let state = state.clone();
+        async move {
+            send(
+                state,
+                "DELETE",
+                "/api/v1/applications/shop/volumes/shop-db-01-data",
+                &token,
+                Some(json!({ "confirm": confirm })),
+                None,
+            )
+            .await
+        }
+    };
+    // In use: refused, nothing deleted.
+    let (status, body) = delete(operator.clone(), "shop-db-01-data").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    // Removing the appliance deletes the instance and keeps the data.
+    let (status, _) = deploy(json!([]), "vol-b").await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    assert_eq!(provider.instance("apelora", "shop-db-01").await, Ok(None));
+    let (_, body) = list(operator.clone()).await;
+    assert_eq!(body["items"][0]["state"], "retained", "{body}");
+
+    // Deleting needs the name typed again and the right to delete.
+    let (status, _) = delete(operator.clone(), "shop-db-01").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = delete(designer, "shop-db-01-data").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) = delete(operator.clone(), "shop-db-01-data").await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, body) = list(operator.clone()).await;
+    assert_eq!(body["items"], json!([]));
+    let Provider::Mock(m) = &provider else {
+        unreachable!()
+    };
+    assert!(m.storage().volumes.is_empty());
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'application.volume.delete' AND target = 'apelora/shop-db-01-data'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(audited, 1);
+}

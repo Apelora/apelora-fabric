@@ -16,7 +16,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
 | `src/lib/identity.ts` | Identity helpers: `holds`/`holdsPlatform` (from `whoami.capabilities`/`platformPermissions`), `useDirectory` (names behind ids), `useRun` (one action, its error, 401 hand-off), `describeError`, scope/level vocabulary |
 | `src/views/identity/*` | Identity & Access pages (`#/identity/<page>`, list in `pages.ts`): Users, Groups, Organizations (→ projects → environments), Project memberships, Roles & permissions, Service identities, Access policies (+ Approvals tab), Audit history; plus `AssignmentDialog` (server preview before saving), `EmergencyAccessDialog`, `PersonLookup` |
-| `src/views/*.tsx` | One file per view: Applications (deployed applications with instances, port checks and service addresses), Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
+| `src/views/*.tsx` | One file per view: Applications (deployed applications with instances, port checks, service addresses and volumes; a kept volume is deleted here with its name typed), Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
 
 ## Rules
 

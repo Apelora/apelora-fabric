@@ -329,6 +329,24 @@ async fn converge(
                     provider
                         .ensure_volume(project, &now.location, name, v, owner)
                         .await?;
+                    // Recorded as soon as it exists: data is never forgotten, attached or not.
+                    apelora_persistence::record_volume(
+                        pool,
+                        &apelora_persistence::NewVolume {
+                            application: &owner.application,
+                            project,
+                            appliance: &owner.appliance,
+                            instance: name,
+                            name: &v.name,
+                            incus_name: &apelora_domain::storage::volume_name(name, &v.name),
+                            storage_pool: v.pool.as_deref().unwrap_or_default(),
+                            member: now.location.as_str(),
+                            size_mib: v.size_mib,
+                            content: v.content.as_str(),
+                            class: v.class.as_str(),
+                        },
+                    )
+                    .await?;
                     provider.attach_volume(project, name, v).await?;
                     tracing::info!(job = %job.id, instance = %format!("{project}/{name}"), volume = %v.name, member = %now.location, "volume attached");
                 }

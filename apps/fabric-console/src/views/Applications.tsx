@@ -1,8 +1,8 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
-import type { ApplianceStatus, ApplicationList, ApplicationStatus } from "@apelora/api-client";
+import type { ApplianceStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, VolumeItem } from "@apelora/api-client";
 
-import { ErrorPanel, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
+import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
 
 type Statuses = Record<string, ApplicationStatus | { error: string }>;
@@ -32,9 +32,121 @@ const health = (i: ApplianceStatus): string => {
 
 const dot = (i: ApplianceStatus) => (i.status !== "Running" ? "status-error" : i.health?.health === "unhealthy" ? "status-warning" : "status-success");
 
+/** A size in MiB, in the largest whole unit. */
+export function size(mib: number): string {
+  if (mib >= 1024 * 1024 && mib % (1024 * 1024) === 0) return `${mib / (1024 * 1024)} TiB`;
+  if (mib >= 1024 && mib % 1024 === 0) return `${mib / 1024} GiB`;
+  return `${mib} MiB`;
+}
+
+const volumeState = (v: VolumeItem): { label: string; dot: string } =>
+  v.state === "attached" ? { label: `In use by ${v.usedBy.join(", ")}`, dot: "status-success" }
+    : v.state === "retained" ? { label: "Kept, not in use", dot: "status-neutral" }
+    : { label: "Not found in Incus", dot: "status-error" };
+
+/** Deleting a kept volume: its data is gone for good, so its name is typed to confirm. */
+function DeleteVolumeDialog({ application, volume, onClose, onDeleted }: { application: string; volume: VolumeItem | null; onClose: () => void; onDeleted: () => void }) {
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setTyped(""); setError(null); }, [volume]);
+  // Keep showing the volume while the dialog closes, so its text does not empty mid-animation.
+  const last = useRef<VolumeItem | null>(null);
+  if (volume) last.current = volume;
+  const shown = volume ?? last.current;
+  const name = shown?.incusName ?? "";
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await client.request("delete_application_volume", { params: { name: application, volume: name }, body: { confirm: typed } });
+      onDeleted();
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog open={!!volume} title={`Delete volume ${name}?`} onClose={onClose} testId="delete-volume-dialog">
+      <p className="text-sm text-base-content/80">
+        Its {shown ? size(shown.sizeMib) : ""} of data and its snapshots are deleted from pool {shown?.pool}. This cannot be undone.
+      </p>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Type <strong className="font-mono">{name}</strong> to confirm</span>
+        <input className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="delete-volume-confirm" />
+      </label>
+      {error && <ErrorPanel message={error} testId="delete-volume-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-sm btn-ghost text-error" disabled={typed !== name || busy} onClick={() => void remove()} data-testid="delete-volume-start">
+          {busy ? "Deleting…" : "Delete volume"}
+        </button>
+      </div>
+    </FormDialog>
+  );
+}
+
+/**
+ * The application's persistent volumes. Removing an appliance keeps its volume; this is where
+ * a kept volume is deleted, on purpose.
+ */
+function Volumes({ application }: { application: string }) {
+  const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; data: ApplicationVolumes } | { kind: "error"; message: string }>({ kind: "loading" });
+  const [deleting, setDeleting] = useState<VolumeItem | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let current = true;
+    client.request("application_volumes", { params: { name: application } }).then(
+      (data) => { if (current) setState({ kind: "ok", data }); },
+      (e: unknown) => { if (current) setState({ kind: "error", message: messageOf(e) }); },
+    );
+    return () => { current = false; };
+  }, [application, round]);
+  return (
+    <div className="flex flex-col gap-2" data-testid="application-volumes">
+      <h3 className="text-sm font-semibold">Volumes</h3>
+      {done && <p className="text-sm" role="status">{done}</p>}
+      {state.kind === "loading" && <p className="text-sm text-base-content/60" role="status">Reading volumes…</p>}
+      {state.kind === "error" && <ErrorPanel message={`Volumes could not be read: ${state.message}`} onRetry={() => setRound((r) => r + 1)} />}
+      {state.kind === "ok" && (state.data.items.length === 0 ? <p className="text-sm text-base-content/70">No volumes.</p> : (
+        <TableFrame>
+          <thead><tr><th>Volume</th><th className="max-sm:hidden">Size</th><th>State</th><th><span className="sr-only">Actions</span></th></tr></thead>
+          <tbody>
+            {state.data.items.map((v) => {
+              const st = volumeState(v);
+              return (
+                <tr key={v.incusName} data-testid="application-volume">
+                  <td className="font-medium break-words">{v.incusName}<span className="block text-xs font-normal text-base-content/60">{v.name} of {v.appliance}, on {v.member || "the server"}</span></td>
+                  <td className="max-sm:hidden">{size(v.sizeMib)}</td>
+                  <td className="text-sm"><span className={`status mr-2 ${st.dot}`} aria-hidden="true" />{st.label}<span className="block text-xs text-base-content/60 sm:hidden">{size(v.sizeMib)}</span></td>
+                  <td className="text-right">
+                    {v.state !== "attached" && (
+                      <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${v.incusName}`} onClick={() => { setDone(null); setDeleting(v); }} data-testid="delete-volume">Delete…</button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </TableFrame>
+      ))}
+      <DeleteVolumeDialog
+        application={application}
+        volume={deleting}
+        onClose={() => setDeleting(null)}
+        onDeleted={() => { setDone(`Volume ${deleting?.incusName ?? ""} deleted.`); setDeleting(null); setRound((r) => r + 1); }}
+      />
+    </div>
+  );
+}
+
 function Instances({ status }: { status: ApplicationStatus }) {
   return (
     <div className="flex flex-col gap-2 py-1">
+      <h3 className="text-sm font-semibold">Instances</h3>
+      {status.items.length === 0 ? <p className="text-sm text-base-content/70">No instances.</p> : (
       <TableFrame>
         <thead><tr><th>Instance</th><th className="max-sm:hidden">Status</th><th className="max-sm:hidden">Member</th><th>Port check</th></tr></thead>
         <tbody>
@@ -48,14 +160,15 @@ function Instances({ status }: { status: ApplicationStatus }) {
           ))}
         </tbody>
       </TableFrame>
+      )}
     </div>
   );
 }
 
 /**
  * Applications deployed from the Studio: how many of their instances run, whether the ones
- * with a service address pass their port check, and the addresses. Read-only; changes are made
- * by deploying from the Studio.
+ * with a service address pass their port check, the addresses, and their volumes. Changes are
+ * made by deploying from the Studio; the one thing done here is deleting a kept volume.
  */
 export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
   const [list, reload] = useLoad<ApplicationList>(() => client.get("applications"), onAuth);
@@ -103,13 +216,13 @@ export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
                         </td>
                         <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.appliance}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.appliance}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
                         <td className="text-right">
-                          <button type="button" className="btn btn-xs btn-ghost" disabled={!ok?.items.length} aria-expanded={expanded} aria-controls={`instances-${a.name}`} onClick={() => setOpen(expanded ? null : a.name)} data-testid="application-toggle">
-                            {expanded ? "Hide instances" : "Show instances"}
+                          <button type="button" className="btn btn-xs btn-ghost" disabled={!ok} aria-expanded={expanded} aria-controls={`details-${a.name}`} onClick={() => setOpen(expanded ? null : a.name)} data-testid="application-toggle">
+                            {expanded ? "Hide details" : "Show details"}
                           </button>
                         </td>
                       </tr>
                       {expanded && ok && (
-                        <tr id={`instances-${a.name}`}><td colSpan={4} className="bg-base-200/40"><Instances status={ok} /></td></tr>
+                        <tr id={`details-${a.name}`}><td colSpan={4} className="bg-base-200/40"><div className="flex flex-col gap-4 py-1"><Instances status={ok} /><Volumes application={a.name} /></div></td></tr>
                       )}
                     </Fragment>
                   );

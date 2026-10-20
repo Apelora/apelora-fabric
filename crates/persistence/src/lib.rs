@@ -17,11 +17,15 @@ pub mod lifecycle;
 mod machines;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
+mod volumes;
 pub use machines::{
     MachineRecord, admit_machine, approve_machine, machine, machines, register_machine,
     remove_machine, withdraw_approval,
 };
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
+pub use volumes::{
+    NewVolume, VolumeRecord, application_volume, application_volumes, forget_volume, record_volume,
+};
 
 /// Embedded migrations (`crates/persistence/migrations`).
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

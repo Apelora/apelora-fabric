@@ -179,6 +179,11 @@ pub fn router(state: AppState) -> Router {
             get(manage::operation),
         )
         .route("/api/v1/applications/{name}/events", get(manage::events))
+        .route("/api/v1/applications/{name}/volumes", get(volumes::list))
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}",
+            delete(volumes::delete),
+        )
         .route("/api/v1/applications/{name}/access", get(sessions::access))
         .route(
             "/api/v1/applications/{name}/instances/{instance}/sessions",
@@ -1090,7 +1095,7 @@ impl Modify for BearerAuth {
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
-        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, applications::preview, applications::deploy, applications::status,
+        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::delete, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         machines::list, machines::register, machines::approve, machines::withdraw,
@@ -1137,6 +1142,7 @@ mod identity;
 mod machines;
 mod manage;
 pub mod sessions;
+mod volumes;
 
 #[cfg(test)]
 mod identity_tests;

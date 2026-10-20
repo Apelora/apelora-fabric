@@ -429,6 +429,47 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("application-instance")).toHaveCount(0);
   });
 
+  test("kept volumes are listed with their state and deleted only with their name typed", async ({ page }) => {
+    let deleted = false;
+    const sent: unknown[] = [];
+    const vol = (incusName: string, state: string, usedBy: string[]) => ({
+      appliance: "db-01", instance: "shop-db-01", name: incusName.endsWith("logs") ? "logs" : "data", incusName, pool: "local",
+      member: "node-2", sizeMib: incusName.endsWith("logs") ? 512 : 2048, content: "filesystem", class: "data-local", state, usedBy, createdAt: now,
+    });
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/applications": () => ({ json: { items: [{ name: "shop", createdAt: now, latestRevision: 4 }] } }),
+      "GET /api/v1/applications/shop/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
+        { appliance: "web-01", instance: "shop-web-01", project: "apelora", status: "Running", location: "node-1" },
+      ], services: [] } }),
+      "GET /api/v1/applications/shop/volumes": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
+        vol("shop-web-01-logs", "attached", ["shop-web-01"]),
+        ...(deleted ? [] : [vol("shop-db-01-data", "retained", [])]),
+      ] } }),
+      "DELETE /api/v1/applications/shop/volumes/shop-db-01-data": (req) => { sent.push(req.postDataJSON()); deleted = true; return { status: 204 }; },
+    });
+    await page.goto("/#/applications");
+    await page.getByTestId("application-toggle").click();
+    const volumes = page.getByTestId("application-volume");
+    await expect(volumes).toHaveCount(2);
+    await expect(volumes.nth(0)).toContainText("In use by shop-web-01");
+    await expect(volumes.nth(0).getByTestId("delete-volume")).toHaveCount(0);
+    await expect(volumes.nth(1)).toContainText("Kept, not in use");
+    await expect(volumes.nth(1)).toContainText("2 GiB");
+    await volumes.nth(1).getByRole("button", { name: "Delete shop-db-01-data" }).click();
+    const dialog = page.getByTestId("delete-volume-dialog");
+    await expect(dialog).toContainText("2 GiB of data and its snapshots are deleted from pool local. This cannot be undone.");
+    await expect(dialog.getByTestId("delete-volume-start")).toBeDisabled();
+    await dialog.getByTestId("delete-volume-confirm").fill("shop-db-01");
+    await expect(dialog.getByTestId("delete-volume-start")).toBeDisabled();
+    await dialog.getByTestId("delete-volume-confirm").fill("shop-db-01-data");
+    await dialog.getByTestId("delete-volume-start").click();
+    await expect(page.getByTestId("application-volumes").getByRole("status")).toHaveText("Volume shop-db-01-data deleted.");
+    await expect(volumes).toHaveCount(1);
+    expect(sent).toEqual([{ confirm: "shop-db-01-data" }]);
+  });
+
   test("each view keeps one primary action", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),

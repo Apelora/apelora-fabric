@@ -88,6 +88,11 @@ export type ApplicationStatus = {
   source: Source;
 };
 
+export type ApplicationVolumes = {
+  items: VolumeItem[];
+  source: Source;
+};
+
 export type ApprovalDto = {
   action: string;
   approver?: string | null;
@@ -233,6 +238,11 @@ export type ConfirmMember = {
   confirm: string;
   /** Evacuate although the dry run found blockers (a workload may lose service). Needs the unsafe-evacuation permission and an approval from another person. */
   force?: boolean;
+};
+
+export type ConfirmVolume = {
+  /** The volume's Incus name again, typed by the person deleting it. */
+  confirm: string;
 };
 
 /** One connection of the design: `from` may reach `to` (appliance ids). */
@@ -1258,6 +1268,25 @@ export type VolumeClass = "data-local";
 /** What the volume holds: a mounted filesystem or a raw disk (virtual machines only). */
 export type VolumeContent = "filesystem" | "block";
 
+export type VolumeItem = {
+  appliance: string;
+  class: string;
+  content: string;
+  createdAt: string;
+  /** The Incus volume (`<instance>-<name>`): what to type to delete it. */
+  incusName: string;
+  instance: string;
+  /** Member of a member-local pool; empty on a standalone server. */
+  member: string;
+  /** The design's name (`data`). */
+  name: string;
+  pool: string;
+  sizeMib: number;
+  state: VolumeUse;
+  /** Instances using it. */
+  usedBy: string[];
+};
+
 /** A volume an appliance asks for. */
 export type VolumeMount = {
   class?: VolumeClass;
@@ -1270,6 +1299,9 @@ export type VolumeMount = {
   pool?: string | null;
   sizeMib: number;
 };
+
+/** What Incus reports about a recorded volume now. */
+export type VolumeUse = "attached" | "retained" | "missing";
 
 export type WhoAmI = {
   /** Permission ids held at some scope (what the UI may offer; the server decides each request). */
@@ -1312,6 +1344,8 @@ export const operations = {
   application_versions: { method: "GET", path: "/api/v1/applications/{name}/versions", params: ["name"], public: false },
   publish_application: { method: "POST", path: "/api/v1/applications/{name}/versions", params: ["name"], public: false },
   application_version: { method: "GET", path: "/api/v1/applications/{name}/versions/{revision}", params: ["name","revision"], public: false },
+  application_volumes: { method: "GET", path: "/api/v1/applications/{name}/volumes", params: ["name"], public: false },
+  delete_application_volume: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
   request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
   approve_request: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
@@ -1426,6 +1460,10 @@ export type Responses = {
   publish_application: VersionInfo;
   /** The document of one version. Needs `application.view`. */
   application_version: VersionDocument;
+  /** The application's volumes, with what Incus says about each now. Needs `application.view`. */
+  application_volumes: ApplicationVolumes;
+  /** Deletes one of the application's volumes and its snapshots, for good. The volume's Incus name must be typed again; refused while an instance uses it. Needs `application.delete` (and an approval where the policy asks for one); audited. */
+  delete_application_volume: null;
   /** Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`. */
   approvals: ApprovalList;
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
@@ -1590,6 +1628,8 @@ export type Bodies = {
   application_versions: never;
   publish_application: PublishRequest;
   application_version: never;
+  application_volumes: never;
+  delete_application_volume: ConfirmVolume;
   approvals: never;
   request_approval: NewApproval;
   approve_request: never;
