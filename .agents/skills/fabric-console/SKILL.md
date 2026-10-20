@@ -14,6 +14,8 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/App.tsx` | Shell: 48px header, side navigation (wraps into rows under `md`), hash routing (`#/instances`), health check, sign-in, `whoami` |
 | `src/lib/api.ts` | `client`, token in `sessionStorage` only, `useLoad` (401 → sign-in), `followJob` (polls `GET /jobs/{id}` until final), `idempotencyKey` |
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
+| `src/lib/identity.ts` | Identity helpers: `holds`/`holdsPlatform` (from `whoami.capabilities`/`platformPermissions`), `useDirectory` (names behind ids), `useRun` (one action, its error, 401 hand-off), `describeError`, scope/level vocabulary |
+| `src/views/identity/*` | Identity & Access pages (`#/identity/<page>`, list in `pages.ts`): Users, Groups, Organizations (→ projects → environments), Project memberships, Roles & permissions, Service identities, Access policies (+ Approvals tab), Audit history; plus `AssignmentDialog` (server preview before saving), `EmergencyAccessDialog`, `PersonLookup` |
 | `src/views/*.tsx` | One file per view: Applications (deployed applications with instances, port checks and service addresses), Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
 
 ## Rules
@@ -26,6 +28,15 @@ The console is a thin, honest client of the Rust API: every action goes through 
 6. **Secrets shown once:** a join token or a new API token appears in a read-only field with "Copy token" and "Hide token"; it is never stored (not in state after hiding, not in storage, not in the URL).
 7. **One page title:** views with a single section pass `level={1}` so their section header is the `h1`; multi-section views get the shell's `h1`. One `btn-primary` per view.
 8. **Phones:** no sideways page scroll at 390px; secondary table columns use `max-sm:hidden` so row actions stay visible; on touch screens (`pointer: coarse`, `styles/index.css`) controls get a 44px hit area while desktop keeps compact `btn-sm`/`btn-xs`.
+
+## Identity & Access
+
+- A page is offered when the caller holds one of its permissions *somewhere* (`whoami.capabilities`); buttons use `capabilities` for scope-level permissions and `platformPermissions` for platform-only ones. The server still decides: show its message (403 as "Not allowed: …") and never rely on the UI check.
+- Lists the caller may not read are "off", not empty (`useDirectory`); application scopes need a pasted application id because the API does not list ids yet.
+- `AssignmentDialog` calls `preview_assignment` (debounced) and enables Save only when the preview for the current form says `allowed`; every effective permission shows its origin (role, scope, group, emergency).
+- Secrets shown once (automation tokens) use `SecretOnceDialog`: the value lives only in the opener's state while the dialog is open.
+- The client takes `query` for routes with query strings (`lookup_user`, `identity_audit`, `assignments`, `projects_list`).
+- Tests: `tests/e2e/fabric-console-identity.spec.ts` with the stub in `tests/e2e/identity-fixtures.ts`.
 
 ## Verify
 

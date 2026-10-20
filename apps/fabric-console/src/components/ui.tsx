@@ -30,6 +30,34 @@ export function SourceNote({ source }: { source: Source }) {
   );
 }
 
+export type Tone = "ok" | "warn" | "error" | "info" | "neutral";
+const DOT: Record<Tone, string> = { ok: "status-success", warn: "status-warning", error: "status-error", info: "status-info", neutral: "status-neutral" };
+
+/** A short state in words with a coloured dot: the colour never carries the meaning alone. */
+export function Badge({ tone = "neutral", children, title, testId }: { tone?: Tone; children: ReactNode; title?: string; testId?: string }) {
+  return (
+    <span className="badge badge-sm badge-ghost gap-1.5 whitespace-nowrap" title={title} data-testid={testId}>
+      <span className={`status ${DOT[tone]}`} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+
+const NOTICE_BORDER: Record<Tone, string> = { ok: "border-success/40", warn: "border-warning/50", error: "border-error/40", info: "border-base-300", neutral: "border-base-300" };
+
+/** An inline message. Errors and warnings are announced at once; the rest politely. */
+export function Notice({ tone = "info", children, testId, title }: { tone?: Tone; children: ReactNode; testId?: string; title?: string }) {
+  return (
+    <div role={tone === "error" || tone === "warn" ? "alert" : "status"} className={`flex items-start gap-2 rounded-box border px-4 py-3 text-sm ${NOTICE_BORDER[tone]}`} data-testid={testId}>
+      <span className={`status mt-1.5 shrink-0 ${DOT[tone]}`} aria-hidden="true" />
+      <div className="min-w-0 flex flex-col gap-1">
+        {title && <strong className="font-semibold">{title}</strong>}
+        <div>{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export function ErrorPanel({ message, testId, onRetry }: { message: string; testId?: string; onRetry?: () => void }) {
   return (
     <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-box border border-error/40 px-4 py-3 text-sm">
@@ -48,7 +76,12 @@ export function Heading({ level = 2, children }: { level?: 1 | 2; children: Reac
 export function Section<T>({ title, level, state, testId, onRetry, children }: { title: string; level?: 1 | 2; state: Load<T>; testId: string; onRetry?: () => void; children: (data: T) => ReactNode }) {
   return (
     <section className="flex flex-col gap-2" aria-label={title} data-testid={testId}>
-      {state.kind === "loading" && <Heading level={level}>{title}</Heading>}
+      {state.kind === "loading" && (
+        <>
+          <Heading level={level}>{title}</Heading>
+          <p role="status" className="text-sm text-base-content/60" data-testid={`${testId}-loading`}>Loading…</p>
+        </>
+      )}
       {state.kind === "error" && (
         <>
           <Heading level={level}>{title}</Heading>
@@ -75,16 +108,17 @@ export function SectionHeader({ title, level, count, source, children }: { title
   );
 }
 
-export function TableFrame({ children }: { children: ReactNode }) {
-  return <div className="overflow-x-auto rounded-box border border-base-300"><table className="table table-sm">{children}</table></div>;
+/** `fixed` gives columns the widths set on their headers, so several tables one above the other line up. */
+export function TableFrame({ children, fixed }: { children: ReactNode; fixed?: boolean }) {
+  return <div className="overflow-x-auto rounded-box border border-base-300"><table className={`table table-sm ${fixed ? "table-fixed" : ""}`}>{children}</table></div>;
 }
 
 /**
  * Confirms an action that cannot be undone. Cancel is the prominent, focused choice; the
  * action itself is quieter. With `typeToConfirm`, the user must type that text first.
  */
-export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, onConfirm, onCancel }: {
-  open: boolean; title: string; body: ReactNode; action: string; typeToConfirm?: string; busy?: boolean;
+export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, danger = true, onConfirm, onCancel }: {
+  open: boolean; title: string; body: ReactNode; action: string; typeToConfirm?: string; busy?: boolean; danger?: boolean;
   onConfirm: () => void; onCancel: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -117,7 +151,7 @@ export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, 
         )}
         <div className="modal-action mt-2">
           <button ref={cancelRef} type="button" className="btn btn-sm btn-outline" onClick={onCancel}>Cancel</button>
-          <button type="button" className="btn btn-sm btn-ghost text-error" disabled={!ready || busy} onClick={onConfirm} data-testid="confirm-action">{action}</button>
+          <button type="button" className={`btn btn-sm btn-ghost ${danger ? "text-error" : ""}`} disabled={!ready || busy} onClick={onConfirm} data-testid="confirm-action">{action}</button>
         </div>
       </div>
     </dialog>

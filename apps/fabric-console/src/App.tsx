@@ -12,6 +12,9 @@ import { InstancesView } from "./views/Instances";
 import { MembershipView } from "./views/Membership";
 import { OperationsView } from "./views/Operations";
 import { PreflightView } from "./views/Preflight";
+import { IdentityPage } from "./views/identity";
+import { IDENTITY_PAGES, isIdentityPage, type IdentityPageId } from "./views/identity/pages";
+import { holds } from "./lib/identity";
 
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
 
@@ -27,12 +30,15 @@ const VIEWS = [
   { id: "audit", label: "Audit log", needs: "read-audit" as Permission },
   { id: "administration", label: "Administration" },
 ] as const;
-type ViewId = (typeof VIEWS)[number]["id"];
-/** Views with one section use that section's header as their page title. */
-const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "preflight", "audit"]);
+type CoreViewId = (typeof VIEWS)[number]["id"];
+type ViewId = CoreViewId | IdentityPageId;
+/** Views with one section use that section's header as their page title; Identity & Access pages carry their own. */
+const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "preflight", "audit", ...IDENTITY_PAGES.map((p) => p.id)]);
+const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label;
 
 const viewFromHash = (): ViewId => {
   const id = window.location.hash.replace(/^#\/?/, "");
+  if (isIdentityPage(id)) return id;
   return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
 };
 
@@ -129,7 +135,9 @@ export function App() {
   const badge = incusConnected ? "Connected" : up?.provider === "mock" ? "Mock data" : "Not connected";
   const ready = !!up && !authNeeded;
   const views = VIEWS.filter((v) => !("needs" in v) || !me || me.permissions.includes(v.needs));
-  const current = views.some((v) => v.id === view) ? view : "overview";
+  // Identity & Access pages are offered only once we know what the caller holds.
+  const identityViews = me ? IDENTITY_PAGES.filter((p) => holds(me, ...p.any)) : [];
+  const current: ViewId = views.some((v) => v.id === view) || identityViews.some((p) => p.id === view) ? view : "overview";
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100 text-base-content">
@@ -144,7 +152,7 @@ export function App() {
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {ready && (
-          <nav aria-label="Console" className="shrink-0 border-b border-base-300 md:w-48 md:border-r md:border-b-0">
+          <nav aria-label="Console" className="shrink-0 border-b border-base-300 md:w-56 md:overflow-y-auto md:border-r md:border-b-0">
             <ul className="menu menu-horizontal menu-sm w-full flex-wrap md:menu-vertical md:flex-nowrap md:gap-0.5 md:p-2">
               {views.map((v) => (
                 <li key={v.id}>
@@ -152,12 +160,24 @@ export function App() {
                 </li>
               ))}
             </ul>
+            {identityViews.length > 0 && (
+              <div role="group" aria-labelledby="nav-identity" data-testid="nav-identity">
+                <p id="nav-identity" className="px-4 pt-2 text-xs font-semibold uppercase tracking-wide text-base-content/70 md:px-6 md:pt-3">Identity &amp; Access</p>
+                <ul className="menu menu-horizontal menu-sm w-full flex-wrap md:menu-vertical md:flex-nowrap md:gap-0.5 md:p-2">
+                  {identityViews.map((p) => (
+                    <li key={p.id}>
+                      <a href={`#/${p.id}`} aria-current={current === p.id ? "page" : undefined} className={current === p.id ? "menu-active" : undefined}>{p.label}</a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </nav>
         )}
 
         <main className="min-w-0 flex-1 overflow-auto">
           <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
-            {(!ready || !SINGLE_SECTION.has(current)) && <h1 className="text-lg font-semibold">{VIEWS.find((v) => v.id === current)?.label}</h1>}
+            {(!ready || !SINGLE_SECTION.has(current)) && <h1 className="text-lg font-semibold">{labelOf(current)}</h1>}
 
             {current === "overview" && (
               <section aria-label="Service status" aria-live="polite" className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="status">
@@ -200,6 +220,7 @@ export function App() {
                 {current === "audit" && <AuditView onAuth={onAuth} />}
                 {current === "operations" && <OperationsView onAuth={onAuth} />}
                 {current === "administration" && <AdministrationView me={me} health={up} onAuth={onAuth} />}
+                {me && isIdentityPage(current) && <IdentityPage id={current} me={me} onAuth={onAuth} />}
               </div>
             )}
           </div>
