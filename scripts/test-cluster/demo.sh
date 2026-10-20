@@ -56,11 +56,12 @@ cleanup() {
   pkill -f "$repo/target/debug/apelora-control-plane"
   pkill -f "$repo/target/debug/apelora-deployment-worker"
   if [ -s "$run/token-id" ]; then
+    # The token first and on its own: a failing statement must never keep a credential alive.
+    # Audit events stay (the audit log is append-only).
+    docker exec -i apelora-dev-db psql -U apelora -d apelora -q -c "DELETE FROM api_tokens WHERE id = '$(cat "$run/token-id")';" >/dev/null
     docker exec -i apelora-dev-db psql -U apelora -d apelora -q <<SQL >/dev/null
 DELETE FROM jobs WHERE application_id IN (SELECT id FROM applications WHERE name = '$APP');
-DELETE FROM audit_events WHERE actor = 'demo' OR target LIKE 'apelora/$APP-%' OR (detail->>'application') = '$APP';
 DELETE FROM applications WHERE name = '$APP';
-DELETE FROM api_tokens WHERE id = '$(cat "$run/token-id")';
 SQL
   fi
   rm -f "$run/token" "$run/token-id"

@@ -17,6 +17,7 @@ evacuation and migration are Incus operations that Apelora requests, previews an
 | Maintenance on a server | [member-maintenance.md](member-maintenance.md) |
 | A server fails | [member-failure.md](member-failure.md) |
 | The cluster loses quorum | [quorum-loss.md](quorum-loss.md) |
+| OVN or the uplink fails | [network-incident.md](network-incident.md) |
 | A replica fails its health check | [replica-unhealthy.md](replica-unhealthy.md) |
 | The deploy identity cannot see its project | [deploy-identity.md](deploy-identity.md) |
 | Revoke access (people, automation, servers) | [access-revocation.md](access-revocation.md) |

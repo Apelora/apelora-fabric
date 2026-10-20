@@ -52,10 +52,11 @@ cleanup() {
   pkill -f "$repo/target/debug/apelora-control-plane"
   pkill -f "$repo/target/debug/apelora-deployment-worker"
   if [ -s "$run/token-id" ]; then
-    sql "DELETE FROM jobs WHERE application_id IN (SELECT id FROM applications WHERE name = '$APP');
-         DELETE FROM audit_events WHERE actor = 'drill' OR target LIKE 'apelora/$APP-%' OR (detail->>'application') = '$APP';
-         DELETE FROM applications WHERE name = '$APP';
-         DELETE FROM api_tokens WHERE id = '$(cat "$run/token-id")';" >/dev/null
+    # The token first and on its own: a failing statement must never keep a credential alive.
+    # Audit events stay (the audit log is append-only).
+    sql "DELETE FROM api_tokens WHERE id = '$(cat "$run/token-id")';" >/dev/null
+    sql "DELETE FROM jobs WHERE application_id IN (SELECT id FROM applications WHERE name = '$APP');" >/dev/null
+    sql "DELETE FROM applications WHERE name = '$APP';" >/dev/null
   fi
   rm -f "$run/token" "$run/token-id"
   say "left on the cluster: $(incus_ list --project apelora -c n --format csv | tr '\n' ' ')"
