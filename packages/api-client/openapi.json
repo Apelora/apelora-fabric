@@ -2330,6 +2330,10 @@
           "availability": {
             "$ref": "#/components/schemas/Availability"
           },
+          "internet": {
+            "$ref": "#/components/schemas/Internet",
+            "description": "What it may reach outside the application (enforced with the connections)."
+          },
           "replicas": {
             "type": "integer",
             "format": "int32",
@@ -2746,6 +2750,15 @@
             "description": "Start the instance once created."
           }
         }
+      },
+      "Internet": {
+        "type": "string",
+        "description": "What an appliance may reach outside the application (the internet, through the uplink).\nInside the application only connections count, whatever this says.",
+        "enum": [
+          "none",
+          "web",
+          "any"
+        ]
       },
       "Job": {
         "type": "object",

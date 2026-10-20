@@ -58,7 +58,13 @@ export const ApplianceInstanceSchema = z.object({
   config: z.record(z.string(), configValue).optional(),
   /** Instances to run (1 when absent); more than one only for stateless classes. */
   replicas: z.number().int().min(1).max(9).optional(),
+  /** What it may reach outside the application; absent means nothing. */
+  internet: z.enum(["none", "web", "any"]).optional(),
 });
+
+/** Outbound access to the internet, per appliance. Inside the application only cables count. */
+export const INTERNET_ACCESS = ["none", "web", "any"] as const;
+export type InternetAccess = (typeof INTERNET_ACCESS)[number];
 
 const EndpointSchema = z.object({ applianceId: entityId, portId });
 

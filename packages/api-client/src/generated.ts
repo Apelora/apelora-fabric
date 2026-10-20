@@ -135,6 +135,8 @@ export type DesiredAppliance = {
   /** The appliance's stable id in the design (e.g. `nginx-01`). */
   appliance: string;
   availability?: Availability;
+  /** What it may reach outside the application (enforced with the connections). */
+  internet?: Internet;
   /** How many instances (1–9); more than one only for stateless appliances. */
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
@@ -264,6 +266,9 @@ export type InstanceSpec = {
   /** Start the instance once created. */
   start?: boolean;
 };
+
+/** What an appliance may reach outside the application (the internet, through the uplink). Inside the application only connections count, whatever this says. */
+export type Internet = "none" | "web" | "any";
 
 export type Job = {
   attempts: number;

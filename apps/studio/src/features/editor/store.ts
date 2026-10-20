@@ -3,8 +3,8 @@ import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
   addAppliance, addPort, connect, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
-  renameAppliance, resetNodeSize, resizeNode, setDensity, setReplicas, setResources, updatePort, validateAssembly,
-  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type PortDirection, type PortType, type Resources, type Port,
+  renameAppliance, resetNodeSize, resizeNode, setDensity, setInternet, setReplicas, setResources, updatePort, validateAssembly,
+  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
 
 export interface Toast { id: number; kind: "info" | "success" | "warning" | "error"; text: string }
@@ -119,6 +119,7 @@ export interface StudioState {
   rename: (id: string, name: string) => void;
   setRes: (id: string, r: Partial<Resources>) => void;
   setReplicaCount: (id: string, n: number) => void;
+  setInternetAccess: (id: string, level: InternetAccess) => void;
   addPortTo: (id: string, direction: PortDirection, type?: PortType) => void;
   editPort: (id: string, portId: string, patch: Partial<Pick<Port, "name" | "type" | "optional" | "multiplicity">>) => void;
   deletePort: (id: string, portId: string) => void;
@@ -397,6 +398,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       rename: (id, name) => commit(renameAppliance(get().assembly, id, name)),
       setRes: (id, r) => commit(setResources(get().assembly, id, r)),
       setReplicaCount: (id, n) => commit(setReplicas(get().assembly, id, n)),
+      setInternetAccess: (id, level) => commit(setInternet(get().assembly, id, level)),
       addPortTo: (id, direction, type) => commit(addPort(get().assembly, id, direction, type).assembly),
       editPort: (id, portId, patch) => commit(updatePort(get().assembly, id, portId, patch)),
       deletePort: (id, portId) => {

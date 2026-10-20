@@ -1,5 +1,5 @@
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, OciImage, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, InternetAccess, OciImage, Runtime, SystemImage } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -89,6 +89,7 @@ export interface DeployableAppliance {
   spec: InstanceRequest;
   replicas: number;
   availability: Availability;
+  internet: InternetAccess;
 }
 
 /** An appliance that stays in the design only, and why. */
@@ -115,7 +116,7 @@ export function deploymentAppliances(
     if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls) });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none" });
     else skip(r.error);
   }
   return { deployable, designOnly };

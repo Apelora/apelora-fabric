@@ -58,6 +58,49 @@ impl Connection {
     }
 }
 
+/// What an appliance may reach outside the application (the internet, through the uplink).
+/// Inside the application only connections count, whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "kebab-case")]
+pub enum Internet {
+    /// Nothing outside.
+    #[default]
+    None,
+    /// DNS, HTTP and HTTPS (package mirrors, APIs).
+    Web,
+    /// Any port outside.
+    Any,
+}
+
+/// Egress rules for `level`. They use Incus's `@external` subject (traffic leaving through the
+/// uplink), never "any destination": an egress allow alone would let traffic into other
+/// appliances of the application (REAL INCUS TESTED, TEST-CLUSTER.md).
+pub fn internet_rules(level: Internet) -> Vec<AclRule> {
+    let rule = |protocol: &str, ports: &str, description: &str| AclRule {
+        action: "allow".into(),
+        source: String::new(),
+        destination: "@external".into(),
+        protocol: protocol.into(),
+        destination_port: ports.into(),
+        state: "enabled".into(),
+        description: description.into(),
+    };
+    match level {
+        Internet::None => vec![],
+        Internet::Web => vec![
+            rule("tcp", "80,443", "internet: web"),
+            rule("udp", "53", "internet: DNS"),
+            rule("tcp", "53", "internet: DNS"),
+        ],
+        Internet::Any => vec![
+            rule("tcp", "", "internet: any"),
+            rule("udp", "", "internet: any"),
+            rule("icmp4", "", "internet: any"),
+        ],
+    }
+}
+
 /// A port of an appliance reachable from outside the application (in the Studio: connected
 /// from a gateway). Only ports with a number can be published.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -220,6 +263,9 @@ pub struct SyncRequest {
     /// Ports reachable from outside the application.
     #[serde(default)]
     pub published: Vec<Published>,
+    /// What each appliance may reach outside the application (absent: nothing).
+    #[serde(default)]
+    pub internet: BTreeMap<String, Internet>,
 }
 
 impl SyncRequest {
@@ -248,6 +294,11 @@ impl SyncRequest {
                 .collect(),
             service_range: service_range.map(str::to_owned),
             published: Vec::new(),
+            internet: desired
+                .iter()
+                .filter(|d| d.internet != Internet::None)
+                .map(|d| (d.appliance.clone(), d.internet))
+                .collect(),
         }
     }
 
@@ -499,6 +550,7 @@ mod tests {
             stateless: ["web-01", "lb-01", "raw-01"].map(String::from).to_vec(),
             service_range: Some("198.18.100.0/28".into()),
             published: vec![],
+            internet: BTreeMap::new(),
         };
         assert_eq!(s.validate(), Ok(()));
         // lb-01: stateless but nobody connects to it; db-01: connected but stateful; raw-01:
@@ -538,6 +590,7 @@ mod tests {
             stateless: vec![],
             service_range: Some("198.18.100.0/28".into()),
             published,
+            internet: BTreeMap::new(),
         };
         assert_eq!(s.validate(), Ok(()));
         assert_eq!(
@@ -563,6 +616,30 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn internet_access_only_ever_targets_external_traffic() {
+        assert!(internet_rules(Internet::None).is_empty());
+        for level in [Internet::Web, Internet::Any] {
+            let rules = internet_rules(level);
+            assert!(!rules.is_empty());
+            assert!(
+                rules
+                    .iter()
+                    .all(|r| r.destination == "@external" && r.source.is_empty()),
+                "{rules:?}"
+            );
+        }
+        assert!(
+            internet_rules(Internet::Web)
+                .iter()
+                .any(|r| r.destination_port == "80,443")
+        );
+        assert_eq!(
+            serde_json::to_value(Internet::Web).expect("json"),
+            serde_json::json!("web")
         );
     }
 }

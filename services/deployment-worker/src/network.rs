@@ -10,8 +10,8 @@ use std::net::Ipv4Addr;
 
 use apelora_domain::Instance;
 use apelora_domain::network::{
-    Backend, LoadBalancer, SyncRequest, acl_name, acl_rules, network_name, published_rules,
-    service_addresses,
+    Backend, LoadBalancer, SyncRequest, acl_name, acl_rules, internet_rules, network_name,
+    published_rules, service_addresses,
 };
 use apelora_domain::plan::{replica_name, slot_instances};
 use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
@@ -94,8 +94,11 @@ async fn apply(
         provider.set_addresses(p, &name, &addresses, app).await?;
     }
     for a in &s.appliances {
-        let (mut ingress, egress) = acl_rules(app, a, &s.connections);
+        let (mut ingress, mut egress) = acl_rules(app, a, &s.connections);
         ingress.extend(published_rules(a, &s.published));
+        egress.extend(internet_rules(
+            s.internet.get(a).copied().unwrap_or_default(),
+        ));
         provider
             .set_acl_rules(p, &acl_name(app, a), &ingress, &egress, app)
             .await?;

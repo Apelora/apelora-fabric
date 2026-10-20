@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MAX_REPLICAS, availabilityOf, cableColorOf, effectiveSize, portOf, replicasOf, tagNet, type ApplicationAssembly } from "@apelora/assembly-model";
+import { MAX_REPLICAS, availabilityOf, cableColorOf, effectiveSize, portOf, replicasOf, tagNet, type ApplicationAssembly, type InternetAccess } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -79,6 +79,19 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
               {availabilityOf(cls) === "stateful" ? "Stateful" : "Singleton"}: runs as one instance. A lost instance is reported, not recreated automatically.
             </p>
           )}
+        </Section>
+      )}
+      {cls?.runtime && (
+        <Section title="Internet access">
+          <label className="fieldset">
+            <span className="sr-only">Internet access</span>
+            <select className="select select-sm w-full" value={app.internet ?? "none"} data-testid="internet-access" onChange={(e) => api.getState().setInternetAccess(app.id, e.target.value as InternetAccess)}>
+              <option value="none">None</option>
+              <option value="web">Web and DNS (ports 80, 443, 53)</option>
+              <option value="any">Any port</option>
+            </select>
+          </label>
+          <p className="mt-1 text-xs text-base-content/60">Outside the application only; inside it, only cables allow traffic.</p>
         </Section>
       )}
       {cls?.composition && (

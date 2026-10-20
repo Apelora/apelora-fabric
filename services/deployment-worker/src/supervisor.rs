@@ -437,6 +437,7 @@ mod tests {
             },
             replicas,
             availability,
+            internet: Default::default(),
         }
     }
 

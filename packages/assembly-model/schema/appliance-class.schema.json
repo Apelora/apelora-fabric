@@ -672,6 +672,14 @@
                 "type": "integer",
                 "minimum": 1,
                 "maximum": 9
+              },
+              "internet": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "web",
+                  "any"
+                ]
               }
             },
             "required": [

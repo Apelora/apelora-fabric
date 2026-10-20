@@ -82,7 +82,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the dialog opens
   }, [open]);
 
-  const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec, replicas: d.replicas, availability: d.availability }));
+  const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec, replicas: d.replicas, availability: d.availability, internet: d.internet }));
   /** The design's connections between appliances that are deployed (rules for the server). */
   const connections = () => {
     const deployed = new Set(split.deployable.map((d) => d.appliance));

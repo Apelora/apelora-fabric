@@ -1683,3 +1683,67 @@ async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
         Some(json!([{ "appliance": "web-01", "transport": "tcp", "port": 80 }]))
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn internet_access_opens_only_external_destinations(pool: Pool) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut web = appliance("web-01");
+    web["internet"] = json!("web");
+    let body = json!({ "project": "apelora", "document": {}, "appliances": [web, appliance("db-01")],
+        "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body.clone()),
+        Some("net-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    {
+        let net = mock.net();
+        let (_, web_out) = &net.acls["apelora/shop-web-01"];
+        let external: Vec<&str> = web_out
+            .iter()
+            .filter(|r| r.destination == "@external")
+            .map(|r| r.destination_port.as_str())
+            .collect();
+        assert_eq!(external, ["80,443", "53", "53"]);
+        assert!(
+            web_out.iter().all(|r| !r.destination.is_empty()),
+            "never an any-destination egress rule"
+        );
+        let (_, db_out) = &net.acls["apelora/shop-db-01"];
+        assert!(db_out.is_empty(), "no internet unless asked for");
+    }
+    // Without an uplink nothing is enforced, and the plan says so.
+    let plain = AppState::new(provider, Auth::Tokens(pool.clone()));
+    let (_, plan) = send(
+        plain,
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(body),
+        None,
+    )
+    .await;
+    assert!(
+        plan["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|w| w
+                .as_str()
+                .is_some_and(|w| w.starts_with("internet access is not enforced for web-01"))),
+        "{plan}"
+    );
+}

@@ -59,6 +59,7 @@ test.describe("deploying from the Studio", () => {
     await expect(page.getByTestId("availability")).toContainText("recreated automatically");
     await page.getByTestId("replicas").fill("2");
     await page.getByTestId("replicas").press("Enter");
+    await page.getByTestId("internet-access").selectOption("web");
     await page.keyboard.press("Escape");
     // Saving is debounced: take the reference copy once the edit is stored.
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("replicas");
@@ -72,8 +73,8 @@ test.describe("deploying from the Studio", () => {
     await expect(dialog.getByTestId("deploy-replicas")).toHaveText("× 2 replicas");
 
     await dialog.getByTestId("deploy-preview").click();
-    expect((planBody as { appliances: { appliance: string; replicas: number; availability: string }[] }).appliances.map((a) => [a.appliance, a.replicas, a.availability]))
-      .toEqual([["nginx-01", 2, "stateless"], ["nginx-02", 1, "stateless"]]);
+    expect((planBody as { appliances: { appliance: string; replicas: number; availability: string; internet: string }[] }).appliances.map((a) => [a.appliance, a.replicas, a.availability, a.internet]))
+      .toEqual([["nginx-01", 2, "stateless", "web"], ["nginx-02", 1, "stateless", "none"]]);
     expect((planBody as { connections: unknown[] }).connections, "only cables between deployed appliances").toEqual([]);
     await expect(dialog.getByTestId("plan-row")).toHaveCount(3);
     await expect(dialog).toContainText("single points of failure: nginx-02");

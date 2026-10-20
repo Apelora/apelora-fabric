@@ -2,6 +2,7 @@ import { API_VERSION, ASSEMBLY_KIND, LAYOUT_VERSION } from "./constants";
 import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
 import { MAX_REPLICAS } from "./schema";
+import type { InternetAccess } from "./schema";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
 function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAssembly["spec"]["links"]>[number]) => boolean): ApplicationAssembly["spec"]["links"] {
@@ -125,6 +126,11 @@ export function renameAppliance(a: ApplicationAssembly, id: string, name: string
 
 export function setResources(a: ApplicationAssembly, id: string, r: Partial<ApplianceInstance["resources"]>): ApplicationAssembly {
   return updateAppliance(a, id, (x) => ({ ...x, resources: { ...x.resources, ...r } }));
+}
+
+/** Sets what an appliance may reach outside the application (`none` is stored as absent). */
+export function setInternet(a: ApplicationAssembly, id: string, level: InternetAccess): ApplicationAssembly {
+  return updateAppliance(a, id, ({ internet: _old, ...x }) => (level === "none" ? x : { ...x, internet: level }));
 }
 
 /** Sets how many instances an appliance runs (1–9; 1 is stored as absent). */

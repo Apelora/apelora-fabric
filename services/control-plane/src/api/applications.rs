@@ -6,7 +6,7 @@
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
 use apelora_domain::InstanceSpec;
-use apelora_domain::network::{Connection, Published, SyncRequest};
+use apelora_domain::network::{Connection, Internet, Published, SyncRequest};
 use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
@@ -175,6 +175,7 @@ fn check_published(
 fn network_warnings(
     state: &AppState,
     plan: &mut Plan,
+    desired: &[DesiredAppliance],
     connections: Option<&[Connection]>,
     published: &[Published],
 ) {
@@ -190,6 +191,20 @@ fn network_warnings(
                 names.join(", ")
             ),
         });
+    }
+    if state.network_uplink.is_none() || connections.is_none() {
+        let mut open: Vec<&str> = desired
+            .iter()
+            .filter(|d| d.internet != Internet::None)
+            .map(|d| d.appliance.as_str())
+            .collect();
+        open.sort_unstable();
+        if !open.is_empty() {
+            plan.warnings.push(format!(
+                "internet access is not enforced for {}: without enforced connections instances reach whatever the project's network reaches",
+                open.join(", ")
+            ));
+        }
     }
     match (connections, &state.network_uplink) {
         (Some(c), None) if !c.is_empty() => plan.warnings.push(
@@ -286,7 +301,13 @@ pub(super) async fn preview(
     check_connections(&req.appliances, req.connections.as_deref())?;
     check_published(&req.appliances, &req.published)?;
     let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
-    network_warnings(&state, &mut p, req.connections.as_deref(), &req.published);
+    network_warnings(
+        &state,
+        &mut p,
+        &req.appliances,
+        req.connections.as_deref(),
+        &req.published,
+    );
     Ok(Json(p))
 }
 
@@ -322,6 +343,7 @@ pub(super) async fn deploy(
     network_warnings(
         &state,
         &mut applied,
+        &req.appliances,
         req.connections.as_deref(),
         &req.published,
     );

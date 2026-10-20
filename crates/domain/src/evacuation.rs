@@ -270,6 +270,7 @@ mod tests {
             },
             replicas: 2,
             availability,
+            internet: Default::default(),
         }
     }
 

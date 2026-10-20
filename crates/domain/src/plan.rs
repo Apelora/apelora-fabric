@@ -100,6 +100,9 @@ pub struct DesiredAppliance {
     pub replicas: u8,
     #[serde(default)]
     pub availability: Availability,
+    /// What it may reach outside the application (enforced with the connections).
+    #[serde(default)]
+    pub internet: crate::network::Internet,
 }
 
 impl DesiredAppliance {
@@ -336,6 +339,7 @@ mod tests {
             },
             replicas: 1,
             availability: Availability::Singleton,
+            internet: Default::default(),
         }
     }
 
