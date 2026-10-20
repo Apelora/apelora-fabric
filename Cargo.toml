@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/auth",
   "crates/domain",
+  "crates/identity",
   "crates/incus-adapter",
   "crates/persistence", "crates/persistence",
   "services/control-plane",

@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 pub use sqlx::PgPool as Pool;
 
+pub mod identity;
 mod health;
 mod machines;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
@@ -732,3 +733,5 @@ pub async fn audit(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod identity_tests;
