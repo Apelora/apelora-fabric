@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use apelora_domain::preflight::{Check, CheckStatus};
 use apelora_domain::{
     API_VERSION, ClusterMember, Instance, Network, Permission, Project, ProviderMode, Role,
     ServerInfo, StoragePool,
@@ -81,6 +82,7 @@ pub fn router(state: AppState) -> Router {
             delete(deploy::delete_instance),
         )
         .route("/api/v1/jobs/{id}", get(deploy::job))
+        .route("/api/v1/preflight", get(preflight))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
@@ -328,6 +330,47 @@ list_response!(NetworkList, Network);
 list_response!(StoragePoolList, StoragePool);
 
 #[derive(Serialize, ToSchema)]
+pub struct PreflightReport {
+    pub source: Source,
+    /// The worst status among the checks.
+    pub overall: CheckStatus,
+    pub checks: Vec<Check>,
+}
+
+/// Read-only readiness checks of the Incus server or cluster and of the projects Apelora
+/// deploys into. Changes nothing. Needs `read-inventory`.
+#[utoipa::path(get, path = "/api/v1/preflight", tag = "inventory", responses(
+    (status = 200, body = PreflightReport), (status = 401, body = ErrorBody),
+    (status = 403, body = ErrorBody), (status = 502, body = ErrorBody)))]
+async fn preflight(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+) -> Result<Json<PreflightReport>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
+    let pr = &state.provider;
+    let server = pr.server_info().await?;
+    let (members, projects, pools, networks) = tokio::try_join!(
+        pr.cluster_members(),
+        pr.projects(),
+        pr.storage_pools(),
+        pr.networks()
+    )?;
+    let checks = apelora_domain::preflight::evaluate(&apelora_domain::preflight::Observed {
+        server: &server,
+        members: &members,
+        projects: &projects,
+        pools: &pools,
+        networks: &networks,
+        deploy_projects: &state.deploy_projects,
+    });
+    Ok(Json(PreflightReport {
+        source: source(pr.mode()),
+        overall: apelora_domain::preflight::overall(&checks),
+        checks,
+    }))
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct AuditItem {
     pub id: i64,
     /// RFC 3339 timestamp.
@@ -541,7 +584,7 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, whoami, cluster, instances, projects, networks, storage_pools, audit,
+    paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job),
     modifiers(&BearerAuth),
     security(("bearer" = [])),

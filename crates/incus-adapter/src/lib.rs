@@ -68,6 +68,10 @@ const WAIT_STEP_SECS: u32 = 15;
 
 /// Where inventory comes from: a real Incus server or labelled mock data.
 #[derive(Debug, Clone)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "built once at startup and shared behind an Arc; its size does not matter"
+)]
 pub enum Provider {
     Mock(MockIncus),
     Incus(IncusClient),
@@ -335,6 +339,7 @@ impl Default for MockIncus {
             server: ServerInfo {
                 api_version: "1.0".into(),
                 server_version: None,
+                kernel_version: None,
                 api_extensions: Vec::new(),
                 clustered: true,
                 auth: "mock".into(),
@@ -359,10 +364,18 @@ impl Default for MockIncus {
                 .collect(),
             )),
             next_op: Arc::new(Mutex::new(0)),
-            projects: vec![Project {
-                name: "default".into(),
-                description: "mock data".into(),
-            }],
+            projects: vec![
+                Project {
+                    name: "default".into(),
+                    description: "mock data".into(),
+                    restricted: false,
+                },
+                Project {
+                    name: "apelora".into(),
+                    description: "mock data".into(),
+                    restricted: true,
+                },
+            ],
             networks: vec![Network {
                 name: "mock-br0".into(),
                 project: "default".into(),

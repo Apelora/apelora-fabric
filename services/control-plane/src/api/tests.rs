@@ -223,6 +223,7 @@ async fn openapi_document_is_public_and_lists_every_route() {
         "/api/v1/storage-pools",
         "/api/v1/audit",
         "/api/v1/jobs/{id}",
+        "/api/v1/preflight",
     ] {
         assert!(doc["paths"][route]["get"].is_object(), "{route} missing");
     }
@@ -482,4 +483,32 @@ async fn deployments_need_a_database() {
         (s, b["error"]["code"].as_str()),
         (StatusCode::SERVICE_UNAVAILABLE, Some("store_unavailable"))
     );
+}
+
+#[tokio::test]
+async fn preflight_reports_checks_without_claiming_unmeasured_ones() {
+    let (status, body, _) = call(
+        dev(Provider::Mock(MockIncus::with_extensions(&[
+            "instance_create_start",
+            "operation_wait",
+        ]))),
+        "/api/v1/preflight",
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(body["source"]["provider"], "mock");
+    let status_of = |id: &str| {
+        body["checks"]
+            .as_array()
+            .and_then(|c| c.iter().find(|c| c["id"] == id))
+            .map(|c| c["status"].clone())
+    };
+    assert_eq!(status_of("api-extensions"), Some(json!("pass")));
+    assert_eq!(status_of("oci"), Some(json!("warn")));
+    assert_eq!(status_of("project-apelora"), Some(json!("pass")));
+    for id in ["incus-version", "kernel-version", "clock", "latency"] {
+        assert_eq!(status_of(id), Some(json!("not-checked")), "{id}");
+    }
+    assert_eq!(body["overall"], "warn");
 }

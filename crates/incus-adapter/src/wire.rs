@@ -36,6 +36,7 @@ pub(crate) struct Server {
 pub(crate) struct ServerEnvironment {
     pub server_clustered: bool,
     pub server_version: String,
+    pub kernel_version: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -78,6 +79,7 @@ pub(crate) struct InstanceDetail {
 pub(crate) struct Project {
     pub name: String,
     pub description: String,
+    pub config: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

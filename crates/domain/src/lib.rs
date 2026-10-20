@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod preflight;
+
 /// Version segment of the Apelora REST API (`/api/v1`).
 pub const API_VERSION: &str = "v1";
 
@@ -91,6 +93,8 @@ pub struct Instance {
 pub struct Project {
     pub name: String,
     pub description: String,
+    /// `restricted=true`: the project limits what its instances may do.
+    pub restricted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +128,9 @@ pub struct ServerInfo {
     /// `None` when unknown (e.g. the mock provider).
     #[cfg_attr(feature = "utoipa", schema(required = true))]
     pub server_version: Option<String>,
+    /// `None` when unknown (e.g. the mock provider).
+    #[cfg_attr(feature = "utoipa", schema(required = true))]
+    pub kernel_version: Option<String>,
     pub api_extensions: Vec<String>,
     pub clustered: bool,
     pub auth: String,

@@ -44,7 +44,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Incus adapter (read-only + mock) and inventory API | Done, CONTRACT VERIFIED (no real cluster yet) | 03 |
 | PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
 | Instance lifecycle (create/start/stop/delete), ownership marker, project allow-list | Done, CONTRACT VERIFIED; needs a disposable Incus for REAL INCUS TESTED | 04 |
-| Host preflight, bootstrap/join, image checks | Missing | 04 |
+| Read-only preflight (`/api/v1/preflight`) | Done, CONTRACT VERIFIED; clock and latency not measurable via the API | 04 |
+| Bootstrap/join, image architecture and digest checks | Missing | 04 |
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |

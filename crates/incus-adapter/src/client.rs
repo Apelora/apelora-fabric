@@ -312,6 +312,7 @@ impl IncusClient {
         Ok(ServerInfo {
             api_version: s.api_version,
             server_version: Some(s.environment.server_version).filter(|v| !v.is_empty()),
+            kernel_version: Some(s.environment.kernel_version).filter(|v| !v.is_empty()),
             api_extensions: s.api_extensions,
             clustered: s.environment.server_clustered,
             auth: s.auth,
@@ -364,6 +365,7 @@ impl IncusClient {
         Ok(list
             .into_iter()
             .map(|p| Project {
+                restricted: p.config.get("restricted").is_some_and(|v| v == "true"),
                 name: p.name,
                 description: p.description,
             })

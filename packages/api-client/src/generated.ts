@@ -19,6 +19,16 @@ export type AuditList = {
 
 export type AuthMode = "tokens" | "disabled-development";
 
+export type Check = {
+  detail: string;
+  /** Stable identifier, e.g. `kernel-version`. */
+  id: string;
+  status: CheckStatus;
+  title: string;
+};
+
+export type CheckStatus = "pass" | "not-checked" | "warn" | "fail";
+
 /** Observed state of an Incus cluster member ("minion" in the UI). */
 export type ClusterMember = {
   architecture: string;
@@ -158,9 +168,18 @@ export type NetworkList = {
 
 export type Permission = "read-inventory" | "read-audit" | "manage-tokens" | "manage-infrastructure" | "design-applications" | "deploy";
 
+export type PreflightReport = {
+  checks: Check[];
+  /** The worst status among the checks. */
+  overall: CheckStatus;
+  source: Source;
+};
+
 export type Project = {
   description: string;
   name: string;
+  /** `restricted=true`: the project limits what its instances may do. */
+  restricted: boolean;
 };
 
 export type ProjectList = {
@@ -180,6 +199,8 @@ export type ServerInfo = {
   apiVersion: string;
   auth: string;
   clustered: boolean;
+  /** `None` when unknown (e.g. the mock provider). */
+  kernelVersion: string | null;
   /** `None` when unknown (e.g. the mock provider). */
   serverVersion: string | null;
 };
@@ -224,6 +245,7 @@ export const operations = {
   change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
   job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
+  preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
   whoami: { method: "GET", path: "/api/v1/whoami", params: [], public: false },
@@ -249,6 +271,8 @@ export type Responses = {
   job: Job;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
+  /** Read-only readiness checks of the Incus server or cluster and of the projects Apelora deploys into. Changes nothing. Needs `read-inventory`. */
+  preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
   projects: ProjectList;
   /** Storage pools. Needs `read-inventory`. */
@@ -268,6 +292,7 @@ export type Bodies = {
   change_state: StateChange;
   job: never;
   networks: never;
+  preflight: never;
   projects: never;
   storage_pools: never;
   whoami: never;

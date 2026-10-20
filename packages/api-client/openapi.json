@@ -580,6 +580,57 @@
         }
       }
     },
+    "/api/v1/preflight": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Read-only readiness checks of the Incus server or cluster and of the projects Apelora\ndeploys into. Changes nothing. Needs `read-inventory`.",
+        "operationId": "preflight",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/projects": {
       "get": {
         "tags": [
@@ -768,6 +819,39 @@
         "enum": [
           "tokens",
           "disabled-development"
+        ]
+      },
+      "Check": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "Stable identifier, e.g. `kernel-version`."
+          },
+          "status": {
+            "$ref": "#/components/schemas/CheckStatus"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "CheckStatus": {
+        "type": "string",
+        "enum": [
+          "pass",
+          "not-checked",
+          "warn",
+          "fail"
         ]
       },
       "ClusterMember": {
@@ -1217,11 +1301,35 @@
           "deploy"
         ]
       },
+      "PreflightReport": {
+        "type": "object",
+        "required": [
+          "source",
+          "overall",
+          "checks"
+        ],
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            }
+          },
+          "overall": {
+            "$ref": "#/components/schemas/CheckStatus",
+            "description": "The worst status among the checks."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "Project": {
         "type": "object",
         "required": [
           "name",
-          "description"
+          "description",
+          "restricted"
         ],
         "properties": {
           "description": {
@@ -1229,6 +1337,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "restricted": {
+            "type": "boolean",
+            "description": "`restricted=true`: the project limits what its instances may do."
           }
         }
       },
@@ -1274,6 +1386,7 @@
         "required": [
           "apiVersion",
           "serverVersion",
+          "kernelVersion",
           "apiExtensions",
           "clustered",
           "auth"
@@ -1293,6 +1406,13 @@
           },
           "clustered": {
             "type": "boolean"
+          },
+          "kernelVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` when unknown (e.g. the mock provider)."
           },
           "serverVersion": {
             "type": [

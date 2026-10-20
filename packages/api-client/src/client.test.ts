@@ -67,6 +67,7 @@ describe("api client", () => {
       "GET /api/v1/instances",
       "GET /api/v1/jobs/{id}",
       "GET /api/v1/networks",
+      "GET /api/v1/preflight",
       "GET /api/v1/projects",
       "GET /api/v1/storage-pools",
       "GET /api/v1/whoami",

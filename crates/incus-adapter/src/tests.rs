@@ -71,6 +71,7 @@ async fn reads_server_info_and_extensions() {
     let p = Provider::Incus(IncusClient::plain_for_tests(&base));
     let info = p.server_info().await.expect("info");
     assert_eq!(info.server_version.as_deref(), Some("7.0.2"));
+    assert_eq!(info.kernel_version.as_deref(), Some("6.12.0"));
     assert!(info.clustered);
     assert_eq!(info.auth, "trusted");
     assert_eq!(p.require_extension("clustering").await, Ok(()));
@@ -145,12 +146,19 @@ async fn maps_instance_kinds_and_ignores_unknown_fields() {
 #[tokio::test]
 async fn reads_projects_networks_and_pools() {
     let base = fixture_server(vec![
-        ("/1.0/projects?recursion=1", sync(json!([{ "name": "default", "description": "Default Incus project", "config": {}, "used_by": [] }]))),
+        ("/1.0/projects?recursion=1", sync(json!([{ "name": "default", "description": "Default Incus project", "config": {}, "used_by": [] }, { "name": "apelora", "description": "", "config": { "restricted": "true", "features.images": "true" }, "used_by": [] }]))),
         ("/1.0/networks?recursion=1&all-projects=true", sync(json!([{ "name": "incusbr0", "project": "default", "type": "bridge", "managed": true, "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
         ("/1.0/storage-pools?recursion=1", sync(json!([{ "name": "local", "driver": "zfs", "status": "Created", "description": "", "locations": ["node-1"], "config": {}, "used_by": [] }]))),
     ]).await;
     let p = Provider::Incus(IncusClient::plain_for_tests(&base));
-    assert_eq!(p.projects().await.expect("projects")[0].name, "default");
+    let projects = p.projects().await.expect("projects");
+    assert_eq!(
+        projects
+            .iter()
+            .map(|p| (p.name.as_str(), p.restricted))
+            .collect::<Vec<_>>(),
+        [("default", false), ("apelora", true)]
+    );
     let nets = p.networks().await.expect("networks");
     assert_eq!((nets[0].kind.as_str(), nets[0].managed), ("bridge", true));
     assert_eq!(p.storage_pools().await.expect("pools")[0].driver, "zfs");
