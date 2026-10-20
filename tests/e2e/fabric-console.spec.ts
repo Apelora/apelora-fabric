@@ -360,7 +360,7 @@ test.describe("fabric console views", () => {
     });
     await page.goto("/#/membership");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link")).toHaveText(["Overview", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Applications", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
     await expect(page.getByTestId("whoami")).toHaveText("alex · operator");
   });
@@ -393,6 +393,40 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("pool-row")).toContainText("btrfs");
     await page.goto("/#/audit");
     await expect(page.getByTestId("audit-row")).toContainText("Cluster join token created");
+  });
+
+  test("applications show how their instances run and which fail their check", async ({ page }) => {
+    const inst = (instance: string, appliance: string, status: string, location: string, health?: string) => ({
+      appliance, instance, project: "apelora", status, location,
+      ...(health ? { health: { health, since: now, detail: health === "healthy" ? "port check passing" : "port check failing" } } : {}),
+    });
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/applications": () => ({ json: { items: [{ name: "shop", createdAt: now, latestRevision: 3 }, { name: "blog", createdAt: now, latestRevision: 1 }] } }),
+      "GET /api/v1/applications/shop/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
+        inst("shop-client-01", "client-01", "Running", "node-1"),
+        inst("shop-web-01", "web-01", "Running", "node-2", "healthy"),
+        inst("shop-web-01-r2", "web-01", "Running", "node-3", "unhealthy"),
+      ], services: [{ appliance: "web-01", project: "apelora", address: "198.18.100.1" }] } }),
+      "GET /api/v1/applications/blog/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("blog-web-01", "web-01", "Stopped", "node-1")], services: [] } }),
+    });
+    await page.goto("/#/applications");
+    await expect(page.getByTestId("application-row")).toHaveCount(2);
+    const shop = page.getByTestId("application-row").first();
+    await expect(shop).toContainText("Revision 3");
+    await expect(shop.getByTestId("application-summary")).toContainText("1 failing its check");
+    await expect(shop.getByTestId("application-summary")).toContainText("3 of 3 running");
+    await expect(shop).toContainText("198.18.100.1");
+    await expect(page.getByTestId("application-row").nth(1).getByTestId("application-summary")).toContainText("1 not running");
+    await shop.getByTestId("application-toggle").click();
+    await expect(shop.getByTestId("application-toggle")).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByTestId("application-instance")).toHaveCount(3);
+    await expect(page.getByTestId("application-instance").nth(0)).toContainText("Not checked");
+    await expect(page.getByTestId("application-instance").nth(1)).toContainText("Passing");
+    await expect(page.getByTestId("application-instance").nth(2)).toContainText("Failing since");
+    await shop.getByTestId("application-toggle").click();
+    await expect(page.getByTestId("application-instance")).toHaveCount(0);
   });
 
   test("each view keeps one primary action", async ({ page }) => {
@@ -456,6 +490,22 @@ test.describe("fabric console on a phone", () => {
     }
     const input = (await page.getByTestId("machine-name").boundingBox())!;
     expect(input.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test("applications fit a phone and their toggle is touch-sized", async ({ page }) => {
+    await page.route("**/api/**", (route) => route.abort());
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: health("incus", true) }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "fabric-admin", permissions: ["read-inventory"], deployProjects: ["apelora"] } }));
+    await page.route("**/api/v1/applications", (route) => route.fulfill({ json: { items: [{ name: "commerce-stack", createdAt: now, latestRevision: 2 }] } }));
+    await page.route("**/api/v1/applications/commerce-stack/status", (route) => route.fulfill({ json: { source: { provider: "incus", observedAt: now }, items: [
+      { appliance: "web-01", instance: "commerce-stack-web-01-r2", project: "apelora", status: "Running", location: "apelora-test-3", health: { health: "unhealthy", since: now, detail: "port check failing" } },
+    ], services: [{ appliance: "web-01", project: "apelora", address: "198.18.100.1" }] } }));
+    await page.goto("/#/applications");
+    await page.getByTestId("application-toggle").click();
+    await expect(page.getByTestId("application-instance")).toHaveCount(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    const box = (await page.getByTestId("application-toggle").boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
   });
 });
 

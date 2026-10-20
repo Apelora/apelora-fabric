@@ -514,7 +514,13 @@ pub(super) async fn deploy(
     check_published(&req.appliances, &req.published)?;
     let pool = store(&state)?;
     let key = idempotency_key(&headers, &p)?;
-    let enforce = req.connections.is_some() && state.network_uplink.is_some();
+    // Removing every appliance also removes the application's network objects, even when the
+    // request leaves `connections` out (there is nothing left to connect).
+    let cleanup = req.appliances.is_empty()
+        && req.connections.is_none()
+        && state.network_uplink.is_some()
+        && apelora_persistence::deployment_enforced(pool, &name, &req.project).await?;
+    let enforce = (req.connections.is_some() && state.network_uplink.is_some()) || cleanup;
     let mut applied = current_plan(&state, &name, &req.project, &req.appliances).await?;
     network_warnings(
         &state,

@@ -5,6 +5,7 @@ import { ApiRequestError, type ClusterResponse, type Health, type Permission, ty
 import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
 import { client, useLoad, writeToken } from "./lib/api";
 import { AdministrationView } from "./views/Administration";
+import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
 import { InfrastructureView } from "./views/Infrastructure";
 import { InstancesView } from "./views/Instances";
@@ -17,6 +18,7 @@ type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: 
 /** Views, in navigation order. A view whose permission the caller lacks is not offered. */
 const VIEWS = [
   { id: "overview", label: "Overview" },
+  { id: "applications", label: "Applications" },
   { id: "instances", label: "Instances" },
   { id: "operations", label: "Operations" },
   { id: "preflight", label: "Preflight" },
@@ -27,7 +29,7 @@ const VIEWS = [
 ] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 /** Views with one section use that section's header as their page title. */
-const SINGLE_SECTION = new Set<ViewId>(["instances", "operations", "preflight", "audit"]);
+const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "preflight", "audit"]);
 
 const viewFromHash = (): ViewId => {
   const id = window.location.hash.replace(/^#\/?/, "");
@@ -190,6 +192,7 @@ export function App() {
             {ready && (
               <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
                 {current === "overview" && <Members onAuth={onAuth} />}
+                {current === "applications" && <ApplicationsView onAuth={onAuth} />}
                 {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
                 {current === "preflight" && <PreflightView onAuth={onAuth} />}
                 {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}

@@ -2224,3 +2224,49 @@ async fn status_reports_the_health_the_worker_decided_for_running_instances(pool
         .expect("listed");
     assert!(r2.get("health").is_none(), "{r2}");
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn removing_every_appliance_without_connections_still_removes_the_network(pool: Pool) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
+    let body = json!({ "project": "apelora", "document": {}, "appliances": [appliance("web-01"), appliance("db-01")], "connections": conn });
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    assert!(mock.net().networks.contains("apelora/shop"));
+
+    // A removal that leaves `connections` out (it has nothing left to connect).
+    let body =
+        json!({ "project": "apelora", "document": {}, "appliances": [], "removeMissing": true });
+    let (status, d) = send(
+        state,
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{d}");
+    assert!(d["networkJob"].is_string(), "{d}");
+    drain(&pool, &provider).await;
+    let net = mock.net().clone();
+    assert!(!net.networks.contains("apelora/shop"), "{:?}", net.networks);
+    assert!(net.acls.keys().all(|k| !k.contains("shop")));
+    assert!(net.address_sets.keys().all(|k| !k.contains("shop")));
+}

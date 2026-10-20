@@ -259,6 +259,19 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
     Ok(())
 }
 
+/// Whether the application's recorded deployment in `project` enforces its connections (it
+/// has an application network).
+pub async fn deployment_enforced(pool: &PgPool, application: &str, project: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM application_deployments d JOIN applications a ON a.id = d.application_id
+                        WHERE a.name = $1 AND d.project = $2 AND d.uplink IS NOT NULL)",
+    )
+    .bind(application)
+    .bind(project)
+    .fetch_one(pool)
+    .await?)
+}
+
 pub async fn list_deployments(pool: &PgPool) -> Result<Vec<DeploymentRecord>> {
     Ok(sqlx::query_as::<_, DeploymentRecord>(
         "SELECT d.application_id, a.name AS application, d.project, d.revision, d.desired, d.connections, d.uplink,

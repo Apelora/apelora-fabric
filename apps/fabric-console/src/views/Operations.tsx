@@ -10,6 +10,8 @@ const KIND: Record<string, string> = {
   "instance.start": "Start instance",
   "instance.stop": "Stop instance",
   "instance.delete": "Delete instance",
+  "instance.restart": "Restart instance",
+  "network.sync": "Apply network rules",
 };
 
 const STATUS: Record<string, { label: string; dot: string }> = {

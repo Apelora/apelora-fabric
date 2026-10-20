@@ -14,7 +14,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/App.tsx` | Shell: 48px header, side navigation (wraps into rows under `md`), hash routing (`#/instances`), health check, sign-in, `whoami` |
 | `src/lib/api.ts` | `client`, token in `sessionStorage` only, `useLoad` (401 → sign-in), `followJob` (polls `GET /jobs/{id}` until final), `idempotencyKey` |
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
-| `src/views/*.tsx` | One file per view: Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
+| `src/views/*.tsx` | One file per view: Applications (deployed applications with instances, port checks and service addresses), Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore; unused join tokens), Audit, Administration (API tokens, System) |
 
 ## Rules
 
