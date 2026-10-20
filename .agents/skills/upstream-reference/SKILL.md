@@ -21,7 +21,6 @@ Distilled knowledge from upstream repositories and documents the owner has share
 | **Incus** | Runtime and cluster engine (ADR 0001) | Apache-2.0 | REST API over mTLS; installed as a host package; never forked or vendored |
 | **MAAS** | Proposed bare-metal provisioning (ADR 0002) | AGPL-3.0 | REST API only, if adopted |
 | **Ceph** | Candidate shared storage for HA, via Incus | Mainly LGPL-2.1/3.0, some GPL headers | External system Incus talks to; never linked |
-| **Xen** | Superseded hypervisor plan | GPL-2.0 (hypervisor) | Not used (ADR 0001) |
 | **PostgreSQL** | Apelora state, jobs, leases | PostgreSQL licence | Via SQLx (Phase 03) |
 
 **Incus** (seen 2026-10): 7.0 LTS released May 2026, supported to June 2031 (2 years of fixes, then security only). Host minimums include kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables. Supports LXC system containers, OCI application containers and QEMU VMs; Raft-replicated cluster database; projects, profiles, images, storage pools (incl. Ceph, LINSTOR), networks (bridge, OVN with ACLs, DNS zones, forwards, load balancers), placement scriptlets (Starlark), evacuation/restore, metrics, OIDC and fine-grained authorisation, a low-level backup API and built-in basic S3. Live migration of ordinary LXC containers is limited; stopped moves are reliable. `cluster.healing_threshold` defaults to disabled. Local Unix-socket access equals root on the host.
@@ -29,8 +28,6 @@ Distilled knowledge from upstream repositories and documents the owner has share
 **MAAS** (seen 2026-10): region and rack controllers; DHCP, TFTP/HTTP network boot, commissioning (hardware inventory), OS deployment with cloud-init, power control through BMCs (Redfish, IPMI, vendor interfaces); REST API. Its own development uses Python and Go; supports FIPS/STIG-hardened environments. Never run its DHCP on a network that already has one.
 
 **Ceph** (seen 2026-10): object, block (RBD) and file storage; needs its own cluster, monitoring and repair runbooks. A storage cluster, not a feature of Incus.
-
-**Xen** (seen 2026-10): 4.22.0 released 2026-07-30; x86 and Arm mature, RISC-V early; guests now must match the host CPU vendor (affects migration between Intel and AMD hosts). Kept only as history.
 
 ### General infrastructure concepts (no single source)
 

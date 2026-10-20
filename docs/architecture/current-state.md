@@ -1,6 +1,6 @@
 # Current state
 
-Updated: 2026-10-20 (after Phase 09 slice 1, Phase 07 slice 5, Phase 10 slice 3) · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md), [runbooks](../runbooks/README.md). The Phase 01 audit this file started as is summarised under *Earlier Xen-based assumptions* below.
+Updated: 2026-10-20 (after Phase 09 slice 1, Phase 07 slice 5, Phase 10 slice 3) · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md), [runbooks](../runbooks/README.md). The Phase 01 audit this file started as is summarised under *Earlier design* below.
 
 Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/development/TEST-CLUSTER.md), **MOCK VERIFIED** (against the mock provider), **CONTRACT VERIFIED** (against recorded Incus responses).
 
@@ -28,19 +28,9 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Interactive access to appliances | Terminal sessions (and PowerShell for Windows appliances) brokered by the control plane: permissions `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, single-use tickets, limits, re-checked access, audit without content; Studio right-click and Monitoring entries with xterm. MOCK VERIFIED and CONTRACT VERIFIED; not run against a real Incus, a Windows guest or a live identity provider. SSH daemons are deliberately not used. **RDP is not built** (no gateway). [Details](IDENTITY-AND-AUTHORIZATION.md#7-interactive-access-to-appliances-terminal-powershell). |
 | Mutation testing | `cargo mutants` on the authorisation crate (230 caught, 0 missed), the access and lifecycle rules, and Stryker on the model rules. [How and results](../development/MUTATION-TESTING.md). |
 
-## Earlier Xen-based assumptions
+## Earlier design
 
-The previous plan (Rust controller + Rust node agent driving Xen, a VM per appliance) exists only in documents and agent instructions. Status after Phase 01:
-
-| Item | Action |
-|---|---|
-| `docs/ARCHITECTURE.md` | Marked superseded; points to the platform architecture |
-| `docs/XEN-LICENSING-STRATEGY.md` | Marked superseded (kept for history) |
-| `xen-integration` skill | Marked superseded; replaced by `incus-platform` |
-| Other skills and agents mentioning Xen/dom0/hypervisor | Rewritten for Incus (security-review, mcp-security, license-compliance, quality-assurance, system-design-framework, observability, fabric-networking, rust-control-plane, ui-engineer, qa-reviewer) |
-| `CLAUDE.md`, `README.md` | Updated to Incus-first; project rules moved to `AGENTS.md` (read by Codex) and imported by `CLAUDE.md` |
-| `SECURITY.md`, `docs/development/MCP-HOSTING.md`, `docs/architecture/STUDIO-MVP.md`, `prompts/01-build-studio.md` | Updated for Incus (prompt marked historical) |
-| `COMMERCIAL-LICENSE.md`, `COMMERCIAL-AGREEMENT-DRAFT.md` | Xen references replaced with Incus/upstream platform software at the owner's explicit request (rule 8); meaning unchanged |
+An earlier hypervisor-based design (a Rust node agent and a VM per appliance) was never built and was replaced by [ADR 0001](../adr/0001-incus-first.md). Its documents and skill were removed on 2026-10-20; skills, agents, README, CLAUDE.md, SECURITY.md and the commercial licence drafts describe the Incus-first platform.
 
 ## What carries over unchanged
 

@@ -1,14 +1,14 @@
 # ADR 0001 — Incus-first runtime and control-plane boundaries
 
-Status: **accepted** · Date: 2026-10-20 · Supersedes: the Xen node-agent design in `docs/ARCHITECTURE.md` and `docs/XEN-LICENSING-STRATEGY.md`
+Status: **accepted** · Date: 2026-10-20 · Supersedes: an earlier hypervisor-based node-agent design (never built)
 
 ## Context
 
-Apelora was planned as a Rust controller plus a Rust node agent driving the Xen hypervisor directly, with every appliance a dedicated VM. Nothing of that backend was built: the repository contains the browser-only Studio (`apps/studio`) and two TypeScript packages. The plan carried three costs:
+Apelora was planned as a Rust controller plus a Rust node agent driving a hypervisor directly, with every appliance a dedicated VM. Nothing of that backend was built: the repository contains the browser-only Studio (`apps/studio`) and two TypeScript packages. The plan carried three costs:
 
 - **Scope.** We would have had to write host agents, cluster membership, placement, image handling, storage and network plumbing ourselves.
 - **Weight.** Most catalog appliances (web servers, APIs, caches, workers, databases) do not need their own kernel; a VM per appliance wastes memory and boot time.
-- **Licensing.** The Xen hypervisor is GPLv2-only, which cannot be combined with AGPLv3 code in one work, forcing a strict process boundary and legal review.
+- **Licensing.** That hypervisor is GPLv2-only, which cannot be combined with AGPLv3 code in one work, forcing a strict process boundary and legal review.
 
 Incus 7.0 LTS (released May 2026, supported to June 2031) manages clusters of Linux hosts and runs LXC system containers, OCI application containers and QEMU virtual machines behind one documented REST API, with clustering (Raft-replicated database), projects, profiles, images, storage pools, networks (bridge and OVN), evacuation and metrics. It is Apache-2.0 licensed. Minimum host requirements include Linux kernel 6.12 and cgroup v2.
 
@@ -28,7 +28,7 @@ Incus 7.0 LTS (released May 2026, supported to June 2031) manages clusters of Li
 ## Consequences
 
 - The Studio and its data model are unaffected; an appliance class gains an optional `runtime` when deployment is added (Phase 06).
-- Xen-specific material is marked superseded, not deleted: `docs/ARCHITECTURE.md`, `docs/XEN-LICENSING-STRATEGY.md`, the `xen-integration` skill. The commercial licence drafts still mention Xen and are left untouched pending an explicit request (CLAUDE.md rule 8).
+- The earlier design's documents and skill were first marked superseded, then removed (2026-10-20, owner's decision); the commercial licence drafts were updated at the owner's explicit request.
 - Licensing simplifies: Apache-2.0 Incus may be combined with AGPLv3 work, and we talk to it over an API anyway. Upstream notices are kept for anything redistributed.
 - Hosts need a recent kernel (≥ 6.12). Live migration of ordinary LXC containers is limited; stateless appliances move by replace-then-retire, stateful ones by planned stop-and-move (see `docs/architecture/PLATFORM-ARCHITECTURE.md`).
 - A single Incus cluster's quorum is not application availability. Application HA (replicas, health-gated routing, ingress redundancy, storage and fencing) remains Apelora's job and must be proven by tests.

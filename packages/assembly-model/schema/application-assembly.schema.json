@@ -306,7 +306,6 @@
               "type": "string",
               "enum": [
                 "incus",
-                "xen",
                 "vmware"
               ]
             }

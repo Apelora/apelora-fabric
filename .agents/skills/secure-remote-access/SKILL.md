@@ -13,7 +13,7 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 - **Brokered by the control plane. Never direct.** The browser talks only to the Apelora API. The API opens the session to the instance through Incus (exec / console websocket for Linux containers and VMs; the VM serial/VGA console for Windows). The browser never receives an Incus address, certificate or credential, and instances never get a route to the Incus API (see `security-tenancy`).
 - **Linux appliances**: terminal in the browser (xterm.js) over an authenticated websocket to the API, which attaches to an Incus exec session as an unprivileged user chosen by policy (not root by default). No SSH daemon is added to appliances for this; if SSH is needed it is an explicit appliance property, key-only.
 - **Windows appliances**: PowerShell through the same brokered exec path where the guest agent supports it; **RDP through a gateway the control plane runs** (WebSocket/HTTP tunnel to the instance's RDP port, TLS, NLA required). Never publish 3389 on a tenant network or the internet. RDP credentials are never stored by Apelora and never logged; the user types them into the session or a secret reference is resolved server-side.
-- **Hypervisor-neutral**: put "how to open a console" behind a provider interface (Incus now; Xen/VMware later) in `platforms.ts`-style provider facts, not in the assembly model.
+- **Hypervisor-neutral**: put "how to open a console" behind a provider interface (Incus now; other runtimes later) in `platforms.ts`-style provider facts, not in the assembly model.
 
 ## Authorization (ACLs)
 

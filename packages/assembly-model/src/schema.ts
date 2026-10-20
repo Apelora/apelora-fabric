@@ -198,8 +198,9 @@ export const ApplicationAssemblySchema = z.object({
     appliances: z.array(ApplianceInstanceSchema),
     connections: z.array(ConnectionSchema),
     links: z.array(LinkTagSchema).optional(),
-    /** Design-time hypervisor target; absent means the default platform. */
-    target: z.object({ platform: z.enum(PLATFORMS) }).optional(),
+    /** Design-time hypervisor target; absent means the default platform. A retired target
+     *  (`xen`, offered briefly) reads as the default, so files saved with it still import. */
+    target: z.object({ platform: z.preprocess((v) => (v === "xen" ? "incus" : v), z.enum(PLATFORMS)) }).optional(),
   }),
   editor: z.object({
     layoutVersion: z.literal(LAYOUT_VERSION),

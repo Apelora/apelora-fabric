@@ -24,7 +24,7 @@ Standing rules for every phase:
 
 ## 01 — Audit and monorepo restructure
 
-Audit (`docs/architecture/current-state.md`), ADR 0001, superseded Xen material marked, project rules in `AGENTS.md` (Codex) imported by `CLAUDE.md`, skills shared under `.agents/skills`. Cargo workspace (toolchain pinned in `rust-toolchain.toml`) with `crates/domain`, `crates/incus-adapter`, `services/control-plane`, `services/deployment-worker`; `apps/fabric-console` placeholder; `.env.example`.
+Audit (`docs/architecture/current-state.md`), ADR 0001, the earlier hypervisor-based design's material retired, project rules in `AGENTS.md` (Codex) imported by `CLAUDE.md`, skills shared under `.agents/skills`. Cargo workspace (toolchain pinned in `rust-toolchain.toml`) with `crates/domain`, `crates/incus-adapter`, `services/control-plane`, `services/deployment-worker`; `apps/fabric-console` placeholder; `.env.example`.
 **Accept:** Studio and Fabric Console build; Rust workspace compiles, formats, lints and tests; Studio import/export/render unchanged; no credentials in the repo.
 
 ## 02 — Upstream tracking

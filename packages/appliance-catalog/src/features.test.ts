@@ -38,6 +38,13 @@ describe("hypervisor target", () => {
   it("describes every platform it supports", () => {
     for (const p of Object.values(PLATFORM_INFO)) { expect(p.diskFormats.length).toBeGreaterThan(0); expect(p.nicModels.length).toBeGreaterThan(0); }
     expect(PLATFORM_INFO.incus.status).toBe("supported");
+    expect(Object.keys(PLATFORM_INFO).sort()).toEqual(["incus", "vmware"]);
+  });
+  it("a file saved with the retired Xen target still imports, as the default", () => {
+    const json = serializeAssembly(setPlatform(sampleCommerceStack(), "vmware")).replace('"platform": "vmware"', '"platform": "xen"');
+    const r = parseAssembly(json);
+    expect(r.ok).toBe(true);
+    expect(r.ok && platformOf(r.assembly)).toBe("incus");
   });
 });
 

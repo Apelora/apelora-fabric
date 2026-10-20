@@ -45,7 +45,7 @@ test.describe("templates and imports", () => {
 });
 
 test.describe("hypervisor target and totals", () => {
-  test("Incus is the default; VMware and Xen are selectable as a planned target, saved in the file and flagged by validation", async ({ page }) => {
+  test("Incus is the default; VMware is selectable as a planned target, saved in the file and flagged by validation", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("platform-badge")).toHaveText("Incus");
     await page.getByTestId("platform-badge").click();

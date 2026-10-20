@@ -56,13 +56,13 @@ On a new upstream tag: `git rebase --onto v7.0.<new> v7.0.<old> apelora/7.0`, re
 
 Incus contribution rules (from its own policy): Apache-2.0 compatible code only, a human DCO sign-off on every commit, no AI tool credited, and AI agents must not run on machines holding Incus repository credentials. Agents never open upstream issues or pull requests.
 
-## Capabilities to evaluate (from the earlier Xen design)
+## Capabilities to evaluate (from the earlier design)
 
-Things the Xen-based plan offered that Incus may not provide directly. Each needs verification against the pinned Incus release before any work; most should be built in Apelora's layer, not by patching Incus.
+Things the earlier hypervisor-based plan offered that Incus may not provide directly. Each needs verification against the pinned Incus release before any work; most should be built in Apelora's layer, not by patching Incus.
 
 | Capability | Where it would live | Note |
 |---|---|---|
-| Continuous VM checkpoint replication (warm standby with near-zero data loss) | Evaluate; possibly storage-level replication plus Apelora recovery policy | No equivalent assumed in Incus; Xen offered this for VMs |
+| Continuous VM checkpoint replication (warm standby with near-zero data loss) | Evaluate; possibly storage-level replication plus Apelora recovery policy | No equivalent assumed in Incus; the earlier plan relied on it for VMs |
 | Driver or service isolation in separate privileged-but-small domains | Not planned | Incus VMs give a strong boundary; containers rely on kernel namespaces |
 | Live migration of running stateful workloads | Apelora mobility (replace-then-retire for stateless; planned stop-and-move otherwise); Incus VM live migration where supported | Ordinary LXC live migration is limited upstream |
 | Very small single-purpose guests (unikernels) | Not planned | OCI application containers cover most lightweight cases |

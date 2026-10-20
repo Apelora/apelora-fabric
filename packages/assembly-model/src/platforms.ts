@@ -38,17 +38,6 @@ export const PLATFORM_INFO: Readonly<Record<PlatformId, PlatformInfo>> = {
     packaging: "Incus or OCI image plus an assembly manifest",
     guardrails: { cpu: 32, memoryMiB: 131072 },
   },
-  xen: {
-    id: "xen",
-    name: "Xen",
-    status: "planned",
-    summary: "Planned alternative: the same assemblies mapped onto Xen guests. Design only; no adapter exists.",
-    guestAgent: "Xen guest agent",
-    diskFormats: ["VHD", "raw", "qcow2"],
-    nicModels: ["netfront (paravirtual)", "Realtek RTL8139", "Intel e1000"],
-    packaging: "Appliance image plus an assembly manifest",
-    guardrails: { cpu: 32, memoryMiB: 131072 },
-  },
   vmware: {
     id: "vmware",
     name: "VMware",
