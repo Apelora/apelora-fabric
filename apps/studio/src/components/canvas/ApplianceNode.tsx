@@ -1,6 +1,6 @@
 import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
-import { NODE, portCenterY, type Category, type Port } from "@apelora/assembly-model";
+import { NODE, portCenterY, portTypesCompatible, type Category, type Port } from "@apelora/assembly-model";
 import { categoryColor } from "../../features/editor/categories";
 import { liveSummary, useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
@@ -31,6 +31,13 @@ export type ApplianceFlowNode = Node<ApplianceNodeData, "appliance">;
 function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; port: Port; index: number; side: "input" | "output"; link: { count: number; type: string } | undefined; tag: { name: string; type: string; members: number } | undefined }) {
   const api = useStudioApi();
   const hot = useStudio((s) => !!tag && (s.hoverTag === tag.name || s.selectedTag === tag.name));
+  // While a cable is dragged: sockets that can take it light up, the rest dim.
+  const drag = useStudio((s): "lit" | "dim" | undefined => {
+    const f = s.dragFrom;
+    if (!f || f.applianceId === nodeId) return f && f.applianceId === nodeId && f.portId === port.id ? "lit" : undefined;
+    if (port.direction === f.direction) return "dim";
+    return (f.direction === "output" ? portTypesCompatible(f.type, port.type) : portTypesCompatible(port.type, f.type)) ? "lit" : "dim";
+  });
   const label = `${port.name} (${port.type})${port.optional ? "" : ", required"}, ${port.multiplicity === "one" ? "single cable" : "multiple cables"}${link ? `, ${link.count} plugged` : ""}${tag ? `, linked by name “${tag.name}” with ${tag.members - 1} other terminal${tag.members === 2 ? "" : "s"}` : ""}${port.description ? ` — ${port.description}` : ""}`;
   return (
     <Handle
@@ -41,8 +48,10 @@ function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; 
       data-side={side}
       data-kind={side}
       data-port-id={port.id}
+      data-drag={drag}
       style={{ top: portCenterY(index) }}
       title={label}
+      role="button"
       aria-label={label}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: { kind: "port", nodeId, portId: port.id } }); }}
     >

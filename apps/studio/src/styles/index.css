@@ -218,7 +218,18 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-shape-label[data-kind="triangle"][data-pos="top-left"], .apl-shape-label[data-kind="triangle"][data-pos="top"] { top: 30%; left: 50%; transform: translateX(-50%); }
 .apl-shape[data-selected="true"] .apl-shape-label { background: color-mix(in oklab, var(--color-base-content) 8%, transparent); }
 .apl-shape[data-locked="true"] .apl-shape-label { cursor: default; }
+.apl-note { pointer-events: auto; cursor: grab; border: 1px solid; border-radius: 4px; box-shadow: 0 1px 2px color-mix(in oklab, black 18%, transparent); padding: 8px 10px; overflow: hidden; color: #3f3a2c; }
+.apl-note[data-locked="true"] { cursor: default; }
+.apl-note[data-selected="true"] { outline: 2px solid color-mix(in oklab, var(--color-base-content) 55%, transparent); outline-offset: 1px; }
+.apl-note-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.35; user-select: none; }
+.apl-note-lock { position: absolute; right: 4px; bottom: 2px; font-size: 10px; opacity: 0.6; }
 .apl-props { animation: apl-pop var(--apl-dur) var(--apl-ease); transform-origin: top left; }
 
 /* Logos that are dark by design stay readable on dark themes: give them a light chip. */
 :root[data-theme="night"] .apl-logo { background: #f1f5f9; border-radius: 6px; padding: 2px; box-sizing: border-box; }
+
+/* ---- cable drag feedback ---- */
+.apl-handle[data-drag="lit"] .apl-jack { color: var(--color-success); filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-success) 70%, transparent)); transform: scale(1.25); }
+.apl-handle[data-drag="dim"] { opacity: 0.35; }
+.apl-guide { stroke: oklch(62% 0.2 25); stroke-width: 1; stroke-dasharray: 4 3; }
+.react-flow__minimap { border: 1px solid var(--apl-canvas-border); border-radius: 8px; overflow: hidden; box-shadow: none; }

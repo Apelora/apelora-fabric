@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
-  addAppliance, addPort, connect, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
+  addAppliance, addPort, attachNew, connect, setPlatform, tidyLayout, type PlatformId, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupAppliances, ungroupAppliance, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectAppliance, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeAppliances, removePort,
   renameAppliance, resetNodeSize, resizeNode, setDensity, setInternet, setReplicas, setResources, updatePort, validateAssembly,
   type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port,
 } from "@apelora/assembly-model";
@@ -22,6 +22,9 @@ export type PropsTarget =
   | { kind: "tag"; id: string }
   | { kind: "assembly" }
   | { kind: "shape"; id: string; tab?: "style" | "label" | "layout" };
+
+export type DialogId = "templates" | "snapshots" | "help" | "find" | "compose" | "share";
+export interface DragFrom { applianceId: string; portId: string; direction: PortDirection; type: PortType }
 
 export interface MenuState { x: number; y: number; target: MenuTarget; keyboard?: boolean }
 
@@ -50,6 +53,12 @@ export interface StudioState {
   hoverTag: string | null;
   groupDialog: string[] | null;
   tool: "select" | "pan";
+  minimap: boolean;
+  dialog: DialogId | null;
+  /** The terminal a cable is being dragged from; compatible sockets light up while it is set. */
+  dragFrom: DragFrom | null;
+  /** Alignment guides (flow coordinates) shown while dragging an appliance. */
+  guides: { x: number[]; y: number[] };
   propsWin: PropsTarget | null;
   propsPos: { x: number; y: number } | null;
 
@@ -68,6 +77,14 @@ export interface StudioState {
   endCarry: () => void;
   selectShape: (id: string) => void;
   setTool: (t: "select" | "pan") => void;
+  setMinimap: (v: boolean) => void;
+  setDialog: (d: DialogId | null) => void;
+  setDragFrom: (d: DragFrom | null) => void;
+  setGuides: (g: { x: number[]; y: number[] }) => void;
+  tidy: () => void;
+  nudge: (dx: number, dy: number) => void;
+  addConnected: (end: Endpoint, classId: string, portId: string) => void;
+  setTarget: (id: PlatformId) => void;
   openProps: (t: PropsTarget) => void;
   closeProps: () => void;
   setPropsTab: (tab: string) => void;
@@ -141,7 +158,7 @@ const prune = (a: ApplicationAssembly, s: Selection): Selection => ({
   shapes: (s.shapes ?? []).filter((id) => (a.editor.shapes ?? []).some((x) => x.id === id)),
 });
 
-export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pick<StudioState, "showGrid" | "showLabels" | "cableStyle" | "routing" | "showCategory" | "snap">> = {}) {
+export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pick<StudioState, "showGrid" | "showLabels" | "cableStyle" | "routing" | "showCategory" | "snap" | "minimap">> = {}) {
   return create<StudioState>()((set, get) => {
     let lastKey = "";
     let lastAt = 0;
@@ -176,6 +193,10 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       routing: view.routing ?? "curved",
       showCategory: view.showCategory ?? true,
       snap: view.snap ?? false,
+      minimap: view.minimap ?? false,
+      dialog: null,
+      dragFrom: null,
+      guides: { x: [], y: [] },
       importErrors: null,
       menu: null,
       clipboard: null,
@@ -188,10 +209,40 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       propsPos: null,
 
       setTool: (t) => set({ tool: t }),
+      setMinimap: (v) => set({ minimap: v }),
+      setDialog: (d) => set({ dialog: d, menu: null }),
+      setDragFrom: (d) => set({ dragFrom: d }),
+      setGuides: (g) => { const c = get().guides; if (c.x.join() !== g.x.join() || c.y.join() !== g.y.join()) set({ guides: g }); },
+      nudge: (dx, dy) => {
+        const { assembly, selection } = get();
+        const nodeMoves = new Map(assembly.editor.nodes.filter((n) => selection.nodes.includes(n.id)).map((n) => [n.id, { x: n.x + dx, y: n.y + dy }] as const));
+        const shapeMoves = new Map((assembly.editor.shapes ?? []).filter((x) => (selection.shapes ?? []).includes(x.id) && !x.locked).map((x) => [x.id, { x: x.x + dx, y: x.y + dy }] as const));
+        if (!nodeMoves.size && !shapeMoves.size) return;
+        commitCoalesced("nudge", moveShapes(moveNodes(assembly, nodeMoves), shapeMoves));
+      },
+      tidy: () => {
+        const { assembly, selection } = get();
+        if (assembly.spec.appliances.length < 2) { get().toast("info", "Add at least two appliances to tidy the layout."); return; }
+        const only = selection.nodes.length > 1 ? selection.nodes : undefined;
+        const next = tidyLayout(assembly, only);
+        if (next === assembly) return;
+        commit(next);
+        set((s) => ({ fitNonce: s.fitNonce + 1 }));
+        get().toast("info", only ? `Tidied ${only.length} selected appliances. Undo restores the old layout.` : "Layout tidied left to right along the cables. Undo restores the old layout.");
+      },
+      addConnected: (end, classId, portId) => {
+        const cls = allClasses().find((c) => c.id === classId);
+        if (!cls) return;
+        const r = attachNew(get().assembly, end, cls, portId);
+        if ("error" in r) { get().toast("warning", r.error); return; }
+        commit(r.assembly);
+        set({ selection: { nodes: [r.id], edges: [] }, selectedTag: null });
+      },
+      setTarget: (id) => commit(setPlatform(get().assembly, id)),
       addShapeAt: (kind, center, cascade) => {
         const a = get().assembly;
-        const w = kind === "triangle" ? 260 : 300;
-        const h = kind === "triangle" ? 220 : 200;
+        const w = kind === "note" ? 190 : kind === "triangle" ? 260 : 300;
+        const h = kind === "note" ? 120 : kind === "triangle" ? 220 : 200;
         const base = center ?? { x: 300, y: 220 };
         // Zones added from the toolbar fan out so they never sit exactly on top of each other.
         const off = cascade ? (a.editor.shapes?.length ?? 0) % 8 * 28 : 0;
@@ -199,6 +250,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         const r = addShape(a, kind, { x: c.x - w / 2, y: c.y - h / 2, width: w, height: h });
         commit(r.assembly);
         set({ selection: { nodes: [], edges: [], shapes: [r.id] }, selectedTag: null });
+        if (kind === "note") get().openProps({ kind: "shape", id: r.id, tab: "label" });
         return r.id;
       },
       wrapInZone: (kind) => {

@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
 export async function open(page: Page, opts: { fresh?: boolean } = { fresh: true }) {
-  if (opts.fresh) await page.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); sessionStorage.setItem("__seeded", "1"); } });
+  if (opts.fresh) await page.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("__seeded", "1"); } });
   await page.goto("/");
   await page.waitForSelector("[data-testid=appliance-node]");
   await page.waitForTimeout(350);

@@ -12,3 +12,8 @@ export * from "./shapes";
 export * from "./cables";
 export * from "./runtime";
 export * from "./network";
+export * from "./platforms";
+export * from "./totals";
+export * from "./layout";
+export * from "./diff";
+export * from "./suggest";

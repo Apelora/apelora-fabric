@@ -1,5 +1,5 @@
 import { allClasses, lookupClass } from "@apelora/appliance-catalog";
-import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, shapeContents, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
+import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, linkCount, shapeContents, suggestAttachments, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
 import type { MenuTarget, StudioStore } from "./store";
 import { ms } from "./motion";
@@ -37,6 +37,7 @@ export function openPropsAndFocus(api: StudioStore, tab: "general" | "config" | 
 export const renameSelected = (api: StudioStore) => openPropsAndFocus(api, "general", "[data-testid=instance-name]");
 
 const SHAPE_KINDS_MENU: { kind: ShapeKind; label: string }[] = [{ kind: "rect", label: "Square" }, { kind: "ellipse", label: "Circle" }, { kind: "rounded", label: "Rounded square" }, { kind: "triangle", label: "Triangle" }];
+const ADD_MENU_KINDS: { kind: ShapeKind; label: string }[] = [...SHAPE_KINDS_MENU, { kind: "note", label: "Sticky note" }];
 
 export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): MenuModel {
   const s = () => api.getState();
@@ -61,6 +62,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
             ],
           }),
           item("wrap", "Wrap in zone", () => undefined, { children: SHAPE_KINDS_MENU.map((k) => item(`wrap-${k.kind}`, k.label, () => s().wrapInZone(k.kind))) }),
+          item("tidy", "Tidy selected", () => s().tidy(), { shortcut: "Shift+T" }),
           item("group", "Group into component…", () => s().openGroupDialog(), { shortcut: "Ctrl+G" }),
           item("zoom", "Zoom to selection", () => rf.fitView({ nodes: ids.map((id) => ({ id })), padding: 0.5, maxZoom: 1.4, duration: ms(250) })),
           sep,
@@ -108,9 +110,25 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
     const side = app.ports.filter((p) => p.direction === port.direction);
     const idx = side.findIndex((p) => p.id === port.id);
     const cables = a.spec.connections.filter((c) => (c.source.applianceId === app.id && c.source.portId === port.id) || (c.target.applianceId === app.id && c.target.portId === port.id)).length;
+    const end = { applianceId: app.id, portId: port.id };
+    const full = port.multiplicity === "one" && linkCount(a, end) >= 1;
+    const suggestions = port.type === "network" ? [] : suggestAttachments(a, end, allClasses());
+    const shown = suggestions.slice(0, 24);
     return {
       title: `${app.name} · ${port.name} (${port.type})`,
       items: [
+        item("add-connected", port.direction === "output" ? "Add appliance that connects here" : "Add appliance that feeds this", () => undefined, {
+          disabled: full || suggestions.length === 0,
+          children: [
+            ...(shown.some((x) => x.exact) ? [{ type: "header" as const, label: `Speaks ${port.type}` }] : []),
+            ...shown.flatMap((x, i) => [
+              ...(i > 0 && shown[i - 1]!.exact && !x.exact ? [{ type: "header" as const, label: "Compatible" }] : []),
+              item(`connect-${x.cls.id}`, `${x.cls.displayName} · ${x.port.name}`, () => s().addConnected(end, x.cls.id, x.port.id)),
+            ]),
+            ...(suggestions.length > shown.length ? [item("connect-more", `${suggestions.length - shown.length} more in the catalog…`, () => undefined, { disabled: true })] : []),
+          ],
+        }),
+        sep,
         item("rename-port", "Rename port…", () => openPropsAndFocus(api, "ports", `[data-testid=port-row][data-port-id="${port.id}"] input`, app.id)),
         item("type", "Protocol type", () => undefined, { children: PORT_TYPES.map((t) => item(`type-${t}`, t, () => s().editPort(app.id, port.id, { type: t }), { checked: port.type === t })) }),
         item("link-tag", tagOf(a, { applianceId: app.id, portId: port.id }) ? `Link by name (${tagOf(a, { applianceId: app.id, portId: port.id })!.tag})` : "Link by name", () => undefined, {
@@ -165,6 +183,20 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
   if (target.kind === "shape") {
     const sh = (a.editor.shapes ?? []).find((x) => x.id === target.id);
     if (!sh) return { title: "", items: [] };
+    if (sh.kind === "note") {
+      const colours = [["Yellow", "#fde68a", "#d97706"], ["Green", "#bbf7d0", "#16a34a"], ["Blue", "#bfdbfe", "#2563eb"], ["Pink", "#fbcfe8", "#db2777"], ["Gray", "#e5e7eb", "#6b7280"]] as const;
+      return {
+        title: "Sticky note",
+        items: [
+          item("rename", "Edit text…", () => { s().openProps({ kind: "shape", id: sh.id, tab: "label" }); focusField("[data-testid=note-text]"); }),
+          item("note-colour", "Colour", () => undefined, { children: colours.map(([n, fill, stroke]) => item(`note-${n.toLowerCase()}`, n, () => s().editShape(sh.id, { fill, stroke }), { checked: sh.fill.toLowerCase() === fill })) }),
+          item("duplicate", "Duplicate", () => s().duplicateShapeAction(sh.id)),
+          item("lock", sh.locked ? "Unlock" : "Lock position and size", () => s().editShape(sh.id, { locked: !sh.locked }), { checked: sh.locked }),
+          sep,
+          item("delete", "Delete", () => s().deleteShapes([sh.id]), { shortcut: "Del", danger: true }),
+        ],
+      };
+    }
     const inside = shapeContents(a, sh.id).length;
     const quick = (key: "fill" | "stroke") => SHAPE_PALETTE.map((p) => item(`${key}-${p.name.toLowerCase()}`, p.name, () => s().editShape(sh.id, key === "fill" ? { fill: p.color, stroke: p.color } : { stroke: p.color }), { checked: sh[key].toLowerCase() === p.color }));
     return {
@@ -200,7 +232,7 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
     title: "Canvas",
     items: [
       item("add", "Add appliance", () => undefined, { children: add }),
-      item("add-shape", "Add zone", () => undefined, { children: SHAPE_KINDS_MENU.map((k) => item(`shape-${k.kind}`, k.label, () => void s().addShapeAt(k.kind, flow))) }),
+      item("add-shape", "Add zone or note", () => undefined, { children: ADD_MENU_KINDS.map((k) => item(`shape-${k.kind}`, k.label, () => void s().addShapeAt(k.kind, flow))) }),
       item("paste", "Paste", () => s().pasteAt(flow), { shortcut: "Ctrl+V", disabled: !s().clipboard }),
       item("select-all", "Select all", () => s().selectAll(), { shortcut: "Ctrl+A", disabled: a.spec.appliances.length === 0 }),
       sep,
@@ -208,11 +240,14 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
       item("redo", "Redo", () => s().redo(), { shortcut: "Ctrl+Shift+Z", disabled: s().future.length === 0 }),
       sep,
       item("assembly-props", "Assembly properties…", () => s().openProps({ kind: "assembly" })),
+      item("tidy", "Tidy layout", () => s().tidy(), { shortcut: "Shift+T", disabled: a.spec.appliances.length < 2 }),
+      item("find", "Find…", () => s().setDialog("find"), { shortcut: "Ctrl+K" }),
       item("fit", "Fit to view", () => rf.fitView({ padding: 0.2, maxZoom: 1.2, duration: ms(250) }), { shortcut: "F" }),
       item("grid", "Dotted grid", () => s().setShowGrid(!s().showGrid), { checked: s().showGrid }),
       item("labels", "Port and link labels", () => s().setShowLabels(!s().showLabels), { checked: s().showLabels }),
       item("routing", "Right-angle cables", () => s().setRouting(s().routing === "angled" ? "curved" : "angled"), { checked: s().routing === "angled" }),
       item("category", "Category colours", () => s().setShowCategory(!s().showCategory), { checked: s().showCategory }),
+      item("minimap", "Overview map", () => s().setMinimap(!s().minimap), { checked: s().minimap }),
       item("cable", "Thick patch-cable look", () => s().setCableStyle(s().cableStyle === "line" ? "cable" : "line"), { checked: s().cableStyle === "cable" }),
     ],
   };

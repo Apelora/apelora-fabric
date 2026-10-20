@@ -1,5 +1,6 @@
 import { portTypesCompatible } from "./compat";
 import { effectiveValue, validateProperty } from "./config";
+import { platformOf, PLATFORM_INFO } from "./platforms";
 import { explainTag, linkCount, tagNames, tagNet, portOf } from "./tags";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, Endpoint, Port } from "./schema";
 
@@ -56,6 +57,10 @@ export function explainConnection(
 
 export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLookup): Diagnostic[] {
   const out: Diagnostic[] = [];
+  const platform = PLATFORM_INFO[platformOf(assembly)];
+  const guard = platform.guardrails;
+  if (platform.status === "planned")
+    out.push({ severity: "warning", code: "platform-planned", message: `${platform.name} is a planned target: this design is portable but cannot be deployed yet.`, hint: "Switch the target back to Incus in the assembly properties, or keep designing." });
   const seen = new Set<string>();
   for (const a of assembly.spec.appliances) {
     if (seen.has(a.id)) out.push({ severity: "error", code: "duplicate-appliance", message: `Duplicate appliance id "${a.id}".`, hint: "Appliance ids must be unique.", applianceId: a.id });
@@ -73,8 +78,8 @@ export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLoo
       const problem = validateProperty(prop, effectiveValue(prop, a.config));
       if (problem) out.push({ severity: "error", code: "config-invalid", message: `${a.name}: ${problem.message}`, hint: problem.hint, applianceId: a.id });
     }
-    if (a.resources.cpu > 32 || a.resources.memoryMiB > 131072)
-      out.push({ severity: "warning", code: "resources-high", message: `${a.name} requests ${a.resources.cpu} vCPU / ${a.resources.memoryMiB} MiB.`, hint: "Check the request against your target hosts.", applianceId: a.id });
+    if (a.resources.cpu > guard.cpu || a.resources.memoryMiB > guard.memoryMiB)
+      out.push({ severity: "warning", code: "resources-high", message: `${a.name} requests ${a.resources.cpu} vCPU / ${a.resources.memoryMiB} MiB.`, hint: `Check the request against your ${platform.name} hosts.`, applianceId: a.id });
   }
 
   const connIds = new Set<string>();

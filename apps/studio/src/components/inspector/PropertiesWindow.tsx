@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MAX_REPLICAS, availabilityOf, cableColorOf, effectiveSize, portOf, replicasOf, tagNet, type ApplicationAssembly, type InternetAccess } from "@apelora/assembly-model";
+import { MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, type ApplicationAssembly, type InternetAccess, type PlatformId } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -168,18 +168,40 @@ function TagBody({ name, api, assembly }: { name: string; api: Api; assembly: Ap
 }
 
 function AssemblyBody({ assembly }: { assembly: ApplicationAssembly }) {
+  const api = useStudioApi();
   const d = useMemo(() => diagnosticsFor(assembly), [assembly]);
   const errors = d.filter((x) => x.severity === "error").length;
+  const totals = assemblyTotals(assembly);
+  const platform = platformOf(assembly);
+  const info = PLATFORM_INFO[platform];
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs" data-testid="inspector-assembly">
-      <dt className="text-base-content/60">Assembly</dt><dd className="truncate">{assembly.metadata.name}</dd>
-      <dt className="text-base-content/60">Appliances</dt><dd>{assembly.spec.appliances.length}</dd>
-      <dt className="text-base-content/60">Connections</dt><dd>{assembly.spec.connections.length}</dd>
-      <dt className="text-base-content/60">Link tags</dt><dd>{(assembly.spec.links ?? []).length}</dd>
-      <dt className="text-base-content/60">Zones and shapes</dt><dd>{(assembly.editor.shapes ?? []).length}</dd>
-      <dt className="text-base-content/60">Issues</dt><dd>{errors} errors, {d.length - errors} warnings</dd>
-      <dt className="text-base-content/60">Format</dt><dd className="truncate font-mono">{assembly.apiVersion}</dd>
-    </dl>
+    <div className="flex flex-col gap-4">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs" data-testid="inspector-assembly">
+        <dt className="text-base-content/60">Assembly</dt><dd className="truncate">{assembly.metadata.name}</dd>
+        <dt className="text-base-content/60">Appliances</dt><dd>{totals.appliances}</dd>
+        <dt className="text-base-content/60">Connections</dt><dd>{assembly.spec.connections.length}</dd>
+        <dt className="text-base-content/60">Link tags</dt><dd>{(assembly.spec.links ?? []).length}</dd>
+        <dt className="text-base-content/60">Zones and shapes</dt><dd>{(assembly.editor.shapes ?? []).length}</dd>
+        <dt className="text-base-content/60">Requested</dt><dd data-testid="assembly-totals">{totals.cpu} vCPU · {formatMemory(totals.memoryMiB)}</dd>
+        <dt className="text-base-content/60">Issues</dt><dd>{errors} errors, {d.length - errors} warnings</dd>
+        <dt className="text-base-content/60">Format</dt><dd className="truncate font-mono">{assembly.apiVersion}</dd>
+      </dl>
+      <section aria-label="Target platform" className="rounded-box border border-base-300 p-3" data-testid="platform-section">
+        <label className="fieldset"><span className="fieldset-legend text-[11px]">Target platform</span>
+          <select className="select select-sm w-full" data-testid="platform-select" value={platform} onChange={(e) => api.getState().setTarget(e.target.value as PlatformId)}>
+            {PLATFORMS.map((p) => <option key={p} value={p}>{PLATFORM_INFO[p].name}{PLATFORM_INFO[p].status === "planned" ? " (planned)" : ""}</option>)}
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-base-content/70">{info.summary}</p>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]" data-testid="platform-facts">
+          <dt className="text-base-content/60">Guest agent</dt><dd>{info.guestAgent}</dd>
+          <dt className="text-base-content/60">Disk formats</dt><dd>{info.diskFormats.join(", ")}</dd>
+          <dt className="text-base-content/60">NIC models</dt><dd>{info.nicModels.join(", ")}</dd>
+          <dt className="text-base-content/60">Packaging</dt><dd>{info.packaging}</dd>
+        </dl>
+        <p className="mt-2 text-[11px] text-base-content/50">The appliances, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
+      </section>
+    </div>
   );
 }
 

@@ -22,10 +22,15 @@ function nextShapeId(a: ApplicationAssembly): string {
   return `shape-${String(n).padStart(2, "0")}`;
 }
 
-export const DEFAULT_LABEL: Record<ShapeKind, string> = { rect: "Zone", ellipse: "Sector", rounded: "Zone", triangle: "Sector" };
+export const DEFAULT_LABEL: Record<ShapeKind, string> = { rect: "Zone", ellipse: "Sector", rounded: "Zone", triangle: "Sector", note: "" };
+
+/** Sticky-note look: warm paper fill, thin amber border. Notes carry free text and never wrap appliances. */
+const NOTE_STYLE = { fill: "#fde68a", fillOpacity: 0.92, stroke: "#d97706", strokeWidth: 1, radius: 4, text: "Note" } as const;
 
 export function makeShape(a: ApplicationAssembly, kind: ShapeKind, rect: { x: number; y: number; width: number; height: number }, over: Partial<Shape> = {}): Shape {
   const color = SHAPE_PALETTE[shapesOf(a).length % SHAPE_PALETTE.length]!.color;
+  if (kind === "note")
+    return { id: nextShapeId(a), kind, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height), label: "", labelPos: "top-left", fontSize: 12, strokeStyle: "solid", locked: false, ...NOTE_STYLE, ...over };
   return {
     id: nextShapeId(a), kind, x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height),
     label: DEFAULT_LABEL[kind], labelPos: kind === "triangle" ? "center" : "top-left", fontSize: 12,
@@ -39,18 +44,23 @@ export function addShape(a: ApplicationAssembly, kind: ShapeKind, rect: { x: num
   return { id: s.id, assembly: withShapes(a, [...shapesOf(a), s]) };
 }
 
-/** A zone wrapped around the given appliances, with room for its label. */
-export function zoneAround(a: ApplicationAssembly, ids: readonly string[], kind: ShapeKind): { assembly: ApplicationAssembly; id: string } | null {
-  const nodes = a.editor.nodes.filter((n) => ids.includes(n.id));
-  if (nodes.length === 0) return null;
+/** Rectangle a zone needs around the given nodes, with room for its label. */
+export function zoneRectAround(nodes: readonly { x: number; y: number; width: number; height: number }[], kind: ShapeKind): { x: number; y: number; width: number; height: number } {
   const pad = kind === "ellipse" || kind === "triangle" ? 56 : 30;
   const minX = Math.min(...nodes.map((n) => n.x));
   const minY = Math.min(...nodes.map((n) => n.y));
   const maxX = Math.max(...nodes.map((n) => n.x + n.width));
   const maxY = Math.max(...nodes.map((n) => n.y + n.height));
-  let rect = { x: minX - pad, y: minY - pad - 14, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 14 };
-  if (kind === "triangle") rect = { x: rect.x - rect.width * 0.25, y: rect.y - rect.height * 0.4, width: rect.width * 1.5, height: rect.height * 1.6 };
-  return addShape(a, kind, rect);
+  const rect = { x: minX - pad, y: minY - pad - 14, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 14 };
+  if (kind === "triangle") return { x: rect.x - rect.width * 0.25, y: rect.y - rect.height * 0.4, width: rect.width * 1.5, height: rect.height * 1.6 };
+  return rect;
+}
+
+/** A zone wrapped around the given appliances, with room for its label. */
+export function zoneAround(a: ApplicationAssembly, ids: readonly string[], kind: ShapeKind): { assembly: ApplicationAssembly; id: string } | null {
+  const nodes = a.editor.nodes.filter((n) => ids.includes(n.id));
+  if (nodes.length === 0) return null;
+  return addShape(a, kind, zoneRectAround(nodes, kind));
 }
 
 export function updateShape(a: ApplicationAssembly, id: string, patch: Partial<Omit<Shape, "id">>): ApplicationAssembly {
@@ -81,14 +91,14 @@ export function orderShape(a: ApplicationAssembly, id: string, to: "front" | "ba
 export function duplicateShape(a: ApplicationAssembly, id: string): { assembly: ApplicationAssembly; id: string } | null {
   const me = shapesOf(a).find((s) => s.id === id);
   if (!me) return null;
-  const copy = makeShape(a, me.kind, { x: me.x + 32, y: me.y + 32, width: me.width, height: me.height }, { label: me.label, labelPos: me.labelPos, fontSize: me.fontSize, fill: me.fill, fillOpacity: me.fillOpacity, stroke: me.stroke, strokeWidth: me.strokeWidth, strokeStyle: me.strokeStyle, radius: me.radius });
+  const copy = makeShape(a, me.kind, { x: me.x + 32, y: me.y + 32, width: me.width, height: me.height }, { label: me.label, ...(me.text !== undefined ? { text: me.text } : {}), labelPos: me.labelPos, fontSize: me.fontSize, fill: me.fill, fillOpacity: me.fillOpacity, stroke: me.stroke, strokeWidth: me.strokeWidth, strokeStyle: me.strokeStyle, radius: me.radius });
   return { id: copy.id, assembly: withShapes(a, [...shapesOf(a), copy]) };
 }
 
 /** Appliances whose centre lies inside a shape: they travel with it when it is dragged. */
 export function shapeContents(a: ApplicationAssembly, shapeId: string): string[] {
   const s = shapesOf(a).find((x) => x.id === shapeId);
-  if (!s) return [];
+  if (!s || s.kind === "note") return [];
   return a.editor.nodes.filter((n) => {
     const cx = n.x + n.width / 2;
     const cy = n.y + n.height / 2;

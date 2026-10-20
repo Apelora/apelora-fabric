@@ -12,7 +12,8 @@
     "runtime-requests": "tsx scripts/runtime-requests.ts"
   },
   "dependencies": {
-    "@apelora/assembly-model": "*"
+    "@apelora/assembly-model": "*",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@apelora/api-client": "*"

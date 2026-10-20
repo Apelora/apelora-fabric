@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  Background, BackgroundVariant, ConnectionMode, ReactFlow, SelectionMode, useReactFlow, useStore as useRFStore,
-  type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd,
+  Background, BackgroundVariant, ConnectionMode, MiniMap, ReactFlow, SelectionMode, ViewportPortal, useReactFlow, useStore as useRFStore,
+  type Connection, type Edge, type NodeChange, type EdgeChange, type OnConnectEnd, type OnConnectStart,
 } from "@xyflow/react";
 import { logoUrl, lookupClass } from "@apelora/appliance-catalog";
-import { DENSITY_SIZE, cableColorOf, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
+import { DENSITY_SIZE, alignmentGuides, cableColorOf, effectiveSize, explainConnection, minHeightForPorts, portOf, tagNet, type Diagnostic, type ApplicationAssembly, type Endpoint } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor } from "../../features/editor/store";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
@@ -73,6 +73,8 @@ export function AssemblyWorkspace() {
   const showCategory = useStudio((s) => s.showCategory);
   const customClasses = useCustomCatalog((s) => s.classes);
   const snap = useStudio((s) => s.snap);
+  const minimap = useStudio((s) => s.minimap);
+  const guides = useStudio((s) => s.guides);
   const fitNonce = useStudio((s) => s.fitNonce);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const frameRef = useRef<HTMLDivElement>(null);
@@ -212,6 +214,13 @@ export function AssemblyWorkspace() {
         else selNodes = ch.selected ? [...new Set([...selNodes, ch.id])] : selNodes.filter((x) => x !== ch.id);
       }
     }
+    // A single appliance being dragged snaps to the edges and centres of its neighbours.
+    if (moves.size === 1 && shapeMoves.size === 0 && !s.carry) {
+      const [id, p] = [...moves][0]!;
+      const g = alignmentGuides(s.assembly, id, p);
+      moves.set(id, g.pos);
+      s.setGuides(g.guides);
+    }
     if (shapeMoves.size) s.moveShapesTransient(shapeMoves);
     if (moves.size) s.moveTransient(moves);
     if (selChanged) s.setSelection({ nodes: selNodes, shapes: selShapes });
@@ -242,7 +251,14 @@ export function AssemblyWorkspace() {
     if (o) api.getState().connectPorts(o.source, o.target);
   }, [api]);
 
+  const onConnectStart = useCallback<OnConnectStart>((_e, p) => {
+    if (!p.nodeId || !p.handleId) return;
+    const port = api.getState().assembly.spec.appliances.find((x) => x.id === p.nodeId)?.ports.find((q) => q.id === p.handleId);
+    if (port) api.getState().setDragFrom({ applianceId: p.nodeId, portId: port.id, direction: port.direction, type: port.type });
+  }, [api]);
+
   const onConnectEnd = useCallback<OnConnectEnd>((_e, state) => {
+    api.getState().setDragFrom(null);
     if (state.isValid !== false || !state.fromHandle || !state.toHandle) return;
     const a = api.getState().assembly;
     const o = orient(a, { source: state.fromNode?.id ?? null, sourceHandle: state.fromHandle.id ?? null, target: state.toNode?.id ?? null, targetHandle: state.toHandle.id ?? null } as Connection);
@@ -277,10 +293,11 @@ export function AssemblyWorkspace() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
           onConnectEnd={onConnectEnd}
           isValidConnection={isValidConnection}
           onNodeDragStart={(_e, n) => { api.getState().beginGesture(); if (n.type === "shape") api.getState().beginCarry(n.id); }}
-          onNodeDragStop={() => { api.getState().endGesture(); api.getState().endCarry(); }}
+          onNodeDragStop={() => { api.getState().endGesture(); api.getState().endCarry(); api.getState().setGuides({ x: [], y: [] }); }}
           onDelete={({ nodes: n, edges: e }) => api.getState().deleteElements(n.map((x) => x.id), e.map((x) => x.id))}
           onPaneClick={() => { api.getState().closeMenu(); api.getState().setSelection({ nodes: [], edges: [], shapes: [] }); }}
           onNodeContextMenu={(e, n) => { e.preventDefault(); api.getState().openMenu({ x: e.clientX, y: e.clientY, target: n.type === "shape" ? { kind: "shape", id: n.id } : { kind: "node", id: n.id } }); }}
@@ -289,22 +306,33 @@ export function AssemblyWorkspace() {
           connectionMode={ConnectionMode.Loose}
           deleteKeyCode={["Backspace", "Delete"]}
           elevateNodesOnSelect={false}
+          disableKeyboardA11y
           selectionOnDrag={tool === "select"}
           panOnDrag={tool === "pan" ? true : [1]}
           selectionMode={SelectionMode.Partial}
           multiSelectionKeyCode={["Control", "Meta", "Shift"]}
           panActivationKeyCode="Space"
-          onNodeDoubleClick={(_e, n) => api.getState().openProps(n.type === "shape" ? { kind: "shape", id: n.id } : { kind: "appliance", id: n.id })}
+          onNodeDoubleClick={(_e, n) => api.getState().openProps(n.type === "shape" ? { kind: "shape", id: n.id, ...(n.data && "shape" in n.data && n.data.shape.kind === "note" ? { tab: "label" as const } : {}) } : { kind: "appliance", id: n.id })}
           onEdgeDoubleClick={(_e, ed) => api.getState().openProps({ kind: "cable", id: ed.id })}
           snapToGrid={snap}
           snapGrid={[8, 8]}
           minZoom={0.2}
           maxZoom={2.5}
+          onlyRenderVisibleElements={assembly.spec.appliances.length > 150}
           proOptions={{ hideAttribution: true }}
         >
           {/* Minor lines every 16 units (2 × the snap step), major lines every 128 (one compact node width). */}
           {showGrid && <Background id="grid-minor" className="apl-grid-minor" variant={BackgroundVariant.Lines} gap={16} lineWidth={1} />}
           {showGrid && <Background id="grid-major" className="apl-grid-major" variant={BackgroundVariant.Lines} gap={128} lineWidth={1} />}
+          {minimap && <MiniMap pannable zoomable ariaLabel="Overview map" nodeStrokeWidth={2} nodeColor={(n) => (n.type === "shape" ? "transparent" : "var(--color-base-content)")} maskColor="color-mix(in oklab, var(--color-base-content) 8%, transparent)" style={{ width: 150, height: 100, background: "var(--color-base-100)", bottom: 44 }} />}
+          {(guides.x.length > 0 || guides.y.length > 0) && (
+            <ViewportPortal>
+              <svg style={{ position: "absolute", left: 0, top: 0, overflow: "visible", pointerEvents: "none" }} width="1" height="1" data-testid="guides" aria-hidden="true">
+                {guides.x.map((x) => <line key={`x${x}`} className="apl-guide" x1={x} x2={x} y1={-20000} y2={20000} />)}
+                {guides.y.map((y) => <line key={`y${y}`} className="apl-guide" y1={y} y2={y} x1={-20000} x2={20000} />)}
+              </svg>
+            </ViewportPortal>
+          )}
         </ReactFlow>
         {assembly.spec.appliances.length === 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-base-content/50">Drag an appliance from the catalog onto the canvas</div>

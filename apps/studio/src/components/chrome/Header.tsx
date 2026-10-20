@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
-import { createEmptyAssembly, ensureNics, parseAssembly, serializeAssembly, usedCustomClasses, type Density } from "@apelora/assembly-model";
+import { PLATFORM_INFO, createEmptyAssembly, ensureNics, parseAssembly, platformOf, serializeAssembly, usedCustomClasses, type Density } from "@apelora/assembly-model";
 import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
 import { useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { DeployDialog } from "../deploy/DeployDialog";
-import { IconDownload, IconFile, IconRedo, IconUndo, IconUpload } from "../icons";
+import { IconChevron, IconClock, IconDownload, IconFile, IconHelp, IconImage, IconRedo, IconSearch, IconShare, IconUndo, IconUpload } from "../icons";
+import { assemblySvg, printSvg, saveBlob, svgToPng } from "../../features/export/image";
 
 const DENSITIES: { id: Density; label: string; hint: string }[] = [
   { id: "compact", label: "Compact", hint: "128 × 96" },
@@ -20,12 +21,25 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const density = useStudio((s) => s.assembly.editor.density);
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
+  const platform = useStudio((s) => platformOf(s.assembly));
   const file = useRef<HTMLInputElement>(null);
   const [deploying, setDeploying] = useState(false);
   const liveApp = useLive((s) => s.application);
   const liveProvider = useLive((s) => s.provider);
   const running = useLive((s) => Object.values(s.byAppliance).flat().filter((a) => a.status === "Running").length);
   const live = liveApp ? { application: liveApp, provider: liveProvider, count: running } : null;
+
+  const doImage = async (kind: "svg" | "png" | "print") => {
+    (document.activeElement as HTMLElement | null)?.blur();
+    const st = api.getState();
+    try {
+      const img = await assemblySvg(st.assembly, st.routing);
+      const base = st.assembly.metadata.name;
+      if (kind === "svg") { saveBlob(new Blob([img.svg], { type: "image/svg+xml" }), `${base}.svg`); st.toast("success", `Exported ${base}.svg`); }
+      else if (kind === "png") { saveBlob(await svgToPng(img.svg, img.width, img.height), `${base}.png`); st.toast("success", `Exported ${base}.png`); }
+      else printSvg(img.svg, base);
+    } catch (e) { st.toast("error", `Could not create the image: ${(e as Error).message}`); }
+  };
 
   const doExport = () => {
     const base = api.getState().assembly;
@@ -62,6 +76,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
         ) : (
           <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
         )}
+        <button type="button" className={`badge badge-sm ${PLATFORM_INFO[platform].status === "supported" ? "badge-outline" : "badge-warning badge-soft"}`} data-testid="platform-badge" title={`Design target: ${PLATFORM_INFO[platform].name}. Click to change.`} onClick={() => api.getState().openProps({ kind: "assembly" })}>{PLATFORM_INFO[platform].name}{PLATFORM_INFO[platform].status === "planned" ? " (planned)" : ""}</button>
       </div>
       <nav className="hidden min-w-0 items-center gap-1 whitespace-nowrap text-xs text-base-content/60 min-[1400px]:flex" aria-label="Breadcrumb">
         <span>Assemblies</span><span>/</span><span className="max-w-40 truncate text-base-content" data-testid="breadcrumb-name">{name}</span>
@@ -83,12 +98,31 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
             <li><button data-testid="new-empty" onClick={() => { api.getState().replace(createEmptyAssembly("untitled-assembly")); (document.activeElement as HTMLElement | null)?.blur(); }}>Empty assembly</button></li>
             <li><button data-testid="new-sample-network" onClick={() => { api.getState().replace(sampleNetworkedStack()); (document.activeElement as HTMLElement | null)?.blur(); }}>Commerce stack + network</button></li>
             <li><button data-testid="new-sample" onClick={() => { api.getState().replace(sampleCommerceStack()); (document.activeElement as HTMLElement | null)?.blur(); }}>Sample commerce stack</button></li>
+            <li className="menu-title px-2 pt-1 text-[10px]">More</li>
+            <li><button data-testid="new-template" onClick={() => { api.getState().setDialog("templates"); (document.activeElement as HTMLElement | null)?.blur(); }}>From template…</button></li>
+            <li><button data-testid="new-compose" onClick={() => { api.getState().setDialog("compose"); (document.activeElement as HTMLElement | null)?.blur(); }}>From Docker Compose…</button></li>
           </ul>
         </div>
         <button className="btn btn-sm" data-testid="import" onClick={() => file.current?.click()}><IconUpload />Import</button>
         <input ref={file} type="file" accept="application/json,.json" hidden data-testid="import-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = ""; }} />
         <button className="btn btn-sm" data-testid="deploy-open" onClick={() => setDeploying(true)} title="Run this design on the cluster through the Apelora control plane">Deploy…</button>
-        <button className="btn btn-sm btn-primary" data-testid="export" onClick={doExport}><IconDownload />Export JSON</button>
+        <div className="join">
+          <button className="btn btn-sm btn-primary join-item" data-testid="export" onClick={doExport}><IconDownload />Export JSON</button>
+          <div className="dropdown dropdown-end">
+            <button tabIndex={0} className="btn btn-sm btn-primary join-item px-2" aria-label="More export options" data-testid="export-menu"><IconChevron size={14} /></button>
+            <ul tabIndex={0} className="menu dropdown-content z-30 mt-1 w-48 rounded-box border border-base-300 bg-base-100 p-1 shadow-sm">
+              <li><button data-testid="export-svg" onClick={() => void doImage("svg")}><IconImage size={14} />Image (SVG)</button></li>
+              <li><button data-testid="export-png" onClick={() => void doImage("png")}><IconImage size={14} />Image (PNG)</button></li>
+              <li><button data-testid="export-print" onClick={() => void doImage("print")}><IconDownload size={14} />Print…</button></li>
+              <li><button data-testid="export-share" onClick={() => { api.getState().setDialog("share"); (document.activeElement as HTMLElement | null)?.blur(); }}><IconShare size={14} />Share link…</button></li>
+            </ul>
+          </div>
+        </div>
+        <div className="join" role="group" aria-label="Tools">
+          <button className="btn btn-sm join-item" aria-label="Find (Ctrl+K)" title="Find an appliance (Ctrl+K)" data-testid="find-open" onClick={() => api.getState().setDialog("find")}><IconSearch size={14} /></button>
+          <button className="btn btn-sm join-item" aria-label="Snapshots" title="Snapshots: save, compare and restore" data-testid="snapshots-open" onClick={() => api.getState().setDialog("snapshots")}><IconClock size={14} /></button>
+          <button className="btn btn-sm join-item" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)" data-testid="help-open" onClick={() => api.getState().setDialog("help")}><IconHelp size={14} /></button>
+        </div>
         <select className="select select-sm w-24" aria-label="Theme" value={theme} onChange={(e) => onTheme(e.target.value)}>{THEMES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
       </div>
       <DeployDialog open={deploying} onClose={() => setDeploying(false)} />

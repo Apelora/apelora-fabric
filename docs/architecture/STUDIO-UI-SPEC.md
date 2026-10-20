@@ -124,6 +124,16 @@ Every control has an accessible name; sockets expose name, type, required, cable
 
 Empty canvas hint; validation panel (No issues / counts / list with hints, click focuses the appliance); import failure dialog with the first errors; corrupted autosave is kept under `apelora.studio.v1.invalid` and the user is told; storage unavailable degrades silently to in-memory.
 
+## 8a. Workflow aids
+
+- **Connect faster:** right-click a jack → *Add appliance that connects here* lists compatible catalog appliances (exact protocol first) and places and cables one. While a cable is dragged, compatible sockets light up and the rest dim.
+- **Starting points:** *New → From template…* (nine starter diagrams built from the catalog) and *From Docker Compose…* (services become appliances, `depends_on` becomes cables; the file is read as text only).
+- **Layout:** *Tidy* (Shift+T) arranges the flow left to right and re-fits zones; alignment guides and snapping while dragging; arrow keys nudge (Shift = 40); overview map; Find (Ctrl+K); only visible elements are rendered above 150 appliances.
+- **Documentation:** sticky notes; vCPU/memory totals for the assembly and per zone; export as SVG, PNG or print; share link (the diagram is packed into the URL fragment, nothing is uploaded).
+- **Safety:** named snapshots with a plain-language comparison; share links keep the previous diagram as a snapshot.
+- **Target platform:** the assembly records a design target (Incus by default; Xen and VMware planned) in `spec.target.platform`; see `HYPERVISOR-PROVIDERS.md`.
+- **Help:** `?` opens the shortcut sheet; a four-step tour appears once on a first visit.
+
 ## 9. Out of scope (this phase)
 
 Backend, deployment, real hosts, authentication, drilling into a component on the canvas (contents are listed in the inspector), validating a component's inner assembly, setup parameters at application level.

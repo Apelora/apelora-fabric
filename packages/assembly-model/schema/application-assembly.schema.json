@@ -298,6 +298,23 @@
             ],
             "additionalProperties": false
           }
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "platform": {
+              "type": "string",
+              "enum": [
+                "incus",
+                "xen",
+                "vmware"
+              ]
+            }
+          },
+          "required": [
+            "platform"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -377,7 +394,8 @@
                   "rect",
                   "ellipse",
                   "rounded",
-                  "triangle"
+                  "triangle",
+                  "note"
                 ]
               },
               "x": {
@@ -399,6 +417,10 @@
               "label": {
                 "type": "string",
                 "maxLength": 60
+              },
+              "text": {
+                "type": "string",
+                "maxLength": 600
               },
               "labelPos": {
                 "type": "string",

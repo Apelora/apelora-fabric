@@ -68,7 +68,7 @@ export function ApplianceCatalog() {
           <IconSearch size={14} />
           <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search appliances" aria-label="Search appliances" data-testid="catalog-search" className="grow" />
         </label>
-        <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-base-content/50">
+        <div className="mt-1 flex items-center justify-between px-0.5 text-[10px] text-base-content/70">
           <span data-testid="catalog-count">{all.length} appliances</span>
           <span><button type="button" className="link" data-testid="catalog-collapse-all" onClick={() => setCollapsed(Object.fromEntries(CATEGORIES.map((c) => [c, true])))}>collapse all</button> · <button type="button" className="link" data-testid="catalog-expand-all" onClick={() => setCollapsed({})}>expand all</button></span>
         </div>

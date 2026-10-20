@@ -25,6 +25,20 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps<ShapeFlowNode>) {
   const r = Math.min(s.radius, w / 2, h / 2);
   const tri = `${w / 2},${half} ${w - half},${h - half} ${half},${h - half}`;
 
+  if (s.kind === "note") {
+    return (
+      <div className="apl-shape apl-note" data-testid="shape-node" data-shape-id={id} data-kind="note" data-selected={selected ? "true" : "false"} data-locked={s.locked}
+        style={{ width: w, height: h, background: s.fill, borderColor: s.stroke, fontSize: s.fontSize, opacity: 1 }}>
+        <div className="apl-note-text" data-testid="note-body">{s.text ?? ""}</div>
+        {s.locked && <span aria-label="Locked" title="Locked" className="apl-note-lock">🔒</span>}
+        <NodeResizer isVisible={selected && !s.locked} minWidth={90} minHeight={50}
+          lineStyle={{ borderColor: "color-mix(in oklab, var(--color-base-content) 40%, transparent)" }}
+          handleStyle={{ width: 9, height: 9, borderRadius: 2, background: "var(--color-base-100)", border: "1.5px solid var(--color-base-content)" }}
+          onResizeStart={() => api.getState().beginGesture()} onResizeEnd={() => api.getState().endGesture()} />
+      </div>
+    );
+  }
+
   return (
     <div className="apl-shape" data-testid="shape-node" data-shape-id={id} data-kind={s.kind} data-selected={selected ? "true" : "false"} data-locked={s.locked} style={{ width: w, height: h }}>
       <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ overflow: "visible" }}>

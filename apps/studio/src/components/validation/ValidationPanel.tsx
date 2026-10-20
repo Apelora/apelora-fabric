@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useReactFlow } from "@xyflow/react";
-import type { Diagnostic } from "@apelora/assembly-model";
-import { useStudioApi } from "../../features/editor/context";
+import { assemblyTotals, formatMemory, type Diagnostic } from "@apelora/assembly-model";
+import { useStudio, useStudioApi } from "../../features/editor/context";
 import { IconAlert, IconCheck, IconChevron } from "../icons";
 import { ms } from "../../features/editor/motion";
 
@@ -9,6 +9,8 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
   const api = useStudioApi();
   const { fitView } = useReactFlow();
   const [open, setOpen] = useState(false);
+  const assembly = useStudio((st) => st.assembly);
+  const totals = assemblyTotals(assembly);
   const errors = diagnostics.filter((d) => d.severity === "error").length;
   const warnings = diagnostics.length - errors;
 
@@ -20,7 +22,7 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
   };
 
   return (
-    <div className="absolute inset-x-3 bottom-3 z-10 flex justify-start" data-testid="validation-panel">
+    <div className="absolute inset-x-3 bottom-3 z-10 flex items-end justify-start gap-2" data-testid="validation-panel">
       <div className="max-w-full rounded-box border border-base-300 bg-base-100 text-xs shadow-sm" style={{ width: open ? 460 : "auto" }}>
         <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 text-left" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="validation-toggle">
           {diagnostics.length === 0 ? <span className="text-success"><IconCheck size={14} /></span> : <span className={errors ? "text-error" : "text-warning"}><IconAlert size={14} /></span>}
@@ -43,6 +45,11 @@ export function ValidationPanel({ diagnostics }: { diagnostics: Diagnostic[] }) 
           </ul>
         )}
       </div>
+      {totals.appliances > 0 && (
+        <button type="button" className="rounded-box border border-base-300 bg-base-100 px-3 py-1.5 text-xs shadow-sm" data-testid="totals-chip" title="Total vCPU and memory requested by every appliance. Click for details." onClick={() => api.getState().openProps({ kind: "assembly" })}>
+          {totals.appliances} appliance{totals.appliances === 1 ? "" : "s"} · {totals.cpu} vCPU · {formatMemory(totals.memoryMiB)}
+        </button>
+      )}
     </div>
   );
 }

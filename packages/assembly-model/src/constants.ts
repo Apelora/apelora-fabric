@@ -49,6 +49,9 @@ export const CATEGORIES = [
 export const ARCHITECTURES = ["x86_64", "aarch64"] as const;
 export const DENSITIES = ["compact", "comfortable", "expanded"] as const;
 export const PROPERTY_TYPES = ["string", "int", "bool", "enum", "secret"] as const;
-export const SHAPE_KINDS = ["rect", "ellipse", "rounded", "triangle"] as const;
+export const SHAPE_KINDS = ["rect", "ellipse", "rounded", "triangle", "note"] as const;
+
+/** Runtime providers an assembly can be designed for. Incus is the supported one (ADR 0001); the others are planned behind the same adapter boundary. Provider facts live in platforms.ts. */
+export const PLATFORMS = ["incus", "xen", "vmware"] as const;
 export const LABEL_POSITIONS = ["top-left", "top", "center", "bottom"] as const;
 export const STROKE_STYLES = ["solid", "dashed", "dotted"] as const;

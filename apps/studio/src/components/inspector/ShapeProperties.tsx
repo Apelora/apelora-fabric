@@ -1,9 +1,11 @@
-import { LABEL_POSITIONS, SHAPE_KINDS, SHAPE_PALETTE, STROKE_STYLES, shapeContents, type Shape } from "@apelora/assembly-model";
+import { LABEL_POSITIONS, SHAPE_KINDS, SHAPE_PALETTE, STROKE_STYLES, formatMemory, shapeContents, zoneTotals, type Shape } from "@apelora/assembly-model";
 import { useStudio, useStudioApi } from "../../features/editor/context";
-import { IconCircle, IconRounded, IconSquare, IconTrash, IconTriangle } from "../icons";
+import { IconCircle, IconNote, IconRounded, IconSquare, IconTrash, IconTriangle } from "../icons";
 
-const KIND_LABEL: Record<Shape["kind"], string> = { rect: "Square", ellipse: "Circle", rounded: "Rounded", triangle: "Triangle" };
-const KIND_ICON = { rect: IconSquare, ellipse: IconCircle, rounded: IconRounded, triangle: IconTriangle } as const;
+const KIND_LABEL: Record<Shape["kind"], string> = { rect: "Square", ellipse: "Circle", rounded: "Rounded", triangle: "Triangle", note: "Note" };
+const KIND_ICON = { rect: IconSquare, ellipse: IconCircle, rounded: IconRounded, triangle: IconTriangle, note: IconNote } as const;
+const ZONE_KINDS = SHAPE_KINDS.filter((k) => k !== "note");
+const NOTE_COLORS = [{ name: "Yellow", color: "#fde68a", stroke: "#d97706" }, { name: "Green", color: "#bbf7d0", stroke: "#16a34a" }, { name: "Blue", color: "#bfdbfe", stroke: "#2563eb" }, { name: "Pink", color: "#fbcfe8", stroke: "#db2777" }, { name: "Gray", color: "#e5e7eb", stroke: "#6b7280" }];
 const POS_LABEL: Record<Shape["labelPos"], string> = { "top-left": "Top left", top: "Top", center: "Center", bottom: "Bottom" };
 
 /** Palette of colour swatches plus a custom picker. `value` may be empty when no colour is chosen. */
@@ -56,6 +58,25 @@ export function ShapeProperties({ id, tab }: { id: string; tab: "style" | "label
   const set = (patch: Partial<Omit<Shape, "id">>) => api.getState().editShape(id, patch);
   const inside = shapeContents(assembly, id).length;
 
+  if (sh.kind === "note" && tab === "label") {
+    return (
+      <div className="flex flex-col gap-4" data-testid="shape-label-tab">
+        <label className="fieldset"><span className="fieldset-legend text-[11px]">Note text</span>
+          <textarea autoFocus className="textarea textarea-sm h-32 w-full" data-testid="note-text" value={sh.text ?? ""} maxLength={600} placeholder="Type a note, a reminder or a reason for a design choice" onChange={(e) => set({ text: e.target.value })} />
+        </label>
+        <Slider label="Font size" value={sh.fontSize} min={8} max={28} step={1} unit=" px" onChange={(v) => set({ fontSize: v })} testId="shape-font-size" />
+      </div>
+    );
+  }
+  if (sh.kind === "note" && tab === "style") {
+    return (
+      <div className="flex flex-col gap-4" data-testid="shape-style-tab">
+        <div role="radiogroup" aria-label="Note colour" className="flex flex-wrap gap-2" data-testid="note-colors">
+          {NOTE_COLORS.map((c) => <button key={c.color} type="button" role="radio" aria-checked={sh.fill.toLowerCase() === c.color} aria-label={c.name} title={c.name} data-color={c.color} className={`size-7 rounded border-2 ${sh.fill.toLowerCase() === c.color ? "border-base-content" : "border-base-300"}`} style={{ background: c.color }} onClick={() => set({ fill: c.color, stroke: c.stroke })} />)}
+        </div>
+      </div>
+    );
+  }
   if (tab === "label") {
     return (
       <div className="flex flex-col gap-4" data-testid="shape-label-tab">
@@ -75,12 +96,14 @@ export function ShapeProperties({ id, tab }: { id: string; tab: "style" | "label
           onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
       </label>
     );
+    const totals = zoneTotals(assembly, id);
     return (
       <div className="flex flex-col gap-4" data-testid="shape-layout-tab">
         <div className="flex gap-2">{num("x", "X", -100000)}{num("y", "Y", -100000)}</div>
         <div className="flex gap-2">{num("width", "Width", 40)}{num("height", "Height", 30)}</div>
         <label className="flex items-center gap-2 text-xs"><input type="checkbox" className="toggle toggle-sm" data-testid="shape-locked" checked={sh.locked} onChange={(e) => set({ locked: e.target.checked })} />Lock position and size</label>
-        <p className="text-xs text-base-content/60" data-testid="shape-contents">{inside} appliance{inside === 1 ? "" : "s"} inside. They move with the zone when you drag it.</p>
+        {sh.kind !== "note" && <p className="text-xs text-base-content/60" data-testid="shape-contents">{inside} appliance{inside === 1 ? "" : "s"} inside. They move with the zone when you drag it.</p>}
+        {sh.kind !== "note" && inside > 0 && <p className="rounded-box bg-base-200 px-3 py-2 text-xs" data-testid="zone-totals">Requests <b>{totals.cpu} vCPU</b> and <b>{formatMemory(totals.memoryMiB)}</b> across {totals.appliances} appliance{totals.appliances === 1 ? "" : "s"} and {totals.cables} internal cable{totals.cables === 1 ? "" : "s"}.</p>}
         <div className="flex gap-2">
           <button className="btn btn-sm btn-outline flex-1" data-testid="shape-front" onClick={() => api.getState().orderShapeAction(id, "front")}>Bring forward</button>
           <button className="btn btn-sm btn-outline flex-1" data-testid="shape-back" onClick={() => api.getState().orderShapeAction(id, "back")}>Send back</button>
@@ -96,7 +119,7 @@ export function ShapeProperties({ id, tab }: { id: string; tab: "style" | "label
     <div className="flex flex-col gap-4" data-testid="shape-style-tab">
       <div><span className="mb-1 block text-[11px] font-semibold">Shape</span>
         <div role="radiogroup" aria-label="Shape" className="grid grid-cols-4 gap-1.5" data-testid="shape-kind">
-          {SHAPE_KINDS.map((k) => { const I = KIND_ICON[k]; return (
+          {ZONE_KINDS.map((k) => { const I = KIND_ICON[k]; return (
             <button key={k} type="button" role="radio" aria-checked={sh.kind === k} data-kind={k} className={`flex flex-col items-center gap-1 rounded-box border px-1 py-1.5 text-[10px] ${sh.kind === k ? "border-base-content bg-base-200" : "border-base-300 hover:bg-base-200"}`} onClick={() => set({ kind: k, ...(k === "rounded" && sh.radius === 0 ? { radius: 18 } : {}) })}><I size={18} />{KIND_LABEL[k]}</button>
           ); })}
         </div>

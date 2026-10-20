@@ -6,6 +6,7 @@ import {
   CATEGORIES,
   DENSITIES,
   LAYOUT_VERSION,
+  PLATFORMS,
   PORT_TYPES,
   LABEL_POSITIONS,
   PROPERTY_TYPES,
@@ -94,6 +95,8 @@ export const ShapeSchema = z.object({
   width: finite.pipe(z.number().min(40).max(6000)),
   height: finite.pipe(z.number().min(30).max(6000)),
   label: z.string().max(60),
+  /** Body text of a note (kind "note"); ignored by other shapes. */
+  text: z.string().max(600).optional(),
   labelPos: z.enum(LABEL_POSITIONS),
   fontSize: z.number().min(8).max(36),
   fill: hexColor,
@@ -191,6 +194,8 @@ export const ApplicationAssemblySchema = z.object({
     appliances: z.array(ApplianceInstanceSchema),
     connections: z.array(ConnectionSchema),
     links: z.array(LinkTagSchema).optional(),
+    /** Design-time hypervisor target; absent means the default platform. */
+    target: z.object({ platform: z.enum(PLATFORMS) }).optional(),
   }),
   editor: z.object({
     layoutVersion: z.literal(LAYOUT_VERSION),
