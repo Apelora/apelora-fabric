@@ -6,7 +6,9 @@
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
 use apelora_domain::InstanceSpec;
-use apelora_domain::network::{Connection, Internet, Published, SyncRequest};
+use apelora_domain::network::{
+    Connection, Internet, Published, SyncRequest, discovery_env, with_discovery,
+};
 use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
@@ -137,6 +139,63 @@ fn spec_for(
     deploy_spec(name, project, d, replica, uplink)
 }
 
+/// Allocates (or finds) the service address of every appliance that gets one — stateless ones
+/// that are connected to, and published ones — when connections are enforced and a service
+/// range is configured. Returns appliance → address.
+async fn allocate_services(
+    state: &AppState,
+    pool: &apelora_persistence::Pool,
+    application_id: Uuid,
+    name: &str,
+    req: &DeployRequest,
+) -> Result<std::collections::BTreeMap<String, String>, ApiError> {
+    let (Some(uplink), Some(range), Some(connections)) = (
+        state.network_uplink.as_deref(),
+        state.service_range.as_deref(),
+        req.connections.as_deref(),
+    ) else {
+        return Ok(Default::default());
+    };
+    let sync = SyncRequest::for_deployment(
+        name,
+        &req.project,
+        uplink,
+        &req.appliances,
+        connections,
+        Some(range),
+    )
+    .with_published(&req.published);
+    let candidates: Vec<String> = apelora_domain::network::service_addresses(range)
+        .map_err(bad_request)?
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    for a in sync.services() {
+        match apelora_persistence::service_address(
+            pool,
+            application_id,
+            &req.project,
+            &a,
+            &candidates,
+        )
+        .await?
+        {
+            Some(address) => {
+                out.insert(a, address);
+            }
+            None => {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "service_range_exhausted",
+                    format!("no free service address for {a} in {range}"),
+                ));
+            }
+        }
+    }
+    Ok(out)
+}
+
 fn check_connections(
     appliances: &[DesiredAppliance],
     connections: Option<&[Connection]>,
@@ -244,7 +303,7 @@ fn check(
         }
         d.validate().map_err(bad_request)?;
         owned_spec(name, project, d, d.replicas)
-            .validate()
+            .validate_from_caller()
             .map_err(|e| bad_request(format!("appliance {}: {e}", d.appliance)))?;
     }
     Ok(())
@@ -371,6 +430,9 @@ pub(super) async fn deploy(
         key.as_ref().map(|k| format!("{k}:{name}")).as_deref(),
     )
     .await?;
+    // Service addresses are allocated before any instance is created, so consumers start with
+    // their discovery environment (ADR 0004).
+    let addresses = allocate_services(&state, pool, app.id, &name, &req).await?;
     let mut jobs = Vec::new();
     for item in &applied.items {
         let (kind, payload) = match item.action {
@@ -382,7 +444,16 @@ pub(super) async fn deploy(
                     .ok_or_else(|| {
                         bad_request(format!("appliance {} disappeared", item.appliance))
                     })?;
-                let spec = spec_for(&state, &name, &req.project, desired, item.replica, enforce);
+                let env = discovery_env(
+                    &name,
+                    &desired.appliance,
+                    req.connections.as_deref().unwrap_or_default(),
+                    &addresses,
+                );
+                let spec = with_discovery(
+                    spec_for(&state, &name, &req.project, desired, item.replica, enforce),
+                    &env,
+                );
                 (
                     "instance.create",
                     serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?,

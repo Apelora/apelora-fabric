@@ -1747,3 +1747,73 @@ async fn internet_access_opens_only_external_destinations(pool: Pool) {
         "{plan}"
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn consumers_are_created_knowing_where_their_providers_are(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()))
+        .with_service_range(Some("198.18.100.0/29".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut web = appliance("web-01");
+    web["replicas"] = json!(2);
+    web["availability"] = json!("stateless");
+    let body = json!({ "project": "apelora", "document": {},
+        "appliances": [appliance("client-01"), web, appliance("db-01")],
+        "connections": [
+            { "from": "client-01", "to": "web-01", "transport": "tcp", "port": 80 },
+            { "from": "client-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body),
+        Some("disc-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let jobs = apelora_persistence::recent_jobs(&pool, 20)
+        .await
+        .expect("jobs");
+    let client = jobs
+        .iter()
+        .find(|j| j.kind == "instance.create" && j.payload["name"] == "shop-client-01")
+        .expect("client job");
+    assert_eq!(
+        client.payload["config"]["environment.APELORA_SERVICE_WEB_01"], "198.18.100.1",
+        "the service address"
+    );
+    assert_eq!(
+        client.payload["config"]["environment.APELORA_SERVICE_DB_01"], "shop-db-01",
+        "no service address: the instance name"
+    );
+    let web = jobs
+        .iter()
+        .find(|j| j.kind == "instance.create" && j.payload["name"] == "shop-web-01")
+        .expect("web job");
+    assert!(
+        web.payload["config"]
+            .as_object()
+            .is_none_or(|c| !c.keys().any(|k| k.starts_with("environment.APELORA_"))),
+        "providers learn nothing"
+    );
+    drain(&pool, &provider).await;
+
+    // A design cannot forge them.
+    let mut forged = appliance("client-01");
+    forged["spec"]["config"] = json!({ "environment.APELORA_SERVICE_WEB_01": "203.0.113.9" });
+    let (status, _) = send(
+        state,
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(json!({ "project": "apelora", "appliances": [forged] })),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

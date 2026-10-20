@@ -101,6 +101,48 @@ pub fn internet_rules(level: Internet) -> Vec<AclRule> {
     }
 }
 
+/// The environment variable that tells a consumer where `provider` is (ADR 0004):
+/// `APELORA_SERVICE_<PROVIDER>`, upper case, `-` as `_`.
+pub fn service_env_name(provider: &str) -> String {
+    format!(
+        "APELORA_SERVICE_{}",
+        provider.to_ascii_uppercase().replace('-', "_")
+    )
+}
+
+/// The discovery environment of `consumer` (ADR 0004): one variable per appliance it connects
+/// to, holding that appliance's service address when it has one (`addresses`), otherwise its
+/// instance name (resolved by the network's DNS).
+pub fn discovery_env(
+    application: &str,
+    consumer: &str,
+    connections: &[Connection],
+    addresses: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    connections
+        .iter()
+        .filter(|c| c.from == consumer)
+        .map(|c| {
+            let target = addresses
+                .get(&c.to)
+                .cloned()
+                .unwrap_or_else(|| instance_name(application, &c.to));
+            (service_env_name(&c.to), target)
+        })
+        .collect()
+}
+
+/// Adds the discovery environment to an instance's configuration (`environment.*`).
+pub fn with_discovery(
+    mut spec: crate::InstanceSpec,
+    env: &BTreeMap<String, String>,
+) -> crate::InstanceSpec {
+    for (k, v) in env {
+        spec.config.insert(format!("environment.{k}"), v.clone());
+    }
+    spec
+}
+
 /// A port of an appliance reachable from outside the application (in the Studio: connected
 /// from a gateway). Only ports with a number can be published.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -640,6 +682,67 @@ mod tests {
         assert_eq!(
             serde_json::to_value(Internet::Web).expect("json"),
             serde_json::json!("web")
+        );
+    }
+
+    #[test]
+    fn consumers_learn_a_service_address_or_an_instance_name_per_connection() {
+        let conns = [
+            c("web-01", "db-01", Some(5432)),
+            c("web-01", "cache-01", Some(6379)),
+            c("lb-01", "web-01", Some(80)),
+        ];
+        let addresses = BTreeMap::from([("cache-01".to_owned(), "198.18.100.2".to_owned())]);
+        let env = discovery_env("shop", "web-01", &conns, &addresses);
+        assert_eq!(
+            env,
+            BTreeMap::from([
+                (
+                    "APELORA_SERVICE_CACHE_01".to_owned(),
+                    "198.18.100.2".to_owned()
+                ),
+                ("APELORA_SERVICE_DB_01".to_owned(), "shop-db-01".to_owned()),
+            ])
+        );
+        assert!(
+            discovery_env("shop", "db-01", &conns, &addresses).is_empty(),
+            "providers learn nothing"
+        );
+        let spec = crate::InstanceSpec {
+            project: "apelora".into(),
+            name: "shop-web-01".into(),
+            kind: crate::InstanceKind::Container,
+            source: crate::ImageSource {
+                protocol: crate::ImageProtocol::Simplestreams,
+                server: "https://images.example".into(),
+                alias: "debian/13".into(),
+                fingerprint: None,
+            },
+            profiles: vec![],
+            config: Default::default(),
+            start: true,
+            architectures: vec![],
+            owner: None,
+            network: None,
+        };
+        let with = with_discovery(spec.clone(), &env);
+        assert_eq!(
+            with.config
+                .get("environment.APELORA_SERVICE_DB_01")
+                .map(String::as_str),
+            Some("shop-db-01")
+        );
+        // A design cannot set Apelora's discovery variables itself.
+        let mut forged = spec;
+        forged.config.insert(
+            "environment.APELORA_SERVICE_DB_01".into(),
+            "203.0.113.9".into(),
+        );
+        assert!(forged.validate_from_caller().is_err());
+        assert_eq!(
+            with.validate(),
+            Ok(()),
+            "Apelora's own variables pass the worker's check"
         );
     }
 }

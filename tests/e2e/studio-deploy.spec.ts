@@ -82,6 +82,7 @@ test.describe("deploying from the Studio", () => {
     await dialog.getByTestId("network-rules").locator("summary").click();
     await expect(dialog.getByTestId("network-rule")).toHaveCount(6);
     await expect(dialog.getByTestId("network-rules")).toContainText("nginx-01 → postgresql-01.commerce-stack.internal · postgres 5432/tcp");
+    await expect(dialog.getByTestId("network-rules")).toContainText("$APELORA_SERVICE_POSTGRESQL_01");
     await expect(dialog.getByTestId("network-rules")).toContainText("everything else between the application's instances is rejected");
 
     await dialog.getByTestId("deploy-apply").click();

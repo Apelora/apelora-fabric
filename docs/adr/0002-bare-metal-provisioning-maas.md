@@ -1,6 +1,6 @@
 # ADR 0002 — Bare-metal provisioning through MAAS
 
-Status: **proposed** (decide at the start of Phase 09) · Date: 2026-10-20
+Status: **accepted** (2026-10-20, owner's decision: "do what is recommended") · Date: 2026-10-20
 
 ## Context
 
@@ -24,6 +24,29 @@ Three management levels, each with one authority:
 - **Address authority stays with its owner:** provisioning and host addresses with MAAS (or the site's IPAM), container addresses with Incus/OVN, service endpoints with Apelora's ingress controller. Apelora shows them all but does not become a second DHCP or IPAM.
 - **Independence.** MAAS and the Apelora control plane run on management infrastructure that survives the loss of the compute cluster, so the cluster can be repaired or reprovisioned.
 - Hardware without a BMC (mini PCs, workstations) may only support Wake-on-LAN or manual power; capabilities are recorded per hardware profile and verified, not assumed.
+
+## Decision
+
+Accepted, with these clauses so that MAAS stays a choice and never becomes a requirement:
+
+- **Provider-neutral provisioning.** Apelora talks to bare metal through one interface (a
+  `Provisioner` in the domain: list machines, approve, deploy an OS with the enrolment
+  cloud-init, power on/off, release). MAAS is its first adapter; a **manual** provider — servers
+  installed by hand, enrolled with a join token as in Phase 04 — is always available and is the
+  default. Another provisioning system can be added as another adapter without changing the
+  enrolment flow.
+- **Enrolment is the same for every provider:** preflight of the new host, a single-use Incus join
+  token delivered out of band (cloud-init for MAAS, standard input for manual installs), then
+  validation before the member is eligible for placement. Join tokens and BMC credentials are
+  never stored by Apelora's database in plain text, never logged and never sent to the browser.
+- **Approval gates** as proposed: discovery is automatic, everything that changes a machine
+  (commission, deploy, release, power off) needs an administrator and is audited.
+
+Answers to the open questions: the minimum MAAS version is the one the adapter is first tested
+against (recorded in `upstream.lock.yaml`, like Incus); in small deployments MAAS runs on the
+same management host as the control plane, and the manual provider remains the simplest path;
+OS images are chosen per hardware profile in the provisioner's own configuration; BMC
+credentials live only in MAAS (Apelora never needs them — it asks MAAS to power machines).
 
 ## Alternatives
 

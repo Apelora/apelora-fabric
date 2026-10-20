@@ -357,6 +357,20 @@ impl InstanceSpec {
         }
         Ok(())
     }
+
+    /// [`validate`](Self::validate), plus what only Apelora may set: a caller's spec must not
+    /// carry Apelora's discovery variables (`environment.APELORA_*`, ADR 0004).
+    pub fn validate_from_caller(&self) -> Result<(), String> {
+        self.validate()?;
+        if let Some(k) = self
+            .config
+            .keys()
+            .find(|k| k.starts_with("environment.APELORA_"))
+        {
+            return Err(format!("config key {k} is reserved for Apelora"));
+        }
+        Ok(())
+    }
 }
 
 /// A single-use token that lets one new server join the Incus cluster. It carries a secret:

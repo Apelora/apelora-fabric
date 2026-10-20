@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use apelora_domain::Instance;
-use apelora_domain::network::{Connection, SyncRequest};
+use apelora_domain::network::{Connection, SyncRequest, discovery_env, with_discovery};
 use apelora_domain::plan::{
     Availability, DesiredAppliance, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
 };
@@ -121,6 +121,12 @@ impl Supervisor {
                 .clone()
                 .and_then(|c| serde_json::from_value(c).ok());
             let p = plan(&d.application, &d.project, &desired, &observed);
+            // Recreated and substituted instances get the same discovery environment (ADR 0004).
+            let addresses: std::collections::BTreeMap<String, String> =
+                apelora_persistence::service_addresses(pool, d.application_id, &d.project)
+                    .await?
+                    .into_iter()
+                    .collect();
             let mut queued_here = 0;
             // Replica slots first: substitutes for replicas stranded on a failed member, and
             // retirement of the extra instance once that member is back.
@@ -172,7 +178,15 @@ impl Supervisor {
                             continue;
                         }
                         let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
-                        let mut spec = deploy_spec(&d.application, &d.project, da, replica, uplink);
+                        let mut spec = with_discovery(
+                            deploy_spec(&d.application, &d.project, da, replica, uplink),
+                            &discovery_env(
+                                &d.application,
+                                &da.appliance,
+                                connections.as_deref().unwrap_or_default(),
+                                &addresses,
+                            ),
+                        );
                         spec.name = name.clone();
                         let payload = serde_json::to_value(&spec)
                             .map_err(|e| StoreError::Conflict(e.to_string()))?;
@@ -319,7 +333,15 @@ impl Supervisor {
                     json!({ "project": d.project, "name": item.instance })
                 } else {
                     let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
-                    let spec = deploy_spec(&d.application, &d.project, da, item.replica, uplink);
+                    let spec = with_discovery(
+                        deploy_spec(&d.application, &d.project, da, item.replica, uplink),
+                        &discovery_env(
+                            &d.application,
+                            &da.appliance,
+                            connections.as_deref().unwrap_or_default(),
+                            &addresses,
+                        ),
+                    );
                     serde_json::to_value(&spec).map_err(|e| StoreError::Conflict(e.to_string()))?
                 };
                 let job = apelora_persistence::enqueue_job(

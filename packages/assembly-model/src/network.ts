@@ -79,6 +79,9 @@ export interface NetworkPlan {
 
 export const serviceName = (appliance: string, application: string) => `${appliance}.${application}.internal`;
 
+/** The environment variable a consumer reads to find `provider` (ADR 0004). */
+export const serviceEnvName = (provider: string) => `APELORA_SERVICE_${provider.toUpperCase().replaceAll("-", "_")}`;
+
 type Terminal = { appliance: string; port: Port };
 
 /** Every link in the design: drawn cables and pairs of terminals sharing a link tag. */

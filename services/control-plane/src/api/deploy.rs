@@ -177,7 +177,7 @@ pub(super) async fn create_instance(
 ) -> Result<(StatusCode, Json<JobAccepted>), ApiError> {
     require(&p, Permission::Deploy)?;
     let Json(spec) = body.map_err(|e| bad_request(e.body_text()))?;
-    spec.validate().map_err(bad_request)?;
+    spec.validate_from_caller().map_err(bad_request)?;
     allowed_project(&state, &spec.project)?;
     let target = format!("{}/{}", spec.project, spec.name);
     let payload = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;

@@ -62,13 +62,13 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Cleanup of network objects with the appliances (owner-labelled) | Done; REAL INCUS TESTED | 07 |
 | Publishing (gateway connections → service address + ingress rule) | Done; REAL INCUS TESTED (outside route required) | 07 |
 | Internet access per appliance (`@external` egress) | Done; REAL INCUS TESTED | 07 |
-| Service names (DNS) | Missing (design decision) | 07 |
+| Service discovery: `APELORA_SERVICE_<PROVIDER>` in every consumer (ADR 0004) | Done; REAL INCUS TESTED | 07 |
 | Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
 | Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
 | Evacuation with dry run (API, console), audited; supervisor stays out of the way | Done; REAL INCUS TESTED (two members) and verified in a real browser | 08 |
 | Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
 | Health with hysteresis beyond the port check, service names (DNS), rebalancing | Missing | 08 |
-| Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
+| Bare-metal provisioning and enrolment | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
 | Secret scanning in CI; release workflow (draft releases, not exercised yet); end-to-end demonstration (`demo.sh`); certificate rotation | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
@@ -80,11 +80,11 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 - **One architecture** (aarch64) on the test cluster: no mixed-architecture evidence.
 - **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful appliances are not recovered automatically.
 - **Publishing** needs the network outside to route service addresses to the application network's router; the OVN router does not answer ARP for them.
-- **Service names (DNS)** are not provided yet; consumers use service addresses or instance names.
+- **Service names (DNS)** inside applications are not provided (ADR 0004): consumers read `APELORA_SERVICE_<PROVIDER>`, set when they are created; an instance that already existed keeps the environment it was created with.
 - **Health** is Incus status plus the load balancer's port check; no application-level readiness or hysteresis beyond the recovery delay.
 - **Load balancer quirks (Incus 7.0.1):** updates may be refused while a member is down — in one drill for the whole outage (retried; the substitute joins once they succeed) — and may drop the OVN health check (detected through the state endpoint and re-applied).
 - **Offline detection:** in one drill Incus briefly reported a member that was not stopped as Offline; keep the recovery delay well above that (default 120 s).
-- **Bare-metal provisioning** (Phase 09) waits for a decision on ADR 0002.
+- **Bare-metal provisioning** (Phase 09): ADR 0002 accepted (MAAS as the first adapter behind a provider-neutral interface; manual installation stays supported); not implemented yet.
 - **Releases:** no release artefacts or staged upgrade procedure yet.
 
 ## Deviations from the incoming specification (deliberate)

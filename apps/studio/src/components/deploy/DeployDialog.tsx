@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
 import { lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, compileNetwork, deploymentAppliances, publishedPorts, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
+import { applicationName, compileNetwork, deploymentAppliances, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -278,13 +278,14 @@ function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforc
     <details className="rounded-box border border-base-300 px-3 py-2" data-testid="network-rules">
       <summary className="cursor-pointer">Connections in this design ({plan.intents.length})</summary>
       <p className="mt-2 text-xs text-base-content/60">
+        Each consumer finds its provider in the environment variable shown ($APELORA_SERVICE_…).{" "}
         {enforced
           ? "Each cable allows one service; everything else between the application's instances is rejected. Only cables between deployed appliances apply."
           : "Each cable allows one service, by name. The control plane does not enforce them: instances share the project's network."}
       </p>
       <ul className="mt-2 flex flex-col gap-1 font-mono text-xs">
         {plan.intents.map((i) => (
-          <li key={i.id} data-testid="network-rule">{i.from} → {i.service} · {i.protocol} {i.number ?? "any"}/{i.transport}</li>
+          <li key={i.id} data-testid="network-rule">{i.from} → {i.service} · {i.protocol} {i.number ?? "any"}/{i.transport} <span className="text-base-content/60">· ${serviceEnvName(i.to)}</span></li>
         ))}
       </ul>
       {published.length > 0 && (
