@@ -519,6 +519,25 @@ impl IncusClient {
         .await
     }
 
+    /// Sets a volume's size (`PATCH`, merged with its config). The caller has checked that the
+    /// volume is the application's and that the size only grows: Incus would shrink it.
+    pub async fn set_volume_size(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        size_mib: u32,
+    ) -> Result<Option<String>, AdapterError> {
+        let body = json!({ "config": { "size": format!("{size_mib}MiB") } });
+        self.maybe_operation(
+            Method::PATCH,
+            &volume_path(project, pool, member, name),
+            Some(&body),
+        )
+        .await
+    }
+
     /// Deletes a volume Apelora created for `application` (with its snapshots); `false` when
     /// it did not exist. Incus refuses while an instance uses it.
     pub async fn delete_volume(

@@ -87,6 +87,48 @@ function DeleteVolumeDialog({ application, volume, onClose, onDeleted }: { appli
   );
 }
 
+/** Growing a volume, also while it is in use. Volumes only grow, so the new size starts at the current one. */
+function GrowVolumeDialog({ application, volume, onClose, onGrown }: { application: string; volume: VolumeItem | null; onClose: () => void; onGrown: (message: string) => void }) {
+  const [gib, setGib] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setGib(volume ? String(Math.ceil(volume.sizeMib / 1024) + 1) : ""); setError(null); }, [volume]);
+  const last = useRef<VolumeItem | null>(null);
+  if (volume) last.current = volume;
+  const shown = volume ?? last.current;
+  const mib = Math.round(Number(gib) * 1024);
+  const valid = !!shown && Number.isFinite(mib) && mib > shown.sizeMib;
+  const grow = async () => {
+    if (!shown) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.request("grow_application_volume", { params: { name: application, volume: shown.incusName }, body: { sizeMib: mib } });
+      onGrown(`Volume ${shown.incusName} is now ${size(mib)}.`);
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog open={!!volume} title={`Grow volume ${shown?.incusName ?? ""}`} onClose={onClose} testId="grow-volume-dialog">
+      <p className="text-sm text-base-content/80">It is {shown ? size(shown.sizeMib) : ""} now. Volumes only grow; this can be done while it is in use.</p>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>New size in GiB</span>
+        <input type="number" min={1} step={1} className="input input-sm w-40 tabular-nums" value={gib} onChange={(e) => setGib(e.target.value)} data-testid="grow-volume-size" />
+      </label>
+      {error && <ErrorPanel message={error} testId="grow-volume-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={!valid || busy} onClick={() => void grow()} data-testid="grow-volume-start">
+          {busy ? "Growing…" : "Grow volume"}
+        </button>
+      </div>
+    </FormDialog>
+  );
+}
+
 /**
  * The application's persistent volumes. Removing an appliance keeps its volume; this is where
  * a kept volume is deleted, on purpose.
@@ -94,6 +136,7 @@ function DeleteVolumeDialog({ application, volume, onClose, onDeleted }: { appli
 function Volumes({ application }: { application: string }) {
   const [state, setState] = useState<{ kind: "loading" } | { kind: "ok"; data: ApplicationVolumes } | { kind: "error"; message: string }>({ kind: "loading" });
   const [deleting, setDeleting] = useState<VolumeItem | null>(null);
+  const [growing, setGrowing] = useState<VolumeItem | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [round, setRound] = useState(0);
   useEffect(() => {
@@ -122,9 +165,12 @@ function Volumes({ application }: { application: string }) {
                   <td className="max-sm:hidden">{size(v.sizeMib)}</td>
                   <td className="text-sm"><span className={`status mr-2 ${st.dot}`} aria-hidden="true" />{st.label}<span className="block text-xs text-base-content/60 sm:hidden">{size(v.sizeMib)}</span></td>
                   <td className="text-right">
-                    {v.state !== "attached" && (
-                      <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${v.incusName}`} onClick={() => { setDone(null); setDeleting(v); }} data-testid="delete-volume">Delete…</button>
-                    )}
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {v.state !== "missing" && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Grow ${v.incusName}`} onClick={() => { setDone(null); setGrowing(v); }} data-testid="grow-volume">Grow…</button>}
+                      {v.state !== "attached" && (
+                        <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${v.incusName}`} onClick={() => { setDone(null); setDeleting(v); }} data-testid="delete-volume">Delete…</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -132,6 +178,12 @@ function Volumes({ application }: { application: string }) {
           </tbody>
         </TableFrame>
       ))}
+      <GrowVolumeDialog
+        application={application}
+        volume={growing}
+        onClose={() => setGrowing(null)}
+        onGrown={(message) => { setDone(message); setGrowing(null); setRound((r) => r + 1); }}
+      />
       <DeleteVolumeDialog
         application={application}
         volume={deleting}

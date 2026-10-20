@@ -469,6 +469,11 @@ export type GroupList = {
   items: GroupDto[];
 };
 
+export type GrowVolume = {
+  /** The new size in MiB; at least the current one (volumes only grow). */
+  sizeMib: number;
+};
+
 /** The operating system inside an appliance, from its catalog class (never guessed from names). */
 export type GuestOs = "linux" | "windows";
 
@@ -1345,6 +1350,7 @@ export const operations = {
   publish_application: { method: "POST", path: "/api/v1/applications/{name}/versions", params: ["name"], public: false },
   application_version: { method: "GET", path: "/api/v1/applications/{name}/versions/{revision}", params: ["name","revision"], public: false },
   application_volumes: { method: "GET", path: "/api/v1/applications/{name}/volumes", params: ["name"], public: false },
+  grow_application_volume: { method: "PATCH", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   delete_application_volume: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
   request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
@@ -1462,6 +1468,8 @@ export type Responses = {
   application_version: VersionDocument;
   /** The application's volumes, with what Incus says about each now. Needs `application.view`. */
   application_volumes: ApplicationVolumes;
+  /** Grows one of the application's volumes, also while its instance runs. Volumes only grow: a smaller size is refused. Needs `application.deploy`; audited. */
+  grow_application_volume: null;
   /** Deletes one of the application's volumes and its snapshots, for good. The volume's Incus name must be typed again; refused while an instance uses it. Needs `application.delete` (and an approval where the policy asks for one); audited. */
   delete_application_volume: null;
   /** Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`. */
@@ -1629,6 +1637,7 @@ export type Bodies = {
   publish_application: PublishRequest;
   application_version: never;
   application_volumes: never;
+  grow_application_volume: GrowVolume;
   delete_application_volume: ConfirmVolume;
   approvals: never;
   request_approval: NewApproval;

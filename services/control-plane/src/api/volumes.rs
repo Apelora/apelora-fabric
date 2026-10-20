@@ -63,6 +63,13 @@ pub struct ConfirmVolume {
     pub confirm: String,
 }
 
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GrowVolume {
+    /// The new size in MiB; at least the current one (volumes only grow).
+    pub size_mib: u32,
+}
+
 /// The instance names in Incus's `used_by` paths (`/1.0/instances/<name>?project=…`).
 fn instances_using(used_by: &[String]) -> Vec<String> {
     used_by
@@ -121,6 +128,61 @@ pub(super) async fn list(
         source: source(state.provider.mode()),
         items,
     }))
+}
+
+/// Grows one of the application's volumes, also while its instance runs. Volumes only grow:
+/// a smaller size is refused. Needs `application.deploy`; audited.
+#[utoipa::path(patch, path = "/api/v1/applications/{name}/volumes/{volume}", tag = "applications", operation_id = "grow_application_volume",
+    params(("name" = String, Path, description = "Application name"),
+        ("volume" = String, Path, description = "The volume's Incus name")),
+    request_body = GrowVolume,
+    responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
+        (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody),
+        (status = 502, body = ErrorBody)))]
+pub(super) async fn grow(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path((name, volume)): Path<(String, String)>,
+    body: Result<Json<GrowVolume>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    let (_, res) = load(&state, &p, &name).await?;
+    allow(&p, "application.deploy", &res)?;
+    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let pool = store(&state)?;
+    let record = apelora_persistence::application_volume(pool, &name, &volume)
+        .await?
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                format!("not found: volume {volume} of application {name}"),
+            )
+        })?;
+    let current = u32::try_from(record.size_mib).unwrap_or(0);
+    apelora_domain::storage::check_resize(current, req.size_mib).map_err(bad_request)?;
+    state
+        .provider
+        .grow_volume(
+            &record.project,
+            &record.storage_pool,
+            member_of(&record),
+            &record.incus_name,
+            &name,
+            req.size_mib,
+        )
+        .await?;
+    apelora_persistence::set_volume_size(pool, record.id, req.size_mib).await?;
+    audit_scoped(
+        pool,
+        &p,
+        "application.volume.grow",
+        &format!("{}/{}", record.project, record.incus_name),
+        "success",
+        Some(&res),
+        &json!({ "application": name, "fromMib": current, "toMib": req.size_mib }),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Deletes one of the application's volumes and its snapshots, for good. The volume's Incus

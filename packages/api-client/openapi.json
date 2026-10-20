@@ -1473,6 +1473,108 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Grows one of the application's volumes, also while its instance runs. Volumes only grow:\na smaller size is refused. Needs `application.deploy`; audited.",
+        "operationId": "grow_application_volume",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrowVolume"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/approvals": {
@@ -7250,6 +7352,20 @@
             "items": {
               "$ref": "#/components/schemas/GroupDto"
             }
+          }
+        }
+      },
+      "GrowVolume": {
+        "type": "object",
+        "required": [
+          "sizeMib"
+        ],
+        "properties": {
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The new size in MiB; at least the current one (volumes only grow).",
+            "minimum": 0
           }
         }
       },

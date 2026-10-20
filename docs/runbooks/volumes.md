@@ -25,6 +25,15 @@ Delete a kept volume (its data and snapshots are gone for good):
    It needs `application.delete` (and an approval where the policy asks for one); it is refused
    while an instance uses the volume, and audited as `application.volume.delete`.
 
+Grow a volume that is filling up (it can stay in use):
+
+1. Fabric Console → Applications → Show details → *Grow…*, enter the new size in GiB. Or:
+   `PATCH /api/v1/applications/<name>/volumes/<volume>` with `{"sizeMib": <size>}`. Needs
+   `application.deploy`; audited as `application.volume.grow`. REAL INCUS TESTED on a running
+   container (filesystem volume, btrfs).
+2. Volumes never shrink through Apelora: Incus would accept it and could destroy data. To make
+   one smaller, copy the data to a new, smaller volume and delete the old one.
+
 A volume shows *Not found in Incus*:
 
 1. Its member may be offline: `incus cluster list`. When the member returns, the volume returns.

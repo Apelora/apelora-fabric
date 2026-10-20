@@ -463,6 +463,39 @@ async fn volumes_follow_the_instance_and_outlive_it(pool: Pool) {
     assert!(volume.managed);
     assert_eq!(volume.used_by.len(), 1, "{:?}", volume.used_by);
 
+    // It grows while the instance runs; a shrink is refused before it reaches Incus.
+    provider
+        .grow_volume(
+            &project,
+            &volume_pool,
+            member,
+            &volume_name,
+            "apl-volume-test",
+            512,
+        )
+        .await
+        .expect("grow");
+    let grown = provider
+        .volume(&project, &volume_pool, member, &volume_name)
+        .await
+        .expect("read volume")
+        .expect("volume");
+    assert_eq!(grown.size_mib, Some(512));
+    assert!(
+        provider
+            .grow_volume(
+                &project,
+                &volume_pool,
+                member,
+                &volume_name,
+                "apl-volume-test",
+                256
+            )
+            .await
+            .is_err(),
+        "a shrink must be refused"
+    );
+
     // Creating again converges without a second volume or device.
     converge(&pool, &provider, "instance.create", &spec).await;
     converge(

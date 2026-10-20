@@ -448,6 +448,7 @@ test.describe("fabric console views", () => {
         ...(deleted ? [] : [vol("shop-db-01-data", "retained", [])]),
       ] } }),
       "DELETE /api/v1/applications/shop/volumes/shop-db-01-data": (req) => { sent.push(req.postDataJSON()); deleted = true; return { status: 204 }; },
+      "PATCH /api/v1/applications/shop/volumes/shop-web-01-logs": (req) => { sent.push(req.postDataJSON()); return { status: 204 }; },
     });
     await page.goto("/#/applications");
     await page.getByTestId("application-toggle").click();
@@ -468,6 +469,17 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("application-volumes").getByRole("status")).toHaveText("Volume shop-db-01-data deleted.");
     await expect(volumes).toHaveCount(1);
     expect(sent).toEqual([{ confirm: "shop-db-01-data" }]);
+
+    // A volume in use can still grow; the new size must be larger.
+    await volumes.nth(0).getByRole("button", { name: "Grow shop-web-01-logs" }).click();
+    const grow = page.getByTestId("grow-volume-dialog");
+    await expect(grow).toContainText("It is 512 MiB now.");
+    await grow.getByTestId("grow-volume-size").fill("0.25");
+    await expect(grow.getByTestId("grow-volume-start")).toBeDisabled();
+    await grow.getByTestId("grow-volume-size").fill("4");
+    await grow.getByTestId("grow-volume-start").click();
+    await expect(page.getByTestId("application-volumes").getByRole("status")).toHaveText("Volume shop-web-01-logs is now 4 GiB.");
+    expect(sent.at(-1)).toEqual({ sizeMib: 4096 });
   });
 
   test("each view keeps one primary action", async ({ page }) => {

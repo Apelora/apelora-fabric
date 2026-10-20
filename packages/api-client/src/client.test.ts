@@ -162,6 +162,7 @@ describe("api client", () => {
       "GET /api/v1/tokens",
       "GET /api/v1/whoami",
       "PATCH /api/v1/applications/{name}",
+      "PATCH /api/v1/applications/{name}/volumes/{volume}",
       "POST /api/v1/applications",
       "POST /api/v1/applications/{name}/archive",
       "POST /api/v1/applications/{name}/deployments",

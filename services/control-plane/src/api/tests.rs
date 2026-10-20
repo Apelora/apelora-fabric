@@ -2491,3 +2491,92 @@ async fn volumes_are_listed_kept_after_removal_and_deleted_only_on_purpose(pool:
     .expect("audit");
     assert_eq!(audited, 1);
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn volumes_grow_but_never_shrink(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("mock-local".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let auditor = apelora_persistence::create_token(&pool, "a", "auditor", None)
+        .await
+        .expect("token")
+        .0;
+    let mut db = appliance("db-01");
+    db["availability"] = json!("stateful");
+    db["spec"]["volumes"] = json!([{ "name": "data", "sizeMib": 1024, "path": "/data" }]);
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(json!({ "project": "apelora", "document": {}, "appliances": [db] })),
+        Some("grow-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    let grow = |token: String, size: u32| {
+        let state = state.clone();
+        async move {
+            send(
+                state,
+                "PATCH",
+                "/api/v1/applications/shop/volumes/shop-db-01-data",
+                &token,
+                Some(json!({ "sizeMib": size })),
+                None,
+            )
+            .await
+        }
+    };
+    let (status, _) = grow(auditor, 2048).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, body) = grow(operator.clone(), 512).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("only grow"),
+        "{body}"
+    );
+    let (status, body) = grow(operator.clone(), 4096).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    let (_, list) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications/shop/volumes",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(list["items"][0]["sizeMib"], 4096);
+    let db = provider
+        .instance("apelora", "shop-db-01")
+        .await
+        .expect("read")
+        .expect("exists");
+    let live = provider
+        .volume(
+            "apelora",
+            "mock-local",
+            Some(&db.location),
+            "shop-db-01-data",
+        )
+        .await
+        .expect("read")
+        .expect("volume");
+    assert_eq!(live.size_mib, Some(4096));
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'application.volume.grow'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(audited, 1);
+}

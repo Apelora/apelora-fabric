@@ -757,6 +757,59 @@ impl Provider {
         }
     }
 
+    /// Grows a volume Apelora created for `application` to `size_mib`. Grow-only: Incus accepts
+    /// a shrink, which can destroy data, so a smaller size is refused here. Works while the
+    /// volume is attached and its instance runs.
+    pub async fn grow_volume(
+        &self,
+        project: &str,
+        pool: &str,
+        member: Option<&str>,
+        name: &str,
+        application: &str,
+        size_mib: u32,
+    ) -> Result<(), AdapterError> {
+        let v = self
+            .volume(project, pool, member, name)
+            .await?
+            .ok_or_else(|| AdapterError::NotFound(format!("volume {name}")))?;
+        if !v.managed || v.application.as_deref() != Some(application) {
+            return Err(AdapterError::Api {
+                status: 409,
+                message: format!("volume {name} does not belong to application {application}"),
+            });
+        }
+        let current = v.size_mib.ok_or_else(|| {
+            AdapterError::Decode(format!("volume {name} has a size Apelora cannot read"))
+        })?;
+        apelora_domain::storage::check_resize(current, size_mib).map_err(|message| {
+            AdapterError::Api {
+                status: 400,
+                message,
+            }
+        })?;
+        if size_mib == current {
+            return Ok(());
+        }
+        let op = match self {
+            Provider::Mock(m) => {
+                if let Some(v) = m
+                    .storage()
+                    .volumes
+                    .get_mut(&mock_key(project, pool, member, name))
+                {
+                    v.size_mib = Some(size_mib);
+                }
+                None
+            }
+            Provider::Incus(c) => {
+                c.set_volume_size(project, pool, member, name, size_mib)
+                    .await?
+            }
+        };
+        self.finish(op, &format!("growing volume {name}")).await
+    }
+
     /// Deletes a volume Apelora created for `application`, with its snapshots; `false` when it
     /// did not exist. Incus refuses while an instance uses it.
     pub async fn delete_volume(

@@ -99,6 +99,16 @@ pub async fn application_volume(
     .await?)
 }
 
+/// Records a volume's new size after it grew.
+pub async fn set_volume_size(pool: &Pool, id: Uuid, size_mib: u32) -> Result<()> {
+    sqlx::query("UPDATE volumes SET size_mib = $2, updated_at = now() WHERE id = $1")
+        .bind(id)
+        .bind(i32::try_from(size_mib).unwrap_or(i32::MAX))
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Forgets a volume once it is deleted in Incus.
 pub async fn forget_volume(pool: &Pool, id: Uuid) -> Result<bool> {
     Ok(sqlx::query("DELETE FROM volumes WHERE id = $1")
