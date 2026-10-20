@@ -65,6 +65,9 @@ pub struct InstanceState {
     pub location: String,
     /// Names of the instance's own disk devices backed by a pool volume.
     pub volume_devices: Vec<String>,
+    pub kind: InstanceKind,
+    /// `migration.stateful=true`: a VM can move while running.
+    pub stateful: bool,
 }
 
 /// A snapshot of a volume.
@@ -252,6 +255,8 @@ impl Provider {
                 base_image: i.base_image.clone(),
                 location: i.instance.location.clone(),
                 volume_devices: i.volume_devices.clone(),
+                kind: i.instance.kind,
+                stateful: i.stateful,
             })),
             Provider::Incus(c) => c.instance(project, name).await,
         }
@@ -510,6 +515,64 @@ impl Provider {
                 Ok(m.op())
             }
             Provider::Incus(c) => c.member_state(member, restore).await,
+        }
+    }
+
+    /// Moves an instance to another member (`live`: while it runs; Incus refuses unless it is a
+    /// VM with `migration.stateful`). The project must allow member targeting
+    /// (`restricted.cluster.target=allow`) for a restricted identity. Returns the operation.
+    pub async fn move_instance(
+        &self,
+        project: &str,
+        name: &str,
+        target: &str,
+        live: bool,
+    ) -> Result<String, AdapterError> {
+        valid_names(&[project, name])?;
+        valid_member(target)?;
+        match self {
+            Provider::Mock(m) => {
+                let mut all = m.lock();
+                let i = all
+                    .iter_mut()
+                    .find(|i| i.instance.project == project && i.instance.name == name)
+                    .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                let running = i.instance.status == "Running";
+                if running
+                    && !(live && i.stateful && i.instance.kind == InstanceKind::VirtualMachine)
+                {
+                    return Err(AdapterError::Api {
+                        status: 400,
+                        message: "Instance must be stopped to be moved".into(),
+                    });
+                }
+                let from = std::mem::replace(&mut i.instance.location, target.to_owned());
+                drop(all);
+                // Its devices now resolve to the same-named volumes on the new member.
+                let user = format!("/1.0/instances/{name}?project={project}");
+                let mut st = m.storage();
+                let moved: Vec<String> = st
+                    .volumes
+                    .iter_mut()
+                    .filter(|(k, v)| {
+                        k.starts_with(&format!("{project}/"))
+                            && k.contains(&format!("/{from}/"))
+                            && v.used_by.contains(&user)
+                    })
+                    .map(|(k, v)| {
+                        v.used_by.retain(|u| *u != user);
+                        k.replacen(&format!("/{from}/"), &format!("/{target}/"), 1)
+                    })
+                    .collect();
+                for k in moved {
+                    if let Some(v) = st.volumes.get_mut(&k) {
+                        v.used_by.push(user.clone());
+                    }
+                }
+                drop(st);
+                Ok(m.op())
+            }
+            Provider::Incus(c) => c.move_instance(project, name, target, live).await,
         }
     }
 
@@ -1040,6 +1103,12 @@ impl Provider {
                         "snapshot {s} of volume {name}"
                     )));
                 }
+                if st.fail_create.contains(to) {
+                    return Err(AdapterError::Api {
+                        status: 500,
+                        message: format!("mock: pool {to_pool} is full"),
+                    });
+                }
                 let key = mock_key(project, to_pool, to_member, to);
                 if st.volumes.contains_key(&key) {
                     return Err(AdapterError::Api {
@@ -1333,6 +1402,8 @@ pub struct MockInstance {
     pub base_image: Option<String>,
     /// Disk devices backed by a volume.
     pub volume_devices: Vec<String>,
+    /// `migration.stateful` was set at creation.
+    pub stateful: bool,
     /// New for every created instance, like Incus's `volatile.uuid`.
     pub uuid: String,
 }
@@ -1393,6 +1464,10 @@ impl MockIncus {
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
+            stateful: spec
+                .config
+                .get("migration.stateful")
+                .is_some_and(|v| v == "true"),
         });
         Ok(self.op())
     }
@@ -1658,6 +1733,7 @@ impl Default for MockIncus {
                     instance,
                     base_image: None,
                     volume_devices: Vec::new(),
+                    stateful: false,
                 })
                 .collect(),
             )),

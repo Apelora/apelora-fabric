@@ -281,6 +281,16 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "/api/v1/instances/{project}/{name}",
         &["instance.manage"],
     ),
+    (
+        "GET",
+        "/api/v1/instances/{project}/{name}/move",
+        &["instance.manage"],
+    ),
+    (
+        "POST",
+        "/api/v1/instances/{project}/{name}/move",
+        &["instance.manage"],
+    ),
     ("GET", "/api/v1/applications", &["application.view"]),
     ("POST", "/api/v1/applications", &["application.create"]),
     ("GET", "/api/v1/applications/{name}", &["application.view"]),

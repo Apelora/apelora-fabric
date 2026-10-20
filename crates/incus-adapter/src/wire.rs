@@ -194,6 +194,8 @@ pub(crate) struct NetworkAddress {
 #[serde(default)]
 pub(crate) struct InstanceDetail {
     pub status: String,
+    #[serde(rename = "type")]
+    pub kind: String,
     pub architecture: String,
     pub config: BTreeMap<String, String>,
     pub location: String,

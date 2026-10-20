@@ -650,3 +650,113 @@ async fn a_backup_is_copied_to_another_member(pool: Pool) {
         );
     }
 }
+
+/// Moves through the `instance.move` job: a container with a volume stops, its volume is copied
+/// to the new member, it moves and starts there and the old copy is deleted; a VM with live
+/// migration moves while running. Needs `restricted.cluster.target=allow` on the project and a
+/// second online member.
+#[ignore = "needs a disposable Incus with two members and member targeting allowed: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn instances_move_with_their_volumes_and_vms_move_live(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    apelora_persistence::ensure_application(&pool, "apl-move-test")
+        .await
+        .expect("application");
+    let members: Vec<String> = provider
+        .cluster_members()
+        .await
+        .expect("members")
+        .into_iter()
+        .filter(|m| m.status == "Online")
+        .map(|m| m.name)
+        .collect();
+    assert!(members.len() >= 2, "needs two online members");
+    let other = |from: &str| {
+        members
+            .iter()
+            .find(|m| *m != from)
+            .expect("another member")
+            .clone()
+    };
+
+    // A container with a volume.
+    let name = unique("apl-mv");
+    converge(&pool, &provider, "instance.create", &json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "owner": { "application": "apl-move-test", "module": "db", "replica": 1 },
+        "volumes": [{ "name": "data", "sizeMib": 128, "path": "/srv/data", "pool": "local" }] })).await;
+    let from = status(&provider, &project, &name)
+        .await
+        .expect("created")
+        .location;
+    let to = other(&from);
+    let volume = format!("{name}-data");
+    converge(&pool, &provider, "instance.move", &json!({ "project": project, "name": name, "application": "apl-move-test",
+        "from": from, "target": to, "live": false, "startAfter": true, "volumes": [{ "pool": "local", "name": volume }] })).await;
+    let moved = status(&provider, &project, &name).await.expect("exists");
+    assert_eq!(
+        (moved.location.as_str(), moved.status.as_str()),
+        (to.as_str(), "Running")
+    );
+    assert!(
+        provider
+            .volume(&project, "local", Some(&to), &volume)
+            .await
+            .expect("read")
+            .is_some()
+    );
+    assert!(
+        provider
+            .volume(&project, "local", Some(&from), &volume)
+            .await
+            .expect("read")
+            .is_none(),
+        "old copy deleted"
+    );
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    assert_eq!(
+        provider
+            .delete_volume(&project, "local", Some(&to), &volume, "apl-move-test")
+            .await,
+        Ok(true)
+    );
+
+    // A VM with live migration.
+    let vm = unique("apl-mvm");
+    converge(&pool, &provider, "instance.create", &json!({ "project": project, "name": vm, "kind": "virtual-machine", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "config": { "migration.stateful": "true", "limits.memory": "1GiB" },
+        "owner": { "application": "apl-move-test", "module": "vm", "replica": 1 } })).await;
+    let from = status(&provider, &project, &vm)
+        .await
+        .expect("created")
+        .location;
+    let to = other(&from);
+    converge(
+        &pool,
+        &provider,
+        "instance.move",
+        &json!({ "project": project, "name": vm, "application": "apl-move-test",
+        "from": from, "target": to, "live": true, "startAfter": true }),
+    )
+    .await;
+    let moved = status(&provider, &project, &vm).await.expect("exists");
+    assert_eq!(
+        (moved.location.as_str(), moved.status.as_str()),
+        (to.as_str(), "Running")
+    );
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": vm }),
+    )
+    .await;
+}

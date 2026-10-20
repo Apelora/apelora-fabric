@@ -20,6 +20,12 @@ export const RUNTIMES: Readonly<Record<string, Runtime>> = {
       },
     },
   },
+  // A Debian 13 virtual machine: moved running between members on the test cluster
+  // (docs/design/mobility-and-ha.md).
+  "linux-base": {
+    kind: "incus-vm",
+    image: { server: "https://images.linuxcontainers.org", alias: "debian/13" },
+  },
   debian: {
     kind: "incus-system-container",
     imageBy: {

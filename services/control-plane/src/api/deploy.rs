@@ -164,7 +164,7 @@ pub(super) async fn instance_resource(
 
 /// The one authorisation step for raw-instance routes: legacy tokens need `deploy`; people and
 /// service identities need `instance.manage` on the environment that owns the project.
-async fn authorize_instance(
+pub(super) async fn authorize_instance(
     state: &AppState,
     p: &Principal,
     project: &str,
@@ -198,7 +198,7 @@ pub(super) fn idempotency_key(
     Ok(Some(format!("{}:{key}", p.actor_ref())))
 }
 
-async fn queue(
+pub(super) async fn queue(
     state: &AppState,
     p: &Principal,
     headers: &HeaderMap,

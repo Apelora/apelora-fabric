@@ -77,7 +77,10 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | Volumes in designs: class defaults (`runtime.volumes`), per-module volumes in the Studio Properties window (checked against the schema, refused for stateless classes), listed in the deploy review and sent with the plan | Done; MOCK VERIFIED in the browser (stubbed control plane); the request shape is the one REAL INCUS TESTED through the API | 06 |
 | Volume grow (online, grow-only: a shrink is refused before it reaches Incus), API and Fabric Console | Done; REAL INCUS TESTED (adapter, running instance) | 06 |
 | Volume snapshots: take (named by time, says whether crash-consistent), list, restore with the name typed and only while every user is stopped, delete; audited; Fabric Console Snapshots dialog | Done; REAL INCUS TESTED (adapter and in a real browser against the cluster) | 06 |
-| Scheduled snapshots, backups to another pool, relocation of `data-local` volumes | Missing | 06 |
+| Scheduled snapshots (kept to what the schedule says; manual ones never pruned) and backups copied into a backup pool on another member, scheduled or on request (worker) | Done; REAL INCUS TESTED (backup copy across pools and members) | 06 |
+| Backup API and console, restore from a backup | Missing | 06 |
+| Moving an instance to another member (`instance.move` job; dry run, typed name): VMs with live migration move running; containers and VMs with `data-local` volumes stop, their volumes are copied and the old copies deleted once it runs there; Studio *Keep running when moved* for VM modules; Fabric Console *Move…* | Done; REAL INCUS TESTED (container with a volume; VM live, 0.26 s longest pause, no reboot, from the console in a real browser) | 08 |
+| Restart of VMs on shared storage after a failed member is fenced; rebalancing | Missing (design: docs/design/mobility-and-ha.md) | 08 |
 | Resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
 | Member removal: check (evacuated, nothing left on it, recorded volumes, cluster keeps running), typed confirmation, admin identity, audited; Fabric Console *Remove…* | Done; REAL INCUS TESTED (member 4 removed and enrolled again) | 09 |

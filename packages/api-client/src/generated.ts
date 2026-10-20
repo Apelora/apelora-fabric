@@ -706,6 +706,37 @@ export type ModuleStatus = {
   status: string;
 };
 
+/** What the move does, decided before anything changes. */
+export type MovePlan = {
+  /** Why the move is refused; empty when it may proceed. */
+  blocked: string[];
+  /** How much data is copied while it is stopped, in MiB. */
+  copyMib: number;
+  from: string;
+  instance: string;
+  /** Moves while running. */
+  live: boolean;
+  /** What to expect, in sentences. */
+  notes: string[];
+  /** Stops for the move (and starts again on the new member if it was running). */
+  stops: boolean;
+  to: string;
+  /** Volumes copied to the new member, then deleted on the old one once it runs there. */
+  volumes: string[];
+};
+
+export type MovePreview = {
+  plan: MovePlan;
+  source: Source;
+};
+
+export type MoveRequest = {
+  allowStop?: boolean;
+  /** The instance's name again, typed by the person moving it. */
+  confirm: string;
+  target: string;
+};
+
 export type Network = {
   description: string;
   kind: string;
@@ -1449,6 +1480,8 @@ export const operations = {
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
   delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
+  preview_instance_move: { method: "GET", path: "/api/v1/instances/{project}/{name}/move", params: ["project","name"], public: false },
+  move_instance: { method: "POST", path: "/api/v1/instances/{project}/{name}/move", params: ["project","name"], public: false },
   change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
   jobs: { method: "GET", path: "/api/v1/jobs", params: [], public: false },
   job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
@@ -1630,6 +1663,10 @@ export type Responses = {
   create_instance: JobAccepted;
   /** Queues deletion of an Apelora instance (stopped first if running). Needs `deploy`. */
   delete_instance: JobAccepted;
+  /** Dry run of moving an instance to another member: whether it keeps running, what it copies, what blocks it. Changes nothing. Needs `deploy` (or `instance.manage`). */
+  preview_instance_move: MovePreview;
+  /** Moves an Apelora instance to another member, after the check runs again and its name is typed: live when it can, otherwise only with `allowStop`, copying its volumes there. Queues an `instance.move` job. Needs `deploy` (or `instance.manage`); audited. */
+  move_instance: JobAccepted;
   /** Queues starting or stopping an Apelora instance. Needs `deploy`. */
   change_state: JobAccepted;
   /** The 100 most recent jobs, newest first. Needs `read-inventory`. */
@@ -1754,6 +1791,8 @@ export type Bodies = {
   instances: never;
   create_instance: InstanceSpec;
   delete_instance: never;
+  preview_instance_move: never;
+  move_instance: MoveRequest;
   change_state: StateChange;
   jobs: never;
   job: never;

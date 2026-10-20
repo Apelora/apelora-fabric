@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setReplicas, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
+import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
 import { MODULE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ModuleClass => {
@@ -192,3 +192,28 @@ describe("volumes", () => {
   });
 });
 
+
+describe("live migration", () => {
+  it("a VM module that asks for it is created to move while running, also when its server is evacuated", () => {
+    const vm = get("linux-base");
+    const on = instanceRequestFor(vm, { config: {}, liveMigration: true }, target);
+    expect(on.ok && on.request.kind).toBe("virtual-machine");
+    expect(on.ok && on.request.config).toMatchObject({ "migration.stateful": "true", "cluster.evacuate": "live-migrate" });
+    const off = instanceRequestFor(vm, { config: {} }, target);
+    expect(off.ok && off.request.config?.["migration.stateful"]).toBeUndefined();
+  });
+
+  it("is refused for containers and for VMs with volumes on their server's own pool", () => {
+    const c = instanceRequestFor(get("debian"), { config: {}, liveMigration: true }, target);
+    expect(!c.ok && c.error).toContain("only virtual machines");
+    const v = instanceRequestFor(get("linux-base"), { config: {}, liveMigration: true, volumes: [{ name: "data", sizeMiB: 1024, path: "/data" }] }, target);
+    expect(!v.ok && v.error).toContain("cannot follow it while it runs");
+  });
+
+  it("is stored only when on", () => {
+    const a = sampleCommerceStack();
+    const id = a.spec.modules[0]!.id;
+    expect(setLiveMigration(a, id, true).spec.modules[0]!.liveMigration).toBe(true);
+    expect("liveMigration" in setLiveMigration(setLiveMigration(a, id, true), id, false).spec.modules[0]!).toBe(false);
+  });
+});

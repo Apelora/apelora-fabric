@@ -43,3 +43,9 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - https://linuxcontainers.org/incus/docs/main/
 - https://github.com/lxc/incus
 - https://doc.rust-lang.org/cargo/reference/workspaces.html
+
+## Moves and live migration (docs/design/mobility-and-ha.md)
+
+- Planned moves: `instance.move` job, planned by `apelora_domain::mobility::plan_move`. VMs with `migration.stateful=true` move live (measured: under one second, no reboot); containers and VMs with `data-local` volumes stop, their volumes are copied to the target member, the old copies are deleted only once the instance runs there.
+- The deploy project needs `restricted.cluster.target=allow`; without it Incus refuses targeting for the restricted identity.
+- Unplanned failures: live migration cannot help. Stateless replicas cover them today; VMs on shared storage restart elsewhere only after the failed member is fenced (slice B). Never enable Incus's `cluster.healing_threshold` without an automatic fence.

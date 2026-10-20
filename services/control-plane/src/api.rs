@@ -149,6 +149,10 @@ pub fn router(state: AppState) -> Router {
             delete(deploy::delete_instance),
         )
         .route(
+            "/api/v1/instances/{project}/{name}/move",
+            get(mobility::preview).post(mobility::request),
+        )
+        .route(
             "/api/v1/applications",
             get(manage::list).post(manage::create),
         )
@@ -1114,7 +1118,7 @@ impl Modify for BearerAuth {
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
-        deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
+        deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
@@ -1163,6 +1167,7 @@ mod document;
 mod identity;
 mod machines;
 mod manage;
+mod mobility;
 pub mod sessions;
 mod volumes;
 

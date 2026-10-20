@@ -68,7 +68,7 @@ const isOci = (rt: Runtime, _image: SystemImage | OciImage): _image is OciImage 
  */
 export function instanceRequestFor(
   cls: ModuleClass,
-  module: Pick<ModuleInstance, "config"> & { resources?: Resources; volumes?: Volume[] },
+  module: Pick<ModuleInstance, "config"> & { resources?: Resources; volumes?: Volume[]; liveMigration?: boolean },
   target: { project: string; name: string; start?: boolean },
 ): { ok: true; request: InstanceRequest } | { ok: false; error: string } {
   const rt = cls.runtime;
@@ -85,6 +85,12 @@ export function instanceRequestFor(
   if (volumes.length && availabilityOf(cls) === "stateless") {
     return { ok: false, error: `${cls.displayName} is stateless: its replicas cannot keep volumes` };
   }
+  if (module.liveMigration && kind !== "virtual-machine") {
+    return { ok: false, error: `${cls.displayName} is a container: only virtual machines keep running while they move` };
+  }
+  if (module.liveMigration && volumes.length) {
+    return { ok: false, error: `${cls.displayName} keeps volumes on its server's own pool, which cannot follow it while it runs: turn live migration off or remove the volumes` };
+  }
   return {
     ok: true,
     request: {
@@ -96,7 +102,11 @@ export function instanceRequestFor(
       architectures: source.fingerprint ? [] : [...cls.architectures],
       start: target.start ?? true,
       // The module's own resources (set in the Studio), else its class's.
-      config: resourceLimits(kind, module.resources ?? cls.resources),
+      config: {
+        ...resourceLimits(kind, module.resources ?? cls.resources),
+        // Moves while running, also when its server is evacuated (docs/design/mobility-and-ha.md).
+        ...(module.liveMigration ? { "migration.stateful": "true", "cluster.evacuate": "live-migrate" } : {}),
+      },
       ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path })) } : {}),
     },
   };
@@ -129,6 +139,8 @@ export interface DeployableModule {
   resources: Resources;
   /** Volumes each instance keeps (also in `spec.volumes`). */
   volumes: Volume[];
+  /** Keeps running when it is moved (also in `spec.config`). */
+  liveMigration: boolean;
 }
 
 /** A module that stays in the design only, and why. */
@@ -155,7 +167,7 @@ export function deploymentModules(
     if (!cls) { skip(`unknown module class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a) });
+    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a), liveMigration: a.liveMigration ?? false });
     else skip(r.error);
   }
   return { deployable, designOnly };

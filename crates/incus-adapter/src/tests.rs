@@ -523,6 +523,8 @@ async fn reads_ownership_and_reports_failed_operations() {
             base_image: Some(FP.into()),
             location: String::new(),
             volume_devices: Vec::new(),
+            kind: InstanceKind::Unknown,
+            stateful: false,
         }))
     );
     assert_eq!(
@@ -589,6 +591,8 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
             base_image: None,
             location: "mock-member-01".into(),
             volume_devices: Vec::new(),
+            kind: InstanceKind::Container,
+            stateful: false,
         }))
     );
     assert_eq!(

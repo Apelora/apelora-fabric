@@ -4951,6 +4951,236 @@
         }
       }
     },
+    "/api/v1/instances/{project}/{name}/move": {
+      "get": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Dry run of moving an instance to another member: whether it keeps running, what it copies,\nwhat blocks it. Changes nothing. Needs `deploy` (or `instance.manage`).",
+        "operationId": "preview_instance_move",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "The member to move to.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "allowStop",
+            "in": "query",
+            "description": "Whether a short stop is acceptable when it cannot move while running.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovePreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Moves an Apelora instance to another member, after the check runs again and its name is\ntyped: live when it can, otherwise only with `allowStop`, copying its volumes there.\nQueues an `instance.move` job. Needs `deploy` (or `instance.manage`); audited.",
+        "operationId": "move_instance",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/instances/{project}/{name}/state": {
       "post": {
         "tags": [
@@ -8681,6 +8911,101 @@
           "status": {
             "type": "string",
             "description": "Incus status, e.g. `Running`."
+          }
+        }
+      },
+      "MovePlan": {
+        "type": "object",
+        "description": "What the move does, decided before anything changes.",
+        "required": [
+          "instance",
+          "from",
+          "to",
+          "live",
+          "stops",
+          "volumes",
+          "copyMib",
+          "blocked",
+          "notes"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why the move is refused; empty when it may proceed."
+          },
+          "copyMib": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How much data is copied while it is stopped, in MiB.",
+            "minimum": 0
+          },
+          "from": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Moves while running."
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What to expect, in sentences."
+          },
+          "stops": {
+            "type": "boolean",
+            "description": "Stops for the move (and starts again on the new member if it was running)."
+          },
+          "to": {
+            "type": "string"
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Volumes copied to the new member, then deleted on the old one once it runs there."
+          }
+        }
+      },
+      "MovePreview": {
+        "type": "object",
+        "required": [
+          "source",
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/MovePlan"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "MoveRequest": {
+        "type": "object",
+        "required": [
+          "target",
+          "confirm"
+        ],
+        "properties": {
+          "allowStop": {
+            "type": "boolean"
+          },
+          "confirm": {
+            "type": "string",
+            "description": "The instance's name again, typed by the person moving it."
+          },
+          "target": {
+            "type": "string"
           }
         }
       },

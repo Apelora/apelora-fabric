@@ -803,6 +803,9 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "liveMigration": {
+                "type": "boolean"
               }
             },
             "required": [

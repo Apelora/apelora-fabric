@@ -154,6 +154,11 @@ export function setVolumes(a: ApplicationAssembly, id: string, volumes: Volume[]
   return updateModule(a, id, ({ volumes: _old, ...x }) => (volumes ? { ...x, volumes } : x));
 }
 
+/** Turns live migration on or off for a (VM) module; off is stored as absent. */
+export function setLiveMigration(a: ApplicationAssembly, id: string, on: boolean): ApplicationAssembly {
+  return updateModule(a, id, ({ liveMigration: _old, ...x }) => (on ? { ...x, liveMigration: true } : x));
+}
+
 /** Sets how many instances a module runs (1–9; 1 is stored as absent). */
 export function setReplicas(a: ApplicationAssembly, id: string, n: number): ApplicationAssembly {
   const replicas = Math.min(MAX_REPLICAS, Math.max(1, Math.round(n)));

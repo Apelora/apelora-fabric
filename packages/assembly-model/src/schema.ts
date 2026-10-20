@@ -89,6 +89,8 @@ export const ModuleInstanceSchema = z.object({
   internet: z.enum(["none", "web", "any"]).optional(),
   /** Its persistent volumes; absent means the class's (an empty list: none). */
   volumes: volumeList.optional(),
+  /** A VM that keeps running when it is moved to another server; absent means off. */
+  liveMigration: z.boolean().optional(),
 });
 
 /** Outbound access to the internet, per module. Inside the application only cables count. */

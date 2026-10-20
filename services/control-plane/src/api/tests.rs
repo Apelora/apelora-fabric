@@ -2770,3 +2770,117 @@ async fn snapshots_are_taken_listed_restored_only_when_stopped_and_deleted(pool:
         ]
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_instance_is_moved_after_a_dry_run_with_its_volume_and_a_stop_only_when_allowed(
+    pool: Pool,
+) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_volume_pool(Some("mock-local".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut db = module("db-01");
+    db["availability"] = json!("stateful");
+    db["spec"]["volumes"] = json!([{ "name": "data", "sizeMib": 1024, "path": "/data" }]);
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(json!({ "project": "apelora", "document": {}, "modules": [db] })),
+        Some("mv-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    let base = "/api/v1/instances/apelora/shop-db-01/move";
+
+    let (status, body) = send(
+        state.clone(),
+        "GET",
+        &format!("{base}?target=mock-member-02"),
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body["plan"]["blocked"]
+            .to_string()
+            .contains("allow a short stop"),
+        "{body}"
+    );
+    let (_, body) = send(
+        state.clone(),
+        "GET",
+        &format!("{base}?target=mock-member-02&allowStop=true"),
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (
+            body["plan"]["stops"].as_bool(),
+            body["plan"]["live"].as_bool()
+        ),
+        (Some(true), Some(false)),
+        "{body}"
+    );
+    assert_eq!(body["plan"]["volumes"], json!(["shop-db-01-data"]));
+
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        base,
+        &operator,
+        Some(json!({ "target": "mock-member-02", "confirm": "shop-db", "allowStop": true })),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = send(
+        state.clone(),
+        "POST",
+        base,
+        &operator,
+        Some(json!({ "target": "mock-member-02", "confirm": "shop-db-01" })),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let (status, body) = send(
+        state.clone(),
+        "POST",
+        base,
+        &operator,
+        Some(json!({ "target": "mock-member-02", "confirm": "shop-db-01", "allowStop": true })),
+        Some("mv-2"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    drain(&pool, &provider).await;
+    let now = provider
+        .instance("apelora", "shop-db-01")
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        (now.location.as_str(), now.status.as_str()),
+        ("mock-member-02", "Running")
+    );
+    let (_, list) = send(
+        state,
+        "GET",
+        "/api/v1/applications/shop/volumes",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(list["items"][0]["member"], "mock-member-02", "{list}");
+}

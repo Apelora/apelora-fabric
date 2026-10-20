@@ -421,6 +421,8 @@ mod tests {
             base_image: Some(FP.into()),
             location: "member-1".into(),
             volume_devices: Vec::new(),
+            kind: apelora_domain::InstanceKind::Container,
+            stateful: false,
         })
     }
 

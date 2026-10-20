@@ -102,6 +102,21 @@ pub async fn all_volumes(pool: &Pool) -> Result<Vec<VolumeRecord>> {
     .await?)
 }
 
+/// The volumes of one instance.
+pub async fn instance_volumes(
+    pool: &Pool,
+    project: &str,
+    instance: &str,
+) -> Result<Vec<VolumeRecord>> {
+    Ok(sqlx::query_as::<_, VolumeRecord>(&format!(
+        "SELECT {COLUMNS} FROM volumes v WHERE v.project = $1 AND v.instance = $2 ORDER BY v.name"
+    ))
+    .bind(project)
+    .bind(instance)
+    .fetch_all(pool)
+    .await?)
+}
+
 /// One of the application's volumes, by its Incus name.
 pub async fn application_volume(
     pool: &Pool,
@@ -116,6 +131,27 @@ pub async fn application_volume(
     .bind(incus_name)
     .fetch_optional(pool)
     .await?)
+}
+
+/// Records the member a volume now lives on, after it was moved.
+pub async fn set_volume_member(
+    pool: &Pool,
+    project: &str,
+    storage_pool: &str,
+    incus_name: &str,
+    member: &str,
+) -> Result<()> {
+    sqlx::query(
+        "UPDATE volumes SET member = $4, updated_at = now()
+         WHERE project = $1 AND storage_pool = $2 AND incus_name = $3",
+    )
+    .bind(project)
+    .bind(storage_pool)
+    .bind(incus_name)
+    .bind(member)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Records a volume's new size after it grew.

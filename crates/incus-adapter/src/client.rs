@@ -379,6 +379,15 @@ impl IncusClient {
                     })
                     .map(|(name, _)| name)
                     .collect(),
+                kind: match d.kind.as_str() {
+                    "virtual-machine" => InstanceKind::VirtualMachine,
+                    "container" => InstanceKind::Container,
+                    _ => InstanceKind::Unknown,
+                },
+                stateful: d
+                    .config
+                    .get("migration.stateful")
+                    .is_some_and(|v| v == "true"),
             })),
             Err(AdapterError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
@@ -730,6 +739,22 @@ impl IncusClient {
             Method::POST,
             &format!("/1.0/cluster/members/{member}/state"),
             Some(&body),
+        )
+        .await
+    }
+
+    /// `POST /1.0/instances/<name>?target=<member>`: moves the instance within the cluster.
+    pub async fn move_instance(
+        &self,
+        project: &str,
+        name: &str,
+        target: &str,
+        live: bool,
+    ) -> Result<String, AdapterError> {
+        self.start_operation(
+            Method::POST,
+            &format!("/1.0/instances/{name}?project={project}&target={target}"),
+            Some(&json!({ "name": name, "migration": true, "live": live })),
         )
         .await
     }

@@ -141,6 +141,19 @@ function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "port
               {availabilityOf(cls) === "stateful" ? "Stateful" : "Singleton"}: runs as one instance. A lost instance is reported, not recreated automatically.
             </p>
           )}
+          {cls.runtime.kind === "incus-vm" && (
+            <div className="mt-2" data-testid="live-migration">
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" className="checkbox checkbox-xs" checked={!!app.liveMigration} disabled={volumesOf(cls, app).length > 0} data-testid="live-migration-toggle" onChange={(e) => api.getState().setModuleLiveMigration(app.id, e.currentTarget.checked)} />
+                Keep running when moved (live migration)
+              </label>
+              <p className="mt-1 text-xs text-base-content/60">
+                {volumesOf(cls, app).length > 0
+                  ? "Not with volumes on its server's own pool: they cannot follow a running VM."
+                  : "Moves to another server with a pause of under a second, also during server maintenance."}
+              </p>
+            </div>
+          )}
         </Section>
       )}
       {cls?.runtime && <VolumesSection appId={app.id} cls={cls} volumes={volumesOf(cls, app)} />}

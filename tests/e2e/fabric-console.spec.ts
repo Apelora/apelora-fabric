@@ -551,6 +551,36 @@ test.describe("fabric console views", () => {
     expect(sent).toEqual([{ what: "take", body: null }, { what: "restore", body: { confirm: "snap-20261021-101500" } }, { what: "delete", body: null }]);
   });
 
+  test("an instance moves after a dry run: a stop only with consent, the name typed, the job followed", async ({ page }) => {
+    const sent: unknown[] = [];
+    let moved = false;
+    const plan = (allowStop: boolean) => ({ source: { provider: "incus", observedAt: now }, plan: {
+      instance: "web-01", from: "node-1", to: "node-2", live: false, stops: allowStop, volumes: ["web-01-data"], copyMib: 1024,
+      blocked: allowStop ? [] : ["it would have to stop: a container cannot move while running; allow a short stop to move it"],
+      notes: [...(allowStop ? ["it stops for the move (a container cannot move while running) and starts again on node-2"] : []), "1 volume (1024 MiB) copied to node-2; the old copies are deleted once it runs there"] } });
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/instances": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("web-01", "apelora", "Running", true)].map((i) => ({ ...i, location: moved ? "node-2" : "node-1" })) } }),
+      "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), member("node-2"), member("node-3", "Offline")] } }),
+      "GET /api/v1/instances/apelora/web-01/move": (req) => ({ json: plan(new URL(req.url()).searchParams.get("allowStop") === "true") }),
+      "POST /api/v1/instances/apelora/web-01/move": (req) => { sent.push(req.postDataJSON()); return { status: 202, json: { jobId: "jm", created: true } }; },
+      "GET /api/v1/jobs/jm": () => { moved = true; return { json: { id: "jm", kind: "instance.move", status: "succeeded", attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: now, updatedAt: now } }; },
+    });
+    await page.goto("/#/instances");
+    await page.getByRole("button", { name: "Move web-01" }).click();
+    const dialog = page.getByTestId("move-dialog");
+    await expect(dialog.getByTestId("move-target").locator("option")).toHaveText(["node-2"]);
+    await expect(dialog.getByTestId("move-blocked")).toContainText("allow a short stop");
+    await expect(dialog.getByTestId("move-start")).toBeDisabled();
+    await dialog.getByTestId("move-allow-stop").check();
+    await expect(dialog.getByTestId("move-note").first()).toContainText("It stops for the move");
+    await dialog.getByTestId("move-confirm").fill("web-01");
+    await dialog.getByTestId("move-start").click();
+    await expect(page.getByTestId("instance-row")).toContainText("node-2");
+    expect(sent).toEqual([{ target: "node-2", confirm: "web-01", allowStop: true }]);
+  });
+
   test("each view keeps one primary action", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),

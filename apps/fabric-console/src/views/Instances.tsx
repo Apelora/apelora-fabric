@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { Instance, InstanceList, Job, WhoAmI } from "@apelora/api-client";
+import type { ClusterResponse, Instance, InstanceList, Job, MovePreview, WhoAmI } from "@apelora/api-client";
 import { MODULE_CLASSES, logoUrl } from "@apelora/module-catalog";
 import { instanceRequestFor, type ModuleClass } from "@apelora/assembly-model";
 
@@ -115,11 +115,101 @@ function DeployDialog({ open, projects, onClose, onQueued }: { open: boolean; pr
   );
 }
 
+/**
+ * Moving an instance to another member: the dry run says whether it keeps running or must stop
+ * (and what it copies); a stop needs the person's consent, and the name typed to go ahead.
+ */
+function MoveDialog({ instance, onClose, onQueued }: { instance: Instance | null; onClose: () => void; onQueued: (target: string, label: string, jobId: string) => void }) {
+  const [members, setMembers] = useState<string[]>([]);
+  const [target, setTarget] = useState("");
+  const [allowStop, setAllowStop] = useState(false);
+  const [preview, setPreview] = useState<MovePreview | null>(null);
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!instance) return;
+    setTarget(""); setAllowStop(false); setPreview(null); setTyped(""); setError(null);
+    client.get("cluster").then(
+      (c: ClusterResponse) => {
+        const others = c.members.filter((m) => m.name !== instance.location && m.status === "Online").map((m) => m.name);
+        setMembers(others);
+        setTarget(others[0] ?? "");
+      },
+      (e: unknown) => setError(messageOf(e)),
+    );
+  }, [instance]);
+  useEffect(() => {
+    if (!instance || !target) return;
+    let current = true;
+    setPreview(null);
+    client.request("preview_instance_move", { params: { project: instance.project, name: instance.name }, query: { target, allowStop } }).then(
+      (p) => { if (current) setPreview(p); },
+      (e: unknown) => { if (current) setError(messageOf(e)); },
+    );
+    return () => { current = false; };
+  }, [instance, target, allowStop]);
+  const plan = preview?.plan;
+  const blocked = !!plan?.blocked.length;
+  const start = async () => {
+    if (!instance) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await client.request("move_instance", { params: { project: instance.project, name: instance.name }, body: { target, confirm: typed, allowStop }, idempotencyKey: idempotencyKey() });
+      onQueued(key(instance.project, instance.name), plan?.live ? `Moving live to ${target}` : `Moving to ${target}`, res.jobId);
+      onClose();
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog open={!!instance} title={`Move ${instance?.name ?? ""}`} onClose={onClose} testId="move-dialog">
+      <p className="text-sm text-base-content/80">It runs on {instance?.location ?? "?"} now.</p>
+      <label className="flex flex-col gap-1 text-sm">
+        <span>Move to</span>
+        <select className="select select-sm w-full" value={target} onChange={(e) => setTarget(e.target.value)} data-testid="move-target">
+          {members.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+      </label>
+      {members.length === 0 && !error && <p className="text-sm text-base-content/70">No other member is online.</p>}
+      {plan && (
+        <>
+          {plan.notes.map((n) => <p key={n} className="text-sm" data-testid="move-note">{n.charAt(0).toUpperCase() + n.slice(1)}.</p>)}
+          {plan.blocked.map((b) => <p key={b} role="alert" className="text-sm text-error" data-testid="move-blocked">Cannot move: {b}</p>)}
+        </>
+      )}
+      {plan && !plan.live && (plan.stops || blocked) && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="checkbox checkbox-sm" checked={allowStop} onChange={(e) => setAllowStop(e.target.checked)} data-testid="move-allow-stop" />
+          Allow a short stop: it cannot move while running
+        </label>
+      )}
+      {plan && !blocked && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span>Type <strong className="font-mono">{instance?.name}</strong> to confirm</span>
+          <input className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="move-confirm" />
+        </label>
+      )}
+      {error && <ErrorPanel message={error} testId="move-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-sm btn-primary" disabled={!plan || blocked || typed !== instance?.name || busy} onClick={() => void start()} data-testid="move-start">
+          {busy ? "Queuing…" : plan?.live ? "Move while running" : "Move"}
+        </button>
+      </div>
+    </FormDialog>
+  );
+}
+
 export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   const [list, reload] = useLoad<InstanceList>(() => client.get("instances"), onAuth);
   const [pending, setPending] = useState<Record<string, Pending>>({});
   const [deploying, setDeploying] = useState(false);
   const [toDelete, setToDelete] = useState<Instance | null>(null);
+  const [toMove, setToMove] = useState<Instance | null>(null);
   const canDeploy = !!me?.permissions.includes("deploy");
   const projects = me?.deployProjects ?? [];
 
@@ -189,10 +279,11 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
                         <td className="text-right">
                           {p?.error && <span className="mr-2 text-xs text-error" role="alert" data-testid="instance-error">{p.error}</span>}
                           {actionable ? (
-                            <span className="inline-flex gap-1">
+                            <span className="inline-flex flex-wrap justify-end gap-1">
                               {i.status === "Running"
                                 ? <button type="button" className="btn btn-xs btn-ghost" aria-label={`Stop ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "stop")}>Stop</button>
                                 : <button type="button" className="btn btn-xs btn-ghost" aria-label={`Start ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "start")}>Start</button>}
+                              <button type="button" className="btn btn-xs btn-ghost" aria-label={`Move ${i.name}`} disabled={!!p && !p.error} onClick={() => setToMove(i)} data-testid="move-open">Move…</button>
                               <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${i.name}`} disabled={!!p && !p.error} onClick={() => setToDelete(i)}>Delete</button>
                             </span>
                           ) : (
@@ -210,6 +301,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
       </Section>
 
       {canDeploy && <DeployDialog open={deploying} projects={projects} onClose={() => setDeploying(false)} onQueued={track} />}
+      <MoveDialog instance={toMove} onClose={() => setToMove(null)} onQueued={track} />
       <ConfirmDialog
         open={!!toDelete}
         title={`Delete ${toDelete?.name ?? ""}?`}

@@ -222,6 +222,9 @@
                   ],
                   "additionalProperties": false
                 }
+              },
+              "liveMigration": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -1359,6 +1362,9 @@
                             ],
                             "additionalProperties": false
                           }
+                        },
+                        "liveMigration": {
+                          "type": "boolean"
                         }
                       },
                       "required": [

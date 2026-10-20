@@ -5,6 +5,7 @@
 
 pub mod health;
 pub mod lifecycle;
+pub mod mobility;
 pub mod network;
 pub mod operations;
 pub mod storage;
@@ -33,6 +34,9 @@ async fn handle(
     }
     if job.kind == "application.operation" {
         return operations::run(pool, provider, job).await;
+    }
+    if job.kind == "instance.move" {
+        return mobility::run(pool, provider, &job.payload).await;
     }
     if job.kind == "volume.backup" {
         return storage::run_backup_job(pool, provider, &job.payload).await;

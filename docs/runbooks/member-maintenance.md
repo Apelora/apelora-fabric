@@ -22,3 +22,12 @@ kept their addresses.
 
 Both actions need `manage-infrastructure` and are audited (`cluster.member.evacuate`,
 `cluster.member.restore`).
+
+## Moving a module first, without stopping it
+
+A VM module with *Keep running when moved* (Studio, Availability) moves to another server while
+it runs: Fabric Console → Instances → *Move…*, or it moves live on its own when its server is
+evacuated. Containers, and VMs with volumes on their server's own pool, stop for a move: *Move…*
+with *Allow a short stop* copies their volumes to the new server and starts them there. REAL
+INCUS TESTED, 2026-10-21 (see docs/design/mobility-and-ha.md).
+

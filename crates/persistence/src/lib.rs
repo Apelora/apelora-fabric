@@ -24,8 +24,8 @@ pub use machines::{
 };
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 pub use volumes::{
-    BackupRecord, DueVolume, NewBackup, ScheduleKind, claim_due, forget_backup, record_backup,
-    record_scheduled, set_volume_schedules, volume_backups,
+    BackupRecord, DueVolume, NewBackup, ScheduleKind, claim_due, forget_backup, instance_volumes,
+    record_backup, record_scheduled, set_volume_member, set_volume_schedules, volume_backups,
 };
 pub use volumes::{
     NewVolume, VolumeRecord, all_volumes, application_volume, application_volumes, forget_volume,

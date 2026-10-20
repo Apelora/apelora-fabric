@@ -71,3 +71,28 @@ test("a singleton module keeps volumes that are checked, reviewed and sent with 
   expect(sent?.spec.volumes).toEqual([{ name: "data", sizeMib: 2048, path: "/var/lib/app" }]);
   expect(planBody!.modules.find((a) => a.module === "nginx-01")?.spec.volumes, "stateless: none").toBeUndefined();
 });
+
+test("a VM module can keep running when moved; the plan asks Incus for it", async ({ page }) => {
+  let planBody: { modules: { module: string; spec: { kind: string; config?: Record<string, string> } }[] } | null = null;
+  await stub(page, {
+    "GET /api/v1/health": () => ({ json: health }),
+    "GET /api/v1/whoami": () => ({ json: operator }),
+    "POST /api/v1/applications/commerce-stack/plan": (req) => { planBody = req.postDataJSON(); return { json: { items: [], warnings: [] } }; },
+  });
+  await open(page);
+  await page.locator("[data-testid=catalog-tile][data-class-id=linux-base]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+  const vm = page.locator("[data-testid=module-node][data-node-id^=linux-base]");
+  const id = (await vm.getAttribute("data-node-id"))!;
+  await openProps(page, id);
+  await page.getByTestId("live-migration-toggle").check();
+  await expect(page.getByTestId("live-migration")).toContainText("pause of under a second");
+  await page.keyboard.press("Escape");
+  await page.getByTestId("deploy-open").click();
+  const dialog = page.getByTestId("deploy-dialog");
+  await expect(dialog.getByTestId("deploy-live-migration")).toHaveText("Keeps running when moved");
+  await dialog.getByTestId("deploy-preview").click();
+  await expect.poll(() => planBody).not.toBeNull();
+  const sent = planBody!.modules.find((m) => m.module === id)!;
+  expect(sent.spec.kind).toBe("virtual-machine");
+  expect(sent.spec.config).toMatchObject({ "migration.stateful": "true", "cluster.evacuate": "live-migrate" });
+});

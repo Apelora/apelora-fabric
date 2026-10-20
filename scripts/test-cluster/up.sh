@@ -67,6 +67,8 @@ if ! incus project show "$PROJECT" >/dev/null 2>&1; then
 fi
 # Volume snapshots are refused in a restricted project unless allowed (docs/architecture/STORAGE.md).
 incus project set "$PROJECT" restricted.snapshots=allow
+# Moving an instance to a chosen member (docs/design/mobility-and-ha.md) needs member targeting.
+incus project set "$PROJECT" restricted.cluster.target=allow
 # Each device separately, so an interrupted earlier run is completed.
 devices=$(incus profile device list default --project "$PROJECT")
 grep -qx root <<<"$devices" || incus profile device add default root disk path=/ pool=local --project "$PROJECT"

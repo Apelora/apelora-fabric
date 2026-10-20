@@ -8,6 +8,7 @@ pub mod enrolment;
 pub mod evacuation;
 pub mod health;
 pub mod lifecycle;
+pub mod mobility;
 pub mod network;
 pub mod plan;
 pub mod preflight;
