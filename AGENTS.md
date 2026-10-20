@@ -78,7 +78,10 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 | Networking | `fabric-networking`, `incus-networking` |
 | HA, storage, recovery | `reconciliation-ha`, `storage-recovery`, `storage-volumes` |
 | Tests and evidence | `testing-operations`, `quality-assurance`, `playwright-qa` |
-| Security, licensing, agent tools | `security-review`, `license-compliance`, `mcp-security` |
+| Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
+| Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
+| Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |
+| Terminal, SSH, PowerShell, RDP into appliances (not built yet) | `secure-remote-access`, `identity-authorization`, `security-review` |
 | Design work and scaling | `system-design-framework`, `capacity-estimation`, `scalability-patterns` |
 
 ## MCP

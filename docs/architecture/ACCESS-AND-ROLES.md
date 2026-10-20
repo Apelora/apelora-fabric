@@ -1,6 +1,6 @@
 # Access, roles and security by layer
 
-Status: **target design with a verified core.** The four roles, six permissions, hashed API tokens and server-side checks exist (`crates/domain`, `services/control-plane`). Project scoping, role bindings, OIDC sign-in, a viewer role and the per-layer hardening marked *proposed* do not. Date: 2026-10-20. Decision record: [ADR 0005](../adr/0005-access-model.md). Context: [platform architecture](PLATFORM-ARCHITECTURE.md) §10, [ADR 0003](../adr/0003-incus-identities-and-cluster-join.md).
+Status: **core built.** Scoped roles, OIDC validation, the evaluator, approvals, emergency access, service identities and audit are implemented and tested; see [identity and authorization](IDENTITY-AND-AUTHORIZATION.md) for what is built and what is NOT VERIFIED (live identity provider, MAAS, Incus restricted projects). This document keeps the design rationale.
 
 Evidence labels used below: **BUILT** (in the repository and tested), **PROPOSED** (agreed direction, not built).
 

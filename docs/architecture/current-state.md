@@ -18,6 +18,15 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
 | Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
 
+## Identity and application management (2026-10-20)
+
+| Area | State |
+|---|---|
+| Identity, tenancy, authorization | Organisations, projects, environments, users, groups, nine predefined and custom roles, scoped assignments with an escalation guard, service identities, approvals, emergency access, append-only audit, OIDC token validation, a default-deny route gate with exact-resource checks (MOCK VERIFIED; 46 auth, 10 identity, 29 persistence and 22 API tests). Live identity provider, MAAS 3.8 mapping and Incus restricted projects are NOT VERIFIED. [Details](IDENTITY-AND-AUTHORIZATION.md). |
+| Fabric Console → Identity & Access | Eight pages plus assignment preview with effective-permission origins, emergency access dialog and copy-once service tokens; Playwright with a stubbed API and axe (no serious violations). |
+| Application management | Drafts with conflict detection, immutable published versions, server-derived status with per-caller permitted actions, Start/Restart/Stop as dependency-ordered operations carried out by the worker (MOCK VERIFIED). Studio: Applications page (cards and list, search, filters, sorting, pagination), per-application workspace (Overview, Designer, Deployments, Monitoring, Versions, Settings), icon picker using the editor's logos, publish and deploy-version flows. Run against the real control plane and worker with the mock provider: sign-in, draft save, publish, deploy through the worker, and a refused Start that showed the server's real error ("none of the application's instances exist in Incus"). The mock inventory is static, so Start/Stop on running instances is not yet REAL INCUS TESTED. |
+| Not built | Terminal, SSH, PowerShell and RDP access to appliances (contract in the `secure-remote-access` skill). |
+
 ## Earlier Xen-based assumptions
 
 The previous plan (Rust controller + Rust node agent driving Xen, a VM per appliance) exists only in documents and agent instructions. Status after Phase 01:

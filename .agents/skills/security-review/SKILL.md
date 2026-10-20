@@ -21,6 +21,8 @@ Browser (Studio / Fabric Console) -> Apelora API -> deployment worker -> Incus a
 - **Audit**: security-relevant actions logged with actor and resource.
 - **Enrolment**: a join token is returned once (`Cache-Control: no-store`), never stored, logged or audited, and reaches the server on standard input or a hidden prompt, never a command line; a new member stays held from placement until it is admitted after checks; BMC credentials stay in the provisioner (ADR 0002).
 
+- **Authorization model**: route gate + exact-resource checks, escalation guard, approvals, emergency access and append-only audit — see `identity-authorization`. Interactive access to instances (terminal, PowerShell, RDP) must follow `secure-remote-access`.
+
 ## Output
 
 List findings by severity with file/line, exploit scenario, and a concrete fix. Report vulnerabilities privately per `SECURITY.md`, not in public issues.

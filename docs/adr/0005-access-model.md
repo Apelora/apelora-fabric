@@ -1,6 +1,6 @@
 # ADR 0005 — Access model: roles bound to scopes, applications owned by projects
 
-Status: **proposed** · Date: 2026-10-20 · Related: [ADR 0001](0001-incus-first.md), [ADR 0003](0003-incus-identities-and-cluster-join.md), [access and roles](../architecture/ACCESS-AND-ROLES.md), [applications view](../design/applications-view.md)
+Status: **accepted; implemented** (see [identity and authorization](../architecture/IDENTITY-AND-AUTHORIZATION.md); live identity provider, MAAS and Incus restricted projects NOT VERIFIED) · Date: 2026-10-20 · Related: [ADR 0001](0001-incus-first.md), [ADR 0003](0003-incus-identities-and-cluster-join.md), [access and roles](../architecture/ACCESS-AND-ROLES.md), [applications view](../design/applications-view.md)
 
 ## Context
 
