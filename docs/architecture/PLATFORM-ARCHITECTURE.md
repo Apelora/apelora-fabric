@@ -149,6 +149,8 @@ Milestones: **M1** intelligent evacuation (plan, dry run, drain, move, verify, r
 
 ## 8. Storage
 
+Details — how Incus models pools and volumes, local versus shared storage, the volume-class abstraction and its lifecycle — are in [storage](STORAGE.md).
+
 - Development: local ZFS (or another local Incus pool); snapshots and backups; no cross-member stateful recovery promises.
 - HA: a shared/replicated pool supported by Incus (e.g. Ceph RBD, LINSTOR) as an explicitly operated system with its own monitoring. These are external systems that Incus talks to; Apelora does not link or vendor them (Ceph is mainly LGPL), so their licences do not affect our code.
 - Volume classes: ephemeral root, persistent exclusive, shared read-only, backup, secret — each with ownership, relocation policy and RPO/RTO. Snapshots are not backups; restores are tested.
@@ -159,10 +161,16 @@ New server → network boot → MAAS commissioning (CPU, RAM, disks, NICs, BMC) 
 
 ## 10. Security and tenancy
 
+Details — roles, scopes, the request path and best practice for every layer — are in [access and roles](ACCESS-AND-ROLES.md) and [ADR 0005](../adr/0005-access-model.md) (proposed).
+
 - Roles: Fabric admin, operator, Studio designer, auditor; every endpoint authorised server-side and scoped by project. Designers cannot change physical infrastructure.
 - Incus over mTLS with server verification on a management network; client certificates and BMC credentials only in the backend's secret store — never in the browser, logs or repository.
 - Restricted Incus projects, unprivileged containers, no nesting/raw config/host mounts/devices for tenants; image provenance by digest.
 - Destructive or risky actions (delete, member removal, storage/network changes, enabling healing, power-off) need confirmation and are audited.
+
+## 10a. Applications as a first-class object
+
+The Studio opens on an **Applications** view (list, create, open a canvas) backed by server-side drafts; see [applications view](../design/applications-view.md).
 
 ## 11. Upstream
 
