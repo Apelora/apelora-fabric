@@ -10,7 +10,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+apelora-auth = { version = "0.0.0", path = "../../crates/auth", features = ["utoipa"] }
 apelora-domain = { version = "0.0.0", path = "../../crates/domain", features = ["utoipa"] }
+apelora-identity = { version = "0.0.0", path = "../../crates/identity" }
 apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter" }
 apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
 axum = "0.8.9"
@@ -25,6 +27,9 @@ utoipa = { version = "5.5.0", features = ["axum_extras", "uuid"] }
 uuid = "1.26.1"
 
 [dev-dependencies]
+base64 = "0.22.1"
+jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+rcgen = "0.14.7"
 apelora-deployment-worker = { path = "../deployment-worker" }
 apelora-incus-adapter = { path = "../../crates/incus-adapter", features = ["test-util"] }
 http-body-util = "0.1.5"

@@ -12,6 +12,7 @@ use apelora_domain::{
 };
 use apelora_incus_adapter::{AdapterError, Provider};
 use apelora_persistence::Pool;
+use authz::require;
 use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
@@ -46,6 +47,11 @@ pub struct AppState {
     /// Routed IPv4 range for service addresses (`APELORA_SERVICE_ADDRESSES`); `None`: no
     /// load balancers. Used only together with the uplink.
     service_range: Option<Arc<str>>,
+    /// OIDC token validation; `None`: people cannot sign in with an identity provider yet.
+    oidc: Option<Arc<apelora_identity::Verifier>>,
+    /// Accept legacy platform-wide `apl_…` API tokens (default). Turn off to require OIDC
+    /// sign-in or automation service identities, and to put every caller under approvals.
+    legacy_tokens: bool,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -60,7 +66,19 @@ impl AppState {
             admin: None,
             network_uplink: None,
             service_range: None,
+            oidc: None,
+            legacy_tokens: true,
         }
+    }
+
+    pub fn with_oidc(mut self, verifier: Option<Arc<apelora_identity::Verifier>>) -> Self {
+        self.oidc = verifier;
+        self
+    }
+
+    pub fn with_legacy_tokens(mut self, on: bool) -> Self {
+        self.legacy_tokens = on;
+        self
     }
 
     pub fn with_network_uplink(mut self, uplink: Option<String>) -> Self {
@@ -88,7 +106,10 @@ impl AppState {
 #[derive(Debug, Clone)]
 pub struct Principal {
     pub name: String,
-    pub role: Role,
+    /// The role of a legacy platform-wide API token. `None` for people and service identities,
+    /// whose permissions come only from their role assignments (`caller`).
+    pub role: Option<Role>,
+    pub caller: Option<Arc<authz::Caller>>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -165,6 +186,110 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
         .route("/api/v1/audit", get(audit))
+        .route(
+            "/api/v1/identity/organizations",
+            get(identity::organizations).post(identity::create_organization),
+        )
+        .route("/api/v1/identity/projects", get(identity::projects))
+        .route(
+            "/api/v1/identity/organizations/{org}/projects",
+            post(identity::create_project),
+        )
+        .route(
+            "/api/v1/identity/projects/{project}/environments",
+            get(identity::environments).post(identity::create_environment),
+        )
+        .route("/api/v1/identity/users", get(identity::users))
+        .route("/api/v1/identity/users/lookup", get(identity::lookup_user))
+        .route(
+            "/api/v1/identity/users/{user}/disable",
+            post(identity::disable_user),
+        )
+        .route(
+            "/api/v1/identity/users/{user}/enable",
+            post(identity::enable_user),
+        )
+        .route(
+            "/api/v1/identity/groups",
+            get(identity::groups).post(identity::create_group),
+        )
+        .route(
+            "/api/v1/identity/groups/{group}/members",
+            get(identity::group_members),
+        )
+        .route(
+            "/api/v1/identity/groups/{group}/members/{user}",
+            axum::routing::put(identity::add_member).delete(identity::remove_member),
+        )
+        .route(
+            "/api/v1/identity/roles",
+            get(identity::roles).post(identity::create_role),
+        )
+        .route(
+            "/api/v1/identity/roles/{role}",
+            delete(identity::delete_role),
+        )
+        .route("/api/v1/identity/permissions", get(identity::permissions))
+        .route(
+            "/api/v1/identity/assignments",
+            get(identity::assignments).post(identity::create_assignment),
+        )
+        .route(
+            "/api/v1/identity/assignments/preview",
+            post(identity::preview_assignment),
+        )
+        .route(
+            "/api/v1/identity/assignments/{assignment}",
+            delete(identity::revoke_assignment),
+        )
+        .route(
+            "/api/v1/identity/emergency-access",
+            post(identity::emergency_access),
+        )
+        .route(
+            "/api/v1/identity/service-identities",
+            get(identity::service_identities).post(identity::create_service_identity),
+        )
+        .route(
+            "/api/v1/identity/service-identities/{id}/disable",
+            post(identity::disable_service),
+        )
+        .route(
+            "/api/v1/identity/service-identities/{id}/enable",
+            post(identity::enable_service),
+        )
+        .route(
+            "/api/v1/identity/policies",
+            get(identity::policies).put(identity::save_policy),
+        )
+        .route(
+            "/api/v1/identity/policies/{id}",
+            delete(identity::delete_policy),
+        )
+        .route("/api/v1/identity/audit", get(identity::audit_history))
+        .route(
+            "/api/v1/approvals",
+            get(identity::approvals).post(identity::request_approval),
+        )
+        .route(
+            "/api/v1/approvals/{id}/approve",
+            post(identity::approve_request),
+        )
+        .route(
+            "/api/v1/approvals/{id}/reject",
+            post(identity::reject_request),
+        )
+        .route(
+            "/api/v1/approvals/{id}/cancel",
+            post(identity::cancel_request),
+        )
+        // Innermost first: the gate refuses unlisted routes, the audit layer records refusals,
+        // authentication (outermost) decides who is calling.
+        .route_layer(middleware::from_fn(authz::route_gate))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            authz::audit_denials,
+        ))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
         .route("/api/v1/health", get(health))
@@ -247,15 +372,154 @@ impl From<apelora_persistence::StoreError> for ApiError {
     }
 }
 
-fn require(p: &Principal, perm: Permission) -> Result<(), ApiError> {
-    if p.role.allows(perm) {
-        Ok(())
-    } else {
-        Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            format!("role {} may not {perm:?}", p.role.as_str()),
-        ))
+fn unauthenticated(message: &'static str) -> ApiError {
+    ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated", message)
+}
+
+async fn caller_for(
+    pool: &Pool,
+    kind: authz::CallerKind,
+    id: uuid::Uuid,
+    groups: std::collections::BTreeSet<uuid::Uuid>,
+    mfa: bool,
+) -> Result<Arc<authz::Caller>, ApiError> {
+    use apelora_auth::{PrincipalRef, Subject};
+    let mut refs = vec![match kind {
+        authz::CallerKind::User => PrincipalRef::User { id },
+        authz::CallerKind::Service => PrincipalRef::Service { id },
+    }];
+    refs.extend(groups.iter().map(|g| PrincipalRef::Group { id: *g }));
+    let engine = apelora_persistence::identity::load_engine(pool, &refs).await?;
+    let emergency = engine
+        .assignments
+        .iter()
+        .any(|a| a.kind == apelora_auth::AssignmentKind::Emergency);
+    let subject = match kind {
+        authz::CallerKind::User => Subject {
+            user: Some(id),
+            groups,
+            mfa,
+            ..Subject::default()
+        },
+        authz::CallerKind::Service => Subject {
+            service: Some(id),
+            ..Subject::default()
+        },
+    };
+    Ok(Arc::new(authz::Caller {
+        kind,
+        id,
+        subject,
+        engine,
+        emergency,
+    }))
+}
+
+async fn resolve_principal(
+    state: &AppState,
+    pool: &Pool,
+    token: &str,
+) -> Result<Principal, ApiError> {
+    let fail = |e: ApiError| e;
+    if apelora_identity::looks_like_jwt(token) {
+        let Some(verifier) = &state.oidc else {
+            return Err(unauthenticated(
+                "OIDC sign-in is not configured on this control plane",
+            ));
+        };
+        let identity = verifier
+            .verify(token, authz::now())
+            .await
+            .map_err(|e| ApiError::new(StatusCode::UNAUTHORIZED, "invalid_token", e.to_string()))?;
+        let user = apelora_persistence::identity::upsert_user(
+            pool,
+            &identity.issuer,
+            &identity.subject,
+            identity.username.as_deref(),
+            identity.email.as_deref(),
+            identity.name.as_deref(),
+        )
+        .await
+        .map_err(|e| fail(e.into()))?;
+        if user.disabled_at.is_some() {
+            let _ = apelora_persistence::identity::audit_event(
+                pool,
+                &apelora_persistence::identity::AuditEntry {
+                    actor: &format!("user:{}", user.id),
+                    actor_type: "user",
+                    action: "auth.refused",
+                    target: "disabled account",
+                    outcome: "denied",
+                    scope: None,
+                    detail: &serde_json::json!({}),
+                },
+            )
+            .await;
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "account_disabled",
+                "this account has been disabled",
+            ));
+        }
+        let groups = apelora_persistence::identity::groups_of(pool, user.id, &identity.groups)
+            .await
+            .map_err(|e| fail(e.into()))?;
+        let caller = caller_for(pool, authz::CallerKind::User, user.id, groups, identity.mfa)
+            .await
+            .map_err(fail)?;
+        let name = user.username.or(user.email).unwrap_or(identity.subject);
+        return Ok(Principal {
+            name,
+            role: None,
+            caller: Some(caller),
+        });
+    }
+    if token.starts_with("aps_") {
+        return match apelora_persistence::identity::authenticate_service(pool, token).await {
+            Ok(Some(svc)) => {
+                let caller = caller_for(
+                    pool,
+                    authz::CallerKind::Service,
+                    svc.id,
+                    Default::default(),
+                    false,
+                )
+                .await
+                .map_err(fail)?;
+                Ok(Principal {
+                    name: svc.name,
+                    role: None,
+                    caller: Some(caller),
+                })
+            }
+            Ok(None) => Err(unauthenticated(
+                "the service token is unknown, disabled or expired",
+            )),
+            Err(e) => Err(fail(e.into())),
+        };
+    }
+    if !state.legacy_tokens {
+        return Err(unauthenticated(
+            "legacy API tokens are disabled; sign in with your identity provider or use a service identity",
+        ));
+    }
+    match apelora_persistence::authenticate(pool, token).await {
+        Ok(Some(rec)) => match Role::parse(&rec.role) {
+            Some(role) => Ok(Principal {
+                name: rec.name,
+                role: Some(role),
+                caller: None,
+            }),
+            None => Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "token has an unknown role",
+            )),
+        },
+        Ok(None) => Err(unauthenticated(
+            "the API token is unknown, revoked or expired",
+        )),
+        Err(e) => Err(fail(e.into())),
     }
 }
 
@@ -263,7 +527,8 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
     let principal = match &state.auth {
         Auth::DisabledForDevelopment => Principal {
             name: "development".into(),
-            role: Role::FabricAdmin,
+            role: Some(Role::FabricAdmin),
+            caller: None,
         },
         Auth::Tokens(pool) => {
             let presented = req
@@ -271,42 +536,33 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
                 .get(header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.strip_prefix("Bearer "))
-                .map(str::trim);
+                .map(str::trim)
+                .filter(|t| !t.is_empty());
             let Some(token) = presented else {
-                return ApiError::new(
-                    StatusCode::UNAUTHORIZED,
-                    "unauthenticated",
-                    "an API token is required (Authorization: Bearer <token>)",
+                return unauthenticated(
+                    "a bearer token is required (Authorization: Bearer <token>)",
                 )
                 .into_response();
             };
-            match apelora_persistence::authenticate(pool, token).await {
-                Ok(Some(rec)) => match Role::parse(&rec.role) {
-                    Some(role) => Principal {
-                        name: rec.name,
-                        role,
-                    },
-                    None => {
-                        return ApiError::new(
-                            StatusCode::FORBIDDEN,
-                            "forbidden",
-                            "token has an unknown role",
-                        )
-                        .into_response();
-                    }
-                },
-                Ok(None) => {
-                    return ApiError::new(
-                        StatusCode::UNAUTHORIZED,
-                        "unauthenticated",
-                        "the API token is unknown, revoked or expired",
-                    )
-                    .into_response();
-                }
-                Err(e) => return ApiError::from(e).into_response(),
+            match resolve_principal(&state, pool, token).await {
+                Ok(p) => p,
+                Err(e) => return e.into_response(),
             }
         }
     };
+    if principal.caller.as_ref().is_some_and(|c| c.emergency)
+        && let Auth::Tokens(pool) = &state.auth
+    {
+        // Everything done while holding emergency access is on the record.
+        let _ = authz::audit_as(
+            pool,
+            &principal,
+            "emergency_access.request",
+            &format!("{} {}", req.method(), req.uri().path()),
+            &serde_json::json!({}),
+        )
+        .await;
+    }
     req.extensions_mut().insert(principal);
     next.run(req).await
 }
@@ -379,13 +635,37 @@ pub struct Health {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct WhoAmI {
     pub name: String,
-    pub role: Role,
+    /// `user` (OIDC sign-in), `service` (automation identity), `legacy-token` or `development`.
+    pub kind: String,
+    /// The user or service identity id; absent for legacy tokens.
+    pub id: Option<uuid::Uuid>,
+    /// The role of a legacy API token; `null` for people and service identities.
+    pub role: Option<Role>,
+    /// What the older, coarse permissions amount to for this caller at platform level.
     pub permissions: Vec<Permission>,
+    /// Permission ids held at some scope (what the UI may offer; the server decides each request).
+    pub capabilities: Vec<String>,
+    /// Permission ids held across the whole platform.
+    pub platform_permissions: Vec<String>,
+    /// The role assignments in force for this caller.
+    pub roles: Vec<RoleGrant>,
     /// Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`).
-    #[serde(rename = "deployProjects")]
     pub deploy_projects: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RoleGrant {
+    pub role: String,
+    #[schema(value_type = Object)]
+    pub scope: apelora_auth::Scope,
+    pub via_group: bool,
+    pub emergency: bool,
+    /// RFC 3339.
+    pub expires_at: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -452,15 +732,43 @@ async fn preflight(
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AuditItem {
     pub id: i64,
     /// RFC 3339 timestamp.
     pub at: String,
+    /// Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`.
     pub actor: String,
+    /// `user`, `service`, `token`, `development`, `cli` or `system`.
+    pub actor_type: String,
     pub action: String,
     pub target: String,
+    /// `success`, `denied` or `failed`.
+    pub outcome: String,
+    /// The organisation, project and application the event concerns, when it concerns any.
+    #[schema(value_type = Option<Object>)]
+    pub scope: Option<Value>,
     #[schema(value_type = Object)]
     pub detail: Value,
+}
+
+impl AuditItem {
+    pub(crate) fn from_row(e: apelora_persistence::identity::AuditRow) -> Self {
+        Self {
+            id: e.id,
+            at: e
+                .at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_default(),
+            actor: e.actor,
+            actor_type: e.actor_type,
+            action: e.action,
+            target: e.target,
+            outcome: e.outcome,
+            scope: e.scope,
+            detail: e.detail,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -504,10 +812,11 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
     })
 }
 
-/// The caller's name, role and the permissions that role grants.
+/// Who is calling, with the role assignments and permissions in force.
 #[utoipa::path(get, path = "/api/v1/whoami", tag = "system",
     responses((status = 200, body = WhoAmI), (status = 401, body = ErrorBody)))]
 async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal>) -> Json<WhoAmI> {
+    let platform = apelora_auth::Resource::platform();
     let permissions = [
         Permission::ReadInventory,
         Permission::ReadAudit,
@@ -517,12 +826,65 @@ async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal
         Permission::Deploy,
     ]
     .into_iter()
-    .filter(|x| p.role.allows(*x))
+    .filter(|x| require(&p, *x).is_ok())
     .collect();
+    let ids = || apelora_auth::PERMISSIONS.iter().map(|d| d.id);
+    let platform_permissions = ids()
+        .filter(|id| authz::allow(&p, id, &platform).is_ok())
+        .map(str::to_owned)
+        .collect();
+    let capabilities = match &p.caller {
+        Some(c) => ids()
+            .filter(|id| c.engine.holds_anywhere(&c.subject, id, authz::now()))
+            .map(str::to_owned)
+            .collect(),
+        None => ids()
+            .filter(|id| authz::allow(&p, id, &platform).is_ok())
+            .map(str::to_owned)
+            .collect(),
+    };
+    let now = authz::now();
+    let roles = p
+        .caller
+        .as_ref()
+        .map(|c| {
+            c.engine
+                .assignments
+                .iter()
+                .filter(|a| !a.revoked && a.expires_at.is_none_or(|t| t > now))
+                .map(|a| RoleGrant {
+                    role: c
+                        .engine
+                        .resolve(&a.role)
+                        .map(|r| r.name)
+                        .unwrap_or_default(),
+                    scope: a.scope.clone(),
+                    via_group: matches!(a.principal, apelora_auth::PrincipalRef::Group { .. }),
+                    emergency: a.kind == apelora_auth::AssignmentKind::Emergency,
+                    expires_at: a
+                        .expires_at
+                        .and_then(|t| time::OffsetDateTime::from_unix_timestamp(t).ok())
+                        .and_then(|t| {
+                            t.format(&time::format_description::well_known::Rfc3339)
+                                .ok()
+                        }),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Json(WhoAmI {
+        kind: match (&p.caller, p.actor_type()) {
+            (Some(_), t) => t.to_owned(),
+            (None, "development") => "development".to_owned(),
+            (None, _) => "legacy-token".to_owned(),
+        },
+        id: p.caller.as_ref().map(|c| c.id),
         name: p.name,
         role: p.role,
         permissions,
+        capabilities,
+        platform_permissions,
+        roles,
         deploy_projects: state.deploy_projects.to_vec(),
     })
 }
@@ -609,7 +971,9 @@ async fn storage_pools(
     }))
 }
 
-/// The 100 most recent audit events, newest first. Needs `read-audit` and a database.
+/// The most recent audit events the caller may read, newest first. Needs `audit.read`
+/// (platform-wide, or limited to the events of the caller's organisations, projects and
+/// applications) and a database.
 #[utoipa::path(get, path = "/api/v1/audit", tag = "audit", responses(
     (status = 200, body = AuditList), (status = 401, body = ErrorBody),
     (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
@@ -617,7 +981,14 @@ async fn audit(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> Result<Json<AuditList>, ApiError> {
-    require(&p, Permission::ReadAudit)?;
+    let filter = authz::filter_for(&p, "audit.read");
+    if filter.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "you may not read the audit log (audit.read)",
+        ));
+    }
     let Auth::Tokens(pool) = &state.auth else {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -625,20 +996,10 @@ async fn audit(
             "the audit log needs a database (DATABASE_URL)",
         ));
     };
-    let items = apelora_persistence::recent_audit(pool, 100)
+    let items = apelora_persistence::identity::audit_history(pool, &filter, None, None, None, 100)
         .await?
         .into_iter()
-        .map(|e| AuditItem {
-            id: e.id,
-            at: e
-                .at
-                .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
-            actor: e.actor,
-            action: e.action,
-            target: e.target,
-            detail: e.detail,
-        })
+        .map(AuditItem::from_row)
         .collect();
     Ok(Json(AuditList { items }))
 }
@@ -654,7 +1015,7 @@ impl Modify for BearerAuth {
                 SecurityScheme::Http(
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
-                        .description(Some("An Apelora API token (`apl_…`)."))
+                        .description(Some("An OIDC access token from the identity provider, an automation service token (`aps_…`) or a legacy API token (`apl_…`)."))
                         .build(),
                 ),
             );
@@ -673,10 +1034,20 @@ impl Modify for BearerAuth {
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         machines::list, machines::register, machines::approve, machines::withdraw,
-        machines::preview_admission, machines::admit, machines::remove),
+        machines::preview_admission, machines::admit, machines::remove,
+        identity::organizations, identity::create_organization, identity::projects, identity::create_project,
+        identity::environments, identity::create_environment, identity::users, identity::lookup_user,
+        identity::disable_user, identity::enable_user, identity::groups, identity::create_group,
+        identity::group_members, identity::add_member, identity::remove_member, identity::roles,
+        identity::create_role, identity::delete_role, identity::permissions, identity::assignments,
+        identity::create_assignment, identity::preview_assignment, identity::revoke_assignment,
+        identity::emergency_access, identity::service_identities, identity::create_service_identity,
+        identity::disable_service, identity::enable_service, identity::policies, identity::save_policy,
+        identity::delete_policy, identity::audit_history, identity::approvals, identity::request_approval,
+        identity::approve_request, identity::reject_request, identity::cancel_request),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"))
 )]
 pub struct ApiDoc;
 
@@ -697,9 +1068,13 @@ async fn openapi() -> impl IntoResponse {
 
 mod admin;
 mod applications;
+mod authz;
 mod cluster_admin;
 mod deploy;
+mod identity;
 mod machines;
 
+#[cfg(test)]
+mod identity_tests;
 #[cfg(test)]
 mod tests;

@@ -5,6 +5,8 @@
 //! `apelora-control-plane token create --name <n> --role <r> [--expires-days <d>]`
 //! `apelora-control-plane token list`
 //! `apelora-control-plane token revoke <id>`
+//! `apelora-control-plane identity bootstrap --issuer <iss> --subject <sub> [--username <u>]`
+//!                                         make the first platform super admin (needs DATABASE_URL)
 //! `apelora-control-plane openapi`         print the OpenAPI document
 //!
 //! With `DATABASE_URL` the API requires bearer tokens. Without it, authentication is disabled
@@ -27,6 +29,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let database_url = std::env::var("DATABASE_URL").ok().filter(|u| !u.is_empty());
+    if args.first().map(String::as_str) == Some("identity") {
+        let url = database_url.ok_or("identity commands need DATABASE_URL")?;
+        return identity_command(&args[1..], &apelora_persistence::connect(&url).await?).await;
+    }
     if args.first().map(String::as_str) == Some("token") {
         let url = database_url.ok_or("token commands need DATABASE_URL")?;
         return token_command(&args[1..], &apelora_persistence::connect(&url).await?).await;
@@ -98,7 +104,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tracing::info!(range = %r, addresses = n, "stateless appliances get service addresses");
     }
+    let oidc = oidc_from_env(|k| std::env::var(k).ok())?;
+    let legacy_tokens = !matches!(
+        std::env::var("APELORA_LEGACY_TOKENS").ok().as_deref(),
+        Some("disabled" | "off" | "false" | "0")
+    );
+    if !legacy_tokens {
+        tracing::info!(
+            "legacy API tokens are disabled: callers use OIDC or service identities, and approvals apply to everyone"
+        );
+    } else if oidc.is_some() {
+        tracing::warn!(
+            "legacy platform-wide API tokens are still accepted; set APELORA_LEGACY_TOKENS=disabled once people sign in with OIDC"
+        );
+    }
     let state = api::AppState::new(provider, auth)
+        .with_oidc(oidc)
+        .with_legacy_tokens(legacy_tokens)
         .with_deploy_projects(projects)
         .with_admin(admin)
         .with_network_uplink(uplink)
@@ -109,6 +131,96 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
     Ok(())
+}
+
+/// OIDC settings from the environment. Absent `APELORA_OIDC_ISSUER`, sign-in by identity provider is off.
+fn oidc_from_env(
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<Option<std::sync::Arc<apelora_identity::Verifier>>, Box<dyn std::error::Error>> {
+    let Some(issuer) = get("APELORA_OIDC_ISSUER").filter(|v| !v.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let audience = get("APELORA_OIDC_AUDIENCE").filter(|v| !v.trim().is_empty()).ok_or("APELORA_OIDC_AUDIENCE is required with APELORA_OIDC_ISSUER (the identifier of this API in the identity provider)")?;
+    let list = |name: &str| {
+        get(name)
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    let mut cfg = apelora_identity::OidcConfig::new(issuer.trim(), audience.trim());
+    cfg.audiences = list("APELORA_OIDC_AUDIENCE");
+    if let Some(v) = get("APELORA_OIDC_GROUPS_CLAIM").filter(|v| !v.is_empty()) {
+        cfg.groups_claim = v;
+    }
+    if let Some(v) = get("APELORA_OIDC_USERNAME_CLAIM").filter(|v| !v.is_empty()) {
+        cfg.username_claim = v;
+    }
+    let amr = list("APELORA_OIDC_MFA_AMR");
+    if !amr.is_empty() {
+        cfg.mfa_amr = amr;
+    }
+    cfg.mfa_acr = list("APELORA_OIDC_MFA_ACR");
+    cfg.authorized_parties = list("APELORA_OIDC_AUTHORIZED_PARTIES");
+    let jwks = get("APELORA_OIDC_JWKS_URL")
+        .filter(|v| !v.trim().is_empty())
+        .ok_or(
+            "APELORA_OIDC_JWKS_URL is required with APELORA_OIDC_ISSUER (the provider's jwks_uri)",
+        )?;
+    let verifier = apelora_identity::Verifier::with_remote_keys(
+        cfg,
+        jwks.trim(),
+        std::time::Duration::from_secs(60),
+    )?;
+    tracing::info!(issuer = %issuer, "OIDC sign-in is enabled (not yet validated against a running identity provider)");
+    Ok(Some(verifier))
+}
+
+async fn identity_command(
+    args: &[String],
+    pool: &apelora_persistence::Pool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    match args.first().map(String::as_str) {
+        Some("bootstrap") => {
+            let issuer = flag("--issuer").ok_or("--issuer is required (the identity provider's issuer URL)")?;
+            let subject = flag("--subject").ok_or("--subject is required (the person's `sub` claim)")?;
+            if apelora_persistence::identity::super_admin_count(pool).await? > 0 {
+                return Err("a platform super admin already exists; use the Fabric Console to grant roles".into());
+            }
+            let user = apelora_persistence::identity::upsert_user(pool, &issuer, &subject, flag("--username").as_deref(), flag("--email").as_deref(), None).await?;
+            let id = apelora_persistence::identity::insert_assignment(
+                pool,
+                &apelora_persistence::identity::NewAssignment {
+                    principal: apelora_auth::PrincipalRef::User { id: user.id },
+                    role: apelora_auth::RoleRef::Builtin { key: apelora_auth::Builtin::PlatformSuperAdmin.key().into() },
+                    scope: apelora_auth::Scope::Platform,
+                    conditions: apelora_auth::Conditions::default(),
+                    kind: apelora_auth::AssignmentKind::Standard,
+                    expires_at: None,
+                    reason: Some("bootstrap".into()),
+                    created_by: "cli".into(),
+                },
+            )
+            .await?;
+            apelora_persistence::identity::audit_event(
+                pool,
+                &apelora_persistence::identity::AuditEntry { actor: "cli", actor_type: "cli", action: "identity.bootstrap", target: &user.id.to_string(), outcome: "success", scope: None, detail: &json!({ "assignment": id, "issuer": issuer }) },
+            )
+            .await?;
+            println!("Platform super admin granted to {issuer} / {subject} (user {}).", user.id);
+            Ok(())
+        }
+        _ => Err("usage: identity bootstrap --issuer <iss> --subject <sub> [--username <u>] [--email <e>]".into()),
+    }
 }
 
 async fn token_command(

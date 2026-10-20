@@ -255,7 +255,7 @@ async fn openapi_document_is_public_and_lists_every_route() {
 
 // ---- Deployment requests ----------------------------------------------------------------
 
-async fn send(
+pub(super) async fn send(
     state: AppState,
     method: &str,
     path: &str,
@@ -448,10 +448,12 @@ async fn deployment_requests_are_checked_queued_audited_and_carried_out(pool: Po
     {}
     assert_eq!(provider.instance("apelora", "web-01").await, Ok(None));
 
-    let actions: Vec<String> = sqlx::query_scalar("SELECT action FROM audit_events ORDER BY id")
-        .fetch_all(&pool)
-        .await
-        .expect("audit");
+    let actions: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM audit_events WHERE action <> 'access.denied' ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("audit");
     assert_eq!(
         actions,
         [
@@ -612,7 +614,7 @@ async fn join_tokens_are_admin_only_shown_once_audited_without_the_secret(pool: 
     );
 
     let audit: Vec<(String, String, String)> =
-        sqlx::query_as("SELECT action, target, detail::text FROM audit_events ORDER BY id")
+        sqlx::query_as("SELECT action, target, detail::text FROM audit_events WHERE action <> 'access.denied' ORDER BY id")
             .fetch_all(&pool)
             .await
             .expect("audit");
@@ -765,11 +767,12 @@ async fn api_tokens_are_created_once_listed_without_secrets_and_revoked(pool: Po
     let (status, _) = send(state.clone(), "GET", "/api/v1/whoami", &secret, None, None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "revoked at once");
 
-    let audit: Vec<(String, String)> =
-        sqlx::query_as("SELECT action, detail::text FROM audit_events ORDER BY id")
-            .fetch_all(&pool)
-            .await
-            .expect("audit");
+    let audit: Vec<(String, String)> = sqlx::query_as(
+        "SELECT action, detail::text FROM audit_events WHERE action <> 'access.denied' ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("audit");
     assert_eq!(
         audit.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(),
         ["token.create", "token.revoke"]
@@ -812,13 +815,13 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
 
 // ---- Applications ----------------------------------------------------------------------------
 
-fn appliance(id: &str) -> Value {
+pub(super) fn appliance(id: &str) -> Value {
     json!({ "appliance": id, "spec": {
         "project": "ignored", "name": "ignored", "kind": "container", "start": true,
         "source": { "protocol": "simplestreams", "server": "https://images.example", "alias": "debian/13" } } })
 }
 
-async fn drain(pool: &Pool, provider: &Provider) {
+pub(super) async fn drain(pool: &Pool, provider: &Provider) {
     while apelora_deployment_worker::run_once(pool, provider, "w")
         .await
         .expect("worker")
@@ -2017,7 +2020,7 @@ async fn a_machine_is_registered_approved_joined_held_admitted_and_audited(pool:
     );
 
     let audit: Vec<(String, String, String)> =
-        sqlx::query_as("SELECT action, target, detail::text FROM audit_events ORDER BY id")
+        sqlx::query_as("SELECT action, target, detail::text FROM audit_events WHERE action <> 'access.denied' ORDER BY id")
             .fetch_all(&pool)
             .await
             .expect("audit");

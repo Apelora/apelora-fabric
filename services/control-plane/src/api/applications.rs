@@ -20,8 +20,11 @@ use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::deploy::{allowed_project, bad_request, idempotency_key, store};
+use super::authz::{allow, allow_any, filter_for};
+use super::deploy::{bad_request, ensure_project_allowed, idempotency_key, store};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal, Source, require, source};
+use apelora_auth::{EnvKind, Resource};
+use apelora_persistence::identity::AppContext;
 
 /// Application names become instance-name prefixes, so they are short.
 const MAX_NAME: usize = 40;
@@ -293,18 +296,15 @@ fn network_warnings(
     }
 }
 
-fn check(
-    state: &AppState,
-    name: &str,
-    project: &str,
-    appliances: &[DesiredAppliance],
-) -> Result<(), ApiError> {
+fn check(name: &str, project: &str, appliances: &[DesiredAppliance]) -> Result<(), ApiError> {
     if !is_valid_name(name) || name.len() > MAX_NAME {
         return Err(bad_request(format!(
             "invalid application name {name:?} (1–{MAX_NAME} letters, digits and hyphens, starting with a letter)"
         )));
     }
-    allowed_project(state, project)?;
+    if !is_valid_name(project) {
+        return Err(bad_request(format!("invalid project name {project:?}")));
+    }
     if appliances.len() > MAX_APPLIANCES {
         return Err(bad_request(format!(
             "at most {MAX_APPLIANCES} appliances per deployment"
@@ -336,6 +336,80 @@ async fn current_plan(
     Ok(plan(name, project, appliances, &observed))
 }
 
+/// Where an application operation lands, resolved from the database (never from client claims
+/// alone): the application's own project and environment, or, for a new application, the
+/// environment that owns the requested Incus project.
+struct Target {
+    resource: Resource,
+    existing: Option<AppContext>,
+    project_id: Option<Uuid>,
+    environment_id: Option<Uuid>,
+}
+
+async fn resolve_target(
+    state: &AppState,
+    p: &Principal,
+    name: &str,
+    incus_project: &str,
+) -> Result<Target, ApiError> {
+    let Auth::Tokens(pool) = &state.auth else {
+        return Ok(Target {
+            resource: Resource::platform(),
+            existing: None,
+            project_id: None,
+            environment_id: None,
+        });
+    };
+    let existing = apelora_persistence::identity::application_context(pool, name).await?;
+    if let Some(ctx) = existing {
+        // People and services deploy an application only into its own environment.
+        if p.caller.is_some()
+            && ctx
+                .incus_project
+                .as_deref()
+                .is_some_and(|ip| ip != incus_project)
+        {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "project_mismatch",
+                format!(
+                    "{name} belongs to a different environment than Incus project {incus_project}"
+                ),
+            ));
+        }
+        return Ok(Target {
+            resource: ctx.resource(),
+            project_id: Some(ctx.project_id),
+            environment_id: ctx.environment_id,
+            existing: Some(ctx),
+        });
+    }
+    Ok(
+        match apelora_persistence::identity::environment_by_incus_project(pool, incus_project)
+            .await?
+        {
+            Some((env, org)) => Target {
+                resource: Resource {
+                    organization: Some(org),
+                    project: Some(env.project_id),
+                    environment: EnvKind::parse(&env.kind),
+                    ..Resource::default()
+                },
+                existing: None,
+                project_id: Some(env.project_id),
+                environment_id: Some(env.id),
+            },
+            // An Incus project no environment owns is infrastructure: only platform-wide grants reach it.
+            None => Target {
+                resource: Resource::platform(),
+                existing: None,
+                project_id: None,
+                environment_id: None,
+            },
+        },
+    )
+}
+
 /// Applications that have been deployed, with their latest revision. Needs `read-inventory`.
 #[utoipa::path(get, path = "/api/v1/applications", tag = "applications", operation_id = "applications",
     responses((status = 200, body = ApplicationList), (status = 401, body = ErrorBody),
@@ -344,8 +418,15 @@ pub(super) async fn list(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> Result<Json<ApplicationList>, ApiError> {
-    require(&p, Permission::ReadInventory)?;
-    let items = apelora_persistence::list_applications(store(&state)?)
+    let filter = filter_for(&p, "application.view");
+    if filter.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "you may not see applications (application.view)",
+        ));
+    }
+    let items = apelora_persistence::identity::list_applications_scoped(store(&state)?, &filter)
         .await?
         .into_iter()
         .map(|a| ApplicationInfo {
@@ -371,9 +452,19 @@ pub(super) async fn preview(
     Path(name): Path<String>,
     body: Result<Json<PlanRequest>, JsonRejection>,
 ) -> Result<Json<Plan>, ApiError> {
-    require(&p, Permission::Deploy)?;
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
-    check(&state, &name, &req.project, &req.appliances)?;
+    check(&name, &req.project, &req.appliances)?;
+    let target = resolve_target(&state, &p, &name, &req.project).await?;
+    if p.caller.is_some() {
+        allow_any(
+            &p,
+            &["application.design", "application.deploy"],
+            &target.resource,
+        )?;
+    } else {
+        require(&p, Permission::Deploy)?;
+    }
+    ensure_project_allowed(&state, &req.project).await?;
     check_connections(&req.appliances, req.connections.as_deref())?;
     check_published(&req.appliances, &req.published)?;
     let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
@@ -402,14 +493,23 @@ pub(super) async fn deploy(
     headers: HeaderMap,
     body: Result<Json<DeployRequest>, JsonRejection>,
 ) -> Result<(StatusCode, Json<DeployResponse>), ApiError> {
-    require(&p, Permission::Deploy)?;
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
     if !req.document.is_object() {
         return Err(bad_request(
             "the document must be a Studio application document",
         ));
     }
-    check(&state, &name, &req.project, &req.appliances)?;
+    check(&name, &req.project, &req.appliances)?;
+    let target = resolve_target(&state, &p, &name, &req.project).await?;
+    if p.caller.is_some() {
+        if target.existing.is_none() {
+            allow(&p, "application.create", &target.resource)?;
+        }
+        allow(&p, "application.deploy", &target.resource)?;
+    } else {
+        require(&p, Permission::Deploy)?;
+    }
+    ensure_project_allowed(&state, &req.project).await?;
     check_connections(&req.appliances, req.connections.as_deref())?;
     check_published(&req.appliances, &req.published)?;
     let pool = store(&state)?;
@@ -437,13 +537,24 @@ pub(super) async fn deploy(
         ));
     }
 
-    let app = apelora_persistence::ensure_application(pool, &name).await?;
+    let app = match target.project_id {
+        Some(project) => {
+            apelora_persistence::identity::ensure_application_in(
+                pool,
+                &name,
+                project,
+                target.environment_id,
+            )
+            .await?
+        }
+        None => apelora_persistence::ensure_application(pool, &name).await?,
+    };
     // A repeated request (same key) finds its revision and its jobs: nothing happens twice.
     let (revision, new_revision) = apelora_persistence::add_revision_once(
         pool,
         app.id,
         &req.document,
-        &p.name,
+        &p.actor_ref(),
         key.as_ref().map(|k| format!("{k}:{name}")).as_deref(),
     )
     .await?;
@@ -561,11 +672,13 @@ pub(super) async fn deploy(
         network_job = Some(job_id);
     }
     if new_revision {
-        apelora_persistence::audit(
+        super::authz::audit_scoped(
             pool,
-            &p.name,
+            &p,
             "application.deploy.requested",
             &format!("{}/{name}", req.project),
+            "success",
+            Some(&target.resource),
             &json!({
                 "revision": revision.revision,
                 "create": applied.count(PlanAction::Create),
@@ -599,9 +712,25 @@ pub(super) async fn status(
     Path(name): Path<String>,
     Query(q): Query<StatusQuery>,
 ) -> Result<Json<ApplicationStatus>, ApiError> {
-    require(&p, Permission::ReadInventory)?;
     if !is_valid_name(&name) {
         return Err(bad_request(format!("invalid application name {name:?}")));
+    }
+    match &state.auth {
+        Auth::Tokens(pool) if p.caller.is_some() => {
+            // An application the caller may not view answers exactly like one that does not exist.
+            let ctx = apelora_persistence::identity::application_context(pool, &name).await?;
+            if !ctx
+                .as_ref()
+                .is_some_and(|c| allow(&p, "application.view", &c.resource()).is_ok())
+            {
+                return Err(ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "not_found",
+                    format!("not found: application {name}"),
+                ));
+            }
+        }
+        _ => require(&p, Permission::ReadInventory)?,
     }
     let mut health = match &state.auth {
         Auth::Tokens(pool) => apelora_persistence::application_health(pool, &name).await?,

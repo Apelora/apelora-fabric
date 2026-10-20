@@ -16,7 +16,12 @@ pub mod service;
 
 pub use approval::{Approval, ApprovalError, ApprovalState};
 pub use assign::{AssignError, AssignRequest, check_assignment};
-pub use evaluate::{AccessFilter, Assignment, AssignmentKind, Conditions, Decision, Denial, Engine, Grant, Policies, PrincipalRef, Subject, confers};
+pub use evaluate::{
+    AccessFilter, Assignment, AssignmentKind, Conditions, Decision, Denial, Engine, Grant,
+    Policies, PrincipalRef, Subject, confers,
+};
 pub use permission::{Class, PERMISSIONS, PermissionDef, needs_approval, permission};
-pub use role::{Builtin, CustomRole, ResolvedRole, RoleError, RoleRef, custom_scopes, validate_custom};
+pub use role::{
+    Builtin, CustomRole, ResolvedRole, RoleError, RoleRef, custom_scopes, validate_custom,
+};
 pub use scope::{EnvKind, Level, Resource, Scope, covers};

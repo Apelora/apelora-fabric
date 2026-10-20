@@ -11,8 +11,8 @@ use uuid::Uuid;
 
 pub use sqlx::PgPool as Pool;
 
-pub mod identity;
 mod health;
+pub mod identity;
 mod machines;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
@@ -635,6 +635,7 @@ pub async fn record_operation(
 pub struct JobView {
     pub id: Uuid,
     pub kind: String,
+    pub application_id: Option<Uuid>,
     pub status: String,
     pub attempts: i32,
     pub max_attempts: i32,
@@ -647,7 +648,7 @@ pub struct JobView {
 
 pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
     sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, status, attempts, max_attempts, last_error, external_operation, payload,
+        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, payload,
                 created_at, updated_at
          FROM jobs WHERE id = $1",
     )
@@ -660,7 +661,7 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
 /// The most recently created jobs, newest first.
 pub async fn recent_jobs(pool: &PgPool, limit: i64) -> Result<Vec<JobView>> {
     Ok(sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, status, attempts, max_attempts, last_error, external_operation, payload,
+        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, payload,
                 created_at, updated_at
          FROM jobs ORDER BY created_at DESC, id LIMIT $1",
     )
@@ -732,6 +733,6 @@ pub async fn audit(
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod tests;

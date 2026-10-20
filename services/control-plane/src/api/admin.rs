@@ -184,9 +184,9 @@ pub(super) async fn create(
     let expires = time::OffsetDateTime::now_utc() + time::Duration::days(days);
     let (secret, rec) =
         apelora_persistence::create_token(pool, name, req.role.as_str(), Some(expires)).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "token.create",
         &rec.name,
         &json!({ "id": rec.id, "role": rec.role, "by": p.role }),
@@ -219,9 +219,9 @@ pub(super) async fn revoke(
     require(&p, Permission::ManageTokens)?;
     let pool = store(&state)?;
     apelora_persistence::revoke_token(pool, id).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "token.revoke",
         &id.to_string(),
         &json!({ "by": p.role }),

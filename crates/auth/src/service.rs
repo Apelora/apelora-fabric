@@ -21,7 +21,13 @@ pub enum ServiceKind {
 }
 
 impl ServiceKind {
-    pub const ALL: [ServiceKind; 5] = [ServiceKind::Workload, ServiceKind::Network, ServiceKind::Storage, ServiceKind::Provisioning, ServiceKind::Automation];
+    pub const ALL: [ServiceKind; 5] = [
+        ServiceKind::Workload,
+        ServiceKind::Network,
+        ServiceKind::Storage,
+        ServiceKind::Provisioning,
+        ServiceKind::Automation,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -55,10 +61,33 @@ impl ServiceKind {
     /// The operation families this kind may perform on its backend.
     pub fn operations(self) -> &'static [&'static str] {
         match self {
-            ServiceKind::Workload => &["instance.create", "instance.state", "instance.delete", "instance.read"],
-            ServiceKind::Network => &["network.create", "network.acl", "network.load_balancer", "network.read"],
-            ServiceKind::Storage => &["volume.create", "volume.attach", "volume.snapshot", "volume.delete", "volume.read"],
-            ServiceKind::Provisioning => &["cluster.join_token", "cluster.evacuate", "machine.commission", "machine.deploy", "machine.power", "machine.release"],
+            ServiceKind::Workload => &[
+                "instance.create",
+                "instance.state",
+                "instance.delete",
+                "instance.read",
+            ],
+            ServiceKind::Network => &[
+                "network.create",
+                "network.acl",
+                "network.load_balancer",
+                "network.read",
+            ],
+            ServiceKind::Storage => &[
+                "volume.create",
+                "volume.attach",
+                "volume.snapshot",
+                "volume.delete",
+                "volume.read",
+            ],
+            ServiceKind::Provisioning => &[
+                "cluster.join_token",
+                "cluster.evacuate",
+                "machine.commission",
+                "machine.deploy",
+                "machine.power",
+                "machine.release",
+            ],
             ServiceKind::Automation => &[],
         }
     }

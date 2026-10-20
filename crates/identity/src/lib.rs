@@ -103,7 +103,12 @@ pub enum TokenError {
 
 enum Keys {
     Static(JwkSet),
-    Remote { url: String, client: reqwest::Client, cache: RwLock<Cache>, min_refresh: Duration },
+    Remote {
+        url: String,
+        client: reqwest::Client,
+        cache: RwLock<Cache>,
+        min_refresh: Duration,
+    },
 }
 
 struct Cache {
@@ -119,18 +124,42 @@ pub struct Verifier {
 impl Verifier {
     /// Uses a fixed key set (tests, or a provider whose keys are pinned in configuration).
     pub fn with_keys(cfg: OidcConfig, keys: JwkSet) -> Arc<Self> {
-        Arc::new(Self { cfg, keys: Keys::Static(keys) })
+        Arc::new(Self {
+            cfg,
+            keys: Keys::Static(keys),
+        })
     }
 
     /// Reads the provider's published key set (`jwks_uri`) over TLS and re-reads it when a token
     /// names an unknown key id, at most once per `min_refresh`.
-    pub fn with_remote_keys(cfg: OidcConfig, jwks_url: &str, min_refresh: Duration) -> Result<Arc<Self>, TokenError> {
-        let local = jwks_url.starts_with("http://127.0.0.1") || jwks_url.starts_with("http://localhost");
+    pub fn with_remote_keys(
+        cfg: OidcConfig,
+        jwks_url: &str,
+        min_refresh: Duration,
+    ) -> Result<Arc<Self>, TokenError> {
+        let local =
+            jwks_url.starts_with("http://127.0.0.1") || jwks_url.starts_with("http://localhost");
         if !jwks_url.starts_with("https://") && !local {
-            return Err(TokenError::KeysUnavailable("the key set URL must use https".into()));
+            return Err(TokenError::KeysUnavailable(
+                "the key set URL must use https".into(),
+            ));
         }
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
-        Ok(Arc::new(Self { cfg, keys: Keys::Remote { url: jwks_url.to_owned(), client, cache: RwLock::new(Cache { set: None, fetched: None }), min_refresh } }))
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
+        Ok(Arc::new(Self {
+            cfg,
+            keys: Keys::Remote {
+                url: jwks_url.to_owned(),
+                client,
+                cache: RwLock::new(Cache {
+                    set: None,
+                    fetched: None,
+                }),
+                min_refresh,
+            },
+        }))
     }
 
     pub fn config(&self) -> &OidcConfig {
@@ -148,7 +177,12 @@ impl Verifier {
         };
         let jwk = match &self.keys {
             Keys::Static(set) => find(set),
-            Keys::Remote { url, client, cache, min_refresh } => {
+            Keys::Remote {
+                url,
+                client,
+                cache,
+                min_refresh,
+            } => {
                 let cached = cache.read().await.set.as_ref().and_then(find);
                 if let Some(j) = cached {
                     Some(j)
@@ -196,26 +230,39 @@ impl Verifier {
         let data = decode::<Map<String, Value>>(token, &key, &v).map_err(|e| {
             use jsonwebtoken::errors::ErrorKind as K;
             match e.kind() {
-                K::InvalidSignature | K::InvalidEcdsaKey | K::InvalidRsaKey(_) => TokenError::BadSignature,
-                K::InvalidAlgorithm | K::InvalidAlgorithmName | K::MissingAlgorithm => TokenError::UnsupportedAlgorithm,
+                K::InvalidSignature | K::InvalidEcdsaKey | K::InvalidRsaKey(_) => {
+                    TokenError::BadSignature
+                }
+                K::InvalidAlgorithm | K::InvalidAlgorithmName | K::MissingAlgorithm => {
+                    TokenError::UnsupportedAlgorithm
+                }
                 _ => TokenError::Malformed,
             }
         })?;
         let c = data.claims;
 
-        let issuer = c.get("iss").and_then(Value::as_str).ok_or(TokenError::MissingClaim("iss"))?;
+        let issuer = c
+            .get("iss")
+            .and_then(Value::as_str)
+            .ok_or(TokenError::MissingClaim("iss"))?;
         if issuer != self.cfg.issuer {
             return Err(TokenError::WrongIssuer);
         }
         let aud_ok = match c.get("aud") {
             Some(Value::String(a)) => self.cfg.audiences.iter().any(|x| x == a),
-            Some(Value::Array(list)) => list.iter().filter_map(Value::as_str).any(|a| self.cfg.audiences.iter().any(|x| x == a)),
+            Some(Value::Array(list)) => list
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|a| self.cfg.audiences.iter().any(|x| x == a)),
             _ => return Err(TokenError::MissingClaim("aud")),
         };
         if !aud_ok {
             return Err(TokenError::WrongAudience);
         }
-        let exp = c.get("exp").and_then(Value::as_i64).ok_or(TokenError::MissingClaim("exp"))?;
+        let exp = c
+            .get("exp")
+            .and_then(Value::as_i64)
+            .ok_or(TokenError::MissingClaim("exp"))?;
         if exp + self.cfg.leeway_secs <= now {
             return Err(TokenError::Expired);
         }
@@ -224,14 +271,21 @@ impl Verifier {
         {
             return Err(TokenError::NotYetValid);
         }
-        let iat = c.get("iat").and_then(Value::as_i64).ok_or(TokenError::MissingClaim("iat"))?;
+        let iat = c
+            .get("iat")
+            .and_then(Value::as_i64)
+            .ok_or(TokenError::MissingClaim("iat"))?;
         if iat - self.cfg.leeway_secs > now {
             return Err(TokenError::NotYetValid);
         }
         if exp - iat > self.cfg.max_lifetime_secs {
             return Err(TokenError::TooLong);
         }
-        let subject = c.get("sub").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 255).ok_or(TokenError::MissingClaim("sub"))?;
+        let subject = c
+            .get("sub")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty() && s.len() <= 255)
+            .ok_or(TokenError::MissingClaim("sub"))?;
         if !self.cfg.authorized_parties.is_empty() {
             let azp = c.get("azp").and_then(Value::as_str);
             if !azp.is_some_and(|a| self.cfg.authorized_parties.iter().any(|p| p == a)) {
@@ -239,14 +293,33 @@ impl Verifier {
             }
         }
 
-        let text = |name: &str| c.get(name).and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 255).map(str::to_owned);
+        let text = |name: &str| {
+            c.get(name)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 255)
+                .map(str::to_owned)
+        };
         let groups: BTreeSet<String> = c
             .get(&self.cfg.groups_claim)
             .and_then(Value::as_array)
-            .map(|l| l.iter().filter_map(Value::as_str).map(|g| g.trim_start_matches('/').to_owned()).filter(|g| !g.is_empty() && g.len() <= 255).take(200).collect())
+            .map(|l| {
+                l.iter()
+                    .filter_map(Value::as_str)
+                    .map(|g| g.trim_start_matches('/').to_owned())
+                    .filter(|g| !g.is_empty() && g.len() <= 255)
+                    .take(200)
+                    .collect()
+            })
             .unwrap_or_default();
-        let amr_mfa = c.get("amr").and_then(Value::as_array).is_some_and(|l| l.iter().filter_map(Value::as_str).any(|a| self.cfg.mfa_amr.iter().any(|m| m == a)));
-        let acr_mfa = c.get("acr").and_then(Value::as_str).is_some_and(|a| self.cfg.mfa_acr.iter().any(|m| m == a));
+        let amr_mfa = c.get("amr").and_then(Value::as_array).is_some_and(|l| {
+            l.iter()
+                .filter_map(Value::as_str)
+                .any(|a| self.cfg.mfa_amr.iter().any(|m| m == a))
+        });
+        let acr_mfa = c
+            .get("acr")
+            .and_then(Value::as_str)
+            .is_some_and(|a| self.cfg.mfa_acr.iter().any(|m| m == a));
 
         Ok(Identity {
             issuer: issuer.to_owned(),

@@ -11,7 +11,7 @@ use apelora_domain::preflight::Check;
 use apelora_domain::{ClusterMember, PendingJoin, Permission};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,7 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use super::admin::rfc3339;
+use super::authz::{allow_platform, guard};
 use super::cluster_admin::{admin, audit_store, lifetime_warnings, member_name};
 use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 
@@ -163,7 +164,7 @@ pub(super) async fn register(
     Extension(p): Extension<Principal>,
     body: Result<Json<RegisterMachine>, JsonRejection>,
 ) -> Result<(StatusCode, Json<Machine>), ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "machine.enrol")?;
     let Json(req) =
         body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
     member_name(&req.name)?;
@@ -196,13 +197,13 @@ pub(super) async fn register(
         &req.name,
         kind.as_str(),
         req.description.trim(),
-        &p.name,
+        &p.actor_ref(),
         adopted,
     )
     .await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "machine.register",
         &req.name,
         &json!({ "role": p.role, "provider": kind, "adopted": adopted }),
@@ -226,9 +227,10 @@ pub(super) async fn register(
 pub(super) async fn approve(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Response, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "cluster.sensitive_change")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
@@ -255,14 +257,23 @@ pub(super) async fn approve(
             format!("{name} already has an unused join token; withdraw the approval first"),
         ));
     }
+    // Admitting a server to the cluster is a sensitive change: a second person approves it first.
+    let approval = guard(
+        &state,
+        &p,
+        &headers,
+        "cluster.sensitive_change",
+        &format!("machine-approve:{name}"),
+    )
+    .await?;
     let t = provider.create_join_token(&name).await?;
-    apelora_persistence::approve_machine(pool, &name, &p.name, &t.expires_at).await?;
-    apelora_persistence::audit(
+    apelora_persistence::approve_machine(pool, &name, &p.actor_ref(), &t.expires_at).await?;
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "machine.approve",
         &name,
-        &json!({ "role": p.role, "expiresAt": t.expires_at }),
+        &json!({ "role": p.role, "expiresAt": t.expires_at, "approval": approval }),
     )
     .await?;
     let warnings = lifetime_warnings(&t.expires_at, time::OffsetDateTime::now_utc());
@@ -297,16 +308,16 @@ pub(super) async fn withdraw(
     Extension(p): Extension<Principal>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "machine.enrol")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
     apelora_persistence::machine(pool, &name).await?;
     let revoked = provider.revoke_join_token(&name).await?;
     apelora_persistence::withdraw_approval(pool, &name).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "machine.approval.withdraw",
         &name,
         &json!({ "role": p.role, "tokenRevoked": revoked }),
@@ -357,7 +368,7 @@ pub(super) async fn preview_admission(
     Extension(p): Extension<Principal>,
     Path(name): Path<String>,
 ) -> Result<Json<Admission>, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "machine.enrol")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
     apelora_persistence::machine(pool, &name).await?;
@@ -376,7 +387,7 @@ pub(super) async fn admit(
     Extension(p): Extension<Principal>,
     Path(name): Path<String>,
 ) -> Result<Json<Admission>, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "machine.enrol")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
     apelora_persistence::machine(pool, &name).await?;
@@ -394,15 +405,15 @@ pub(super) async fn admit(
         ));
     }
     admin(&state)?.set_member_held(&name, false).await?;
-    apelora_persistence::admit_machine(pool, &name, &p.name).await?;
+    apelora_persistence::admit_machine(pool, &name, &p.actor_ref()).await?;
     let summary: Vec<String> = result
         .checks
         .iter()
         .map(|c| format!("{}={:?}", c.id, c.status))
         .collect();
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "machine.admit",
         &name,
         &json!({ "role": p.role, "checks": summary }),
@@ -421,9 +432,10 @@ pub(super) async fn admit(
 pub(super) async fn remove(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "hardware.delete")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
@@ -439,14 +451,23 @@ pub(super) async fn remove(
             format!("{name} is a cluster member; evacuate it and remove it from the cluster first"),
         ));
     }
+    // Deleting a machine from inventory needs another person's approval of exactly this machine.
+    let approval = guard(
+        &state,
+        &p,
+        &headers,
+        "hardware.delete",
+        &format!("machine:{name}"),
+    )
+    .await?;
     let revoked = provider.revoke_join_token(&name).await?;
     apelora_persistence::remove_machine(pool, &name).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "machine.remove",
         &name,
-        &json!({ "role": p.role, "tokenRevoked": revoked }),
+        &json!({ "role": p.role, "tokenRevoked": revoked, "approval": approval }),
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)

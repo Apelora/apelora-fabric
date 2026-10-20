@@ -26,11 +26,19 @@ pub enum Level {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Scope {
     Platform,
-    Organization { id: Uuid },
-    Project { id: Uuid },
-    Application { id: Uuid },
+    Organization {
+        id: Uuid,
+    },
+    Project {
+        id: Uuid,
+    },
+    Application {
+        id: Uuid,
+    },
     /// A named group of physical machines (a MAAS resource pool, if MAAS is adopted).
-    Pool { name: String },
+    Pool {
+        name: String,
+    },
 }
 
 impl Scope {
@@ -66,7 +74,14 @@ impl EnvKind {
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
-        [EnvKind::Production, EnvKind::Staging, EnvKind::Development, EnvKind::Other].into_iter().find(|k| k.as_str() == s)
+        [
+            EnvKind::Production,
+            EnvKind::Staging,
+            EnvKind::Development,
+            EnvKind::Other,
+        ]
+        .into_iter()
+        .find(|k| k.as_str() == s)
     }
 }
 
@@ -86,16 +101,32 @@ impl Resource {
         Self::default()
     }
     pub fn organization(org: Uuid) -> Self {
-        Self { organization: Some(org), ..Self::default() }
+        Self {
+            organization: Some(org),
+            ..Self::default()
+        }
     }
     pub fn project(org: Uuid, project: Uuid) -> Self {
-        Self { organization: Some(org), project: Some(project), ..Self::default() }
+        Self {
+            organization: Some(org),
+            project: Some(project),
+            ..Self::default()
+        }
     }
     pub fn application(org: Uuid, project: Uuid, app: Uuid, env: Option<EnvKind>) -> Self {
-        Self { organization: Some(org), project: Some(project), application: Some(app), environment: env, pool: None }
+        Self {
+            organization: Some(org),
+            project: Some(project),
+            application: Some(app),
+            environment: env,
+            pool: None,
+        }
     }
     pub fn pool(name: &str) -> Self {
-        Self { pool: Some(name.to_owned()), ..Self::default() }
+        Self {
+            pool: Some(name.to_owned()),
+            ..Self::default()
+        }
     }
 }
 
@@ -128,7 +159,10 @@ mod tests {
         assert!(covers(&Scope::Application { id: a }, &app));
         let project = Resource::project(o, p);
         assert!(!covers(&Scope::Application { id: a }, &project));
-        assert!(!covers(&Scope::Project { id: p }, &Resource::organization(o)));
+        assert!(!covers(
+            &Scope::Project { id: p },
+            &Resource::organization(o)
+        ));
     }
 
     #[test]
@@ -139,8 +173,23 @@ mod tests {
         assert!(!covers(&Scope::Organization { id: other }, &app));
         assert!(!covers(&Scope::Project { id: other }, &app));
         assert!(!covers(&Scope::Application { id: other }, &app));
-        assert!(!covers(&Scope::Pool { name: "rack-1".into() }, &app));
-        assert!(covers(&Scope::Pool { name: "rack-1".into() }, &Resource::pool("rack-1")));
-        assert!(!covers(&Scope::Pool { name: "rack-1".into() }, &Resource::pool("rack-2")));
+        assert!(!covers(
+            &Scope::Pool {
+                name: "rack-1".into()
+            },
+            &app
+        ));
+        assert!(covers(
+            &Scope::Pool {
+                name: "rack-1".into()
+            },
+            &Resource::pool("rack-1")
+        ));
+        assert!(!covers(
+            &Scope::Pool {
+                name: "rack-1".into()
+            },
+            &Resource::pool("rack-2")
+        ));
     }
 }

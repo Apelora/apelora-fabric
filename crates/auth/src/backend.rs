@@ -29,7 +29,8 @@ pub fn incus_project_name(org: &str, project: &str, environment: &str) -> Option
         return None;
     }
     let name = parts.join("-");
-    (name.len() <= 63 && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic())).then_some(name)
+    (name.len() <= 63 && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
+        .then_some(name)
 }
 
 /// Quotas for one environment's Incus project.
@@ -99,14 +100,24 @@ pub enum MaasError {
 impl std::fmt::Display for MaasError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            MaasError::UnsupportedVersion(v) => write!(f, "MAAS {v}: group-based resource-pool entitlements are only mapped for 3.8 and later; earlier releases use a different RBAC model"),
-            MaasError::NotRepresentable(p) => write!(f, "{p} has no MAAS entitlement; Apelora authorises it and the provisioning identity performs it"),
+            MaasError::UnsupportedVersion(v) => write!(
+                f,
+                "MAAS {v}: group-based resource-pool entitlements are only mapped for 3.8 and later; earlier releases use a different RBAC model"
+            ),
+            MaasError::NotRepresentable(p) => write!(
+                f,
+                "{p} has no MAAS entitlement; Apelora authorises it and the provisioning identity performs it"
+            ),
         }
     }
 }
 
 fn at_least_3_8(v: &str) -> bool {
-    let mut it = v.trim_start_matches('v').split(|c: char| !c.is_ascii_digit()).filter(|s| !s.is_empty()).map(|s| s.parse::<u32>().unwrap_or(0));
+    let mut it = v
+        .trim_start_matches('v')
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse::<u32>().unwrap_or(0));
     let (major, minor) = (it.next().unwrap_or(0), it.next().unwrap_or(0));
     major > 3 || (major == 3 && minor >= 8)
 }
@@ -131,16 +142,38 @@ mod tests {
 
     #[test]
     fn incus_project_names_are_derived_and_validated() {
-        assert_eq!(incus_project_name("Acme", "Production", "prod").as_deref(), Some("acme-production-prod"));
-        assert_eq!(incus_project_name("acme corp", "web_shop", "dev").as_deref(), Some("acme-corp-web-shop-dev"));
+        assert_eq!(
+            incus_project_name("Acme", "Production", "prod").as_deref(),
+            Some("acme-production-prod")
+        );
+        assert_eq!(
+            incus_project_name("acme corp", "web_shop", "dev").as_deref(),
+            Some("acme-corp-web-shop-dev")
+        );
         assert_eq!(incus_project_name("", "p", "e"), None);
-        assert_eq!(incus_project_name("1acme", "p", "e"), None, "must start with a letter");
-        assert_eq!(incus_project_name(&"a".repeat(41), &"b".repeat(20), "e"), None, "63 characters at most");
+        assert_eq!(
+            incus_project_name("1acme", "p", "e"),
+            None,
+            "must start with a letter"
+        );
+        assert_eq!(
+            incus_project_name(&"a".repeat(41), &"b".repeat(20), "e"),
+            None,
+            "63 characters at most"
+        );
     }
 
     #[test]
     fn restricted_project_blocks_privilege_host_devices_and_member_choice() {
-        let c = incus_project_config(EnvKind::Production, &Limits { instances: Some(20), cpu: Some(16), memory_gib: Some(64), disk_gib: Some(500) });
+        let c = incus_project_config(
+            EnvKind::Production,
+            &Limits {
+                instances: Some(20),
+                cpu: Some(16),
+                memory_gib: Some(64),
+                disk_gib: Some(500),
+            },
+        );
         assert_eq!(c["restricted"], "true");
         assert_eq!(c["restricted.containers.privilege"], "unprivileged");
         assert_eq!(c["restricted.containers.nesting"], "block");
@@ -149,21 +182,48 @@ mod tests {
         assert_eq!(c["limits.memory"], "64GiB");
         assert_eq!(c["limits.instances"], "20");
         for (k, v) in &c {
-            if k.starts_with("restricted.devices.") && k != "restricted.devices.disk" && k != "restricted.devices.nic" {
+            if k.starts_with("restricted.devices.")
+                && k != "restricted.devices.disk"
+                && k != "restricted.devices.nic"
+            {
                 assert_eq!(v, "block", "{k}");
             }
         }
-        assert!(!incus_project_config(EnvKind::Development, &Limits::default()).contains_key("limits.cpu"));
+        assert!(
+            !incus_project_config(EnvKind::Development, &Limits::default())
+                .contains_key("limits.cpu")
+        );
     }
 
     #[test]
     fn maas_entitlements_are_version_gated_and_never_invented() {
-        assert_eq!(maas_entitlement("3.8.0", "hardware.view"), Ok("can_view_machines"));
-        assert_eq!(maas_entitlement("v3.8", "hardware.deploy"), Ok("can_deploy_machines"));
-        assert_eq!(maas_entitlement("4.0.1", "hardware.view"), Ok("can_view_machines"));
-        assert!(matches!(maas_entitlement("3.5.2", "hardware.view"), Err(MaasError::UnsupportedVersion(_))));
-        assert!(matches!(maas_entitlement("", "hardware.view"), Err(MaasError::UnsupportedVersion(_))));
-        assert!(matches!(maas_entitlement("3.8.0", "hardware.delete"), Err(MaasError::NotRepresentable(_))));
-        assert!(matches!(maas_entitlement("3.8.0", "hardware.power"), Err(MaasError::NotRepresentable(_))));
+        assert_eq!(
+            maas_entitlement("3.8.0", "hardware.view"),
+            Ok("can_view_machines")
+        );
+        assert_eq!(
+            maas_entitlement("v3.8", "hardware.deploy"),
+            Ok("can_deploy_machines")
+        );
+        assert_eq!(
+            maas_entitlement("4.0.1", "hardware.view"),
+            Ok("can_view_machines")
+        );
+        assert!(matches!(
+            maas_entitlement("3.5.2", "hardware.view"),
+            Err(MaasError::UnsupportedVersion(_))
+        ));
+        assert!(matches!(
+            maas_entitlement("", "hardware.view"),
+            Err(MaasError::UnsupportedVersion(_))
+        ));
+        assert!(matches!(
+            maas_entitlement("3.8.0", "hardware.delete"),
+            Err(MaasError::NotRepresentable(_))
+        ));
+        assert!(matches!(
+            maas_entitlement("3.8.0", "hardware.power"),
+            Err(MaasError::NotRepresentable(_))
+        ));
     }
 }

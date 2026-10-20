@@ -31,13 +31,18 @@ dependencies = [
 name = "apelora-control-plane"
 version = "0.0.0"
 dependencies = [
+ "apelora-auth",
  "apelora-deployment-worker",
  "apelora-domain",
+ "apelora-identity",
  "apelora-incus-adapter",
  "apelora-persistence",
  "axum",
+ "base64 0.22.1",
  "http-body-util",
  "jiff",
+ "jsonwebtoken",
+ "rcgen",
  "serde",
  "serde_json",
  "sqlx",

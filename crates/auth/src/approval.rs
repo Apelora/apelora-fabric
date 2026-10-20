@@ -47,7 +47,9 @@ impl std::fmt::Display for ApprovalError {
             ApprovalError::NotPending => "the request has already been decided",
             ApprovalError::NotApproved => "the request is not approved",
             ApprovalError::Expired => "the request has expired",
-            ApprovalError::SameAsRequester => "a request must be approved by someone other than the requester",
+            ApprovalError::SameAsRequester => {
+                "a request must be approved by someone other than the requester"
+            }
             ApprovalError::ApproverNotPermitted => "you may not approve this kind of request",
             ApprovalError::RequesterOnly => "only the person who asked can use this approval",
             ApprovalError::Mismatch => "the approval is for a different action or target",
@@ -61,12 +63,25 @@ pub const APPROVAL_TTL_SECS: i64 = 30 * 60;
 
 impl Approval {
     pub fn request(action: &str, target: &str, requester: &str, now: i64) -> Self {
-        Self { action: action.to_owned(), target: target.to_owned(), requester: requester.to_owned(), approver: None, state: ApprovalState::Pending, expires_at: now + REQUEST_TTL_SECS }
+        Self {
+            action: action.to_owned(),
+            target: target.to_owned(),
+            requester: requester.to_owned(),
+            approver: None,
+            state: ApprovalState::Pending,
+            expires_at: now + REQUEST_TTL_SECS,
+        }
     }
 
     /// Approves or rejects. `approver_may` is the caller's own check that the approver holds the
     /// approval permission for this action in the right scope.
-    pub fn decide(&self, approver: &str, approver_may: bool, approve: bool, now: i64) -> Result<Approval, ApprovalError> {
+    pub fn decide(
+        &self,
+        approver: &str,
+        approver_may: bool,
+        approve: bool,
+        now: i64,
+    ) -> Result<Approval, ApprovalError> {
         if self.state != ApprovalState::Pending {
             return Err(ApprovalError::NotPending);
         }
@@ -97,12 +112,21 @@ impl Approval {
         if who != self.requester {
             return Err(ApprovalError::RequesterOnly);
         }
-        Ok(Approval { state: ApprovalState::Cancelled, ..self.clone() })
+        Ok(Approval {
+            state: ApprovalState::Cancelled,
+            ..self.clone()
+        })
     }
 
     /// Spends the approval for `action` on `target`. Call it in the same transaction that
     /// carries the action out, so a crash cannot leave a spent approval without the action.
-    pub fn consume(&self, action: &str, target: &str, who: &str, now: i64) -> Result<Approval, ApprovalError> {
+    pub fn consume(
+        &self,
+        action: &str,
+        target: &str,
+        who: &str,
+        now: i64,
+    ) -> Result<Approval, ApprovalError> {
         if self.state != ApprovalState::Approved {
             return Err(ApprovalError::NotApproved);
         }
@@ -115,7 +139,10 @@ impl Approval {
         if action != self.action || target != self.target {
             return Err(ApprovalError::Mismatch);
         }
-        Ok(Approval { state: ApprovalState::Consumed, ..self.clone() })
+        Ok(Approval {
+            state: ApprovalState::Consumed,
+            ..self.clone()
+        })
     }
 }
 
@@ -131,42 +158,97 @@ mod tests {
 
     #[test]
     fn the_requester_cannot_approve_their_own_request() {
-        assert_eq!(pending().decide("user:a", true, true, NOW), Err(ApprovalError::SameAsRequester));
+        assert_eq!(
+            pending().decide("user:a", true, true, NOW),
+            Err(ApprovalError::SameAsRequester)
+        );
     }
 
     #[test]
     fn only_someone_permitted_can_decide() {
-        assert_eq!(pending().decide("user:b", false, true, NOW), Err(ApprovalError::ApproverNotPermitted));
-        let ok = pending().decide("user:b", true, true, NOW).expect("approved");
-        assert_eq!((ok.state, ok.approver.as_deref()), (ApprovalState::Approved, Some("user:b")));
+        assert_eq!(
+            pending().decide("user:b", false, true, NOW),
+            Err(ApprovalError::ApproverNotPermitted)
+        );
+        let ok = pending()
+            .decide("user:b", true, true, NOW)
+            .expect("approved");
+        assert_eq!(
+            (ok.state, ok.approver.as_deref()),
+            (ApprovalState::Approved, Some("user:b"))
+        );
     }
 
     #[test]
     fn an_approval_is_single_use_exact_and_requester_only() {
-        let ok = pending().decide("user:b", true, true, NOW).expect("approved");
-        assert_eq!(ok.consume("hardware.power", "machine:rack1-07", "user:a", NOW), Err(ApprovalError::Mismatch));
-        assert_eq!(ok.consume("hardware.delete", "machine:rack1-08", "user:a", NOW), Err(ApprovalError::Mismatch));
-        assert_eq!(ok.consume("hardware.delete", "machine:rack1-07", "user:c", NOW), Err(ApprovalError::RequesterOnly));
-        let used = ok.consume("hardware.delete", "machine:rack1-07", "user:a", NOW + 1).expect("consumed");
+        let ok = pending()
+            .decide("user:b", true, true, NOW)
+            .expect("approved");
+        assert_eq!(
+            ok.consume("hardware.power", "machine:rack1-07", "user:a", NOW),
+            Err(ApprovalError::Mismatch)
+        );
+        assert_eq!(
+            ok.consume("hardware.delete", "machine:rack1-08", "user:a", NOW),
+            Err(ApprovalError::Mismatch)
+        );
+        assert_eq!(
+            ok.consume("hardware.delete", "machine:rack1-07", "user:c", NOW),
+            Err(ApprovalError::RequesterOnly)
+        );
+        let used = ok
+            .consume("hardware.delete", "machine:rack1-07", "user:a", NOW + 1)
+            .expect("consumed");
         assert_eq!(used.state, ApprovalState::Consumed);
-        assert_eq!(used.consume("hardware.delete", "machine:rack1-07", "user:a", NOW + 2), Err(ApprovalError::NotApproved), "single use");
+        assert_eq!(
+            used.consume("hardware.delete", "machine:rack1-07", "user:a", NOW + 2),
+            Err(ApprovalError::NotApproved),
+            "single use"
+        );
     }
 
     #[test]
     fn approvals_and_requests_expire() {
-        let ok = pending().decide("user:b", true, true, NOW).expect("approved");
-        assert_eq!(ok.consume("hardware.delete", "machine:rack1-07", "user:a", NOW + APPROVAL_TTL_SECS), Err(ApprovalError::Expired));
-        assert_eq!(pending().decide("user:b", true, true, NOW + REQUEST_TTL_SECS), Err(ApprovalError::Expired));
+        let ok = pending()
+            .decide("user:b", true, true, NOW)
+            .expect("approved");
+        assert_eq!(
+            ok.consume(
+                "hardware.delete",
+                "machine:rack1-07",
+                "user:a",
+                NOW + APPROVAL_TTL_SECS
+            ),
+            Err(ApprovalError::Expired)
+        );
+        assert_eq!(
+            pending().decide("user:b", true, true, NOW + REQUEST_TTL_SECS),
+            Err(ApprovalError::Expired)
+        );
     }
 
     #[test]
     fn rejected_pending_and_cancelled_requests_cannot_be_used() {
-        let rejected = pending().decide("user:b", true, false, NOW).expect("rejected");
+        let rejected = pending()
+            .decide("user:b", true, false, NOW)
+            .expect("rejected");
         assert_eq!(rejected.state, ApprovalState::Rejected);
-        assert_eq!(rejected.consume("hardware.delete", "machine:rack1-07", "user:a", NOW), Err(ApprovalError::NotApproved));
-        assert_eq!(pending().consume("hardware.delete", "machine:rack1-07", "user:a", NOW), Err(ApprovalError::NotApproved));
-        assert_eq!(pending().cancel("user:b"), Err(ApprovalError::RequesterOnly));
+        assert_eq!(
+            rejected.consume("hardware.delete", "machine:rack1-07", "user:a", NOW),
+            Err(ApprovalError::NotApproved)
+        );
+        assert_eq!(
+            pending().consume("hardware.delete", "machine:rack1-07", "user:a", NOW),
+            Err(ApprovalError::NotApproved)
+        );
+        assert_eq!(
+            pending().cancel("user:b"),
+            Err(ApprovalError::RequesterOnly)
+        );
         let c = pending().cancel("user:a").expect("cancelled");
-        assert_eq!(c.decide("user:b", true, true, NOW), Err(ApprovalError::NotPending));
+        assert_eq!(
+            c.decide("user:b", true, true, NOW),
+            Err(ApprovalError::NotPending)
+        );
     }
 }

@@ -39,13 +39,74 @@ export type ApplicationStatus = {
   source: Source;
 };
 
+export type ApprovalDto = {
+  action: string;
+  approver?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  id: string;
+  reason: string;
+  requester: string;
+  /** `pending`, `approved`, `rejected`, `cancelled` or `consumed`. */
+  state: string;
+  target: string;
+};
+
+export type ApprovalList = {
+  items: ApprovalDto[];
+};
+
+export type AssignmentDto = {
+  conditions: Conditions;
+  createdAt: string;
+  createdBy: string;
+  expiresAt?: string | null;
+  id: string;
+  kind: AssignmentKind;
+  principal: PrincipalRef;
+  reason?: string | null;
+  revokedAt?: string | null;
+  role: RoleRef;
+  roleName: string;
+  scope: Scope;
+};
+
+export type AssignmentKind = "standard" | "emergency";
+
+export type AssignmentList = {
+  items: AssignmentDto[];
+};
+
+export type AssignmentPreview = {
+  /** Permissions the assignment adds. */
+  added: string[];
+  /** What they could do once this assignment exists (the new grant has the nil assignment id). */
+  after: EffectivePermission[];
+  /** Could the signed-in administrator save this assignment? */
+  allowed: boolean;
+  /** What the person can already do at that scope. */
+  before: EffectivePermission[];
+  /** Why not, when `allowed` is false. */
+  error?: string | null;
+  /** Permissions in the role that do nothing at this scope. */
+  inert: string[];
+  warnings: string[];
+};
+
 export type AuditItem = {
   action: string;
+  /** Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`. */
   actor: string;
+  /** `user`, `service`, `token`, `development`, `cli` or `system`. */
+  actorType: string;
   /** RFC 3339 timestamp. */
   at: string;
   detail: Record<string, unknown>;
   id: number;
+  /** `success`, `denied` or `failed`. */
+  outcome: string;
+  /** The organisation, project and application the event concerns, when it concerns any. */
+  scope?: Record<string, unknown> | null;
   target: string;
 };
 
@@ -86,6 +147,9 @@ export type Check = {
 
 export type CheckStatus = "pass" | "not-checked" | "warn" | "fail";
 
+/** What kind of power a permission is. Only `Tenant` permissions can be granted below the platform level, so an organisation or project role can never reach physical servers, the Incus cluster or the platform's own security settings. */
+export type Class = "tenant" | "infrastructure" | "security";
+
 /** Observed state of an Incus cluster member ("minion" in the UI). */
 export type ClusterMember = {
   architecture: string;
@@ -108,9 +172,18 @@ export type ClusterResponse = {
   source: Source;
 };
 
+export type Conditions = {
+  /** The grant counts only for resources in environments of these kinds. */
+  environments?: EnvKind[] | null;
+  /** The grant counts only when the caller signed in with multi-factor authentication. */
+  requireMfa?: boolean;
+};
+
 export type ConfirmMember = {
   /** The member's name again, typed by the administrator. */
   confirm: string;
+  /** Evacuate although the dry run found blockers (a workload may lose service). Needs the unsafe-evacuation permission and an approval from another person. */
+  force?: boolean;
 };
 
 /** One connection of the design: `from` may reach `to` (appliance ids). */
@@ -172,6 +245,44 @@ export type DesiredAppliance = {
   spec: InstanceSpec;
 };
 
+export type EffectivePermission = {
+  class: Class;
+  description: string;
+  /** Where each part of this permission comes from. */
+  grants: Grant[];
+  permission: string;
+};
+
+export type EmergencyAccess = {
+  /** 5–240 minutes. */
+  minutes: number;
+  /** Why; at least 10 characters. Recorded in the audit trail. */
+  reason: string;
+  /** A predefined role key, e.g. `fabric-administrator`. */
+  role: string;
+  userId: string;
+};
+
+/** Kind of environment; policies such as "production needs MFA" refer to it. */
+export type EnvKind = "production" | "staging" | "development" | "other";
+
+export type EnvironmentDto = {
+  id: string;
+  /** The restricted Incus project this environment deploys into. */
+  incusProject?: string | null;
+  /** The settings that project needs (restricted, unprivileged, no host devices). Apelora does not create or verify the Incus project yet: an administrator does, with these settings. */
+  incusProjectConfig: Record<string, unknown>;
+  incusProvisioned: boolean;
+  kind: EnvKind;
+  name: string;
+  projectId: string;
+  slug: string;
+};
+
+export type EnvironmentList = {
+  items: EnvironmentDto[];
+};
+
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
   error: ErrorDetail;
@@ -212,6 +323,30 @@ export type EvacuationPlan = {
 export type EvacuationPreview = {
   plan: EvacuationPlan;
   source: Source;
+};
+
+export type Grant = {
+  assignment: string;
+  emergency: boolean;
+  role: RoleRef;
+  roleName: string;
+  scope: Scope;
+  /** Set when the grant reaches the caller through a group. */
+  viaGroup?: string | null;
+};
+
+export type GroupDto = {
+  description: string;
+  /** The group's name in the identity provider's tokens, when members come from there. */
+  externalName?: string | null;
+  id: string;
+  name: string;
+  /** `null` = a platform group. */
+  organizationId?: string | null;
+};
+
+export type GroupList = {
+  items: GroupDto[];
 };
 
 export type Health = {
@@ -355,6 +490,9 @@ export type JoinTokenList = {
   source: Source;
 };
 
+/** How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform. */
+export type Level = "platform" | "organization" | "project" | "application" | "pool";
+
 export type Machine = {
   admittedAt?: string | null;
   admittedBy?: string | null;
@@ -427,6 +565,76 @@ export type NetworkList = {
   source: Source;
 };
 
+export type NewApproval = {
+  /** The permission to be exercised, e.g. `hardware.delete`. */
+  action: string;
+  reason?: string;
+  /** What it will be done to, e.g. `machine:rack1-07`. */
+  target: string;
+};
+
+export type NewAssignment = {
+  conditions?: Conditions;
+  /** RFC 3339. Assignments may expire; emergency grants must. */
+  expiresAt?: string | null;
+  principal: PrincipalRef;
+  reason?: string | null;
+  role: RoleRef;
+  scope: Scope;
+};
+
+export type NewEnvironment = {
+  /** Platform administrators only: map an existing Incus project instead of the derived name. */
+  incusProject?: string | null;
+  kind: EnvKind;
+  name: string;
+  slug: string;
+};
+
+export type NewGroup = {
+  description?: string;
+  externalName?: string | null;
+  name: string;
+  organizationId?: string | null;
+};
+
+export type NewOrganization = {
+  name: string;
+  slug: string;
+};
+
+export type NewProject = {
+  name: string;
+  slug: string;
+};
+
+export type NewRole = {
+  description?: string;
+  name: string;
+  permissions: string[];
+};
+
+export type NewServiceIdentity = {
+  credentialRef?: string | null;
+  /** Automation identities only: days until their token expires (1–365, default 90). */
+  expiresInDays?: number | null;
+  kind: ServiceKind;
+  name: string;
+  restrictions?: Record<string, unknown>;
+};
+
+export type OrganizationDto = {
+  createdAt: string;
+  disabled: boolean;
+  id: string;
+  name: string;
+  slug: string;
+};
+
+export type OrganizationList = {
+  items: OrganizationDto[];
+};
+
 /** The application and appliance an instance belongs to. */
 export type Owner = {
   appliance: string;
@@ -442,6 +650,19 @@ export type PendingJoin = {
 };
 
 export type Permission = "read-inventory" | "read-audit" | "manage-tokens" | "manage-infrastructure" | "design-applications" | "deploy";
+
+export type PermissionDto = {
+  class: Class;
+  description: string;
+  /** The narrowest scope level at which a grant takes effect. */
+  floor: Level;
+  id: string;
+  needsApproval: boolean;
+};
+
+export type PermissionList = {
+  items: PermissionDto[];
+};
 
 export type Plan = {
   items: PlanItem[];
@@ -471,11 +692,38 @@ export type PlanRequest = {
   published?: Published[];
 };
 
+export type PolicyDto = {
+  enabled: boolean;
+  id: string;
+  /** `mfa` or `approval`. */
+  kind: string;
+  name: string;
+  parameters: Record<string, unknown>;
+  updatedAt: string;
+  updatedBy: string;
+};
+
+export type PolicyList = {
+  items: PolicyDto[];
+};
+
 export type PreflightReport = {
   checks: Check[];
   /** The worst status among the checks. */
   overall: CheckStatus;
   source: Source;
+};
+
+/** Who an assignment is for. */
+export type PrincipalRef = {
+  id: string;
+  type: "user";
+} | {
+  id: string;
+  type: "group";
+} | {
+  id: string;
+  type: "service";
 };
 
 export type Project = {
@@ -485,9 +733,17 @@ export type Project = {
   restricted: boolean;
 };
 
+export type ProjectDto = {
+  createdAt: string;
+  id: string;
+  name: string;
+  organizationId: string;
+  organizationSlug: string;
+  slug: string;
+};
+
 export type ProjectList = {
-  items: Project[];
-  source: Source;
+  items: ProjectDto[];
 };
 
 /** Where the backend's view of the infrastructure comes from. */
@@ -521,6 +777,62 @@ export type RegisterMachine = {
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */
 export type Role = "fabric-admin" | "operator" | "studio-designer" | "auditor";
 
+export type RoleDto = {
+  builtin: boolean;
+  description: string;
+  /** `builtin:<key>` or `custom:<uuid>`. */
+  id: string;
+  name: string;
+  permissions: string[];
+  reference: RoleRef;
+  /** Scope levels it can be assigned at. */
+  scopes: Level[];
+};
+
+export type RoleGrant = {
+  emergency: boolean;
+  /** RFC 3339. */
+  expiresAt?: string | null;
+  role: string;
+  scope: Record<string, unknown>;
+  viaGroup: boolean;
+};
+
+export type RoleList = {
+  items: RoleDto[];
+};
+
+export type RoleRef = {
+  key: string;
+  type: "builtin";
+} | {
+  id: string;
+  type: "custom";
+};
+
+export type SavePolicy = {
+  enabled?: boolean;
+  kind: string;
+  name: string;
+  parameters: Record<string, unknown>;
+};
+
+export type Scope = {
+  type: "platform";
+} | {
+  id: string;
+  type: "organization";
+} | {
+  id: string;
+  type: "project";
+} | {
+  id: string;
+  type: "application";
+} | {
+  name: string;
+  type: "pool";
+};
+
 /** Facts about the Incus server the adapter is talking to. */
 export type ServerInfo = {
   apiExtensions: string[];
@@ -534,6 +846,38 @@ export type ServerInfo = {
   /** `None` when unknown (e.g. the mock provider). */
   serverVersion: string | null;
 };
+
+export type ServiceIdentityCreated = {
+  identity: ServiceIdentityDto;
+  /** The API token of an automation identity, shown only here. */
+  token?: string | null;
+};
+
+export type ServiceIdentityDto = {
+  /** Can call the Apelora API (automation identities only). */
+  apiAccess: boolean;
+  /** The system it authenticates to. */
+  backend: string;
+  createdAt: string;
+  createdBy: string;
+  /** Name of the credential in the backend's secret store (never the secret). */
+  credentialRef?: string | null;
+  disabled: boolean;
+  expiresAt?: string | null;
+  id: string;
+  kind: ServiceKind;
+  lastUsedAt?: string | null;
+  name: string;
+  /** The operation families this kind may perform. */
+  operations: string[];
+  restrictions: Record<string, unknown>;
+};
+
+export type ServiceIdentityList = {
+  items: ServiceIdentityDto[];
+};
+
+export type ServiceKind = "workload" | "network" | "storage" | "provisioning" | "automation";
 
 /** A stateless appliance's service address: a load balancer over its healthy replicas. */
 export type ServiceStatus = {
@@ -602,12 +946,38 @@ export type TokenList = {
   items: TokenInfo[];
 };
 
+export type UserDto = {
+  createdAt: string;
+  disabled: boolean;
+  displayName?: string | null;
+  email?: string | null;
+  id: string;
+  issuer: string;
+  lastSeenAt?: string | null;
+  username?: string | null;
+};
+
+export type UserList = {
+  items: UserDto[];
+};
+
 export type WhoAmI = {
+  /** Permission ids held at some scope (what the UI may offer; the server decides each request). */
+  capabilities: string[];
   /** Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`). */
   deployProjects: string[];
+  /** The user or service identity id; absent for legacy tokens. */
+  id?: string | null;
+  /** `user` (OIDC sign-in), `service` (automation identity), `legacy-token` or `development`. */
+  kind: string;
   name: string;
+  /** What the older, coarse permissions amount to for this caller at platform level. */
   permissions: Permission[];
-  role: Role;
+  /** Permission ids held across the whole platform. */
+  platformPermissions: string[];
+  role?: null | Role;
+  /** The role assignments in force for this caller. */
+  roles: RoleGrant[];
 };
 
 /** Operations by operationId: method, path template, path parameters and whether a token is needed. */
@@ -616,6 +986,11 @@ export const operations = {
   deploy_application: { method: "POST", path: "/api/v1/applications/{name}/deployments", params: ["name"], public: false },
   plan_application: { method: "POST", path: "/api/v1/applications/{name}/plan", params: ["name"], public: false },
   application_status: { method: "GET", path: "/api/v1/applications/{name}/status", params: ["name"], public: false },
+  approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
+  request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
+  approve_request: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
+  cancel_request: { method: "POST", path: "/api/v1/approvals/{id}/cancel", params: ["id"], public: false },
+  reject_request: { method: "POST", path: "/api/v1/approvals/{id}/reject", params: ["id"], public: false },
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
@@ -625,6 +1000,38 @@ export const operations = {
   preview_evacuation: { method: "GET", path: "/api/v1/cluster/members/{member}/evacuation", params: ["member"], public: false },
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
+  assignments: { method: "GET", path: "/api/v1/identity/assignments", params: [], public: false },
+  create_assignment: { method: "POST", path: "/api/v1/identity/assignments", params: [], public: false },
+  preview_assignment: { method: "POST", path: "/api/v1/identity/assignments/preview", params: [], public: false },
+  revoke_assignment: { method: "DELETE", path: "/api/v1/identity/assignments/{assignment}", params: ["assignment"], public: false },
+  identity_audit: { method: "GET", path: "/api/v1/identity/audit", params: [], public: false },
+  grant_emergency_access: { method: "POST", path: "/api/v1/identity/emergency-access", params: [], public: false },
+  groups: { method: "GET", path: "/api/v1/identity/groups", params: [], public: false },
+  create_group: { method: "POST", path: "/api/v1/identity/groups", params: [], public: false },
+  group_members: { method: "GET", path: "/api/v1/identity/groups/{group}/members", params: ["group"], public: false },
+  add_group_member: { method: "PUT", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
+  remove_group_member: { method: "DELETE", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
+  organizations: { method: "GET", path: "/api/v1/identity/organizations", params: [], public: false },
+  create_organization: { method: "POST", path: "/api/v1/identity/organizations", params: [], public: false },
+  create_project: { method: "POST", path: "/api/v1/identity/organizations/{org}/projects", params: ["org"], public: false },
+  permissions: { method: "GET", path: "/api/v1/identity/permissions", params: [], public: false },
+  policies: { method: "GET", path: "/api/v1/identity/policies", params: [], public: false },
+  save_policy: { method: "PUT", path: "/api/v1/identity/policies", params: [], public: false },
+  delete_policy: { method: "DELETE", path: "/api/v1/identity/policies/{id}", params: ["id"], public: false },
+  projects_list: { method: "GET", path: "/api/v1/identity/projects", params: [], public: false },
+  environments: { method: "GET", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
+  create_environment: { method: "POST", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
+  roles: { method: "GET", path: "/api/v1/identity/roles", params: [], public: false },
+  create_role: { method: "POST", path: "/api/v1/identity/roles", params: [], public: false },
+  delete_role: { method: "DELETE", path: "/api/v1/identity/roles/{role}", params: ["role"], public: false },
+  service_identities: { method: "GET", path: "/api/v1/identity/service-identities", params: [], public: false },
+  create_service_identity: { method: "POST", path: "/api/v1/identity/service-identities", params: [], public: false },
+  disable_service_identity: { method: "POST", path: "/api/v1/identity/service-identities/{id}/disable", params: ["id"], public: false },
+  enable_service_identity: { method: "POST", path: "/api/v1/identity/service-identities/{id}/enable", params: ["id"], public: false },
+  users: { method: "GET", path: "/api/v1/identity/users", params: [], public: false },
+  lookup_user: { method: "GET", path: "/api/v1/identity/users/lookup", params: [], public: false },
+  disable_user: { method: "POST", path: "/api/v1/identity/users/{user}/disable", params: ["user"], public: false },
+  enable_user: { method: "POST", path: "/api/v1/identity/users/{user}/enable", params: ["user"], public: false },
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
   delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
@@ -659,7 +1066,17 @@ export type Responses = {
   plan_application: Plan;
   /** The application's instances as Incus reports them, by appliance. Needs `read-inventory`. */
   application_status: ApplicationStatus;
-  /** The 100 most recent audit events, newest first. Needs `read-audit` and a database. */
+  /** Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`. */
+  approvals: ApprovalList;
+  /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
+  request_approval: ApprovalDto;
+  /** Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once. */
+  approve_request: ApprovalDto;
+  /** Withdraws your own pending request. Needs `approval.request`. */
+  cancel_request: ApprovalDto;
+  /** Rejects a request. Needs `approval.grant`. */
+  reject_request: ApprovalDto;
+  /** The most recent audit events the caller may read, newest first. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
   cluster: ClusterResponse;
@@ -677,6 +1094,70 @@ export type Responses = {
   restore_member: MemberStateStarted;
   /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
   health: Health;
+  /** Role assignments in the caller's scopes. Needs `user.view`. */
+  assignments: AssignmentList;
+  /** Grants a role to a person, group or automation identity at a scope. Needs `role.assign` there and every permission the role holds (no escalation); audited. */
+  create_assignment: AssignmentDto;
+  /** Shows what an assignment would give before it is saved: what the person can already do at the scope, what they could do afterwards, which permissions would be inert, and whether you may save it. Changes nothing. Needs `role.assign`. */
+  preview_assignment: AssignmentPreview;
+  /** Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its scope. The last platform super admin cannot be revoked. */
+  revoke_assignment: null;
+  /** Audit history the caller may read, filtered and paged. Needs `audit.read`. */
+  identity_audit: AuditList;
+  /** Grants a person a platform role for a short time, with a recorded reason (break-glass). You cannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`. */
+  grant_emergency_access: AssignmentDto;
+  /** Groups the caller may see. Needs `user.view`. */
+  groups: GroupList;
+  /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to an identity-provider group name is platform-only. */
+  create_group: GroupDto;
+  /** Members of a group. Needs `user.view` or `group.manage` on the group's organisation. */
+  group_members: UserList;
+  /** Adds a person to a group. Needs `group.manage`. */
+  add_group_member: null;
+  /** Removes a person from a group; their access through it ends on their next request. Needs `group.manage`. */
+  remove_group_member: null;
+  /** Organisations the caller may see. Needs `organization.view` (or a grant below that reaches them). */
+  organizations: OrganizationList;
+  /** Creates an organisation. Needs `organization.create` (platform). */
+  create_organization: OrganizationDto;
+  /** Creates a project in an organisation. Needs `project.create` on the organisation. */
+  create_project: ProjectDto;
+  /** Every permission, its class and the narrowest scope at which a grant takes effect. */
+  permissions: PermissionList;
+  /** Access policies (MFA and approval rules). Needs `access_policy.manage` or `audit.read`. */
+  policies: PolicyList;
+  /** Creates or updates a policy by name. `mfa`: `{"environments": ["production"], "infrastructure": true}`. `approval`: `{"actions": ["cluster.evacuate"]}` (extra actions that need approval where the API already asks for it). Needs `access_policy.manage`. */
+  save_policy: PolicyDto;
+  /** Deletes a policy. Needs `access_policy.manage`. */
+  delete_policy: null;
+  /** Projects the caller may see, optionally of one organisation. Needs `project.view`. */
+  projects_list: ProjectList;
+  /** Environments of a project. Needs `project.view` on it. */
+  environments: EnvironmentList;
+  /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators may map an existing one. Needs `environment.manage`. */
+  create_environment: EnvironmentDto;
+  /** The predefined and custom roles with their permissions. */
+  roles: RoleList;
+  /** Defines a custom role from explicit permissions. Needs `role.manage` (platform), and you may only include permissions you hold yourself. */
+  create_role: RoleDto;
+  /** Deletes a custom role that no assignment uses. Needs `role.manage`. */
+  delete_role: null;
+  /** Registered service identities (the credentials Apelora uses for Incus and MAAS, and automation identities that call this API). Needs `service_identity.manage`. */
+  service_identities: ServiceIdentityList;
+  /** Registers a service identity. Outbound kinds (workload, network, storage, provisioning) record only the name of a credential held in the secret store; automation identities get an API token, shown once. Needs `service_identity.manage`. */
+  create_service_identity: ServiceIdentityCreated;
+  /** Disables a service identity at once. Needs `service_identity.manage`. */
+  disable_service_identity: null;
+  /** Re-enables a service identity. Needs `service_identity.manage`. */
+  enable_service_identity: null;
+  /** People who have signed in, as far as the caller may see them: everyone for a platform administrator, otherwise those with a role in the caller's scopes. Needs `user.view`. */
+  users: UserList;
+  /** Finds one person by exact user name or e-mail so a role can be given to them. Someone who has never signed in does not exist yet. Needs `role.assign` or `group.manage`. */
+  lookup_user: UserList;
+  /** Disables a person: their tokens stop working at once. Needs `user.manage`. */
+  disable_user: null;
+  /** Re-enables a person. Needs `user.manage`. */
+  enable_user: null;
   /** Instances in all projects. Needs `read-inventory`. */
   instances: InstanceList;
   /** Queues creation of an instance. Needs `deploy`. Apelora marks it as its own; only such instances can later be stopped or deleted through Apelora. */
@@ -719,7 +1200,7 @@ export type Responses = {
   create_token: TokenCreated;
   /** Revokes an API token; it stops working at once. Needs `manage-tokens`. */
   revoke_token: null;
-  /** The caller's name, role and the permissions that role grants. */
+  /** Who is calling, with the role assignments and permissions in force. */
   whoami: WhoAmI;
 };
 
@@ -729,6 +1210,11 @@ export type Bodies = {
   deploy_application: DeployRequest;
   plan_application: PlanRequest;
   application_status: never;
+  approvals: never;
+  request_approval: NewApproval;
+  approve_request: never;
+  cancel_request: never;
+  reject_request: never;
   audit: never;
   cluster: never;
   list_join_tokens: never;
@@ -738,6 +1224,38 @@ export type Bodies = {
   preview_evacuation: never;
   restore_member: ConfirmMember;
   health: never;
+  assignments: never;
+  create_assignment: NewAssignment;
+  preview_assignment: NewAssignment;
+  revoke_assignment: never;
+  identity_audit: never;
+  grant_emergency_access: EmergencyAccess;
+  groups: never;
+  create_group: NewGroup;
+  group_members: never;
+  add_group_member: never;
+  remove_group_member: never;
+  organizations: never;
+  create_organization: NewOrganization;
+  create_project: NewProject;
+  permissions: never;
+  policies: never;
+  save_policy: SavePolicy;
+  delete_policy: never;
+  projects_list: never;
+  environments: never;
+  create_environment: NewEnvironment;
+  roles: never;
+  create_role: NewRole;
+  delete_role: never;
+  service_identities: never;
+  create_service_identity: NewServiceIdentity;
+  disable_service_identity: never;
+  enable_service_identity: never;
+  users: never;
+  lookup_user: never;
+  disable_user: never;
+  enable_user: never;
   instances: never;
   create_instance: InstanceSpec;
   delete_instance: never;

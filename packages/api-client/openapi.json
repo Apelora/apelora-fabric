@@ -341,12 +341,291 @@
         }
       }
     },
+    "/api/v1/approvals": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`.",
+        "operationId": "approvals",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Asks for approval of one risky action on one target. You must be allowed to do the action\nyourself; someone else with `approval.grant` then decides. Needs `approval.request`.",
+        "operationId": "request_approval",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/approvals/{id}/approve": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once.",
+        "operationId": "approve_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Approval id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/approvals/{id}/cancel": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Withdraws your own pending request. Needs `approval.request`.",
+        "operationId": "cancel_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Approval id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/approvals/{id}/reject": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Rejects a request. Needs `approval.grant`.",
+        "operationId": "reject_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Approval id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "tags": [
           "audit"
         ],
-        "summary": "The 100 most recent audit events, newest first. Needs `read-audit` and a database.",
+        "summary": "The most recent audit events the caller may read, newest first. Needs `audit.read`\n(platform-wide, or limited to the events of the caller's organisations, projects and\napplications) and a database.",
         "operationId": "audit",
         "responses": {
           "200": {
@@ -986,6 +1265,1674 @@
         "security": [
           {}
         ]
+      }
+    },
+    "/api/v1/identity/assignments": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Role assignments in the caller's scopes. Needs `user.view`.",
+        "operationId": "assignments",
+        "parameters": [
+          {
+            "name": "principalType",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "principalId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeRevoked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Grants a role to a person, group or automation identity at a scope. Needs `role.assign` there\nand every permission the role holds (no escalation); audited.",
+        "operationId": "create_assignment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewAssignment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/assignments/preview": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Shows what an assignment would give before it is saved: what the person can already do at the\nscope, what they could do afterwards, which permissions would be inert, and whether you may\nsave it. Changes nothing. Needs `role.assign`.",
+        "operationId": "preview_assignment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewAssignment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/assignments/{assignment}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its\nscope. The last platform super admin cannot be revoked.",
+        "operationId": "revoke_assignment",
+        "parameters": [
+          {
+            "name": "assignment",
+            "in": "path",
+            "description": "Assignment id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/audit": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Audit history the caller may read, filtered and paged. Needs `audit.read`.",
+        "operationId": "identity_audit",
+        "parameters": [
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Only actions starting with this, e.g. `role.` or `emergency_access.`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "`success`, `denied` or `failed`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only events older than this id (paging).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/emergency-access": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Grants a person a platform role for a short time, with a recorded reason (break-glass). You\ncannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`.",
+        "operationId": "grant_emergency_access",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmergencyAccess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/groups": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Groups the caller may see. Needs `user.view`.",
+        "operationId": "groups",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform\n`group.manage`). Mapping a group to an identity-provider group name is platform-only.",
+        "operationId": "create_group",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewGroup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/groups/{group}/members": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Members of a group. Needs `user.view` or `group.manage` on the group's organisation.",
+        "operationId": "group_members",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/groups/{group}/members/{user}": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Adds a person to a group. Needs `group.manage`.",
+        "operationId": "add_group_member",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Removes a person from a group; their access through it ends on their next request. Needs `group.manage`.",
+        "operationId": "remove_group_member",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/organizations": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Organisations the caller may see. Needs `organization.view` (or a grant below that reaches them).",
+        "operationId": "organizations",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates an organisation. Needs `organization.create` (platform).",
+        "operationId": "create_organization",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewOrganization"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/organizations/{org}/projects": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates a project in an organisation. Needs `project.create` on the organisation.",
+        "operationId": "create_project",
+        "parameters": [
+          {
+            "name": "org",
+            "in": "path",
+            "description": "Organisation id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewProject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/permissions": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Every permission, its class and the narrowest scope at which a grant takes effect.",
+        "operationId": "permissions",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/policies": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Access policies (MFA and approval rules). Needs `access_policy.manage` or `audit.read`.",
+        "operationId": "policies",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates or updates a policy by name. `mfa`: `{\"environments\": [\"production\"], \"infrastructure\": true}`.\n`approval`: `{\"actions\": [\"cluster.evacuate\"]}` (extra actions that need approval where the API\nalready asks for it). Needs `access_policy.manage`.",
+        "operationId": "save_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/policies/{id}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Deletes a policy. Needs `access_policy.manage`.",
+        "operationId": "delete_policy",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Policy id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/projects": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Projects the caller may see, optionally of one organisation. Needs `project.view`.",
+        "operationId": "projects_list",
+        "parameters": [
+          {
+            "name": "organization",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/projects/{project}/environments": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Environments of a project. Needs `project.view` on it.",
+        "operationId": "environments",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates an environment. The Incus project it maps to is derived from the names (tenants cannot\nchoose it); platform administrators may map an existing one. Needs `environment.manage`.",
+        "operationId": "create_environment",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Project id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewEnvironment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnvironmentDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/roles": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "The predefined and custom roles with their permissions.",
+        "operationId": "roles",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Defines a custom role from explicit permissions. Needs `role.manage` (platform), and you may\nonly include permissions you hold yourself.",
+        "operationId": "create_role",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewRole"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/roles/{role}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Deletes a custom role that no assignment uses. Needs `role.manage`.",
+        "operationId": "delete_role",
+        "parameters": [
+          {
+            "name": "role",
+            "in": "path",
+            "description": "Custom role id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/service-identities": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Registered service identities (the credentials Apelora uses for Incus and MAAS, and automation\nidentities that call this API). Needs `service_identity.manage`.",
+        "operationId": "service_identities",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceIdentityList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Registers a service identity. Outbound kinds (workload, network, storage, provisioning) record\nonly the name of a credential held in the secret store; automation identities get an API token,\nshown once. Needs `service_identity.manage`.",
+        "operationId": "create_service_identity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewServiceIdentity"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceIdentityCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/service-identities/{id}/disable": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Disables a service identity at once. Needs `service_identity.manage`.",
+        "operationId": "disable_service_identity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Service identity id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/service-identities/{id}/enable": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Re-enables a service identity. Needs `service_identity.manage`.",
+        "operationId": "enable_service_identity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Service identity id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/users": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "People who have signed in, as far as the caller may see them: everyone for a platform\nadministrator, otherwise those with a role in the caller's scopes. Needs `user.view`.",
+        "operationId": "users",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/users/lookup": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Finds one person by exact user name or e-mail so a role can be given to them. Someone who has\nnever signed in does not exist yet. Needs `role.assign` or `group.manage`.",
+        "operationId": "lookup_user",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Exact user name or e-mail address.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/users/{user}/disable": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Disables a person: their tokens stop working at once. Needs `user.manage`.",
+        "operationId": "disable_user",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/users/{user}/enable": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Re-enables a person. Needs `user.manage`.",
+        "operationId": "enable_user",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "path",
+            "description": "User id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/instances": {
@@ -2504,7 +4451,7 @@
         "tags": [
           "system"
         ],
-        "summary": "The caller's name, role and the permissions that role grants.",
+        "summary": "Who is calling, with the role assignments and permissions in force.",
         "operationId": "whoami",
         "responses": {
           "200": {
@@ -2662,14 +4609,218 @@
           }
         }
       },
+      "ApprovalDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "target",
+          "requester",
+          "state",
+          "reason",
+          "createdAt",
+          "expiresAt"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "approver": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "requester": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "`pending`, `approved`, `rejected`, `cancelled` or `consumed`."
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
+      "ApprovalList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApprovalDto"
+            }
+          }
+        }
+      },
+      "AssignmentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "principal",
+          "role",
+          "roleName",
+          "scope",
+          "conditions",
+          "kind",
+          "createdBy",
+          "createdAt"
+        ],
+        "properties": {
+          "conditions": {
+            "$ref": "#/components/schemas/Conditions"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AssignmentKind"
+          },
+          "principal": {
+            "$ref": "#/components/schemas/PrincipalRef"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleRef"
+          },
+          "roleName": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        }
+      },
+      "AssignmentKind": {
+        "type": "string",
+        "enum": [
+          "standard",
+          "emergency"
+        ]
+      },
+      "AssignmentList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssignmentDto"
+            }
+          }
+        }
+      },
+      "AssignmentPreview": {
+        "type": "object",
+        "required": [
+          "allowed",
+          "before",
+          "after",
+          "added",
+          "inert",
+          "warnings"
+        ],
+        "properties": {
+          "added": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permissions the assignment adds."
+          },
+          "after": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectivePermission"
+            },
+            "description": "What they could do once this assignment exists (the new grant has the nil assignment id)."
+          },
+          "allowed": {
+            "type": "boolean",
+            "description": "Could the signed-in administrator save this assignment?"
+          },
+          "before": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectivePermission"
+            },
+            "description": "What the person can already do at that scope."
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not, when `allowed` is false."
+          },
+          "inert": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permissions in the role that do nothing at this scope."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AuditItem": {
         "type": "object",
         "required": [
           "id",
           "at",
           "actor",
+          "actorType",
           "action",
           "target",
+          "outcome",
           "detail"
         ],
         "properties": {
@@ -2677,7 +4828,12 @@
             "type": "string"
           },
           "actor": {
-            "type": "string"
+            "type": "string",
+            "description": "Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`."
+          },
+          "actorType": {
+            "type": "string",
+            "description": "`user`, `service`, `token`, `development`, `cli` or `system`."
           },
           "at": {
             "type": "string",
@@ -2689,6 +4845,17 @@
           "id": {
             "type": "integer",
             "format": "int64"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`success`, `denied` or `failed`."
+          },
+          "scope": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The organisation, project and application the event concerns, when it concerns any."
           },
           "target": {
             "type": "string"
@@ -2806,6 +4973,15 @@
           "fail"
         ]
       },
+      "Class": {
+        "type": "string",
+        "description": "What kind of power a permission is. Only `Tenant` permissions can be granted below the\nplatform level, so an organisation or project role can never reach physical servers,\nthe Incus cluster or the platform's own security settings.",
+        "enum": [
+          "tenant",
+          "infrastructure",
+          "security"
+        ]
+      },
       "ClusterMember": {
         "type": "object",
         "description": "Observed state of an Incus cluster member (\"minion\" in the UI).",
@@ -2883,6 +5059,25 @@
           }
         }
       },
+      "Conditions": {
+        "type": "object",
+        "properties": {
+          "environments": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EnvKind"
+            },
+            "description": "The grant counts only for resources in environments of these kinds."
+          },
+          "requireMfa": {
+            "type": "boolean",
+            "description": "The grant counts only when the caller signed in with multi-factor authentication."
+          }
+        }
+      },
       "ConfirmMember": {
         "type": "object",
         "required": [
@@ -2892,6 +5087,10 @@
           "confirm": {
             "type": "string",
             "description": "The member's name again, typed by the administrator."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Evacuate although the dry run found blockers (a workload may lose service). Needs the\nunsafe-evacuation permission and an approval from another person."
           }
         }
       },
@@ -3072,6 +5271,136 @@
           }
         }
       },
+      "EffectivePermission": {
+        "type": "object",
+        "required": [
+          "permission",
+          "class",
+          "description",
+          "grants"
+        ],
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/Class"
+          },
+          "description": {
+            "type": "string"
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            },
+            "description": "Where each part of this permission comes from."
+          },
+          "permission": {
+            "type": "string"
+          }
+        }
+      },
+      "EmergencyAccess": {
+        "type": "object",
+        "required": [
+          "userId",
+          "role",
+          "reason",
+          "minutes"
+        ],
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "5–240 minutes."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why; at least 10 characters. Recorded in the audit trail."
+          },
+          "role": {
+            "type": "string",
+            "description": "A predefined role key, e.g. `fabric-administrator`."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "EnvKind": {
+        "type": "string",
+        "description": "Kind of environment; policies such as \"production needs MFA\" refer to it.",
+        "enum": [
+          "production",
+          "staging",
+          "development",
+          "other"
+        ]
+      },
+      "EnvironmentDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "projectId",
+          "slug",
+          "name",
+          "kind",
+          "incusProjectConfig",
+          "incusProvisioned"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The restricted Incus project this environment deploys into."
+          },
+          "incusProjectConfig": {
+            "type": "object",
+            "description": "The settings that project needs (restricted, unprivileged, no host devices). Apelora does\nnot create or verify the Incus project yet: an administrator does, with these settings.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "incusProvisioned": {
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EnvKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "EnvironmentList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentDto"
+            }
+          }
+        }
+      },
       "ErrorBody": {
         "type": "object",
         "description": "Error body for every non-2xx response.",
@@ -3201,6 +5530,91 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "Grant": {
+        "type": "object",
+        "required": [
+          "assignment",
+          "role",
+          "roleName",
+          "scope",
+          "emergency"
+        ],
+        "properties": {
+          "assignment": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "emergency": {
+            "type": "boolean"
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleRef"
+          },
+          "roleName": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "viaGroup": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Set when the grant reaches the caller through a group."
+          }
+        }
+      },
+      "GroupDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group's name in the identity provider's tokens, when members come from there."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "`null` = a platform group."
+          }
+        }
+      },
+      "GroupList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupDto"
+            }
           }
         }
       },
@@ -3661,6 +6075,17 @@
           }
         }
       },
+      "Level": {
+        "type": "string",
+        "description": "How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform.",
+        "enum": [
+          "platform",
+          "organization",
+          "project",
+          "application",
+          "pool"
+        ]
+      },
       "Machine": {
         "type": "object",
         "required": [
@@ -3909,6 +6334,239 @@
           }
         }
       },
+      "NewApproval": {
+        "type": "object",
+        "required": [
+          "action",
+          "target"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "The permission to be exercised, e.g. `hardware.delete`."
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "What it will be done to, e.g. `machine:rack1-07`."
+          }
+        }
+      },
+      "NewAssignment": {
+        "type": "object",
+        "required": [
+          "principal",
+          "role",
+          "scope"
+        ],
+        "properties": {
+          "conditions": {
+            "$ref": "#/components/schemas/Conditions"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339. Assignments may expire; emergency grants must."
+          },
+          "principal": {
+            "$ref": "#/components/schemas/PrincipalRef"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/RoleRef"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        }
+      },
+      "NewEnvironment": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Platform administrators only: map an existing Incus project instead of the derived name."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EnvKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "NewGroup": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "externalName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "NewOrganization": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "NewProject": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "NewRole": {
+        "type": "object",
+        "required": [
+          "name",
+          "permissions"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "NewServiceIdentity": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "credentialRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresInDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Automation identities only: days until their token expires (1–365, default 90)."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ServiceKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "restrictions": {
+            "type": "object"
+          }
+        }
+      },
+      "OrganizationDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "createdAt",
+          "disabled"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "OrganizationList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrganizationDto"
+            }
+          }
+        }
+      },
       "Owner": {
         "type": "object",
         "description": "The application and appliance an instance belongs to.",
@@ -3957,6 +6615,48 @@
           "design-applications",
           "deploy"
         ]
+      },
+      "PermissionDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "class",
+          "floor",
+          "needsApproval",
+          "description"
+        ],
+        "properties": {
+          "class": {
+            "$ref": "#/components/schemas/Class"
+          },
+          "description": {
+            "type": "string"
+          },
+          "floor": {
+            "$ref": "#/components/schemas/Level",
+            "description": "The narrowest scope level at which a grant takes effect."
+          },
+          "id": {
+            "type": "string"
+          },
+          "needsApproval": {
+            "type": "boolean"
+          }
+        }
+      },
+      "PermissionList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PermissionDto"
+            }
+          }
+        }
       },
       "Plan": {
         "type": "object",
@@ -4056,6 +6756,57 @@
           }
         }
       },
+      "PolicyDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "parameters",
+          "enabled",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`mfa` or `approval`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        }
+      },
+      "PolicyList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PolicyDto"
+            }
+          }
+        }
+      },
       "PreflightReport": {
         "type": "object",
         "required": [
@@ -4079,6 +6830,68 @@
           }
         }
       },
+      "PrincipalRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "group"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "service"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Who an assignment is for."
+      },
       "Project": {
         "type": "object",
         "required": [
@@ -4099,21 +6912,50 @@
           }
         }
       },
+      "ProjectDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "organizationId",
+          "organizationSlug",
+          "slug",
+          "name",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationSlug": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
       "ProjectList": {
         "type": "object",
         "required": [
-          "source",
           "items"
         ],
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Project"
+              "$ref": "#/components/schemas/ProjectDto"
             }
-          },
-          "source": {
-            "$ref": "#/components/schemas/Source"
           }
         }
       },
@@ -4216,6 +7058,250 @@
           "auditor"
         ]
       },
+      "RoleDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "reference",
+          "name",
+          "description",
+          "builtin",
+          "permissions",
+          "scopes"
+        ],
+        "properties": {
+          "builtin": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "description": "`builtin:<key>` or `custom:<uuid>`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reference": {
+            "$ref": "#/components/schemas/RoleRef"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Level"
+            },
+            "description": "Scope levels it can be assigned at."
+          }
+        }
+      },
+      "RoleGrant": {
+        "type": "object",
+        "required": [
+          "role",
+          "scope",
+          "viaGroup",
+          "emergency"
+        ],
+        "properties": {
+          "emergency": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339."
+          },
+          "role": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "object"
+          },
+          "viaGroup": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RoleList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleDto"
+            }
+          }
+        }
+      },
+      "RoleRef": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "key",
+              "type"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "builtin"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "custom"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "SavePolicy": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "parameters"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        }
+      },
+      "Scope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "platform"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "organization"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "project"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "application"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A named group of physical machines (a MAAS resource pool, if MAAS is adopted).",
+            "required": [
+              "name",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "pool"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "ServerInfo": {
         "type": "object",
         "description": "Facts about the Incus server the adapter is talking to.",
@@ -4265,6 +7351,121 @@
             "description": "`None` when unknown (e.g. the mock provider)."
           }
         }
+      },
+      "ServiceIdentityCreated": {
+        "type": "object",
+        "required": [
+          "identity"
+        ],
+        "properties": {
+          "identity": {
+            "$ref": "#/components/schemas/ServiceIdentityDto"
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The API token of an automation identity, shown only here."
+          }
+        }
+      },
+      "ServiceIdentityDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "backend",
+          "operations",
+          "restrictions",
+          "createdBy",
+          "createdAt",
+          "disabled",
+          "apiAccess"
+        ],
+        "properties": {
+          "apiAccess": {
+            "type": "boolean",
+            "description": "Can call the Apelora API (automation identities only)."
+          },
+          "backend": {
+            "type": "string",
+            "description": "The system it authenticates to."
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "credentialRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the credential in the backend's secret store (never the secret)."
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ServiceKind"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The operation families this kind may perform."
+          },
+          "restrictions": {
+            "type": "object"
+          }
+        }
+      },
+      "ServiceIdentityList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceIdentityDto"
+            }
+          }
+        }
+      },
+      "ServiceKind": {
+        "type": "string",
+        "enum": [
+          "workload",
+          "network",
+          "storage",
+          "provisioning",
+          "automation"
+        ]
       },
       "ServiceStatus": {
         "type": "object",
@@ -4474,21 +7675,105 @@
           }
         }
       },
+      "UserDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "issuer",
+          "createdAt",
+          "disabled"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "disabled": {
+            "type": "boolean"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "UserList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserDto"
+            }
+          }
+        }
+      },
       "WhoAmI": {
         "type": "object",
         "required": [
           "name",
-          "role",
+          "kind",
           "permissions",
+          "capabilities",
+          "platformPermissions",
+          "roles",
           "deployProjects"
         ],
         "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission ids held at some scope (what the UI may offer; the server decides each request)."
+          },
           "deployProjects": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`)."
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The user or service identity id; absent for legacy tokens."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`user` (OIDC sign-in), `service` (automation identity), `legacy-token` or `development`."
           },
           "name": {
             "type": "string"
@@ -4497,10 +7782,33 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Permission"
-            }
+            },
+            "description": "What the older, coarse permissions amount to for this caller at platform level."
+          },
+          "platformPermissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Permission ids held across the whole platform."
           },
           "role": {
-            "$ref": "#/components/schemas/Role"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Role",
+                "description": "The role of a legacy API token; `null` for people and service identities."
+              }
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleGrant"
+            },
+            "description": "The role assignments in force for this caller."
           }
         }
       }
@@ -4509,7 +7817,7 @@
       "bearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An Apelora API token (`apl_…`)."
+        "description": "An OIDC access token from the identity provider, an automation service token (`aps_…`) or a legacy API token (`apl_…`)."
       }
     }
   },
@@ -4539,6 +7847,9 @@
     },
     {
       "name": "audit"
+    },
+    {
+      "name": "identity"
     }
   ]
 }

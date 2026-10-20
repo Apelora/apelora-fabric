@@ -3,6 +3,7 @@
 //! the request in the audit log and queues a job; the deployment worker makes the Incus calls.
 //! Nothing here talks to Incus directly or waits on it.
 
+use apelora_auth::{EnvKind, Resource};
 use apelora_domain::{InstanceAction, InstanceSpec, Permission, is_valid_name};
 use apelora_persistence::{Enqueued, JobView};
 use axum::extract::rejection::JsonRejection;
@@ -14,6 +15,7 @@ use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use super::authz::{allow, filter_for};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal, require};
 
 /// Header that makes a request safe to repeat: the same key from the same caller returns the
@@ -118,6 +120,68 @@ pub(super) fn allowed_project(state: &AppState, project: &str) -> Result<(), Api
     }
 }
 
+/// Like [`allowed_project`], and also accepts an Incus project that an Apelora environment is
+/// mapped to (the deploy identity's own restrictions in Incus still apply).
+pub(super) async fn ensure_project_allowed(
+    state: &AppState,
+    project: &str,
+) -> Result<(), ApiError> {
+    if allowed_project(state, project).is_ok() {
+        return Ok(());
+    }
+    if let Auth::Tokens(pool) = &state.auth
+        && is_valid_name(project)
+        && apelora_persistence::identity::environment_by_incus_project(pool, project)
+            .await?
+            .is_some()
+    {
+        return Ok(());
+    }
+    allowed_project(state, project)
+}
+
+/// What a request about a raw instance in an Incus project is authorised against: the
+/// environment that owns the project, or the platform when no environment does.
+pub(super) async fn instance_resource(
+    state: &AppState,
+    project: &str,
+) -> Result<Resource, ApiError> {
+    let Auth::Tokens(pool) = &state.auth else {
+        return Ok(Resource::platform());
+    };
+    Ok(
+        match apelora_persistence::identity::environment_by_incus_project(pool, project).await? {
+            Some((env, org)) => Resource {
+                organization: Some(org),
+                project: Some(env.project_id),
+                environment: EnvKind::parse(&env.kind),
+                ..Resource::default()
+            },
+            None => Resource::platform(),
+        },
+    )
+}
+
+/// The one authorisation step for raw-instance routes: legacy tokens need `deploy`; people and
+/// service identities need `instance.manage` on the environment that owns the project.
+async fn authorize_instance(
+    state: &AppState,
+    p: &Principal,
+    project: &str,
+) -> Result<(), ApiError> {
+    if p.caller.is_none() {
+        return require(p, Permission::Deploy);
+    }
+    if !is_valid_name(project) {
+        return Err(bad_request(format!("invalid project name {project:?}")));
+    }
+    allow(
+        p,
+        "instance.manage",
+        &instance_resource(state, project).await?,
+    )
+}
+
 pub(super) fn idempotency_key(
     headers: &HeaderMap,
     p: &Principal,
@@ -131,7 +195,7 @@ pub(super) fn idempotency_key(
         .filter(|k| (1..=128).contains(&k.len()) && k.bytes().all(|b| b.is_ascii_graphic()))
         .ok_or_else(|| bad_request("Idempotency-Key must be 1–128 visible ASCII characters"))?;
     // Scoped to the caller so two callers can never collide on a key.
-    Ok(Some(format!("{}:{key}", p.name)))
+    Ok(Some(format!("{}:{key}", p.actor_ref())))
 }
 
 async fn queue(
@@ -151,9 +215,9 @@ async fn queue(
         Enqueued::Existing(id) => (id, false),
     };
     if created {
-        apelora_persistence::audit(
+        super::authz::audit_as(
             pool,
-            &p.name,
+            p,
             &format!("{kind}.requested"),
             target,
             &json!({ "jobId": job_id, "role": p.role }),
@@ -175,10 +239,10 @@ pub(super) async fn create_instance(
     headers: HeaderMap,
     body: Result<Json<InstanceSpec>, JsonRejection>,
 ) -> Result<(StatusCode, Json<JobAccepted>), ApiError> {
-    require(&p, Permission::Deploy)?;
     let Json(spec) = body.map_err(|e| bad_request(e.body_text()))?;
+    authorize_instance(&state, &p, &spec.project).await?;
     spec.validate_from_caller().map_err(bad_request)?;
-    allowed_project(&state, &spec.project)?;
+    ensure_project_allowed(&state, &spec.project).await?;
     let target = format!("{}/{}", spec.project, spec.name);
     let payload = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;
     queue(&state, &p, &headers, "instance.create", &target, payload).await
@@ -197,9 +261,9 @@ pub(super) async fn change_state(
     headers: HeaderMap,
     body: Result<Json<StateChange>, JsonRejection>,
 ) -> Result<(StatusCode, Json<JobAccepted>), ApiError> {
-    require(&p, Permission::Deploy)?;
+    authorize_instance(&state, &p, &project).await?;
     let Json(change) = body.map_err(|e| bad_request(e.body_text()))?;
-    allowed_project(&state, &project)?;
+    ensure_project_allowed(&state, &project).await?;
     if !is_valid_name(&name) {
         return Err(bad_request(format!("invalid instance name {name:?}")));
     }
@@ -220,8 +284,8 @@ pub(super) async fn delete_instance(
     Path(InstancePath { project, name }): Path<InstancePath>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<JobAccepted>), ApiError> {
-    require(&p, Permission::Deploy)?;
-    allowed_project(&state, &project)?;
+    authorize_instance(&state, &p, &project).await?;
+    ensure_project_allowed(&state, &project).await?;
     if !is_valid_name(&name) {
         return Err(bad_request(format!("invalid instance name {name:?}")));
     }
@@ -243,14 +307,24 @@ pub(super) async fn jobs(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> Result<Json<JobList>, ApiError> {
-    require(&p, Permission::ReadInventory)?;
     let pool = store(&state)?;
-    let items = apelora_persistence::recent_jobs(pool, 100)
-        .await?
-        .into_iter()
-        .map(Job::from)
-        .collect();
-    Ok(Json(JobList { items }))
+    // Whole-platform readers see every job; anyone else sees the jobs of applications they may view.
+    let rows = if require(&p, Permission::ReadInventory).is_ok() {
+        apelora_persistence::recent_jobs(pool, 100).await?
+    } else {
+        let filter = filter_for(&p, "application.view");
+        if filter.is_empty() {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "you may not see jobs (cluster.view or application.view)",
+            ));
+        }
+        apelora_persistence::identity::recent_application_jobs(pool, &filter, 100).await?
+    };
+    Ok(Json(JobList {
+        items: rows.into_iter().map(Job::from).collect(),
+    }))
 }
 
 /// A queued job and its progress. Needs `read-inventory`.
@@ -263,7 +337,35 @@ pub(super) async fn job(
     Extension(p): Extension<Principal>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Job>, ApiError> {
-    require(&p, Permission::ReadInventory)?;
     let pool = store(&state)?;
-    Ok(Json(apelora_persistence::get_job(pool, id).await?.into()))
+    let job = apelora_persistence::get_job(pool, id).await?;
+    if require(&p, Permission::ReadInventory).is_err() {
+        // Otherwise only the people who may view the job's application (or manage its environment's instances).
+        let visible = match job.application_id {
+            Some(app) => {
+                match apelora_persistence::identity::application_context_by_id(pool, app).await? {
+                    Some(ctx) => allow(&p, "application.view", &ctx.resource()).is_ok(),
+                    None => false,
+                }
+            }
+            None => match job.payload.get("project").and_then(Value::as_str) {
+                Some(project) => allow(
+                    &p,
+                    "instance.manage",
+                    &instance_resource(&state, project).await?,
+                )
+                .is_ok(),
+                None => false,
+            },
+        };
+        if !visible {
+            // The same answer as for a job that does not exist, so ids do not leak.
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                format!("not found: job {id}"),
+            ));
+        }
+    }
+    Ok(Json(job.into()))
 }

@@ -11,13 +11,14 @@ use apelora_domain::{PendingJoin, Permission, is_valid_name};
 use apelora_incus_adapter::Provider;
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
+use super::authz::{allow_platform, guard};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal, Source, require, source};
 
 /// Join tokens that stay valid longer than this get a warning.
@@ -104,21 +105,30 @@ pub(super) fn lifetime_warnings(expires_at: &str, now: time::OffsetDateTime) -> 
 pub(super) async fn create(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     body: Result<Json<CreateJoinToken>, JsonRejection>,
 ) -> Result<Response, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "cluster.sensitive_change")?;
     let Json(req) =
         body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
     member_name(&req.member_name)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
+    let approval = guard(
+        &state,
+        &p,
+        &headers,
+        "cluster.sensitive_change",
+        &format!("join-token:{}", req.member_name),
+    )
+    .await?;
     let t = provider.create_join_token(&req.member_name).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "cluster.join-token.created",
         &t.member_name,
-        &json!({ "role": p.role, "expiresAt": t.expires_at }),
+        &json!({ "role": p.role, "expiresAt": t.expires_at, "approval": approval }),
     )
     .await?;
     let warnings = lifetime_warnings(&t.expires_at, time::OffsetDateTime::now_utc());
@@ -146,7 +156,7 @@ pub(super) async fn list(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> Result<Json<JoinTokenList>, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "cluster.manage")?;
     let provider = admin(&state)?;
     let items = provider.join_tokens().await?;
     Ok(Json(JoinTokenList {
@@ -167,7 +177,7 @@ pub(super) async fn revoke(
     Extension(p): Extension<Principal>,
     Path(member): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "cluster.manage")?;
     member_name(&member)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
@@ -178,9 +188,9 @@ pub(super) async fn revoke(
             format!("no pending join token for {member}"),
         ));
     }
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "cluster.join-token.revoked",
         &member,
         &json!({ "role": p.role }),
@@ -202,6 +212,10 @@ pub struct EvacuationPreview {
 pub struct ConfirmMember {
     /// The member's name again, typed by the administrator.
     pub confirm: String,
+    /// Evacuate although the dry run found blockers (a workload may lose service). Needs the
+    /// unsafe-evacuation permission and an approval from another person.
+    #[serde(default)]
+    pub force: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -282,7 +296,11 @@ pub(super) async fn preview_evacuation(
     }))
 }
 
-fn confirm(req: Result<Json<ConfirmMember>, JsonRejection>, member: &str) -> Result<(), ApiError> {
+/// Checks the typed confirmation; returns whether the caller asked to go ahead despite blockers.
+fn confirm(
+    req: Result<Json<ConfirmMember>, JsonRejection>,
+    member: &str,
+) -> Result<bool, ApiError> {
     let Json(req) =
         req.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
     if req.confirm != member {
@@ -292,7 +310,7 @@ fn confirm(req: Result<Json<ConfirmMember>, JsonRejection>, member: &str) -> Res
             format!("type the member's name ({member}) to confirm"),
         ));
     }
-    Ok(())
+    Ok(req.force)
 }
 
 /// Evacuates a cluster member through Incus after re-running the dry run: refused while
@@ -305,29 +323,51 @@ fn confirm(req: Result<Json<ConfirmMember>, JsonRejection>, member: &str) -> Res
 pub(super) async fn evacuate(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     Path(member): Path<String>,
     body: Result<Json<ConfirmMember>, JsonRejection>,
 ) -> Result<(StatusCode, Json<MemberStateStarted>), ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
     member_name(&member)?;
-    confirm(body, &member)?;
+    let force = confirm(body, &member)?;
+    // Evacuating when nothing blocks it is an ordinary cluster operation. Going ahead although
+    // something blocks it (`force`) can leave a workload without service: it needs the
+    // unsafe-evacuation permission and another person's approval.
+    allow_platform(
+        &p,
+        if force {
+            "cluster.evacuate_unsafe"
+        } else {
+            "cluster.evacuate"
+        },
+    )?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
     let (plan, _) = evacuation_plan(&state, &member).await?;
-    if !plan.blocked.is_empty() {
+    let unsafe_run = !plan.blocked.is_empty();
+    if unsafe_run && !force {
         return Err(ApiError::new(
             StatusCode::CONFLICT,
             "evacuation_blocked",
             format!("nothing was changed: {}", plan.blocked.join("; ")),
         ));
     }
+    let approval = guard(
+        &state,
+        &p,
+        &headers,
+        if unsafe_run {
+            "cluster.evacuate_unsafe"
+        } else {
+            "cluster.evacuate"
+        },
+        &format!("evacuate:{member}"),
+    )
+    .await?;
     let operation = provider.member_state(&member, false).await?;
-    apelora_persistence::audit(
-        pool,
-        &p.name,
-        "cluster.member.evacuate",
+    super::authz::audit_as(pool, &p,
+        if unsafe_run { "cluster.member.evacuate.unsafe" } else { "cluster.member.evacuate" },
         &member,
-        &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings }),
+        &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings, "blocked": plan.blocked, "approval": approval }),
     )
     .await?;
     Ok((
@@ -349,15 +389,15 @@ pub(super) async fn restore(
     Path(member): Path<String>,
     body: Result<Json<ConfirmMember>, JsonRejection>,
 ) -> Result<(StatusCode, Json<MemberStateStarted>), ApiError> {
-    require(&p, Permission::ManageInfrastructure)?;
+    allow_platform(&p, "cluster.evacuate")?;
     member_name(&member)?;
     confirm(body, &member)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
     let operation = provider.member_state(&member, true).await?;
-    apelora_persistence::audit(
+    super::authz::audit_as(
         pool,
-        &p.name,
+        &p,
         "cluster.member.restore",
         &member,
         &json!({ "role": p.role, "operation": operation }),
