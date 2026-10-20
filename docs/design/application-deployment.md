@@ -24,6 +24,7 @@ Studio ◀── GET /applications/{name}/status (instances carrying the applica
 - **Ownership labels:** besides `user.apelora.managed=true`, Apelora writes `user.apelora.application` and `user.apelora.appliance`. Only Apelora sets `user.apelora.*` keys.
 - **Plan** (`apelora_domain::plan`), per desired appliance: no instance → **create**; an instance with the same name that carries this application's and appliance's labels → **keep**; any other instance with that name → **conflict** (not Apelora's, or another application's). Instances labelled with the application but no longer in the design → **remove** (applied only when the caller asks for it).
 - **Apply** recomputes the plan from current inventory (the preview may be stale), refuses the whole deployment on any conflict, saves the document as an immutable revision, then queues `instance.create` / `instance.delete` jobs (idempotency keys derived from the caller's key), audits `application.deploy.requested`, and returns the job ids. The worker's convergence rules (ownership marker, image pins, architectures) apply unchanged.
+- **Replicas** (Phase 08): a stateless appliance runs 1–9 interchangeable instances (`<application>-<appliance>`, then `-r2`…, labelled `user.apelora.replica`); singletons and stateful appliances run one. The deployment's desired state is recorded per application and project; the worker's supervisor recreates a lost stateless replica through the same job queue (never while a job for it is in flight; five-minute back-off after a failure; audited as `application.replica.recreate`) and re-syncs the network address sets. Spreading replicas is Incus's job, steered by the placement scriptlet `infra/incus/placement.star` (fewest replicas of the appliance per member, then fewest project instances); Apelora never picks a target itself.
 - **Status** lists the application's instances from the inventory with their appliance id, so the Studio can overlay state on the saved design without rewriting it.
 
 ## 3. Failure handling
@@ -35,6 +36,8 @@ Studio ◀── GET /applications/{name}/status (instances carrying the applica
 | A create job fails (image, architecture, Incus) | Job retries or fails as today; status shows the appliance as missing; the next deploy creates it again |
 | Repeated click / network retry | Same `Idempotency-Key` returns the same jobs |
 | Control plane restarts after queuing | Jobs are durable; the worker carries them out |
+| A stateless replica disappears | The supervisor queues its recreation once; Incus places it away from its siblings |
+| A singleton or stateful instance disappears | Reported (worker log, status shows it missing); never recreated automatically |
 
 ## 4. Security
 

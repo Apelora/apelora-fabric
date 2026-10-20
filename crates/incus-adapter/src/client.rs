@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use apelora_domain::{
     APPLIANCE_KEY, APPLICATION_KEY, ClusterMember, ImageProtocol, Instance, InstanceAction,
-    InstanceKind, InstanceSpec, MANAGED_KEY, Network, Owner, Project, ServerInfo, StoragePool,
+    InstanceKind, InstanceSpec, MANAGED_KEY, Network, Owner, Project, REPLICA_KEY, ServerInfo,
+    StoragePool,
 };
 use reqwest::Method;
 use serde::de::DeserializeOwned;
@@ -279,6 +280,7 @@ impl IncusClient {
         if let Some(o) = &spec.owner {
             config.insert(APPLICATION_KEY.into(), o.application.clone());
             config.insert(APPLIANCE_KEY.into(), o.appliance.clone());
+            config.insert(REPLICA_KEY.into(), o.replica.to_string());
         }
         let mut source = json!({
             "type": "image",
@@ -614,6 +616,11 @@ impl IncusClient {
                     (Some(application), Some(appliance)) => Some(Owner {
                         application: application.clone(),
                         appliance: appliance.clone(),
+                        replica: i
+                            .config
+                            .get(REPLICA_KEY)
+                            .and_then(|r| r.parse().ok())
+                            .unwrap_or(1),
                     }),
                     _ => None,
                 },

@@ -20,6 +20,14 @@ Use for replicas, health checks, deployment worker, failure detection and failov
 - Record audited timeline for failure detection, decision, request, operation completion and post-checks.
 - Test worker crashes, stale probes, duplicate requests, network partitions, storage outages, recovery/failback.
 
+## How Apelora does it today (Phase 08 slice 1)
+
+- **Availability is a class property** (`runtime.availability`: `stateless` | `singleton` (default) | `stateful`). Only stateless appliances get replicas (1–9; `DesiredAppliance::validate`, `MAX_REPLICAS`); names `<app>-<appliance>`, `-r2`…; label `user.apelora.replica`.
+- **Desired state is recorded** per (application, project) in `application_deployments` by the deploy API; an empty deployment deletes the record (nothing left to supervise).
+- **The supervisor** (`services/deployment-worker/src/supervisor.rs`) is level-triggered: plan the record against Incus, and for each missing *stateless* replica queue an ordinary `instance.create` job — skipped while `job_in_flight`, and for `BACKOFF_SECS` after `job_failed_recently`. It never creates or deletes anything itself, never touches singleton/stateful instances (warns only), audits `application.replica.recreate`, and queues `network.sync` so address sets include the new address. Unreadable inventory → skip the pass, never guess.
+- **Anti-affinity is Incus's placement**, steered by `infra/incus/placement.star` (installed by the Incus operator; cluster-wide). Call scriptlet helpers with keyword arguments (positional `get_instances` returned nothing on 7.0.1). Never set targets from Apelora.
+- **Tests:** mock (`supervisor::tests`, API `stateless_replicas_are_deployed_recorded_and_restored`) and REAL (`real_incus.rs` `replicas_spread_across_members_and_lost_ones_return`; prove the scriptlet matters with a control run without it under skewed load).
+
 ## Evidence required before calling a feature complete
 
 Explain what changed, actual tests and commands run, source/API reference, remaining safety constraints, and whether tested against real Incus or only mocks.

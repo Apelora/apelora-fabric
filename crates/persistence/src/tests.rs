@@ -312,3 +312,85 @@ async fn applications_are_found_or_created_by_name_and_listed_with_their_latest_
         vec![("blog", None), ("shop", Some(2))]
     );
 }
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) {
+    let app = ensure_application(&pool, "shop").await.expect("app");
+    record_deployment(
+        &pool,
+        app.id,
+        "apelora",
+        1,
+        &json!([{ "appliance": "web-01" }]),
+        None,
+        None,
+    )
+    .await
+    .expect("record");
+    record_deployment(
+        &pool,
+        app.id,
+        "apelora",
+        2,
+        &json!([{ "appliance": "web-01" }, { "appliance": "db-01" }]),
+        Some(&json!([])),
+        Some("incusbr0"),
+    )
+    .await
+    .expect("replace");
+    let all = list_deployments(&pool).await.expect("list");
+    assert_eq!(all.len(), 1);
+    assert_eq!(
+        (
+            all[0].application.as_str(),
+            all[0].revision,
+            all[0].uplink.as_deref()
+        ),
+        ("shop", 2, Some("incusbr0"))
+    );
+    assert_eq!(all[0].desired.as_array().map(Vec::len), Some(2));
+    record_deployment(&pool, app.id, "apelora", 3, &json!([]), None, None)
+        .await
+        .expect("remove");
+    assert!(list_deployments(&pool).await.expect("list").is_empty());
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn in_flight_jobs_are_found_by_instance_and_by_application(pool: PgPool) {
+    let app = ensure_application(&pool, "shop").await.expect("app");
+    let id = enqueue_job(
+        &pool,
+        "instance.create",
+        Some(app.id),
+        &json!({ "project": "apelora", "name": "shop-web-01" }),
+        None,
+    )
+    .await
+    .expect("job")
+    .id();
+    assert!(
+        job_in_flight(&pool, "instance.create", "apelora", "shop-web-01")
+            .await
+            .expect("q")
+    );
+    assert!(
+        !job_in_flight(&pool, "instance.create", "apelora", "shop-web-01-r2")
+            .await
+            .expect("q")
+    );
+    assert!(
+        application_job_in_flight(&pool, "instance.create", app.id)
+            .await
+            .expect("q")
+    );
+    sqlx::query("UPDATE jobs SET status = 'succeeded' WHERE id = $1")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .expect("done");
+    assert!(
+        !job_in_flight(&pool, "instance.create", "apelora", "shop-web-01")
+            .await
+            .expect("q")
+    );
+}

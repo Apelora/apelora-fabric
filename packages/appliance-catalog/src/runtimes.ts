@@ -8,8 +8,10 @@ import type { Runtime } from "@apelora/assembly-model";
  */
 export const RUNTIMES: Readonly<Record<string, Runtime>> = {
   // Official nginx images, multi-architecture index digests resolved on 2026-10-20.
+  // Serves files and proxies requests; keeps no data, so replicas are interchangeable.
   nginx: {
     kind: "incus-oci-container",
+    availability: "stateless",
     imageBy: {
       property: "channel",
       images: {

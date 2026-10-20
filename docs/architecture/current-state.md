@@ -58,7 +58,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Enforcing connections (per-application OVN network, ACLs and address sets) | Done; REAL INCUS TESTED across two members | 07 |
 | Cleanup of network objects with the appliances (owner-labelled) | Done; REAL INCUS TESTED | 07 |
 | Publishing, egress policy | Missing | 07 |
-| Coordination, HA, mobility | Missing | 08 |
+| Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
+| Health with hysteresis, ingress rerouting, evacuation, relocation | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
 | Build/test CI | Missing | 10 |
 

@@ -69,6 +69,13 @@ It installs the OVN database on the first member and the OVN controller on every
 
 With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0` to enforce application connections.
 
+Install replica anti-affinity (Incus's placement scriptlet, cluster-wide; `--remove` restores Incus's own placement) and check it:
+
+```sh
+bash scripts/test-cluster/placement.sh
+cargo test -p apelora-deployment-worker --test real_incus -- --ignored replicas_spread
+```
+
 Remove everything (the VMs and the credentials):
 
 ```sh
@@ -81,6 +88,7 @@ bash scripts/test-cluster/down.sh
 - **Some `openssl req -x509` versions issue X.509 v1 certificates** when no extensions are given, and TLS libraries reject them. `up.sh` issues a v3 client-auth certificate and replaces a v1 one (and its trust entry); the adapter reports a v1 client certificate by name.
 - **`"profiles": []` means no profiles**, and so no root disk; only an absent list gets the `default` profile. The adapter omits an empty list.
 - **OCI image fingerprints are Incus's own**, not the registry's manifest digest. Pin an OCI image with a digest in the alias (`repository@sha256:…`); the `fingerprint` field is for simplestreams images.
+- **Placement scriptlet:** `get_instances(location, project)` called with positional arguments returned no instances on Incus 7.0.1; keyword arguments (`location = …, project = …`) work. The scriptlet sees the new instance's `config`, so Apelora's labels drive the choice. `incus config set KEY VALUE` reads KEY as an instance name when VALUE contains `=`; use `KEY=VALUE`.
 - A restricted client certificate can still read cluster members, managed networks and storage pools, so inventory and preflight work with least privilege; it sees only its own projects.
 
 ## Limits

@@ -44,6 +44,9 @@ export type AuditList = {
 
 export type AuthMode = "tokens" | "disabled-development";
 
+/** How an appliance may be run and recovered (from its catalog class). */
+export type Availability = "stateless" | "singleton" | "stateful";
+
 export type Check = {
   detail: string;
   /** Stable identifier, e.g. `kernel-version`. */
@@ -118,10 +121,13 @@ export type DeployResponse = {
   revision: number;
 };
 
-/** One appliance of the design, turned into the instance it should run as. */
+/** One appliance of the design, turned into the instances it should run as. */
 export type DesiredAppliance = {
   /** The appliance's stable id in the design (e.g. `nginx-01`). */
   appliance: string;
+  availability?: Availability;
+  /** How many instances (1–9); more than one only for stateless appliances. */
+  replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
   spec: InstanceSpec;
 };
@@ -284,6 +290,7 @@ export type NetworkList = {
 export type Owner = {
   appliance: string;
   application: string;
+  replica?: number;
 };
 
 /** A join token that has been issued and not yet used, revoked or expired (no secret). */
@@ -310,6 +317,8 @@ export type PlanItem = {
   instance: string;
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;
+  /** 1-based replica number. */
+  replica: number;
 };
 
 export type PlanRequest = {

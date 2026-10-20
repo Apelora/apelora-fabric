@@ -17,7 +17,7 @@ Use for cluster membership, member roles, LXC/OCI/QEMU instance and Incus REST i
 - Track asynchronous operation IDs and errors. Idempotency and safe retries need explicit guardrails.
 - A `minion` is an Incus cluster member in Apelora UI. Do not add a privileged host agent without ADR.
 - Three members are recommended for database quorum and one voter failure; ensure synchronized clocks and sub-10ms member network latency.
-- Incus's default auto placement is roughly fewest instances, not comprehensive anti-affinity. Use group/target/scriptlet capabilities only if verified.
+- Incus's default auto placement is roughly fewest instances, not comprehensive anti-affinity. Apelora's replica anti-affinity is the placement scriptlet `infra/incus/placement.star` (REAL INCUS TESTED on two members); install with `KEY=VALUE` (`incus config set "instances.placement.scriptlet=$(cat …)"`), call scriptlet helpers with keyword arguments, and leave unlabelled instances to Incus.
 - Ordinary LXC migrations generally need stop/move/start. No blanket live-migration claim.
 - Expose unknown/unavailable resource fields instead of making them up.
 

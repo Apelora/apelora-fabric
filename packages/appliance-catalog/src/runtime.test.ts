@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -75,6 +75,20 @@ describe("runtimes", () => {
     }
     expect(deployable.map((d) => d.appliance)).toContain(sample.spec.appliances.find((a) => a.classRef.name === "nginx")?.id);
     expect(designOnly.find((d) => d.reason.includes("design-only"))).toBeTruthy();
+  });
+
+  it("runs replicas only for stateless classes", () => {
+    const sample = sampleCommerceStack();
+    const nginx = sample.spec.appliances.find((a) => a.classRef.name === "nginx")!;
+    const debian = sample.spec.appliances.find((a) => a.classRef.name === "debian");
+    let doc = setReplicas(sample, nginx.id, 3);
+    if (debian) doc = setReplicas(doc, debian.id, 3);
+    const { deployable } = deploymentAppliances(doc, lookupClass, "apelora");
+    expect(deployable.find((d) => d.appliance === nginx.id)).toMatchObject({ replicas: 3, availability: "stateless" });
+    if (debian) expect(deployable.find((d) => d.appliance === debian.id)).toMatchObject({ replicas: 1, availability: "singleton" });
+    // 1 is stored as absent; the count is clamped to 1–9.
+    expect(setReplicas(doc, nginx.id, 1).spec.appliances.find((a) => a.id === nginx.id)).not.toHaveProperty("replicas");
+    expect(setReplicas(doc, nginx.id, 40).spec.appliances.find((a) => a.id === nginx.id)?.replicas).toBe(9);
   });
 
   it("derives a valid application name from any design name", () => {

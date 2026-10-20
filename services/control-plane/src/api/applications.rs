@@ -6,8 +6,8 @@
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
 use apelora_domain::InstanceSpec;
-use apelora_domain::network::{Connection, attachment};
-use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, owned_spec, plan};
+use apelora_domain::network::Connection;
+use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
@@ -107,20 +107,18 @@ pub struct StatusQuery {
     pub project: Option<String>,
 }
 
-/// The spec an appliance is created with; with enforced connections its NIC joins the
+/// The spec a replica is created with; with enforced connections its NIC joins the
 /// application's network with its own ACL.
 fn spec_for(
     state: &AppState,
     name: &str,
     project: &str,
     d: &DesiredAppliance,
+    replica: u8,
     enforce: bool,
 ) -> InstanceSpec {
-    let mut spec = owned_spec(name, project, d);
-    if enforce && let Some(uplink) = &state.network_uplink {
-        spec.network = Some(attachment(name, &d.appliance, uplink));
-    }
-    spec
+    let uplink = state.network_uplink.as_deref().filter(|_| enforce);
+    deploy_spec(name, project, d, replica, uplink)
 }
 
 fn check_connections(
@@ -179,7 +177,8 @@ fn check(
                 d.appliance
             )));
         }
-        owned_spec(name, project, d)
+        d.validate().map_err(bad_request)?;
+        owned_spec(name, project, d, d.replicas)
             .validate()
             .map_err(|e| bad_request(format!("appliance {}: {e}", d.appliance)))?;
     }
@@ -304,7 +303,7 @@ pub(super) async fn deploy(
                     .ok_or_else(|| {
                         bad_request(format!("appliance {} disappeared", item.appliance))
                     })?;
-                let spec = spec_for(&state, &name, &req.project, desired, enforce);
+                let spec = spec_for(&state, &name, &req.project, desired, item.replica, enforce);
                 (
                     "instance.create",
                     serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?,
@@ -335,6 +334,22 @@ pub(super) async fn deploy(
             job_id,
         });
     }
+    // The supervisor restores lost stateless replicas from this record.
+    apelora_persistence::record_deployment(
+        pool,
+        app.id,
+        &req.project,
+        revision.revision,
+        &serde_json::to_value(&req.appliances).map_err(|e| bad_request(e.to_string()))?,
+        req.connections
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|e| bad_request(e.to_string()))?
+            .as_ref(),
+        state.network_uplink.as_deref().filter(|_| enforce),
+    )
+    .await?;
     let mut network_job = None;
     if let (true, Some(uplink)) = (enforce, &state.network_uplink) {
         let payload = json!({
@@ -343,6 +358,7 @@ pub(super) async fn deploy(
             "uplink": uplink.as_ref(),
             "appliances": req.appliances.iter().map(|d| d.appliance.clone()).collect::<Vec<_>>(),
             "connections": req.connections,
+            "replicas": req.appliances.iter().map(|d| (d.appliance.clone(), d.replicas)).collect::<std::collections::BTreeMap<_, _>>(),
         });
         let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
         let job_id = apelora_persistence::enqueue_job(

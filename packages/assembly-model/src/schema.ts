@@ -56,6 +56,8 @@ export const ApplianceInstanceSchema = z.object({
   ports: z.array(PortSchema),
   /** Overrides of class property defaults; only changed values are stored. */
   config: z.record(z.string(), configValue).optional(),
+  /** Instances to run (1 when absent); more than one only for stateless classes. */
+  replicas: z.number().int().min(1).max(9).optional(),
 });
 
 const EndpointSchema = z.object({ applianceId: entityId, portId });
@@ -141,10 +143,20 @@ const imageBy = <T extends z.ZodType>(image: T) =>
  * How a class runs on Incus. Exactly one of `image` and `imageBy` is set (checked by
  * `runtimeProblems`). A class without a runtime is design-only: it cannot be deployed.
  */
+/**
+ * How an appliance survives failures: `stateless` instances are interchangeable (several
+ * replicas, a lost one is recreated), a `singleton` runs as one instance, `stateful` keeps data
+ * that must not be recreated from scratch. Absent means `singleton`.
+ */
+export const AVAILABILITIES = ["stateless", "singleton", "stateful"] as const;
+export type Availability = (typeof AVAILABILITIES)[number];
+export const MAX_REPLICAS = 9;
+const availability = z.enum(AVAILABILITIES).optional();
+
 export const RuntimeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional() }),
-  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional() }),
-  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional() }),
+  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability }),
+  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability }),
+  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability }),
 ]);
 
 export const ApplianceClassSchema = z.object({

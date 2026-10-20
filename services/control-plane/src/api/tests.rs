@@ -897,7 +897,7 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
     assert!(
         plan["warnings"][0]
             .as_str()
-            .is_some_and(|w| w.contains("single instance"))
+            .is_some_and(|w| w.contains("single points of failure: db-01, web-01"))
     );
 
     let mut body = both.clone();
@@ -1211,4 +1211,127 @@ async fn removed_appliances_lose_their_network_objects_and_other_applications_ke
     );
     assert!(net.networks.contains("apelora/shop-eu"));
     assert!(net.address_sets.keys().all(|k| k.contains("shop-eu")));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn stateless_replicas_are_deployed_recorded_and_restored(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let replicated = |availability: &str| {
+        let mut web = appliance("web-01");
+        web["replicas"] = json!(2);
+        web["availability"] = json!(availability);
+        json!({ "project": "apelora", "document": {}, "appliances": [web, appliance("db-01")] })
+    };
+
+    // Only stateless appliances may have more than one replica.
+    let (status, body) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(replicated("stateful")),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, plan) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(replicated("stateless")),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let names: Vec<_> = plan["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|i| {
+            (
+                i["instance"].as_str().unwrap_or_default().to_owned(),
+                i["replica"].clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        names,
+        vec![
+            ("shop-web-01".to_owned(), json!(1)),
+            ("shop-web-01-r2".to_owned(), json!(2)),
+            ("shop-db-01".to_owned(), json!(1)),
+        ],
+        "in the design's order"
+    );
+    assert!(
+        plan["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|w| w.as_str() == Some("single points of failure: db-01 runs as one instance")),
+        "{plan}"
+    );
+
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(replicated("stateless")),
+        Some("replicas-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    let records = apelora_persistence::list_deployments(&pool)
+        .await
+        .expect("records");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].desired[0]["replicas"], json!(2));
+
+    // A lost replica comes back through the supervisor, labelled like the original.
+    provider
+        .change_state(
+            "apelora",
+            "shop-web-01-r2",
+            apelora_domain::InstanceAction::Stop,
+            true,
+        )
+        .await
+        .expect("stop it");
+    provider
+        .delete_instance("apelora", "shop-web-01-r2")
+        .await
+        .expect("lose it");
+    assert_eq!(
+        apelora_deployment_worker::supervisor::supervise_once(&pool, &provider)
+            .await
+            .expect("supervise"),
+        vec!["shop-web-01-r2".to_owned()]
+    );
+    drain(&pool, &provider).await;
+    let (_, status) = send(
+        state,
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    let mut instances: Vec<_> = status["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|i| i["instance"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    instances.sort();
+    assert_eq!(instances, ["shop-db-01", "shop-web-01", "shop-web-01-r2"]);
 }

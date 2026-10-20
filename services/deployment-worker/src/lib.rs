@@ -5,6 +5,7 @@
 
 pub mod lifecycle;
 pub mod network;
+pub mod supervisor;
 
 use std::time::Duration;
 

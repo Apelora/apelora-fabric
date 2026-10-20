@@ -1738,6 +1738,15 @@
           "disabled-development"
         ]
       },
+      "Availability": {
+        "type": "string",
+        "description": "How an appliance may be run and recovered (from its catalog class).",
+        "enum": [
+          "stateless",
+          "singleton",
+          "stateful"
+        ]
+      },
       "Check": {
         "type": "object",
         "required": [
@@ -1985,7 +1994,7 @@
       },
       "DesiredAppliance": {
         "type": "object",
-        "description": "One appliance of the design, turned into the instance it should run as.",
+        "description": "One appliance of the design, turned into the instances it should run as.",
         "required": [
           "appliance",
           "spec"
@@ -1994,6 +2003,15 @@
           "appliance": {
             "type": "string",
             "description": "The appliance's stable id in the design (e.g. `nginx-01`)."
+          },
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "replicas": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many instances (1–9); more than one only for stateless appliances.",
+            "minimum": 0
           },
           "spec": {
             "$ref": "#/components/schemas/InstanceSpec",
@@ -2511,6 +2529,11 @@
           },
           "application": {
             "type": "string"
+          },
+          "replica": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -2577,6 +2600,7 @@
         "type": "object",
         "required": [
           "appliance",
+          "replica",
           "instance",
           "action",
           "reason"
@@ -2595,6 +2619,12 @@
           "reason": {
             "type": "string",
             "description": "Why, in a sentence (e.g. what the conflicting instance is)."
+          },
+          "replica": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1-based replica number.",
+            "minimum": 0
           }
         }
       },

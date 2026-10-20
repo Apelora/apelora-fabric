@@ -99,6 +99,12 @@ pub struct Instance {
 /// and the appliance (a node in the Studio design) it was deployed for.
 pub const APPLICATION_KEY: &str = "user.apelora.application";
 pub const APPLIANCE_KEY: &str = "user.apelora.appliance";
+/// 1-based replica number of the instance within its appliance.
+pub const REPLICA_KEY: &str = "user.apelora.replica";
+
+fn first_replica() -> u8 {
+    1
+}
 
 /// The application and appliance an instance belongs to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -106,6 +112,8 @@ pub const APPLIANCE_KEY: &str = "user.apelora.appliance";
 pub struct Owner {
     pub application: String,
     pub appliance: String,
+    #[serde(default = "first_replica")]
+    pub replica: u8,
 }
 
 impl Owner {
@@ -117,6 +125,9 @@ impl Owner {
             if !is_valid_name(v) {
                 return Err(format!("invalid {what} name {v:?}"));
             }
+        }
+        if !(1..=plan::MAX_REPLICAS).contains(&self.replica) {
+            return Err(format!("invalid replica number {}", self.replica));
         }
         Ok(())
     }

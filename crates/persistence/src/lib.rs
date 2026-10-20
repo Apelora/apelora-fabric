@@ -180,6 +180,115 @@ pub async fn latest_revision(pool: &PgPool, application_id: Uuid) -> Result<Opti
     .await?)
 }
 
+/// What an application should run in a project, as last deployed.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct DeploymentRecord {
+    pub application_id: Uuid,
+    pub application: String,
+    pub project: String,
+    pub revision: i32,
+    pub desired: Value,
+    pub connections: Option<Value>,
+    pub uplink: Option<String>,
+}
+
+/// Records the desired state of the latest deployment; an empty `desired` removes the record.
+pub async fn record_deployment(
+    pool: &PgPool,
+    application_id: Uuid,
+    project: &str,
+    revision: i32,
+    desired: &Value,
+    connections: Option<&Value>,
+    uplink: Option<&str>,
+) -> Result<()> {
+    if desired.as_array().is_some_and(Vec::is_empty) {
+        sqlx::query(
+            "DELETE FROM application_deployments WHERE application_id = $1 AND project = $2",
+        )
+        .bind(application_id)
+        .bind(project)
+        .execute(pool)
+        .await?;
+        return Ok(());
+    }
+    sqlx::query(
+        "INSERT INTO application_deployments (application_id, project, revision, desired, connections, uplink)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (application_id, project) DO UPDATE
+         SET revision = $3, desired = $4, connections = $5, uplink = $6, updated_at = now()",
+    )
+    .bind(application_id)
+    .bind(project)
+    .bind(revision)
+    .bind(desired)
+    .bind(connections)
+    .bind(uplink)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_deployments(pool: &PgPool) -> Result<Vec<DeploymentRecord>> {
+    Ok(sqlx::query_as::<_, DeploymentRecord>(
+        "SELECT d.application_id, a.name AS application, d.project, d.revision, d.desired, d.connections, d.uplink
+         FROM application_deployments d JOIN applications a ON a.id = d.application_id
+         ORDER BY a.name, d.project",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Whether a job of `kind` for the instance `project/name` is waiting or running.
+pub async fn job_in_flight(pool: &PgPool, kind: &str, project: &str, name: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = $1 AND status IN ('pending', 'running')
+                        AND payload->>'project' = $2 AND payload->>'name' = $3)",
+    )
+    .bind(kind)
+    .bind(project)
+    .bind(name)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Whether a job of `kind` for the instance failed within the last `secs` seconds (used to
+/// back off instead of re-queuing a change that keeps failing).
+pub async fn job_failed_recently(
+    pool: &PgPool,
+    kind: &str,
+    project: &str,
+    name: &str,
+    secs: i64,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = $1 AND status = 'failed'
+                        AND payload->>'project' = $2 AND payload->>'name' = $3
+                        AND updated_at > now() - make_interval(secs => $4))",
+    )
+    .bind(kind)
+    .bind(project)
+    .bind(name)
+    .bind(secs as f64)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Whether a job of `kind` for the application is waiting or running.
+pub async fn application_job_in_flight(
+    pool: &PgPool,
+    kind: &str,
+    application_id: Uuid,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM jobs WHERE kind = $1 AND status IN ('pending', 'running') AND application_id = $2)",
+    )
+    .bind(kind)
+    .bind(application_id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// A job a worker currently owns. Every write about it must quote `generation`.
 #[derive(Debug, Clone, PartialEq, FromRow)]
 pub struct ClaimedJob {

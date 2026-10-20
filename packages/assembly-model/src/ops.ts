@@ -1,6 +1,7 @@
 import { API_VERSION, ASSEMBLY_KIND, LAYOUT_VERSION } from "./constants";
 import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
+import { MAX_REPLICAS } from "./schema";
 import type { ApplianceClass, ApplicationAssembly, ApplianceInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
 function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAssembly["spec"]["links"]>[number]) => boolean): ApplicationAssembly["spec"]["links"] {
@@ -124,6 +125,12 @@ export function renameAppliance(a: ApplicationAssembly, id: string, name: string
 
 export function setResources(a: ApplicationAssembly, id: string, r: Partial<ApplianceInstance["resources"]>): ApplicationAssembly {
   return updateAppliance(a, id, (x) => ({ ...x, resources: { ...x.resources, ...r } }));
+}
+
+/** Sets how many instances an appliance runs (1–9; 1 is stored as absent). */
+export function setReplicas(a: ApplicationAssembly, id: string, n: number): ApplicationAssembly {
+  const replicas = Math.min(MAX_REPLICAS, Math.max(1, Math.round(n)));
+  return updateAppliance(a, id, ({ replicas: _old, ...x }) => (replicas === 1 ? x : { ...x, replicas }));
 }
 
 function growToFit(a: ApplicationAssembly, id: string): ApplicationAssembly {

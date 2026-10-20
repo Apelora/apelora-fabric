@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { expect, open } from "./helpers";
+import { expect, open, openProps } from "./helpers";
 
 // Deploying from the Studio, against a stubbed control plane: the Studio must only deploy
 // appliances that have a runtime, show the server's plan before changing anything, follow the
@@ -38,7 +38,7 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/whoami": () => ({ json: operator }),
       "POST /api/v1/applications/commerce-stack/plan": (req) => {
         planBody = req.postDataJSON();
-        return { json: { items: [item("nginx-01", "create"), item("nginx-02", "create")], warnings: ["every appliance runs as a single instance (2 in total): replicas and failover are not available yet"] } };
+        return { json: { items: [item("nginx-01", "create"), { ...item("nginx-01", "create"), instance: "commerce-stack-nginx-01-r2", replica: 2 }, item("nginx-02", "create")], warnings: ["single points of failure: nginx-02 runs as one instance"] } };
       },
       "POST /api/v1/applications/commerce-stack/deployments": (req) => {
         deployed = { body: req.postDataJSON() as Record<string, unknown>, key: req.headers()["idempotency-key"] };
@@ -53,6 +53,14 @@ test.describe("deploying from the Studio", () => {
       ] : [] } }),
     });
     await open(page);
+    // Two replicas of nginx-01: nginx is stateless, so the Properties window offers replicas.
+    await openProps(page, "nginx-01");
+    await expect(page.getByTestId("availability")).toContainText("recreated automatically");
+    await page.getByTestId("replicas").fill("2");
+    await page.getByTestId("replicas").press("Enter");
+    await page.keyboard.press("Escape");
+    // Saving is debounced: take the reference copy once the edit is stored.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("replicas");
     const before = await page.evaluate(() => localStorage.getItem("apelora.studio.v1"));
     await page.getByTestId("deploy-open").click();
     const dialog = page.getByTestId("deploy-dialog");
@@ -60,13 +68,15 @@ test.describe("deploying from the Studio", () => {
     await expect(dialog.getByTestId("deploy-deployable")).toHaveCount(2);
     await expect(dialog.getByTestId("deploy-design-only")).toHaveCount(4);
     await expect(dialog.getByTestId("deploy-design-only").first()).toContainText("Design only");
+    await expect(dialog.getByTestId("deploy-replicas")).toHaveText("× 2 replicas");
 
     await dialog.getByTestId("deploy-preview").click();
-    expect((planBody as { appliances: { appliance: string }[] }).appliances.map((a) => a.appliance)).toEqual(["nginx-01", "nginx-02"]);
+    expect((planBody as { appliances: { appliance: string; replicas: number; availability: string }[] }).appliances.map((a) => [a.appliance, a.replicas, a.availability]))
+      .toEqual([["nginx-01", 2, "stateless"], ["nginx-02", 1, "stateless"]]);
     expect((planBody as { connections: unknown[] }).connections, "only cables between deployed appliances").toEqual([]);
-    await expect(dialog.getByTestId("plan-row")).toHaveCount(2);
-    await expect(dialog).toContainText("single instance");
-    await expect(dialog.getByTestId("deploy-apply")).toHaveText("Deploy 2 changes");
+    await expect(dialog.getByTestId("plan-row")).toHaveCount(3);
+    await expect(dialog).toContainText("single points of failure: nginx-02");
+    await expect(dialog.getByTestId("deploy-apply")).toHaveText("Deploy 3 changes");
     await dialog.getByTestId("network-rules").locator("summary").click();
     await expect(dialog.getByTestId("network-rule")).toHaveCount(6);
     await expect(dialog.getByTestId("network-rules")).toContainText("nginx-01 → postgresql-01.commerce-stack.internal · postgres 5432/tcp");

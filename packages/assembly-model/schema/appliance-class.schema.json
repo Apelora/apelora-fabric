@@ -134,6 +134,14 @@
                 "images"
               ],
               "additionalProperties": false
+            },
+            "availability": {
+              "type": "string",
+              "enum": [
+                "stateless",
+                "singleton",
+                "stateful"
+              ]
             }
           },
           "required": [
@@ -218,6 +226,14 @@
                 "images"
               ],
               "additionalProperties": false
+            },
+            "availability": {
+              "type": "string",
+              "enum": [
+                "stateless",
+                "singleton",
+                "stateful"
+              ]
             }
           },
           "required": [
@@ -300,6 +316,14 @@
                 "images"
               ],
               "additionalProperties": false
+            },
+            "availability": {
+              "type": "string",
+              "enum": [
+                "stateless",
+                "singleton",
+                "stateful"
+              ]
             }
           },
           "required": [
@@ -643,6 +667,11 @@
                     }
                   ]
                 }
+              },
+              "replicas": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9
               }
             },
             "required": [

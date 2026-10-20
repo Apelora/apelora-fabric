@@ -8,7 +8,7 @@
 
 use apelora_domain::is_valid_name;
 use apelora_domain::network::{Connection, acl_name, acl_rules, network_name};
-use apelora_domain::plan::instance_name;
+use apelora_domain::plan::replica_name;
 use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
 use apelora_persistence::Outcome;
 use serde::Deserialize;
@@ -21,6 +21,9 @@ pub struct NetworkSync {
     pub uplink: String,
     pub appliances: Vec<String>,
     pub connections: Vec<Connection>,
+    /// Replicas per appliance (1 when absent): every replica's addresses join the set.
+    #[serde(default)]
+    pub replicas: std::collections::BTreeMap<String, u8>,
 }
 
 impl NetworkSync {
@@ -69,12 +72,16 @@ async fn apply(provider: &Provider, s: &NetworkSync) -> Result<Vec<String>, Adap
         let name = acl_name(app, a);
         provider.ensure_acl(p, &name, app).await?;
         provider.ensure_address_set(p, &name, app).await?;
-        let addresses = provider
-            .instance_addresses(p, &instance_name(app, a))
-            .await?;
-        if addresses.is_empty() {
-            missing.push(a.clone());
+        let mut addresses = Vec::new();
+        for replica in 1..=s.replicas.get(a).copied().unwrap_or(1).max(1) {
+            let instance = replica_name(app, a, replica);
+            let found = provider.instance_addresses(p, &instance).await?;
+            if found.is_empty() {
+                missing.push(instance);
+            }
+            addresses.extend(found);
         }
+        addresses.sort();
         provider.set_addresses(p, &name, &addresses, app).await?;
     }
     for a in &s.appliances {

@@ -415,12 +415,15 @@ test.describe("network interface and link tags", () => {
     }
     await openProps(page, "nginx-01");
     await expect(page.getByTestId("nic-status")).toHaveText("default network");
+    await page.keyboard.press("Escape"); // the floating window may cover the drop spot
+    await expect(page.getByTestId("nic-status")).toHaveCount(0);
     // plug it into a Network appliance by cable
     const net = await dropAt(page, "network", 0.12, 0.85);
     await dragHandle(page, handle(page, net, "net"), handle(page, "nginx-01", "net"));
     await expect(node(page, "nginx-01").getByTestId("nic-led")).toHaveAttribute("data-linked", "true");
     await openProps(page, "nginx-01");
     await expect(page.getByTestId("nic-status")).toContainText(`${net} (cable)`);
+    await page.keyboard.press("Escape");
     // a NIC takes one network: a second cable is refused
     const net2 = await dropAt(page, "network", 0.3, 0.88);
     const before = await edgeCount(page);

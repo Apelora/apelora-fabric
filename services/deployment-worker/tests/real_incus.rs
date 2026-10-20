@@ -325,3 +325,97 @@ async fn join_tokens_need_the_admin_identity_and_can_be_revoked() {
     );
     assert_eq!(admin.revoke_join_token(&member).await, Ok(false));
 }
+
+/// Two replicas of a stateless appliance land on different members (the anti-affinity
+/// scriptlet, scripts/test-cluster/placement.sh), and the supervisor brings back a lost one,
+/// again on the member without a sibling. Needs two members and the scriptlet installed.
+#[ignore = "needs a disposable two-member Incus with the placement scriptlet: scripts/test-cluster/placement.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
+    use apelora_deployment_worker::supervisor::supervise_once;
+    use apelora_domain::plan::{DesiredAppliance, deploy_spec};
+
+    let provider = real_incus();
+    let project = project();
+    let application = unique("apl-ha");
+    let app = apelora_persistence::ensure_application(&pool, &application)
+        .await
+        .expect("application");
+    let web: DesiredAppliance = serde_json::from_value(json!({
+        "appliance": "web-01",
+        "spec": { "project": "", "name": "", "kind": "container", "start": true,
+                  "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" } },
+        "replicas": 2,
+        "availability": "stateless",
+    }))
+    .expect("desired");
+    let names = [
+        format!("{application}-web-01"),
+        format!("{application}-web-01-r2"),
+    ];
+    for replica in 1..=2 {
+        let spec = deploy_spec(&application, &project, &web, replica, None);
+        converge(
+            &pool,
+            &provider,
+            "instance.create",
+            &serde_json::to_value(&spec).expect("json"),
+        )
+        .await;
+    }
+    apelora_persistence::record_deployment(&pool, app.id, &project, 1, &json!([web]), None, None)
+        .await
+        .expect("record");
+
+    let locations = async || {
+        let all = provider.instances().await.expect("instances");
+        names
+            .iter()
+            .map(|n| {
+                all.iter()
+                    .find(|i| &i.name == n)
+                    .map(|i| i.location.clone())
+            })
+            .collect::<Vec<_>>()
+    };
+    let before = locations().await;
+    eprintln!("replicas placed on {before:?}");
+    assert!(before.iter().all(Option::is_some), "both replicas exist");
+    assert_ne!(before[0], before[1], "replicas share a member");
+
+    // Lose replica 2; the supervisor queues its recreation and the worker carries it out.
+    let lost = json!({ "project": project, "name": names[1] });
+    converge(&pool, &provider, "instance.delete", &lost).await;
+    assert_eq!(
+        supervise_once(&pool, &provider).await.expect("supervise"),
+        vec![names[1].clone()]
+    );
+    while run_once(&pool, &provider, "real-incus-test")
+        .await
+        .expect("run")
+    {}
+    let after = locations().await;
+    eprintln!("after recreation: {after:?}");
+    assert_eq!(after[0], before[0]);
+    assert!(after[1].is_some(), "the lost replica is back");
+    assert_ne!(
+        after[0], after[1],
+        "the recreated replica avoided its sibling's member"
+    );
+    assert_eq!(
+        status(&provider, &project, &names[1])
+            .await
+            .map(|s| (s.status, s.managed)),
+        Some(("Running".into(), true))
+    );
+
+    for n in &names {
+        converge(
+            &pool,
+            &provider,
+            "instance.delete",
+            &json!({ "project": project, "name": n }),
+        )
+        .await;
+    }
+}

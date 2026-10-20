@@ -1,5 +1,5 @@
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, OciImage, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, OciImage, Runtime, SystemImage } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -75,11 +75,20 @@ export function instanceRequestFor(
   };
 }
 
-/** An appliance the deployment will run, with the request for its instance. */
+/** How a class's instances survive failures (`singleton` unless its runtime says otherwise). */
+export const availabilityOf = (cls: ApplianceClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";
+
+/** How many instances an appliance runs: its replicas for stateless classes, otherwise one. */
+export const replicasOf = (cls: ApplianceClass | undefined, appliance: Pick<ApplianceInstance, "replicas">): number =>
+  availabilityOf(cls) === "stateless" ? (appliance.replicas ?? 1) : 1;
+
+/** An appliance the deployment will run, with the request for its instances. */
 export interface DeployableAppliance {
   appliance: string;
   name: string;
   spec: InstanceRequest;
+  replicas: number;
+  availability: Availability;
 }
 
 /** An appliance that stays in the design only, and why. */
@@ -106,7 +115,7 @@ export function deploymentAppliances(
     if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls) });
     else skip(r.error);
   }
   return { deployable, designOnly };

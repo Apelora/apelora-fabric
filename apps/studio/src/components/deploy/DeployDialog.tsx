@@ -82,7 +82,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the dialog opens
   }, [open]);
 
-  const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec }));
+  const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec, replicas: d.replicas, availability: d.availability }));
   /** The design's connections between appliances that are deployed (rules for the server). */
   const connections = () => {
     const deployed = new Set(split.deployable.map((d) => d.appliance));
@@ -197,7 +197,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
             <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-appliances">
               {split.deployable.map((d) => (
                 <li key={d.appliance} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
-                  <span className="font-medium">{d.name}</span>
+                  <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}</span>
                   <span className="truncate font-mono text-xs text-base-content/60">{d.spec.source.alias}</span>
                 </li>
               ))}

@@ -3,15 +3,15 @@ import { useStudio, useStudioApi } from "../../features/editor/context";
 import { IconDown, IconTrash, IconUp, IconPlus } from "../icons";
 import type { ApplicationAssembly } from "@apelora/assembly-model";
 
-export function NumberField({ label, value, min, step, onCommit, testId }: { label: string; value: number; min: number; step: number; onCommit: (n: number) => void; testId: string }) {
+export function NumberField({ label, value, min, max, step, onCommit, testId }: { label: string; value: number; min: number; max?: number; step: number; onCommit: (n: number) => void; testId: string }) {
   return (
     <label className="fieldset min-w-0 flex-1">
       <span className="fieldset-legend text-[11px]">{label}</span>
       <input
         key={value}
-        type="number" min={min} step={step} defaultValue={value} data-testid={testId}
+        type="number" min={min} max={max} step={step} defaultValue={value} data-testid={testId}
         className="input input-sm w-full"
-        onBlur={(e) => { const n = Number(e.currentTarget.value); if (Number.isFinite(n) && n >= min && n !== value) onCommit(n); else e.currentTarget.value = String(value); }}
+        onBlur={(e) => { const n = Number(e.currentTarget.value); if (Number.isFinite(n) && n >= min && (max === undefined || n <= max) && n !== value) onCommit(n); else e.currentTarget.value = String(value); }}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       />
     </label>

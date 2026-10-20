@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { cableColorOf, effectiveSize, portOf, tagNet, type ApplicationAssembly } from "@apelora/assembly-model";
+import { MAX_REPLICAS, availabilityOf, cableColorOf, effectiveSize, portOf, replicasOf, tagNet, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -64,6 +64,23 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
           <NumberField label="Memory MiB" value={app.resources.memoryMiB} min={64} step={64} testId="res-mem" onCommit={(n) => api.getState().setRes(app.id, { memoryMiB: n })} />
         </div>
       </Section>
+      {cls?.runtime && (
+        <Section title="Availability">
+          {availabilityOf(cls) === "stateless" ? (
+            <div data-testid="availability">
+              <div className="flex gap-2">
+                <NumberField label="Replicas" value={replicasOf(cls, app)} min={1} max={MAX_REPLICAS} step={1} testId="replicas" onCommit={(n) => api.getState().setReplicaCount(app.id, n)} />
+                <div className="flex-1" />
+              </div>
+              <p className="mt-1 text-xs text-base-content/60">Stateless: replicas run on different cluster members, and a lost one is recreated automatically.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-base-content/60" data-testid="availability">
+              {availabilityOf(cls) === "stateful" ? "Stateful" : "Singleton"}: runs as one instance. A lost instance is reported, not recreated automatically.
+            </p>
+          )}
+        </Section>
+      )}
       {cls?.composition && (
         <Section title={`Contents (${cls.composition.appliances.length})`} right={<button className="btn btn-ghost btn-xs" data-testid="ungroup" onClick={() => api.getState().ungroupSelection(app.id)}>Ungroup</button>}>
           <div data-testid="component-contents">
