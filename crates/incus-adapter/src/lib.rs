@@ -21,8 +21,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use apelora_domain::{
-    ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, Network, Project,
-    ProviderMode, ServerInfo, StoragePool,
+    ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network,
+    PendingJoin, Project, ProviderMode, ServerInfo, StoragePool, is_valid_name,
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -194,6 +194,50 @@ impl Provider {
         }
     }
 
+    /// Asks Incus for a single-use token letting `member` join the cluster. Needs an
+    /// unrestricted identity (see `config::admin_provider_from_env`). The token is a secret.
+    pub async fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {
+        if !is_valid_name(member) {
+            return Err(AdapterError::InvalidConfig(format!(
+                "invalid member name {member:?}"
+            )));
+        }
+        match self {
+            Provider::Mock(m) => m.create_join_token(member),
+            Provider::Incus(c) => c.create_join_token(member).await,
+        }
+    }
+
+    /// Join tokens issued and not yet used, revoked or expired.
+    pub async fn join_tokens(&self) -> Result<Vec<PendingJoin>, AdapterError> {
+        match self {
+            Provider::Mock(m) => Ok(m
+                .join_tokens
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()),
+            Provider::Incus(c) => c.join_tokens().await,
+        }
+    }
+
+    /// Revokes the pending join token for `member`; `false` when there is none.
+    pub async fn revoke_join_token(&self, member: &str) -> Result<bool, AdapterError> {
+        if !is_valid_name(member) {
+            return Err(AdapterError::InvalidConfig(format!(
+                "invalid member name {member:?}"
+            )));
+        }
+        match self {
+            Provider::Mock(m) => {
+                let mut all = m.join_tokens.lock().unwrap_or_else(|e| e.into_inner());
+                let before = all.len();
+                all.retain(|t| t.member_name != member);
+                Ok(all.len() != before)
+            }
+            Provider::Incus(c) => c.revoke_join_token(member).await,
+        }
+    }
+
     /// Waits for an operation to finish, for at most about `budget`.
     pub async fn wait_operation(
         &self,
@@ -227,6 +271,7 @@ pub struct MockIncus {
     pub server: ServerInfo,
     pub members: Vec<ClusterMember>,
     pub instances: Arc<Mutex<Vec<MockInstance>>>,
+    pub join_tokens: Arc<Mutex<Vec<PendingJoin>>>,
     pub projects: Vec<Project>,
     pub networks: Vec<Network>,
     pub pools: Vec<StoragePool>,
@@ -310,6 +355,27 @@ impl MockIncus {
         Ok(self.op())
     }
 
+    fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {
+        if self.members.iter().any(|m| m.name == member) {
+            return Err(AdapterError::Api {
+                status: 500,
+                message: format!("The cluster already has a member with name: {member}"),
+            });
+        }
+        let pending = PendingJoin {
+            member_name: member.to_owned(),
+            expires_at: "mock: never used".into(),
+        };
+        let mut all = self.join_tokens.lock().unwrap_or_else(|e| e.into_inner());
+        all.retain(|t| t.member_name != member);
+        all.push(pending.clone());
+        Ok(JoinToken {
+            member_name: pending.member_name,
+            expires_at: pending.expires_at,
+            token: "mock-join-token-not-usable".into(),
+        })
+    }
+
     pub fn with_extensions(extensions: &[&str]) -> Self {
         Self {
             server: ServerInfo {
@@ -374,6 +440,7 @@ impl Default for MockIncus {
                 .collect(),
             )),
             next_op: Arc::new(Mutex::new(0)),
+            join_tokens: Arc::new(Mutex::new(Vec::new())),
             projects: vec![
                 Project {
                     name: "default".into(),

@@ -230,6 +230,9 @@ async fn openapi_document_is_public_and_lists_every_route() {
     assert!(doc["paths"]["/api/v1/instances"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/instances/{project}/{name}/state"]["post"].is_object());
     assert!(doc["paths"]["/api/v1/instances/{project}/{name}"]["delete"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/join-tokens"]["get"].is_object());
+    assert!(doc["paths"]["/api/v1/cluster/join-tokens/{member}"]["delete"].is_object());
     assert_eq!(
         doc["paths"]["/api/v1/health"]["get"]["security"],
         json!([{}]),
@@ -511,4 +514,143 @@ async fn preflight_reports_checks_without_claiming_unmeasured_ones() {
         assert_eq!(status_of(id), Some(json!("not-checked")), "{id}");
     }
     assert_eq!(body["overall"], "warn");
+}
+
+// ---- Cluster membership --------------------------------------------------------------------
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn join_tokens_are_admin_only_shown_once_audited_without_the_secret(pool: Pool) {
+    let mock = Provider::Mock(MockIncus::default());
+    let state = AppState::new(mock.clone(), Auth::Tokens(pool.clone())).with_admin(Some(mock));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let path = "/api/v1/cluster/join-tokens";
+    let body = json!({ "memberName": "mock-member-04" });
+
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        path,
+        &operator,
+        Some(body.clone()),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::FORBIDDEN, Some("forbidden"))
+    );
+    let (status, _) = send(state.clone(), "GET", path, &operator, None, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        path,
+        &admin,
+        Some(json!({ "memberName": "../x" })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_request"))
+    );
+
+    let res = router(state.clone())
+        .oneshot(
+            Request::post(path)
+                .header(header::AUTHORIZATION, format!("Bearer {admin}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(res.status(), StatusCode::CREATED);
+    assert_eq!(res.headers()[header::CACHE_CONTROL], "no-store");
+    let created: Value =
+        serde_json::from_slice(&res.into_body().collect().await.expect("body").to_bytes())
+            .expect("json");
+    assert_eq!(created["memberName"], "mock-member-04");
+    let secret = created["token"].as_str().expect("token").to_owned();
+
+    let (status, list) = send(state.clone(), "GET", path, &admin, None, None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(list["source"]["provider"], "mock");
+    assert_eq!(list["items"][0]["memberName"], "mock-member-04");
+    assert!(
+        !list.to_string().contains(&secret),
+        "the list never carries the secret"
+    );
+
+    let one = format!("{path}/mock-member-04");
+    assert_eq!(
+        send(state.clone(), "DELETE", &one, &admin, None, None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    let (status, err) = send(state.clone(), "DELETE", &one, &admin, None, None).await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::NOT_FOUND, Some("not_found"))
+    );
+
+    let audit: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT action, target, detail::text FROM audit_events ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .expect("audit");
+    let actions: Vec<&str> = audit.iter().map(|(a, _, _)| a.as_str()).collect();
+    assert_eq!(
+        actions,
+        ["cluster.join-token.created", "cluster.join-token.revoked"]
+    );
+    assert!(
+        audit
+            .iter()
+            .all(|(_, t, d)| t == "mock-member-04" && !d.contains(&secret))
+    );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn join_tokens_need_the_admin_identity(pool: Pool) {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let (status, err) = send(
+        state,
+        "POST",
+        "/api/v1/cluster/join-tokens",
+        &admin,
+        Some(json!({ "memberName": "m4" })),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(err["error"]["code"], "cluster_admin_not_configured");
+}
+
+#[test]
+fn long_lived_join_tokens_get_a_warning() {
+    let now = time::OffsetDateTime::parse(
+        "2026-10-20T00:00:00Z",
+        &time::format_description::well_known::Rfc3339,
+    )
+    .expect("time");
+    assert!(cluster_admin::lifetime_warnings("2026-10-20T00:30:00Z", now).is_empty());
+    let w = cluster_admin::lifetime_warnings("2026-10-20T03:00:00.123456789+00:00", now);
+    assert!(w[0].contains("cluster.join_token_expiry"), "{w:?}");
+    assert!(cluster_admin::lifetime_warnings("mock: never used", now).is_empty());
 }

@@ -38,6 +38,8 @@ pub struct AppState {
     auth: Auth,
     /// Incus projects Apelora may change (default: `apelora`).
     deploy_projects: Arc<Vec<String>>,
+    /// Unrestricted identity for cluster administration; `None` when not configured.
+    admin: Option<Arc<Provider>>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -49,7 +51,13 @@ impl AppState {
             provider: Arc::new(provider),
             auth,
             deploy_projects: Arc::new(vec![DEFAULT_DEPLOY_PROJECT.to_owned()]),
+            admin: None,
         }
+    }
+
+    pub fn with_admin(mut self, admin: Option<Provider>) -> Self {
+        self.admin = admin.map(Arc::new);
+        self
     }
 
     pub fn with_deploy_projects(mut self, projects: Vec<String>) -> Self {
@@ -82,6 +90,14 @@ pub fn router(state: AppState) -> Router {
             delete(deploy::delete_instance),
         )
         .route("/api/v1/jobs/{id}", get(deploy::job))
+        .route(
+            "/api/v1/cluster/join-tokens",
+            get(cluster_admin::list).post(cluster_admin::create),
+        )
+        .route(
+            "/api/v1/cluster/join-tokens/{member}",
+            delete(cluster_admin::revoke),
+        )
         .route("/api/v1/preflight", get(preflight))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
@@ -585,10 +601,11 @@ impl Modify for BearerAuth {
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
-        deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job),
+        deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job,
+        cluster_admin::create, cluster_admin::list, cluster_admin::revoke),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "audit"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "cluster"), (name = "audit"))
 )]
 pub struct ApiDoc;
 
@@ -607,6 +624,7 @@ async fn openapi() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/json")], openapi_json())
 }
 
+mod cluster_admin;
 mod deploy;
 
 #[cfg(test)]

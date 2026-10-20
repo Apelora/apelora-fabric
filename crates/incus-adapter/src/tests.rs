@@ -564,3 +564,93 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
     assert_eq!(a.instance("default", "web-01").await, Ok(None));
     assert_eq!(a.instances().await.map(|v| v.len()), Ok(4));
 }
+
+fn token_op(id: &str, member: &str, secret: &str) -> Value {
+    json!({ "id": id, "class": "token", "description": "Cluster join token", "status": "Running", "status_code": 103,
+            "metadata": { "serverName": member, "secret": secret, "fingerprint": "ab12",
+                          "addresses": ["192.0.2.10:8443"], "expiresAt": "2026-10-20T03:00:00.123456789Z" } })
+}
+
+#[tokio::test]
+async fn join_tokens_are_created_listed_and_revoked_without_exposing_secrets() {
+    let other = "0d0e0f00-1111-4222-8333-444455556666";
+    let (base, seen) = recording_server(vec![
+        (
+            "POST /1.0/cluster/members",
+            (
+                202,
+                json!({ "type": "async", "status": "Operation created", "status_code": 100,
+                        "operation": format!("/1.0/operations/{OP}"), "error_code": 0, "error": "",
+                        "metadata": token_op(OP, "member-2", "s3cr3t") }),
+            ),
+        ),
+        (
+            "GET /1.0/operations?recursion=1",
+            sync(json!({ "running": [
+                token_op(OP, "member-2", "s3cr3t"),
+                { "id": other, "class": "task", "status": "Running", "metadata": {} },
+            ] })),
+        ),
+        (
+            "DELETE /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c",
+            sync(json!({})),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+
+    let t = p.create_join_token("member-2").await.expect("token");
+    assert_eq!(t.member_name, "member-2");
+    assert_eq!(t.expires_at, "2026-10-20T03:00:00.123456789Z");
+    use base64::Engine as _;
+    let decoded: Value = serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(&t.token)
+            .expect("base64"),
+    )
+    .expect("json");
+    assert_eq!(
+        decoded,
+        json!({ "server_name": "member-2", "fingerprint": "ab12", "addresses": ["192.0.2.10:8443"],
+                "secret": "s3cr3t", "expires_at": "2026-10-20T03:00:00.123456789Z" }),
+        "the format `incus admin init` accepts"
+    );
+    assert!(!format!("{t:?}").contains(&t.token));
+
+    let pending = p.join_tokens().await.expect("list");
+    assert_eq!(
+        pending,
+        vec![PendingJoin {
+            member_name: "member-2".into(),
+            expires_at: "2026-10-20T03:00:00.123456789Z".into()
+        }]
+    );
+    assert_eq!(p.revoke_join_token("member-2").await, Ok(true));
+    assert_eq!(p.revoke_join_token("member-9").await, Ok(false));
+    let log = seen.lock().expect("log").clone();
+    assert_eq!(log[0].1, json!({ "server_name": "member-2" }));
+    assert!(
+        log.iter()
+            .any(|(k, _)| k == &format!("DELETE /1.0/operations/{OP}"))
+    );
+    assert!(
+        !log.iter()
+            .any(|(k, _)| k.contains(other) && k.starts_with("DELETE")),
+        "other operations are never cancelled"
+    );
+    assert!(matches!(
+        p.create_join_token("../x").await,
+        Err(AdapterError::InvalidConfig(_))
+    ));
+}
+
+#[tokio::test]
+async fn mock_join_tokens_are_labelled_and_refuse_existing_members() {
+    let p = Provider::Mock(MockIncus::default());
+    let t = p.create_join_token("mock-member-04").await.expect("token");
+    assert!(t.token.starts_with("mock-"));
+    assert_eq!(p.join_tokens().await.expect("list").len(), 1);
+    assert!(p.create_join_token("mock-member-01").await.is_err());
+    assert_eq!(p.revoke_join_token("mock-member-04").await, Ok(true));
+    assert!(p.join_tokens().await.expect("list").is_empty());
+}

@@ -43,6 +43,15 @@ describe("api client", () => {
     expect([delUrl, delInit.method, delInit.body]).toEqual(["/api/v1/instances/apelora/web-01", "DELETE", undefined]);
   });
 
+  it("returns null for 204 No Content and still reports errors", async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    const api = createClient({ token: () => "apl_x", fetch });
+    await expect(api.request("revoke_join_token", { params: { member: "m2" } })).resolves.toBeNull();
+    expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe("DELETE");
+    const missing = createClient({ fetch: async () => json(404, { error: { code: "not_found", message: "no pending join token for m2" } }) });
+    await expect(missing.request("revoke_join_token", { params: { member: "m2" } })).rejects.toMatchObject({ status: 404, code: "not_found" });
+  });
+
   it("rejects incomplete requests at compile time", () => {
     const api = createClient({ fetch: async () => json(200, {}) });
     const never = () => {
@@ -60,9 +69,11 @@ describe("api client", () => {
 
   it("covers every route of the control plane", () => {
     expect(Object.values(operations).map((o) => `${o.method} ${o.path}`).sort()).toEqual([
+      "DELETE /api/v1/cluster/join-tokens/{member}",
       "DELETE /api/v1/instances/{project}/{name}",
       "GET /api/v1/audit",
       "GET /api/v1/cluster",
+      "GET /api/v1/cluster/join-tokens",
       "GET /api/v1/health",
       "GET /api/v1/instances",
       "GET /api/v1/jobs/{id}",
@@ -71,6 +82,7 @@ describe("api client", () => {
       "GET /api/v1/projects",
       "GET /api/v1/storage-pools",
       "GET /api/v1/whoami",
+      "POST /api/v1/cluster/join-tokens",
       "POST /api/v1/instances",
       "POST /api/v1/instances/{project}/{name}/state",
     ]);

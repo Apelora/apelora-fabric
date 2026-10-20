@@ -119,17 +119,48 @@ pub struct Operation {
     pub updated_at: String,
 }
 
+/// A cluster join token operation (`class: token`). Its metadata holds the join secret.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct TokenOperation {
+    pub id: String,
+    pub class: String,
+    pub status: String,
+    pub metadata: Option<JoinTokenMeta>,
+}
+
+/// Metadata of a join token operation (`POST /1.0/cluster/members`).
+#[derive(Default, Deserialize, serde::Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub(crate) struct JoinTokenMeta {
+    pub server_name: String,
+    pub secret: String,
+    pub fingerprint: String,
+    pub addresses: Vec<String>,
+    pub expires_at: String,
+}
+
+/// The token a joining server is given: Incus encodes these fields as JSON, then base64.
+#[derive(serde::Serialize)]
+pub(crate) struct JoinTokenWire<'a> {
+    pub server_name: &'a str,
+    pub fingerprint: &'a str,
+    pub addresses: &'a [String],
+    pub secret: &'a str,
+    pub expires_at: &'a str,
+}
+
 /// `GET /1.0/operations?recursion=1`: the specification describes a list, while servers have
 /// grouped operations by status; accept both.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum OperationList {
-    Flat(Vec<Operation>),
-    ByStatus(BTreeMap<String, Vec<Operation>>),
+pub(crate) enum OperationList<T = Operation> {
+    Flat(Vec<T>),
+    ByStatus(BTreeMap<String, Vec<T>>),
 }
 
-impl OperationList {
-    pub fn into_vec(self) -> Vec<Operation> {
+impl<T> OperationList<T> {
+    pub fn into_vec(self) -> Vec<T> {
         match self {
             OperationList::Flat(v) => v,
             OperationList::ByStatus(m) => m.into_values().flatten().collect(),

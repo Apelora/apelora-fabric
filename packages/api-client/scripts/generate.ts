@@ -82,13 +82,13 @@ for (const { path, method, op } of ops) {
 }
 out.push("} as const;", "");
 
-out.push("/** Success body of each operation. */");
+out.push("/** Success body of each operation (`null` for 204 No Content). */");
 out.push("export type Responses = {");
 for (const { op } of ops) {
   const code = Object.keys(op.responses).find((c) => c.startsWith("2"));
   const ok = code && op.responses[code]?.content?.["application/json"]?.schema;
-  if (!ok) throw new Error(`${op.operationId}: no 2xx JSON response`);
-  out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ts(ok, "  ")};`);
+  if (!ok && code !== "204") throw new Error(`${op.operationId}: no 2xx JSON response`);
+  out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ok ? ts(ok, "  ") : "null"};`);
 }
 out.push("};", "");
 

@@ -20,9 +20,11 @@ containerd:
   system: false
   user: false
 
-# A host-reachable address for the Incus API (no port forwarding needed).
+# lima0 (vzNAT): an address the host reaches the Incus API on, without port forwarding.
+# eth0 (user-v2): member-to-member cluster traffic; vzNAT isolates VMs from each other.
 networks:
   - vzNAT: true
+  - lima: user-v2
 portForwards:
   - guestIP: 0.0.0.0
     guestPortRange: [1, 65535]

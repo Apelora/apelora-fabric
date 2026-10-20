@@ -12,10 +12,11 @@ The **only** Incus that Apelora's tests may change. It runs in a local VM on a d
 | Topology | One member with clustering enabled | Exercises the cluster API paths; more members come with Phase 08 |
 | Storage / network | `local` (btrfs, 20 GiB loop file), `incusbr0` (NAT bridge) | Defaults that need no host setup |
 | Project | `apelora`, `restricted=true`, own `default` profile (root disk + `eth0`) | The deploy project Apelora is allowed to change |
-| Client identity | ECDSA P-384, X.509 v3, client-auth only, 90 days, **restricted to the `apelora` project** | Least privilege: Apelora cannot see or touch anything else |
+| Client identities | ECDSA P-384, X.509 v3, client-auth only, 90 days. `client`: **restricted to the `apelora` project** (control plane and worker). `admin`: unrestricted, control plane only, for join tokens ([ADR 0003](../adr/0003-incus-identities-and-cluster-join.md)) | Least privilege: deployments cannot see or touch anything else |
+| Join tokens | `cluster.join_token_expiry=30M` | Short-lived approvals |
 | Nested virtualisation | On (Apple M3 or later, macOS 15 or later) | Lets the test cluster run QEMU virtual machines |
 
-No host folders are shared with the VM and no guest ports are forwarded; the Incus API is reached on the VM's own address on the host-only NAT network.
+No host folders are shared with the VM and no guest ports are forwarded. Each VM has two networks: the host reaches the Incus API on the VM's NAT address (`lima0`), and members talk to each other over Lima's `user-v2` network (`eth0`), because the NAT network isolates VMs from each other (found when the second member could not reach the first).
 
 ## Use
 
@@ -25,7 +26,7 @@ bash scripts/test-cluster/up.sh         # create or restart; safe to repeat
 source ~/.config/apelora/test-cluster/env
 ```
 
-The `env` file sets `APELORA_INCUS_URL`, the three certificate paths, `APELORA_INCUS_TLS_SERVER_NAME` and `APELORA_DEPLOY_PROJECTS`. The certificates and the key live in `~/.config/apelora/test-cluster` (mode 0700, files 0600), never in the repository.
+The `env` file sets `APELORA_INCUS_URL`, the certificate paths (deploy and admin identities), `APELORA_INCUS_TLS_SERVER_NAME` and `APELORA_DEPLOY_PROJECTS`. Give the worker only the deploy identity: unset `APELORA_INCUS_ADMIN_CLIENT_CERT`/`KEY` in its environment. The certificates and the key live in `~/.config/apelora/test-cluster` (mode 0700, files 0600), never in the repository.
 
 Then any of:
 
@@ -50,7 +51,15 @@ npm run -s runtime-requests -w @apelora/appliance-catalog > /tmp/requests.json
 APELORA_TEST_CATALOG_REQUESTS=/tmp/requests.json cargo test -p apelora-deployment-worker --test real_incus -- --ignored catalog_runtimes
 ```
 
-Remove everything (the VM and the credentials):
+Add a member (another VM), approved through Apelora: a fabric administrator asks for a join token and the token goes straight to the new VM over standard input:
+
+```sh
+curl -s -X POST -H "Authorization: Bearer $APELORA_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"memberName":"apelora-test-2"}' http://127.0.0.1:8080/api/v1/cluster/join-tokens |
+  jq -r .token | bash scripts/test-cluster/add-member.sh 2
+```
+
+Remove everything (the VMs and the credentials):
 
 ```sh
 bash scripts/test-cluster/down.sh
@@ -66,7 +75,7 @@ bash scripts/test-cluster/down.sh
 
 ## Limits
 
-- One member: no placement, failover or cross-member networking evidence. Those claims wait for a multi-member test cluster.
+- Two members at most so far, both aarch64: no failover, mixed-architecture or cross-member networking evidence yet.
 - The packaging repository may ship a different 7.0.x than `pinned_tag`; `up.sh` prints the running version, and evidence names the version it was produced with.
 - Clock drift and member latency are not measurable through the Incus API; preflight reports them as not checked.
 - Public image servers keep only recent builds: a fingerprint pin of an image they have dropped fails to download, and the job retries until it gives up. Pin images from a server you control (or mirror them) for anything that must keep working.

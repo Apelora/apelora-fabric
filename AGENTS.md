@@ -4,7 +4,7 @@ Authoritative rules for working in this repository, shared by all coding agents 
 
 ## Architecture in one paragraph
 
-Apelora composes applications from appliances in a visual designer and runs them on a cluster of Linux servers. **Incus** runs the appliances (LXC system containers by default, OCI application containers, QEMU VMs where needed) and owns cluster membership, placement and instance lifecycle. **Apelora** owns application graphs, appliance classes, desired state, connectivity, replicas, health and recovery, in a Rust control plane backed by PostgreSQL. See [ADR 0001](docs/adr/0001-incus-first.md), [platform architecture](docs/architecture/PLATFORM-ARCHITECTURE.md), [implementation phases](docs/development/IMPLEMENTATION-PHASES.md) and the [current state](docs/architecture/current-state.md).
+Apelora composes applications from appliances in a visual designer and runs them on a cluster of Linux servers. **Incus** runs the appliances (LXC system containers by default, OCI application containers, QEMU VMs where needed) and owns cluster membership, placement and instance lifecycle. **Apelora** owns application graphs, appliance classes, desired state, connectivity, replicas, health and recovery, in a Rust control plane backed by PostgreSQL. See [ADR 0001](docs/adr/0001-incus-first.md), [ADR 0003](docs/adr/0003-incus-identities-and-cluster-join.md) (Incus identities, cluster join), [platform architecture](docs/architecture/PLATFORM-ARCHITECTURE.md), [implementation phases](docs/development/IMPLEMENTATION-PHASES.md) and the [current state](docs/architecture/current-state.md).
 
 ## What exists now
 

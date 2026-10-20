@@ -287,6 +287,40 @@ impl InstanceSpec {
     }
 }
 
+/// A single-use token that lets one new server join the Incus cluster. It carries a secret:
+/// it is shown once to the administrator who asked for it and never stored or logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct JoinToken {
+    /// Name the new member must join with.
+    pub member_name: String,
+    /// When Incus stops accepting it (RFC 3339, as Incus reports it).
+    pub expires_at: String,
+    /// The token to give `incus admin init` on the new server.
+    pub token: String,
+}
+
+impl std::fmt::Debug for JoinToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JoinToken")
+            .field("member_name", &self.member_name)
+            .field("expires_at", &self.expires_at)
+            .field("token", &"<redacted>")
+            .finish()
+    }
+}
+
+/// A join token that has been issued and not yet used, revoked or expired (no secret).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct PendingJoin {
+    pub member_name: String,
+    /// RFC 3339, as Incus reports it.
+    pub expires_at: String,
+}
+
 /// A state change Apelora can request for one of its instances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -533,6 +567,18 @@ mod tests {
         ] {
             assert!(bad.is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn join_tokens_never_show_their_secret_in_debug_output() {
+        let t = JoinToken {
+            member_name: "m2".into(),
+            expires_at: "2026-10-20T03:00:00Z".into(),
+            token: "c2VjcmV0".into(),
+        };
+        let shown = format!("{t:?}");
+        assert!(shown.contains("m2") && shown.contains("<redacted>"));
+        assert!(!shown.contains("c2VjcmV0"));
     }
 
     #[test]

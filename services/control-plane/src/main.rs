@@ -55,6 +55,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
+    let admin = apelora_incus_adapter::config::admin_provider_from_env(
+        |k| std::env::var(k).ok(),
+        &provider,
+    )?;
+    if admin.is_none() {
+        tracing::info!(
+            "no Incus admin identity: cluster administration (join tokens) is unavailable"
+        );
+    }
     let mode = provider.mode();
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, provider = ?mode, "control plane listening");
@@ -68,7 +77,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("APELORA_DEPLOY_PROJECTS: invalid project name {bad:?}").into());
     }
     tracing::info!(?projects, "deployments allowed in these Incus projects");
-    let state = api::AppState::new(provider, auth).with_deploy_projects(projects);
+    let state = api::AppState::new(provider, auth)
+        .with_deploy_projects(projects)
+        .with_admin(admin);
     axum::serve(listener, api::router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

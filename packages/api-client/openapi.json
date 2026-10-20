@@ -112,6 +112,231 @@
         }
       }
     },
+    "/api/v1/cluster/join-tokens": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`.",
+        "operationId": "list_join_tokens",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Approves a new cluster member: asks Incus for a single-use join token. Needs\n`manage-infrastructure`. The token is in this response only.",
+        "operationId": "create_join_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJoinToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinTokenCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/join-tokens/{member}": {
+      "delete": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Withdraws a new member's approval: revokes its unused join token. Needs\n`manage-infrastructure`.",
+        "operationId": "revoke_join_token",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Name the token was issued for",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -927,6 +1152,18 @@
           }
         }
       },
+      "CreateJoinToken": {
+        "type": "object",
+        "required": [
+          "memberName"
+        ],
+        "properties": {
+          "memberName": {
+            "type": "string",
+            "description": "Name the new member will join with."
+          }
+        }
+      },
       "ErrorBody": {
         "type": "object",
         "description": "Error body for every non-2xx response.",
@@ -1256,6 +1493,53 @@
           }
         }
       },
+      "JoinTokenCreated": {
+        "type": "object",
+        "required": [
+          "memberName",
+          "expiresAt",
+          "token",
+          "warnings"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "description": "RFC 3339, as Incus reports it."
+          },
+          "memberName": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "Single-use secret for `incus admin init` on the new server. Shown only in this response."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "E.g. that the token lives longer than recommended."
+          }
+        }
+      },
+      "JoinTokenList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PendingJoin"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "Network": {
         "type": "object",
         "required": [
@@ -1302,6 +1586,23 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "PendingJoin": {
+        "type": "object",
+        "description": "A join token that has been issued and not yet used, revoked or expired (no secret).",
+        "required": [
+          "memberName",
+          "expiresAt"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "description": "RFC 3339, as Incus reports it."
+          },
+          "memberName": {
+            "type": "string"
           }
         }
       },
@@ -1559,6 +1860,9 @@
     },
     {
       "name": "deployment"
+    },
+    {
+      "name": "cluster"
     },
     {
       "name": "audit"

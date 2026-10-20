@@ -49,6 +49,11 @@ export type ClusterResponse = {
   source: Source;
 };
 
+export type CreateJoinToken = {
+  /** Name the new member will join with. */
+  memberName: string;
+};
+
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
   error: ErrorDetail;
@@ -157,6 +162,21 @@ export type JobAccepted = {
   jobId: string;
 };
 
+export type JoinTokenCreated = {
+  /** RFC 3339, as Incus reports it. */
+  expiresAt: string;
+  memberName: string;
+  /** Single-use secret for `incus admin init` on the new server. Shown only in this response. */
+  token: string;
+  /** E.g. that the token lives longer than recommended. */
+  warnings: string[];
+};
+
+export type JoinTokenList = {
+  items: PendingJoin[];
+  source: Source;
+};
+
 export type Network = {
   description: string;
   kind: string;
@@ -169,6 +189,13 @@ export type Network = {
 export type NetworkList = {
   items: Network[];
   source: Source;
+};
+
+/** A join token that has been issued and not yet used, revoked or expired (no secret). */
+export type PendingJoin = {
+  /** RFC 3339, as Incus reports it. */
+  expiresAt: string;
+  memberName: string;
 };
 
 export type Permission = "read-inventory" | "read-audit" | "manage-tokens" | "manage-infrastructure" | "design-applications" | "deploy";
@@ -245,6 +272,9 @@ export type WhoAmI = {
 export const operations = {
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
+  list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
+  create_join_token: { method: "POST", path: "/api/v1/cluster/join-tokens", params: [], public: false },
+  revoke_join_token: { method: "DELETE", path: "/api/v1/cluster/join-tokens/{member}", params: ["member"], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
@@ -258,12 +288,18 @@ export const operations = {
   whoami: { method: "GET", path: "/api/v1/whoami", params: [], public: false },
 } as const;
 
-/** Success body of each operation. */
+/** Success body of each operation (`null` for 204 No Content). */
 export type Responses = {
   /** The 100 most recent audit events, newest first. Needs `read-audit` and a database. */
   audit: AuditList;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
   cluster: ClusterResponse;
+  /** Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`. */
+  list_join_tokens: JoinTokenList;
+  /** Approves a new cluster member: asks Incus for a single-use join token. Needs `manage-infrastructure`. The token is in this response only. */
+  create_join_token: JoinTokenCreated;
+  /** Withdraws a new member's approval: revokes its unused join token. Needs `manage-infrastructure`. */
+  revoke_join_token: null;
   /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
   health: Health;
   /** Instances in all projects. Needs `read-inventory`. */
@@ -292,6 +328,9 @@ export type Responses = {
 export type Bodies = {
   audit: never;
   cluster: never;
+  list_join_tokens: never;
+  create_join_token: CreateJoinToken;
+  revoke_join_token: never;
   health: never;
   instances: never;
   create_instance: InstanceSpec;

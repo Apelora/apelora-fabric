@@ -13,6 +13,8 @@ use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
 use crate::{AdapterError, InstanceState};
+use apelora_domain::{JoinToken, PendingJoin};
+use base64::Engine as _;
 
 /// Connection settings. Certificates are PEM bytes loaded by the caller from outside the
 /// repository; the server certificate is pinned (no public CA roots are trusted).
@@ -91,6 +93,11 @@ fn check_client_certificate(pem: &[u8]) -> Result<(), AdapterError> {
                 e => format!("client certificate: {e}"),
             })
         })
+}
+
+/// Operation ids are UUIDs; anything else must never reach an API path.
+fn is_operation_id(id: &str) -> bool {
+    !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-')
 }
 
 /// An error with its causes, e.g. "builder error: no crypto provider".
@@ -330,7 +337,7 @@ impl IncusClient {
         id: &str,
         timeout_secs: u32,
     ) -> Result<Operation, AdapterError> {
-        if id.is_empty() || !id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-') {
+        if !is_operation_id(id) {
             return Err(AdapterError::InvalidConfig(format!(
                 "invalid operation id {id:?}"
             )));
@@ -433,6 +440,85 @@ impl IncusClient {
                 description: p.description,
             })
             .collect())
+    }
+
+    /// `POST /1.0/cluster/members`: asks Incus for a single-use join token for `member`.
+    /// The returned token carries the join secret; callers must not store or log it.
+    pub async fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {
+        let body = json!({ "server_name": member });
+        let env: Envelope<wire::TokenOperation> = self
+            .call(Method::POST, "/1.0/cluster/members", Some(&body))
+            .await?;
+        let meta = env
+            .metadata
+            .and_then(|op| op.metadata)
+            .filter(|m| !m.secret.is_empty() && m.server_name == member)
+            .ok_or_else(|| {
+                AdapterError::Decode("/1.0/cluster/members: no join token in the response".into())
+            })?;
+        let wire = wire::JoinTokenWire {
+            server_name: &meta.server_name,
+            fingerprint: &meta.fingerprint,
+            addresses: &meta.addresses,
+            secret: &meta.secret,
+            expires_at: &meta.expires_at,
+        };
+        let json = serde_json::to_vec(&wire).map_err(|e| AdapterError::Decode(e.to_string()))?;
+        Ok(JoinToken {
+            member_name: meta.server_name.clone(),
+            expires_at: meta.expires_at.clone(),
+            token: base64::engine::general_purpose::STANDARD.encode(json),
+        })
+    }
+
+    /// Join tokens still waiting to be used, with their operation ids (no secrets).
+    async fn join_token_operations(&self) -> Result<Vec<(String, PendingJoin)>, AdapterError> {
+        let list: OperationList<wire::TokenOperation> =
+            self.get("/1.0/operations?recursion=1").await?;
+        Ok(list
+            .into_vec()
+            .into_iter()
+            .filter(|op| op.class == "token" && op.status == "Running")
+            .filter_map(|op| {
+                let m = op.metadata.filter(|m| !m.server_name.is_empty())?;
+                let pending = PendingJoin {
+                    member_name: m.server_name,
+                    expires_at: m.expires_at,
+                };
+                Some((op.id, pending))
+            })
+            .collect())
+    }
+
+    pub async fn join_tokens(&self) -> Result<Vec<PendingJoin>, AdapterError> {
+        let mut out: Vec<PendingJoin> = self
+            .join_token_operations()
+            .await?
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect();
+        out.sort_by(|a, b| a.member_name.cmp(&b.member_name));
+        Ok(out)
+    }
+
+    /// Cancels the pending join token for `member`; `false` when there is none.
+    pub async fn revoke_join_token(&self, member: &str) -> Result<bool, AdapterError> {
+        let Some((id, _)) = self
+            .join_token_operations()
+            .await?
+            .into_iter()
+            .find(|(_, p)| p.member_name == member)
+        else {
+            return Ok(false);
+        };
+        if !is_operation_id(&id) {
+            return Err(AdapterError::Decode(format!(
+                "unexpected operation id {id:?}"
+            )));
+        }
+        self.call::<Value>(Method::DELETE, &format!("/1.0/operations/{id}"), None)
+            .await?;
+        Ok(true)
     }
 
     pub async fn operations(&self) -> Result<Vec<Operation>, AdapterError> {

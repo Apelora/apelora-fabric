@@ -292,3 +292,36 @@ async fn catalog_runtimes_run(pool: Pool) {
         .await;
     }
 }
+
+/// A join token issued through the admin identity is listed (without its secret) and revoked.
+/// The deploy identity cannot issue one. Nothing joins: the name is never used by a server.
+#[ignore = "needs a disposable Incus with the admin identity: scripts/test-cluster/up.sh"]
+#[tokio::test]
+async fn join_tokens_need_the_admin_identity_and_can_be_revoked() {
+    use apelora_incus_adapter::config::admin_provider_from_env;
+    let deploy = real_incus();
+    let admin = admin_provider_from_env(|k| std::env::var(k).ok(), &deploy)
+        .expect("admin configuration")
+        .expect("APELORA_INCUS_ADMIN_CLIENT_CERT/KEY are set");
+    let member = unique("apl-join");
+    assert!(
+        deploy.create_join_token(&member).await.is_err(),
+        "the project-restricted identity must not issue join tokens"
+    );
+    let token = admin.create_join_token(&member).await.expect("token");
+    assert_eq!(token.member_name, member);
+    assert!(token.token.len() > 40);
+    let pending = admin.join_tokens().await.expect("list");
+    assert!(pending.iter().any(|p| p.member_name == member));
+    assert!(!format!("{pending:?}").contains(&token.token));
+    assert_eq!(admin.revoke_join_token(&member).await, Ok(true));
+    assert!(
+        !admin
+            .join_tokens()
+            .await
+            .expect("list")
+            .iter()
+            .any(|p| p.member_name == member)
+    );
+    assert_eq!(admin.revoke_join_token(&member).await, Ok(false));
+}

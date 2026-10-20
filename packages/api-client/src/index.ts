@@ -63,6 +63,7 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
     } catch (e) {
       throw new ApiRequestError(0, "network_error", e instanceof Error ? e.message : String(e));
     }
+    if (res.status === 204) return null as Responses[K];
     const body = (await res.json().catch(() => null)) as Responses[K] | ErrorBody | null;
     if (!res.ok || body === null) {
       const err = (body as ErrorBody | null)?.error;
