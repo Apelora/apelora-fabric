@@ -1670,7 +1670,8 @@
         "type": "object",
         "required": [
           "source",
-          "items"
+          "items",
+          "services"
         ],
         "properties": {
           "items": {
@@ -1678,6 +1679,13 @@
             "items": {
               "$ref": "#/components/schemas/ApplianceStatus"
             }
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceStatus"
+            },
+            "description": "Allocated service addresses (empty without a database or service range)."
           },
           "source": {
             "$ref": "#/components/schemas/Source"
@@ -2806,6 +2814,26 @@
               "null"
             ],
             "description": "`None` when unknown (e.g. the mock provider)."
+          }
+        }
+      },
+      "ServiceStatus": {
+        "type": "object",
+        "description": "A stateless appliance's service address: a load balancer over its healthy replicas.",
+        "required": [
+          "appliance",
+          "project",
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "appliance": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
           }
         }
       },

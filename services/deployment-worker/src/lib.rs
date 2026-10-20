@@ -29,8 +29,8 @@ async fn handle(
         return Ok(Outcome::Succeeded);
     }
     if job.kind == "network.sync" {
-        return Ok(match network::NetworkSync::from_payload(&job.payload) {
-            Ok(s) => network::sync(provider, &s).await,
+        return Ok(match network::from_payload(&job.payload) {
+            Ok(s) => network::sync(pool, provider, &s).await,
             Err(msg) => Outcome::Rejected(msg),
         });
     }

@@ -43,6 +43,9 @@ pub struct AppState {
     /// Uplink for application OVN networks (`APELORA_NETWORK_UPLINK`); `None`: connections
     /// are not enforced.
     network_uplink: Option<Arc<str>>,
+    /// Routed IPv4 range for service addresses (`APELORA_SERVICE_ADDRESSES`); `None`: no
+    /// load balancers. Used only together with the uplink.
+    service_range: Option<Arc<str>>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -56,11 +59,17 @@ impl AppState {
             deploy_projects: Arc::new(vec![DEFAULT_DEPLOY_PROJECT.to_owned()]),
             admin: None,
             network_uplink: None,
+            service_range: None,
         }
     }
 
     pub fn with_network_uplink(mut self, uplink: Option<String>) -> Self {
         self.network_uplink = uplink.map(Arc::from);
+        self
+    }
+
+    pub fn with_service_range(mut self, range: Option<String>) -> Self {
+        self.service_range = range.map(Arc::from);
         self
     }
 

@@ -76,6 +76,66 @@ pub(crate) struct Owned {
     pub config: BTreeMap<String, String>,
 }
 
+/// A network load balancer (`/1.0/networks/<network>/load-balancers/<address>`).
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub(crate) struct LoadBalancer {
+    pub listen_address: String,
+    pub description: String,
+    pub config: BTreeMap<String, String>,
+    pub backends: Vec<LoadBalancerBackend>,
+    pub ports: Vec<LoadBalancerPort>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(default)]
+pub(crate) struct LoadBalancerBackend {
+    pub name: String,
+    pub description: String,
+    pub target_address: String,
+    pub target_port: String,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(default)]
+pub(crate) struct LoadBalancerPort {
+    pub description: String,
+    pub protocol: String,
+    pub listen_port: String,
+    pub target_backend: Vec<String>,
+}
+
+impl LoadBalancer {
+    pub fn from_body(body: &serde_json::Value) -> Result<Self, crate::AdapterError> {
+        serde_json::from_value(body.clone())
+            .map_err(|e| crate::AdapterError::Decode(format!("load balancer body: {e}")))
+    }
+
+    /// The fields Apelora sets, in a comparable order (the listen address is the identity).
+    pub fn normalised(
+        &self,
+    ) -> (
+        String,
+        BTreeMap<String, String>,
+        Vec<LoadBalancerBackend>,
+        Vec<LoadBalancerPort>,
+    ) {
+        let mut backends = self.backends.clone();
+        backends.sort();
+        let mut ports = self.ports.clone();
+        for p in &mut ports {
+            p.target_backend.sort();
+        }
+        ports.sort();
+        (
+            self.description.clone(),
+            self.config.clone(),
+            backends,
+            ports,
+        )
+    }
+}
+
 /// `GET /1.0/instances/<name>/state`: the addresses.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

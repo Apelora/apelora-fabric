@@ -316,25 +316,29 @@ async fn applications_are_found_or_created_by_name_and_listed_with_their_latest_
 #[sqlx::test(migrator = "crate::MIGRATOR")]
 async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) {
     let app = ensure_application(&pool, "shop").await.expect("app");
+    let one = json!([{ "appliance": "web-01" }]);
+    let d = NewDeployment {
+        application_id: app.id,
+        project: "apelora",
+        revision: 1,
+        desired: &one,
+        connections: None,
+        uplink: None,
+        service_range: None,
+    };
+    record_deployment(&pool, &d).await.expect("record");
+    let two = json!([{ "appliance": "web-01" }, { "appliance": "db-01" }]);
+    let none = json!([]);
     record_deployment(
         &pool,
-        app.id,
-        "apelora",
-        1,
-        &json!([{ "appliance": "web-01" }]),
-        None,
-        None,
-    )
-    .await
-    .expect("record");
-    record_deployment(
-        &pool,
-        app.id,
-        "apelora",
-        2,
-        &json!([{ "appliance": "web-01" }, { "appliance": "db-01" }]),
-        Some(&json!([])),
-        Some("incusbr0"),
+        &NewDeployment {
+            revision: 2,
+            desired: &two,
+            connections: Some(&none),
+            uplink: Some("incusbr0"),
+            service_range: Some("198.18.100.0/28"),
+            ..d
+        },
     )
     .await
     .expect("replace");
@@ -348,10 +352,18 @@ async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) 
         ),
         ("shop", 2, Some("incusbr0"))
     );
+    assert_eq!(all[0].service_range.as_deref(), Some("198.18.100.0/28"));
     assert_eq!(all[0].desired.as_array().map(Vec::len), Some(2));
-    record_deployment(&pool, app.id, "apelora", 3, &json!([]), None, None)
-        .await
-        .expect("remove");
+    record_deployment(
+        &pool,
+        &NewDeployment {
+            revision: 3,
+            desired: &none,
+            ..d
+        },
+    )
+    .await
+    .expect("remove");
     assert!(list_deployments(&pool).await.expect("list").is_empty());
 }
 
@@ -392,5 +404,56 @@ async fn in_flight_jobs_are_found_by_instance_and_by_application(pool: PgPool) {
         !job_in_flight(&pool, "instance.create", "apelora", "shop-web-01")
             .await
             .expect("q")
+    );
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn service_addresses_are_allocated_once_kept_and_released(pool: PgPool) {
+    let shop = ensure_application(&pool, "shop").await.expect("app").id;
+    let blog = ensure_application(&pool, "blog").await.expect("app").id;
+    let range: Vec<String> = ["198.18.100.1", "198.18.100.2"].map(String::from).to_vec();
+    let web = service_address(&pool, shop, "apelora", "web-01", &range)
+        .await
+        .expect("alloc");
+    assert_eq!(web.as_deref(), Some("198.18.100.1"));
+    assert_eq!(
+        service_address(&pool, shop, "apelora", "web-01", &range)
+            .await
+            .expect("again"),
+        web,
+        "an appliance keeps its address"
+    );
+    let other = service_address(&pool, blog, "apelora", "web-01", &range)
+        .await
+        .expect("alloc");
+    assert_eq!(
+        other.as_deref(),
+        Some("198.18.100.2"),
+        "addresses are never shared"
+    );
+    assert_eq!(
+        service_address(&pool, shop, "apelora", "api-01", &range)
+            .await
+            .expect("full"),
+        None,
+        "the range is exhausted"
+    );
+    assert_eq!(
+        service_addresses(&pool, shop, "apelora")
+            .await
+            .expect("list"),
+        vec![("web-01".to_owned(), "198.18.100.1".to_owned())]
+    );
+    assert_eq!(
+        release_service_addresses(&pool, shop, "apelora", &[])
+            .await
+            .expect("release"),
+        1
+    );
+    assert_eq!(
+        service_address(&pool, shop, "apelora", "api-01", &range)
+            .await
+            .expect("reuse"),
+        Some("198.18.100.1".to_owned())
     );
 }

@@ -7,11 +7,20 @@
 //! inbound (Incus combines egress and ingress allows with OR, so both sides are always
 //! written). Rules use address sets, not ACL selectors: selector rules only matched traffic
 //! between instances on the same member (docs/development/TEST-CLUSTER.md).
+//!
+//! A stateless appliance that others connect to also gets a *service address*: an OVN load
+//! balancer on the application's network, listening on an address from a routed range and
+//! spreading each connected port over the appliance's replicas, with health checks. The load
+//! balancer translates the address before ACLs are evaluated, so the address-set rules above
+//! already cover traffic to it.
+
+use std::collections::BTreeMap;
+use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
 
 use crate::is_valid_name;
-use crate::plan::instance_name;
+use crate::plan::{Availability, DesiredAppliance, instance_name};
 
 /// One connection of the design: `from` may reach `to` (appliance ids).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +145,149 @@ pub fn acl_rules(
     (ingress, egress)
 }
 
+/// Everything `network.sync` needs for one application in one project (the job's payload),
+/// built by the control plane on deployment and by the replica supervisor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncRequest {
+    pub project: String,
+    pub application: String,
+    pub uplink: String,
+    pub appliances: Vec<String>,
+    pub connections: Vec<Connection>,
+    /// Replicas per appliance (1 when absent): every replica's addresses join the set.
+    #[serde(default)]
+    pub replicas: BTreeMap<String, u8>,
+    /// Stateless appliances: those connected to get a service address.
+    #[serde(default)]
+    pub stateless: Vec<String>,
+    /// IPv4 range service addresses come from (routed by the uplink); none: no load balancers.
+    #[serde(default)]
+    pub service_range: Option<String>,
+}
+
+impl SyncRequest {
+    pub fn for_deployment(
+        application: &str,
+        project: &str,
+        uplink: &str,
+        desired: &[DesiredAppliance],
+        connections: &[Connection],
+        service_range: Option<&str>,
+    ) -> Self {
+        SyncRequest {
+            project: project.to_owned(),
+            application: application.to_owned(),
+            uplink: uplink.to_owned(),
+            appliances: desired.iter().map(|d| d.appliance.clone()).collect(),
+            connections: connections.to_vec(),
+            replicas: desired
+                .iter()
+                .map(|d| (d.appliance.clone(), d.replicas))
+                .collect(),
+            stateless: desired
+                .iter()
+                .filter(|d| d.availability == Availability::Stateless)
+                .map(|d| d.appliance.clone())
+                .collect(),
+            service_range: service_range.map(str::to_owned),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        for n in [&self.project, &self.application, &self.uplink]
+            .into_iter()
+            .chain(&self.appliances)
+        {
+            if !is_valid_name(n) {
+                return Err(format!("invalid name {n:?}"));
+            }
+        }
+        for c in &self.connections {
+            c.validate()?;
+            if !self.appliances.contains(&c.from) || !self.appliances.contains(&c.to) {
+                return Err(format!(
+                    "connection {} → {} names an appliance outside the application",
+                    c.from, c.to
+                ));
+            }
+        }
+        if let Some(r) = &self.service_range {
+            service_addresses(r)?;
+        }
+        Ok(())
+    }
+
+    /// Appliances that get a service address: stateless, and reached on at least one port.
+    pub fn services(&self) -> Vec<String> {
+        self.appliances
+            .iter()
+            .filter(|a| {
+                self.stateless.contains(a) && !service_ports(a, &self.connections).is_empty()
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// The host addresses of an IPv4 range given as `a.b.c.d/len` (16 ≤ len ≤ 30), lowest first,
+/// without the network and broadcast addresses.
+pub fn service_addresses(range: &str) -> Result<Vec<Ipv4Addr>, String> {
+    let bad = || {
+        format!("service range {range:?}: expected an IPv4 range like 198.18.100.0/28 (/16 to /30)")
+    };
+    let (addr, len) = range.split_once('/').ok_or_else(bad)?;
+    let addr: Ipv4Addr = addr.parse().map_err(|_| bad())?;
+    let len: u32 = len.parse().map_err(|_| bad())?;
+    if !(16..=30).contains(&len) {
+        return Err(bad());
+    }
+    let mask = u32::MAX << (32 - len);
+    let network = u32::from(addr) & mask;
+    if network != u32::from(addr) {
+        return Err(format!(
+            "service range {range:?}: host bits are set (the range starts at {})",
+            Ipv4Addr::from(network)
+        ));
+    }
+    Ok((network + 1..network + (1 << (32 - len)) - 1)
+        .map(Ipv4Addr::from)
+        .collect())
+}
+
+/// The ports `appliance` is reached on, as `(transport, port)`, sorted. Connections without a
+/// well-known port allow any port and cannot be balanced, so they are left out.
+pub fn service_ports(appliance: &str, connections: &[Connection]) -> Vec<(String, u16)> {
+    let mut ports: Vec<(String, u16)> = connections
+        .iter()
+        .filter(|c| c.to == appliance)
+        .filter_map(|c| c.port.map(|p| (c.transport.clone(), p)))
+        .collect();
+    ports.sort();
+    ports.dedup();
+    ports
+}
+
+/// One replica behind a service address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Backend {
+    /// `r<replica>`.
+    pub name: String,
+    pub address: Ipv4Addr,
+    /// `<instance> <instance uuid>`: a recreated replica changes it even at the same address,
+    /// which makes Incus rebind the health check (docs/development/TEST-CLUSTER.md).
+    pub description: String,
+}
+
+/// An appliance's service address: an OVN load balancer on the application's network.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadBalancer {
+    pub listen_address: Ipv4Addr,
+    pub appliance: String,
+    pub backends: Vec<Backend>,
+    pub ports: Vec<(String, u16)>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,6 +358,69 @@ mod tests {
                 acl: "shop-web-01".into(),
                 uplink: "incusbr0".into()
             }
+        );
+    }
+
+    #[test]
+    fn service_ranges_skip_network_and_broadcast_and_reject_odd_input() {
+        let a = service_addresses("198.18.100.0/29").expect("range");
+        assert_eq!(
+            a.first().map(ToString::to_string).as_deref(),
+            Some("198.18.100.1")
+        );
+        assert_eq!(
+            a.last().map(ToString::to_string).as_deref(),
+            Some("198.18.100.6")
+        );
+        assert_eq!(a.len(), 6);
+        for bad in [
+            "198.18.100.0",
+            "198.18.100.1/28",
+            "198.18.100.0/31",
+            "10.0.0.0/8",
+            "::1/64",
+            "x/28",
+        ] {
+            assert!(service_addresses(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn only_connected_stateless_appliances_get_a_service_with_their_ports() {
+        let mut conns = vec![
+            c("lb-01", "web-01", Some(80)),
+            c("lb-01", "web-01", Some(443)),
+            c("web-01", "db-01", Some(5432)),
+            c("app-01", "raw-01", None),
+        ];
+        conns.push(c("lb-01", "web-01", Some(80)));
+        assert_eq!(
+            service_ports("web-01", &conns),
+            vec![("tcp".to_owned(), 80), ("tcp".to_owned(), 443)]
+        );
+        let s = SyncRequest {
+            project: "apelora".into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            appliances: ["lb-01", "web-01", "db-01", "app-01", "raw-01"]
+                .map(String::from)
+                .to_vec(),
+            connections: conns,
+            replicas: BTreeMap::new(),
+            stateless: ["web-01", "lb-01", "raw-01"].map(String::from).to_vec(),
+            service_range: Some("198.18.100.0/28".into()),
+        };
+        assert_eq!(s.validate(), Ok(()));
+        // lb-01: stateless but nobody connects to it; db-01: connected but stateful; raw-01:
+        // reached on any port, which cannot be balanced.
+        assert_eq!(s.services(), vec!["web-01".to_owned()]);
+        assert!(
+            SyncRequest {
+                service_range: Some("198.18.100.1/28".into()),
+                ..s
+            }
+            .validate()
+            .is_err()
         );
     }
 }

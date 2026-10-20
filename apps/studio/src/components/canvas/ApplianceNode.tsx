@@ -2,7 +2,7 @@ import { memo, useEffect } from "react";
 import { Handle, NodeResizeControl, Position, useUpdateNodeInternals, type Node, type NodeProps } from "@xyflow/react";
 import { NODE, portCenterY, type Category, type Port } from "@apelora/assembly-model";
 import { categoryColor } from "../../features/editor/categories";
-import { useLive } from "../../features/deploy/live";
+import { liveSummary, useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { TagStub } from "./TagStub";
 import { Jack, PlugHead } from "./Jack";
@@ -59,7 +59,9 @@ function PortHandle({ nodeId, port, index, side, link, tag }: { nodeId: string; 
 function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>) {
   const api = useStudioApi();
   const updateInternals = useUpdateNodeInternals();
-  const live = useLive((s) => (s.application ? (s.byAppliance[id] ?? null) : undefined));
+  const instances = useLive((s) => (s.application ? (s.byAppliance[id] ?? null) : undefined));
+  const service = useLive((s) => s.services[id]);
+  const live = instances === undefined ? undefined : liveSummary(instances ?? undefined, service);
   const signature = `${data.inputs.map((p) => p.id).join(",")}|${data.outputs.map((p) => p.id).join(",")}|${data.width}x${data.height}`;
   useEffect(() => { updateInternals(id); }, [id, signature, updateInternals]);
 
@@ -79,12 +81,12 @@ function ApplianceNodeImpl({ id, data, selected }: NodeProps<ApplianceFlowNode>)
         {data.status !== "ok" && <span className={`size-1.5 shrink-0 rounded-full ${data.status === "error" ? "bg-error" : "bg-warning"}`} aria-label={data.status} />}
         {live !== undefined && (
           <span
-            className={`apl-live status ${live?.status === "Running" ? "status-success" : live ? "status-warning" : "status-neutral"}`}
+            className={`apl-live status ${live.state === "Running" ? "status-success" : live.state === "absent" ? "status-neutral" : "status-warning"}`}
             data-testid="live-status"
-            data-state={live?.status ?? "absent"}
+            data-state={live.state}
             role="img"
-            aria-label={live ? `${live.instance}: ${live.status} on ${live.location}` : "Not deployed"}
-            title={live ? `${live.instance}: ${live.status} on ${live.location}` : "Not deployed"}
+            aria-label={live.label}
+            title={live.label}
           />
         )}
       </div>

@@ -13,7 +13,10 @@ type LiveState = {
   project: string | null;
   provider: ProviderMode | null;
   observedAt: string | null;
-  byAppliance: Record<string, ApplianceStatus>;
+  /** Every instance (replica) of each appliance. */
+  byAppliance: Record<string, ApplianceStatus[]>;
+  /** Service address per appliance (stateless appliances others connect to). */
+  services: Record<string, string>;
   error: string | null;
   watch: (application: string, project: string) => void;
   /** Reads the state now (e.g. right after jobs finish) instead of waiting for the next poll. */
@@ -22,6 +25,16 @@ type LiveState = {
 };
 
 const POLL_MS = 5000;
+
+/** One state for an appliance's instances: all running, some running (degraded), or the first's. */
+export function liveSummary(instances: readonly ApplianceStatus[] | undefined, service?: string): { state: string; label: string } {
+  if (!instances?.length) return { state: "absent", label: "Not deployed" };
+  const running = instances.filter((i) => i.status === "Running").length;
+  const state = running === instances.length ? "Running" : running > 0 ? "Degraded" : instances[0]!.status;
+  const lines = instances.map((i) => `${i.instance}: ${i.status} on ${i.location}`);
+  if (service) lines.push(`Service address ${service}`);
+  return { state, label: lines.join("\n") };
+}
 let timer: ReturnType<typeof setInterval> | null = null;
 
 export const useLive = create<LiveState>((set, get) => {
@@ -34,7 +47,10 @@ export const useLive = create<LiveState>((set, get) => {
       set({
         provider: s.source.provider,
         observedAt: s.source.observedAt,
-        byAppliance: Object.fromEntries(s.items.filter((i) => i.project === project).map((i) => [i.appliance, i])),
+        byAppliance: s.items
+          .filter((i) => i.project === project)
+          .reduce<Record<string, ApplianceStatus[]>>((m, i) => ({ ...m, [i.appliance]: [...(m[i.appliance] ?? []), i] }), {}),
+        services: Object.fromEntries(s.services.filter((x) => x.project === project).map((x) => [x.appliance, x.address])),
         error: null,
       });
     } catch (e) {
@@ -47,10 +63,11 @@ export const useLive = create<LiveState>((set, get) => {
     provider: null,
     observedAt: null,
     byAppliance: {},
+    services: {},
     error: null,
     watch: (application, project) => {
       if (timer) clearInterval(timer);
-      set({ application, project, byAppliance: {}, error: null });
+      set({ application, project, byAppliance: {}, services: {}, error: null });
       void poll();
       timer = setInterval(() => void poll(), POLL_MS);
     },
@@ -58,7 +75,7 @@ export const useLive = create<LiveState>((set, get) => {
     stop: () => {
       if (timer) clearInterval(timer);
       timer = null;
-      set({ application: null, project: null, provider: null, observedAt: null, byAppliance: {}, error: null });
+      set({ application: null, project: null, provider: null, observedAt: null, byAppliance: {}, services: {}, error: null });
     },
   };
 });

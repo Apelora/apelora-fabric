@@ -363,9 +363,21 @@ async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
         )
         .await;
     }
-    apelora_persistence::record_deployment(&pool, app.id, &project, 1, &json!([web]), None, None)
-        .await
-        .expect("record");
+    let desired = json!([web]);
+    apelora_persistence::record_deployment(
+        &pool,
+        &apelora_persistence::NewDeployment {
+            application_id: app.id,
+            project: &project,
+            revision: 1,
+            desired: &desired,
+            connections: None,
+            uplink: None,
+            service_range: None,
+        },
+    )
+    .await
+    .expect("record");
 
     let locations = async || {
         let all = provider.instances().await.expect("instances");

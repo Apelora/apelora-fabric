@@ -2,17 +2,18 @@
 //! The replica supervisor (Phase 08, M1/M2): restores lost replicas of stateless appliances.
 //!
 //! It compares each application's last deployment (`application_deployments`) with Incus and
-//! queues an ordinary `instance.create` job for a missing stateless replica, unless a job for
+//! queues an ordinary `instance.create` job for a missing stateless replica — or
+//! `instance.start` for one that stopped although it should run, unless it was stopped on
+//! purpose through Apelora (its latest lifecycle job is a stop) — unless a job for
 //! that instance is already in flight or failed within the back-off window. Instance creation
 //! is idempotent, so two supervisors racing still produce one instance. Singleton and stateful
 //! appliances are never recreated automatically: they are reported and left to an operator.
 //! Every recreation is audited; afterwards the application's network rules are re-synced so
 //! the new replica's address joins its address set.
 
-use std::collections::BTreeMap;
 use std::time::Duration;
 
-use apelora_domain::network::Connection;
+use apelora_domain::network::{Connection, SyncRequest};
 use apelora_domain::plan::{Availability, DesiredAppliance, PlanAction, deploy_spec, plan};
 use apelora_incus_adapter::Provider;
 use apelora_persistence::{Pool, StoreError};
@@ -21,7 +22,7 @@ use serde_json::json;
 /// After a failed recreation, wait this long before trying again.
 const BACKOFF_SECS: i64 = 300;
 
-/// One supervision pass. Returns the instances it queued for recreation.
+/// One supervision pass. Returns the instances it queued for recreation or restart.
 pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<String>, StoreError> {
     let deployments = apelora_persistence::list_deployments(pool).await?;
     if deployments.is_empty() {
@@ -47,25 +48,42 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             .and_then(|c| serde_json::from_value(c).ok());
         let p = plan(&d.application, &d.project, &desired, &observed);
         let mut queued_here = 0;
-        for item in p.items.iter().filter(|i| i.action == PlanAction::Create) {
+        for item in &p.items {
             let Some(da) = desired.iter().find(|x| x.appliance == item.appliance) else {
                 continue;
             };
-            if da.availability != Availability::Stateless {
-                tracing::warn!(application = %d.application, instance = %item.instance, availability = ?da.availability,
-                    "supervisor: instance is missing; not recreated automatically (only stateless appliances are)");
+            // Missing → recreate; kept but stopped although it should run → restart.
+            let stopped = item.action == PlanAction::Keep
+                && da.spec.start
+                && observed.iter().any(|i| {
+                    i.project == d.project && i.name == item.instance && i.status == "Stopped"
+                });
+            if item.action != PlanAction::Create && !stopped {
                 continue;
             }
-            if apelora_persistence::job_in_flight(
-                pool,
-                "instance.create",
-                &d.project,
-                &item.instance,
-            )
-            .await?
+            if da.availability != Availability::Stateless {
+                tracing::warn!(application = %d.application, instance = %item.instance, availability = ?da.availability,
+                    "supervisor: instance is missing or stopped; only stateless replicas are restored automatically");
+                continue;
+            }
+            let kind = if stopped {
+                "instance.start"
+            } else {
+                "instance.create"
+            };
+            if stopped
+                && apelora_persistence::last_lifecycle_job(pool, &d.project, &item.instance)
+                    .await?
+                    .as_deref()
+                    == Some("instance.stop")
+            {
+                // Stopped on purpose (through Apelora): respected until someone starts it.
+                continue;
+            }
+            if apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance).await?
                 || apelora_persistence::job_failed_recently(
                     pool,
-                    "instance.create",
+                    kind,
                     &d.project,
                     &item.instance,
                     BACKOFF_SECS,
@@ -74,28 +92,36 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             {
                 continue;
             }
-            let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
-            let spec = deploy_spec(&d.application, &d.project, da, item.replica, uplink);
-            let payload =
-                serde_json::to_value(&spec).map_err(|e| StoreError::Conflict(e.to_string()))?;
+            let payload = if stopped {
+                json!({ "project": d.project, "name": item.instance })
+            } else {
+                let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
+                let spec = deploy_spec(&d.application, &d.project, da, item.replica, uplink);
+                serde_json::to_value(&spec).map_err(|e| StoreError::Conflict(e.to_string()))?
+            };
             let job = apelora_persistence::enqueue_job(
                 pool,
-                "instance.create",
+                kind,
                 Some(d.application_id),
                 &payload,
                 None,
             )
             .await?
             .id();
+            let action = if stopped {
+                "application.replica.restart"
+            } else {
+                "application.replica.recreate"
+            };
             apelora_persistence::audit(
                 pool,
                 "supervisor",
-                "application.replica.recreate",
+                action,
                 &format!("{}/{}", d.project, item.instance),
                 &json!({ "application": d.application, "appliance": item.appliance, "replica": item.replica, "revision": d.revision, "jobId": job }),
             )
             .await?;
-            tracing::info!(application = %d.application, instance = %item.instance, %job, "supervisor: recreating a lost stateless replica");
+            tracing::info!(application = %d.application, instance = %item.instance, %job, kind, "supervisor: restoring a stateless replica");
             recreated.push(item.instance.clone());
             queued_here += 1;
         }
@@ -108,14 +134,15 @@ pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<Stri
             )
             .await?
         {
-            let payload = json!({
-                "project": d.project,
-                "application": d.application,
-                "uplink": uplink,
-                "appliances": desired.iter().map(|x| x.appliance.clone()).collect::<Vec<_>>(),
-                "connections": connections,
-                "replicas": desired.iter().map(|x| (x.appliance.clone(), x.replicas)).collect::<BTreeMap<_, _>>(),
-            });
+            let payload = serde_json::to_value(SyncRequest::for_deployment(
+                &d.application,
+                &d.project,
+                uplink,
+                &desired,
+                connections,
+                d.service_range.as_deref(),
+            ))
+            .map_err(|e| StoreError::Conflict(e.to_string()))?;
             apelora_persistence::enqueue_job(
                 pool,
                 "network.sync",
@@ -203,18 +230,28 @@ mod tests {
                 .expect("enqueue");
             }
         }
-        apelora_persistence::record_deployment(
-            pool,
-            app.id,
-            PROJECT,
-            1,
-            &serde_json::to_value(&d).expect("json"),
-            None,
-            None,
-        )
-        .await
-        .expect("record");
+        record(pool, app.id, 1, &serde_json::to_value(&d).expect("json")).await;
         drain(pool, provider).await;
+    }
+
+    async fn record(
+        pool: &Pool,
+        application_id: uuid::Uuid,
+        revision: i32,
+        desired: &serde_json::Value,
+    ) {
+        let d = apelora_persistence::NewDeployment {
+            application_id,
+            project: PROJECT,
+            revision,
+            desired,
+            connections: None,
+            uplink: None,
+            service_range: None,
+        };
+        apelora_persistence::record_deployment(pool, &d)
+            .await
+            .expect("record");
     }
 
     async fn delete(pool: &Pool, provider: &Provider, name: &str) {
@@ -299,10 +336,18 @@ mod tests {
             supervise_once(&pool, &provider).await.expect("pass"),
             vec!["shop-web-01".to_owned()]
         );
-        sqlx::query("UPDATE jobs SET status = 'failed' WHERE kind = 'instance.create' AND status = 'queued'")
-            .execute(&pool)
-            .await
-            .expect("fail it");
+        let failed = sqlx::query(
+            "UPDATE jobs SET status = 'failed', updated_at = now()
+             WHERE kind = 'instance.create' AND status = 'pending'",
+        )
+        .execute(&pool)
+        .await
+        .expect("fail it");
+        assert_eq!(
+            failed.rows_affected(),
+            1,
+            "the queued recreation is the one that fails"
+        );
         assert_eq!(
             supervise_once(&pool, &provider).await.expect("pass"),
             Vec::<String>::new(),
@@ -324,10 +369,68 @@ mod tests {
         let app = apelora_persistence::ensure_application(&pool, "shop")
             .await
             .expect("app");
-        apelora_persistence::record_deployment(&pool, app.id, PROJECT, 2, &json!([]), None, None)
-            .await
-            .expect("clear");
+        record(&pool, app.id, 2, &json!([])).await;
         delete(&pool, &provider, "shop-web-01").await;
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_crashed_replica_is_restarted_but_a_deliberate_stop_is_respected(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+
+        // Stopped behind Apelora's back (a crash): started again, once.
+        provider
+            .change_state(
+                PROJECT,
+                "shop-web-01",
+                apelora_domain::InstanceAction::Stop,
+                true,
+            )
+            .await
+            .expect("crash");
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            vec!["shop-web-01".to_owned()]
+        );
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            Vec::<String>::new()
+        );
+        drain(&pool, &provider).await;
+        assert_eq!(
+            provider
+                .instance(PROJECT, "shop-web-01")
+                .await
+                .map(|s| s.map(|s| s.status)),
+            Ok(Some("Running".into()))
+        );
+        assert_eq!(
+            recent_audit(&pool, 10)
+                .await
+                .expect("audit")
+                .iter()
+                .filter(|e| e.action == "application.replica.restart")
+                .count(),
+            1
+        );
+
+        // Stopped through Apelora: left alone. A stopped stateful instance is never started.
+        for name in ["shop-web-01-r2", "shop-db-01"] {
+            enqueue_job(
+                &pool,
+                "instance.stop",
+                None,
+                &json!({ "project": PROJECT, "name": name }),
+                None,
+            )
+            .await
+            .expect("enqueue");
+        }
+        drain(&pool, &provider).await;
         assert_eq!(
             supervise_once(&pool, &provider).await.expect("pass"),
             Vec::<String>::new()

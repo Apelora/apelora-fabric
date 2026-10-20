@@ -1335,3 +1335,101 @@ async fn stateless_replicas_are_deployed_recorded_and_restored(pool: Pool) {
     instances.sort();
     assert_eq!(instances, ["shop-db-01", "shop-web-01", "shop-web-01-r2"]);
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn connected_stateless_appliances_get_a_service_address_until_removed(pool: Pool) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()))
+        .with_service_range(Some("198.18.100.0/29".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let mut web = appliance("web-01");
+    web["replicas"] = json!(2);
+    web["availability"] = json!("stateless");
+    let deploy = |appliances: Value, connections: Value, key: &'static str| {
+        let state = state.clone();
+        let operator = operator.clone();
+        async move {
+            let (status, body) = send(
+                state,
+                "POST",
+                "/api/v1/applications/shop/deployments",
+                &operator,
+                Some(
+                    json!({ "project": "apelora", "document": {}, "appliances": appliances,
+                             "connections": connections, "removeMissing": true }),
+                ),
+                Some(key),
+            )
+            .await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+        }
+    };
+    deploy(
+        json!([appliance("client-01"), web.clone(), appliance("db-01")]),
+        json!([{ "from": "client-01", "to": "web-01", "transport": "tcp", "port": 80 },
+               { "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]),
+        "svc-1",
+    )
+    .await;
+    drain(&pool, &provider).await;
+
+    // Only web-01 is stateless and connected to: one load balancer over both replicas.
+    let lbs = mock.net().load_balancers.clone();
+    assert_eq!(
+        lbs.keys().collect::<Vec<_>>(),
+        ["apelora/shop/198.18.100.1"]
+    );
+    let (owner, lb) = &lbs["apelora/shop/198.18.100.1"];
+    assert_eq!((owner.as_str(), lb.appliance.as_str()), ("shop", "web-01"));
+    assert_eq!(lb.ports, vec![("tcp".to_owned(), 80)]);
+    assert_eq!(
+        lb.backends
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect::<Vec<_>>(),
+        ["r1", "r2"]
+    );
+    assert!(
+        lb.backends[1].description.starts_with("shop-web-01-r2 "),
+        "{:?}",
+        lb.backends[1]
+    );
+    let (_, status) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        status["services"],
+        json!([{ "appliance": "web-01", "project": "apelora", "address": "198.18.100.1" }])
+    );
+
+    // web-01 leaves the design: its load balancer goes and its address is free again.
+    deploy(
+        json!([appliance("client-01"), appliance("db-01")]),
+        json!([{ "from": "client-01", "to": "db-01", "transport": "tcp", "port": 5432 }]),
+        "svc-2",
+    )
+    .await;
+    drain(&pool, &provider).await;
+    assert!(mock.net().load_balancers.is_empty());
+    let (_, status) = send(
+        state,
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status["services"], json!([]));
+}

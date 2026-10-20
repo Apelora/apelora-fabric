@@ -190,18 +190,34 @@ pub struct DeploymentRecord {
     pub desired: Value,
     pub connections: Option<Value>,
     pub uplink: Option<String>,
+    pub service_range: Option<String>,
+}
+
+/// The desired state of one deployment, as [`record_deployment`] stores it.
+#[derive(Debug, Clone, Copy)]
+pub struct NewDeployment<'a> {
+    pub application_id: Uuid,
+    pub project: &'a str,
+    pub revision: i32,
+    pub desired: &'a Value,
+    pub connections: Option<&'a Value>,
+    /// Set when connections are enforced.
+    pub uplink: Option<&'a str>,
+    /// Set when stateless appliances get service addresses.
+    pub service_range: Option<&'a str>,
 }
 
 /// Records the desired state of the latest deployment; an empty `desired` removes the record.
-pub async fn record_deployment(
-    pool: &PgPool,
-    application_id: Uuid,
-    project: &str,
-    revision: i32,
-    desired: &Value,
-    connections: Option<&Value>,
-    uplink: Option<&str>,
-) -> Result<()> {
+pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<()> {
+    let NewDeployment {
+        application_id,
+        project,
+        revision,
+        desired,
+        connections,
+        uplink,
+        service_range,
+    } = *d;
     if desired.as_array().is_some_and(Vec::is_empty) {
         sqlx::query(
             "DELETE FROM application_deployments WHERE application_id = $1 AND project = $2",
@@ -213,10 +229,10 @@ pub async fn record_deployment(
         return Ok(());
     }
     sqlx::query(
-        "INSERT INTO application_deployments (application_id, project, revision, desired, connections, uplink)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO application_deployments (application_id, project, revision, desired, connections, uplink, service_range)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (application_id, project) DO UPDATE
-         SET revision = $3, desired = $4, connections = $5, uplink = $6, updated_at = now()",
+         SET revision = $3, desired = $4, connections = $5, uplink = $6, service_range = $7, updated_at = now()",
     )
     .bind(application_id)
     .bind(project)
@@ -224,6 +240,7 @@ pub async fn record_deployment(
     .bind(desired)
     .bind(connections)
     .bind(uplink)
+    .bind(service_range)
     .execute(pool)
     .await?;
     Ok(())
@@ -231,12 +248,109 @@ pub async fn record_deployment(
 
 pub async fn list_deployments(pool: &PgPool) -> Result<Vec<DeploymentRecord>> {
     Ok(sqlx::query_as::<_, DeploymentRecord>(
-        "SELECT d.application_id, a.name AS application, d.project, d.revision, d.desired, d.connections, d.uplink
+        "SELECT d.application_id, a.name AS application, d.project, d.revision, d.desired, d.connections, d.uplink,
+                d.service_range
          FROM application_deployments d JOIN applications a ON a.id = d.application_id
          ORDER BY a.name, d.project",
     )
     .fetch_all(pool)
     .await?)
+}
+
+/// The service address of an appliance: the one it already has, otherwise the first of
+/// `candidates` no appliance holds. `None` when every candidate is taken.
+pub async fn service_address(
+    pool: &PgPool,
+    application_id: Uuid,
+    project: &str,
+    appliance: &str,
+    candidates: &[String],
+) -> Result<Option<String>> {
+    let held = |pool| {
+        sqlx::query_scalar::<_, String>(
+            "SELECT address FROM service_addresses
+             WHERE application_id = $1 AND project = $2 AND appliance = $3",
+        )
+        .bind(application_id)
+        .bind(project)
+        .bind(appliance)
+        .fetch_optional(pool)
+    };
+    if let Some(a) = held(pool).await? {
+        return Ok(Some(a));
+    }
+    for c in candidates {
+        // Both the address and the appliance are unique: a concurrent allocation for the
+        // same appliance makes this insert a no-op, and the held address is returned below.
+        let inserted = sqlx::query(
+            "INSERT INTO service_addresses (address, application_id, project, appliance)
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        )
+        .bind(c)
+        .bind(application_id)
+        .bind(project)
+        .bind(appliance)
+        .execute(pool)
+        .await?
+        .rows_affected();
+        if inserted == 1 {
+            return Ok(Some(c.clone()));
+        }
+        if let Some(a) = held(pool).await? {
+            return Ok(Some(a));
+        }
+    }
+    Ok(None)
+}
+
+/// The application's service addresses in a project, as `(appliance, address)`.
+pub async fn service_addresses(
+    pool: &PgPool,
+    application_id: Uuid,
+    project: &str,
+) -> Result<Vec<(String, String)>> {
+    Ok(sqlx::query_as::<_, (String, String)>(
+        "SELECT appliance, address FROM service_addresses
+         WHERE application_id = $1 AND project = $2 ORDER BY appliance",
+    )
+    .bind(application_id)
+    .bind(project)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// An application's service addresses in every project, as `(project, appliance, address)`.
+pub async fn application_services(
+    pool: &PgPool,
+    application: &str,
+) -> Result<Vec<(String, String, String)>> {
+    Ok(sqlx::query_as::<_, (String, String, String)>(
+        "SELECT s.project, s.appliance, s.address
+         FROM service_addresses s JOIN applications a ON a.id = s.application_id
+         WHERE a.name = $1 ORDER BY s.project, s.appliance",
+    )
+    .bind(application)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Frees the service addresses of the application's appliances not in `keep`.
+pub async fn release_service_addresses(
+    pool: &PgPool,
+    application_id: Uuid,
+    project: &str,
+    keep: &[String],
+) -> Result<u64> {
+    Ok(sqlx::query(
+        "DELETE FROM service_addresses
+         WHERE application_id = $1 AND project = $2 AND NOT (appliance = ANY($3))",
+    )
+    .bind(application_id)
+    .bind(project)
+    .bind(keep)
+    .execute(pool)
+    .await?
+    .rows_affected())
 }
 
 /// Whether a job of `kind` for the instance `project/name` is waiting or running.
@@ -271,6 +385,24 @@ pub async fn job_failed_recently(
     .bind(name)
     .bind(secs as f64)
     .fetch_one(pool)
+    .await?)
+}
+
+/// The kind of the latest lifecycle job (`instance.create|start|stop|delete`) for an instance.
+pub async fn last_lifecycle_job(
+    pool: &PgPool,
+    project: &str,
+    name: &str,
+) -> Result<Option<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT kind FROM jobs
+         WHERE kind IN ('instance.create', 'instance.start', 'instance.stop', 'instance.delete')
+           AND payload->>'project' = $1 AND payload->>'name' = $2
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(project)
+    .bind(name)
+    .fetch_optional(pool)
     .await?)
 }
 

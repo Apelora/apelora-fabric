@@ -49,8 +49,9 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/jobs/j2": () => ({ json: job("j2", "succeeded") }),
       "GET /api/v1/applications/commerce-stack/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: done ? [
         { appliance: "nginx-01", instance: "commerce-stack-nginx-01", project: "apelora", status: "Running", location: "node-1" },
+        { appliance: "nginx-01", instance: "commerce-stack-nginx-01-r2", project: "apelora", status: "Stopped", location: "node-2" },
         { appliance: "nginx-02", instance: "commerce-stack-nginx-02", project: "apelora", status: "Stopped", location: "node-2" },
-      ] : [] } }),
+      ] : [], services: done ? [{ appliance: "nginx-01", project: "apelora", address: "198.18.100.1" }] : [] } }),
     });
     await open(page);
     // Two replicas of nginx-01: nginx is stateless, so the Properties window offers replicas.
@@ -90,7 +91,9 @@ test.describe("deploying from the Studio", () => {
     await dialog.getByTestId("deploy-done").click();
 
     const liveOf = (id: string) => page.locator(`[data-node-id="${id}"] [data-testid=live-status]`);
-    await expect(liveOf("nginx-01")).toHaveAttribute("data-state", "Running");
+    // One of nginx-01's two replicas is down: degraded, with every replica and the service address listed.
+    await expect(liveOf("nginx-01")).toHaveAttribute("data-state", "Degraded");
+    await expect(liveOf("nginx-01")).toHaveAttribute("title", /commerce-stack-nginx-01-r2: Stopped on node-2[\s\S]*Service address 198\.18\.100\.1/);
     await expect(liveOf("nginx-02")).toHaveAttribute("data-state", "Stopped");
     await expect(liveOf("postgresql-01")).toHaveAttribute("data-state", "absent");
     await expect(page.getByTestId("mock-badge")).toHaveText("Live · 1 running in Incus");

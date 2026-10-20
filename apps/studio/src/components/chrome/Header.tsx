@@ -24,7 +24,7 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const [deploying, setDeploying] = useState(false);
   const liveApp = useLive((s) => s.application);
   const liveProvider = useLive((s) => s.provider);
-  const running = useLive((s) => Object.values(s.byAppliance).filter((a) => a.status === "Running").length);
+  const running = useLive((s) => Object.values(s.byAppliance).flat().filter((a) => a.status === "Running").length);
   const live = liveApp ? { application: liveApp, provider: liveProvider, count: running } : null;
 
   const doExport = () => {

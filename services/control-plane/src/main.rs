@@ -86,10 +86,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tracing::info!(uplink = %u, "application connections are enforced on OVN networks");
     }
+    let services = std::env::var("APELORA_SERVICE_ADDRESSES")
+        .ok()
+        .filter(|r| !r.trim().is_empty());
+    if let Some(r) = &services {
+        let n = apelora_domain::network::service_addresses(r)
+            .map_err(|e| format!("APELORA_SERVICE_ADDRESSES: {e}"))?
+            .len();
+        if uplink.is_none() {
+            return Err("APELORA_SERVICE_ADDRESSES needs APELORA_NETWORK_UPLINK".into());
+        }
+        tracing::info!(range = %r, addresses = n, "stateless appliances get service addresses");
+    }
     let state = api::AppState::new(provider, auth)
         .with_deploy_projects(projects)
         .with_admin(admin)
-        .with_network_uplink(uplink);
+        .with_network_uplink(uplink)
+        .with_service_range(services);
     axum::serve(listener, api::router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

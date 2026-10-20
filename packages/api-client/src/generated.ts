@@ -25,6 +25,8 @@ export type ApplicationList = {
 
 export type ApplicationStatus = {
   items: ApplianceStatus[];
+  /** Allocated service addresses (empty without a database or service range). */
+  services: ServiceStatus[];
   source: Source;
 };
 
@@ -372,6 +374,13 @@ export type ServerInfo = {
   kernelVersion: string | null;
   /** `None` when unknown (e.g. the mock provider). */
   serverVersion: string | null;
+};
+
+/** A stateless appliance's service address: a load balancer over its healthy replicas. */
+export type ServiceStatus = {
+  address: string;
+  appliance: string;
+  project: string;
 };
 
 /** Where inventory data came from and when it was read. */

@@ -6,7 +6,7 @@
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
 use apelora_domain::InstanceSpec;
-use apelora_domain::network::Connection;
+use apelora_domain::network::{Connection, SyncRequest};
 use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
@@ -19,7 +19,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::deploy::{allowed_project, bad_request, idempotency_key, store};
-use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
+use super::{ApiError, AppState, Auth, ErrorBody, Principal, Source, require, source};
 
 /// Application names become instance-name prefixes, so they are short.
 const MAX_NAME: usize = 40;
@@ -95,10 +95,20 @@ pub struct ApplianceStatus {
     pub location: String,
 }
 
+/// A stateless appliance's service address: a load balancer over its healthy replicas.
+#[derive(Serialize, ToSchema)]
+pub struct ServiceStatus {
+    pub appliance: String,
+    pub project: String,
+    pub address: String,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct ApplicationStatus {
     pub source: Source,
     pub items: Vec<ApplianceStatus>,
+    /// Allocated service addresses (empty without a database or service range).
+    pub services: Vec<ServiceStatus>,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -335,31 +345,38 @@ pub(super) async fn deploy(
         });
     }
     // The supervisor restores lost stateless replicas from this record.
+    let service_range = state.service_range.as_deref().filter(|_| enforce);
+    let desired = serde_json::to_value(&req.appliances).map_err(|e| bad_request(e.to_string()))?;
+    let connections = req
+        .connections
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|e| bad_request(e.to_string()))?;
     apelora_persistence::record_deployment(
         pool,
-        app.id,
-        &req.project,
-        revision.revision,
-        &serde_json::to_value(&req.appliances).map_err(|e| bad_request(e.to_string()))?,
-        req.connections
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|e| bad_request(e.to_string()))?
-            .as_ref(),
-        state.network_uplink.as_deref().filter(|_| enforce),
+        &apelora_persistence::NewDeployment {
+            application_id: app.id,
+            project: &req.project,
+            revision: revision.revision,
+            desired: &desired,
+            connections: connections.as_ref(),
+            uplink: state.network_uplink.as_deref().filter(|_| enforce),
+            service_range,
+        },
     )
     .await?;
     let mut network_job = None;
     if let (true, Some(uplink)) = (enforce, &state.network_uplink) {
-        let payload = json!({
-            "project": req.project,
-            "application": name,
-            "uplink": uplink.as_ref(),
-            "appliances": req.appliances.iter().map(|d| d.appliance.clone()).collect::<Vec<_>>(),
-            "connections": req.connections,
-            "replicas": req.appliances.iter().map(|d| (d.appliance.clone(), d.replicas)).collect::<std::collections::BTreeMap<_, _>>(),
-        });
+        let payload = serde_json::to_value(SyncRequest::for_deployment(
+            &name,
+            &req.project,
+            uplink,
+            &req.appliances,
+            req.connections.as_deref().unwrap_or_default(),
+            service_range,
+        ))
+        .map_err(|e| bad_request(e.to_string()))?;
         let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
         let job_id = apelora_persistence::enqueue_job(
             pool,
@@ -432,8 +449,22 @@ pub(super) async fn status(
             })
         })
         .collect();
+    let services = match &state.auth {
+        Auth::Tokens(pool) => apelora_persistence::application_services(pool, &name)
+            .await?
+            .into_iter()
+            .filter(|(project, _, _)| q.project.as_ref().is_none_or(|p| p == project))
+            .map(|(project, appliance, address)| ServiceStatus {
+                appliance,
+                project,
+                address,
+            })
+            .collect(),
+        Auth::DisabledForDevelopment => Vec::new(),
+    };
     Ok(Json(ApplicationStatus {
         source: source(state.provider.mode()),
         items,
+        services,
     }))
 }

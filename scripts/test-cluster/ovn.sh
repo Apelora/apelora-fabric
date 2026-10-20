@@ -39,6 +39,10 @@ incus config set "network.ovn.northbound_connection=tcp:$central:6641"
 subnet=$(incus network get incusbr0 ipv4.address)   # e.g. 10.213.140.1/24
 prefix=${subnet%.*}
 incus network set incusbr0 "ipv4.dhcp.ranges=$prefix.2-$prefix.99" "ipv4.ovn.ranges=$prefix.100-$prefix.199"
+# Service addresses (OVN load balancers) come from a routed range of the uplink. 198.18.0.0/15
+# is reserved for network testing, so it never collides with a real network on the lab.
+SERVICES=${APELORA_TEST_SERVICES:-198.18.100.0/28}
+incus network set incusbr0 "ipv4.routes=$SERVICES"
 
 # The deploy project owns its OVN networks and ACLs (features.networks), so the restricted
 # deploy identity can manage them; it may only use incusbr0 as uplink. Features can only
@@ -55,6 +59,8 @@ if [ "$(incus project get "$PROJECT" features.networks 2>/dev/null)" != "true" ]
     -c features.networks=true -c restricted.networks.uplinks=incusbr0
   incus profile device add default root disk path=/ pool=local --project "$PROJECT"
 fi
+# The restricted project may use the service range for load balancers, and nothing else.
+incus project set "$PROJECT" "restricted.networks.subnets=incusbr0:$SERVICES"
 # Instances without an application network get one shared OVN network.
 if ! incus network show "$PROJECT-default" --project "$PROJECT" >/dev/null 2>&1; then
   incus network create "$PROJECT-default" --type=ovn network=incusbr0 --project "$PROJECT"
@@ -62,5 +68,5 @@ fi
 devices=$(incus profile device list default --project "$PROJECT")
 grep -qx eth0 <<<"$devices" || incus profile device add default eth0 nic name=eth0 "network=$PROJECT-default" --project "$PROJECT"
 
-echo "OVN ready: northbound tcp:$central:6641; project $PROJECT owns its networks (uplink incusbr0)"
+echo "OVN ready: northbound tcp:$central:6641; project $PROJECT owns its networks (uplink incusbr0, service addresses $SERVICES)"
 incus network list --project "$PROJECT" -c ntsu

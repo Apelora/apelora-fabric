@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
 use crate::{AdapterError, InstanceState};
-use apelora_domain::network::AclRule;
+use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::{JoinToken, PendingJoin};
 use base64::Engine as _;
 
@@ -98,11 +98,45 @@ fn check_client_certificate(pem: &[u8]) -> Result<(), AdapterError> {
 }
 
 /// Created by Apelora for exactly this application (marker and label both match).
-fn owned_by(o: &wire::Owned, application: &str) -> bool {
-    o.config.get(MANAGED_KEY).is_some_and(|v| v == "true")
-        && o.config
+/// Health checks on every service: a backend that stops answering on its port is taken out
+/// within about ten seconds and put back once it answers again.
+fn load_balancer_body(lb: &LoadBalancer, application: &str) -> Value {
+    let backends: Vec<String> = lb.backends.iter().map(|b| b.name.clone()).collect();
+    json!({
+        "description": format!("Apelora service {}", lb.appliance),
+        "config": {
+            MANAGED_KEY: "true",
+            APPLICATION_KEY: application,
+            APPLIANCE_KEY: lb.appliance,
+            "healthcheck": "true",
+            "healthcheck.interval": "5",
+            "healthcheck.failure_count": "2",
+            "healthcheck.success_count": "2",
+        },
+        "backends": lb.backends.iter().map(|b| json!({
+            "name": b.name,
+            "description": b.description,
+            "target_address": b.address.to_string(),
+            "target_port": "",
+        })).collect::<Vec<_>>(),
+        "ports": lb.ports.iter().map(|(transport, port)| json!({
+            "description": "",
+            "protocol": transport,
+            "listen_port": port.to_string(),
+            "target_backend": backends,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn owned_by_config(config: &std::collections::BTreeMap<String, String>, application: &str) -> bool {
+    config.get(MANAGED_KEY).is_some_and(|v| v == "true")
+        && config
             .get(APPLICATION_KEY)
             .is_some_and(|v| v == application)
+}
+
+fn owned_by(o: &wire::Owned, application: &str) -> bool {
+    owned_by_config(&o.config, application)
 }
 
 /// Operation ids are UUIDs; anything else must never reach an API path.
@@ -518,6 +552,116 @@ impl IncusClient {
         )
         .await
         .map(|_| ())
+    }
+
+    /// The instance's identity (`volatile.uuid`); a recreated instance gets a new one.
+    pub async fn instance_uuid(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        let i: wire::Owned = self
+            .get(&format!("/1.0/instances/{name}?project={project}"))
+            .await?;
+        Ok(i.config.get("volatile.uuid").cloned())
+    }
+
+    /// Creates or updates the appliance's load balancer on `network` (Apelora owns it whole);
+    /// refuses one at that address that is not this application's.
+    pub async fn ensure_load_balancer(
+        &self,
+        project: &str,
+        network: &str,
+        lb: &LoadBalancer,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        let path = format!(
+            "/1.0/networks/{network}/load-balancers/{}?project={project}",
+            lb.listen_address
+        );
+        let desired = load_balancer_body(lb, application);
+        match self.get::<wire::LoadBalancer>(&path).await {
+            Ok(found) if owned_by_config(&found.config, application) => {
+                if found.normalised() == wire::LoadBalancer::from_body(&desired)?.normalised() {
+                    return Ok(());
+                }
+                self.call::<Value>(Method::PUT, &path, Some(&desired))
+                    .await
+                    .map(|_| ())
+            }
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!(
+                    "load balancer {} on {network} does not belong to application {application}",
+                    lb.listen_address
+                ),
+            }),
+            Err(AdapterError::NotFound(_)) => {
+                let mut body = desired;
+                body["listen_address"] = json!(lb.listen_address.to_string());
+                self.call::<Value>(
+                    Method::POST,
+                    &format!("/1.0/networks/{network}/load-balancers?project={project}"),
+                    Some(&body),
+                )
+                .await
+                .map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The application's load balancers on `network`, as `(listen address, appliance)`;
+    /// empty when the network does not exist.
+    pub async fn owned_load_balancers(
+        &self,
+        project: &str,
+        network: &str,
+        application: &str,
+    ) -> Result<Vec<(String, String)>, AdapterError> {
+        let all: Vec<wire::LoadBalancer> = match self
+            .get(&format!(
+                "/1.0/networks/{network}/load-balancers?recursion=1&project={project}"
+            ))
+            .await
+        {
+            Ok(all) => all,
+            Err(AdapterError::NotFound(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        Ok(all
+            .into_iter()
+            .filter(|lb| owned_by_config(&lb.config, application))
+            .map(|lb| {
+                let appliance = lb.config.get(APPLIANCE_KEY).cloned().unwrap_or_default();
+                (lb.listen_address, appliance)
+            })
+            .collect())
+    }
+
+    /// Deletes the application's load balancer at `address`; `false` when there was none.
+    pub async fn delete_load_balancer(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        let path = format!("/1.0/networks/{network}/load-balancers/{address}?project={project}");
+        match self.get::<wire::LoadBalancer>(&path).await {
+            Ok(lb) if owned_by_config(&lb.config, application) => self
+                .call::<Value>(Method::DELETE, &path, None)
+                .await
+                .map(|_| true),
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!(
+                    "load balancer {address} on {network} does not belong to application {application}"
+                ),
+            }),
+            Err(AdapterError::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
     }
 
     /// The instance's global addresses on `eth0` (IPv4 and IPv6), as `address/32` or `/128`.

@@ -20,7 +20,7 @@ pub use wire::Operation;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use apelora_domain::network::AclRule;
+use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::{
     ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network,
     PendingJoin, Project, ProviderMode, ServerInfo, StoragePool, is_valid_name,
@@ -370,6 +370,103 @@ impl Provider {
         }
     }
 
+    /// The instance's identity (`volatile.uuid`); `None` when Incus does not report one.
+    pub async fn instance_uuid(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<String>, AdapterError> {
+        match self {
+            Provider::Mock(m) => m
+                .find(project, name)
+                .map(|i| Some(i.uuid))
+                .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Provider::Incus(c) => c.instance_uuid(project, name).await,
+        }
+    }
+
+    /// Creates or updates an appliance's service address (an OVN load balancer).
+    pub async fn ensure_load_balancer(
+        &self,
+        project: &str,
+        network: &str,
+        lb: &LoadBalancer,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let mut net = m.net();
+                let key = format!("{project}/{network}/{}", lb.listen_address);
+                if let Some((app, _)) = net.load_balancers.get(&key)
+                    && app != application
+                {
+                    return Err(AdapterError::Api {
+                        status: 409,
+                        message: format!(
+                            "load balancer {} belongs to application {app}",
+                            lb.listen_address
+                        ),
+                    });
+                }
+                net.load_balancers
+                    .insert(key, (application.to_owned(), lb.clone()));
+                Ok(())
+            }
+            Provider::Incus(c) => {
+                c.ensure_load_balancer(project, network, lb, application)
+                    .await
+            }
+        }
+    }
+
+    /// The application's load balancers on `network`, as `(listen address, appliance)`.
+    pub async fn owned_load_balancers(
+        &self,
+        project: &str,
+        network: &str,
+        application: &str,
+    ) -> Result<Vec<(String, String)>, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let prefix = format!("{project}/{network}/");
+                Ok(m.net()
+                    .load_balancers
+                    .iter()
+                    .filter(|(k, (app, _))| k.starts_with(&prefix) && app == application)
+                    .map(|(k, (_, lb))| (k[prefix.len()..].to_owned(), lb.appliance.clone()))
+                    .collect())
+            }
+            Provider::Incus(c) => c.owned_load_balancers(project, network, application).await,
+        }
+    }
+
+    pub async fn delete_load_balancer(
+        &self,
+        project: &str,
+        network: &str,
+        address: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let mut net = m.net();
+                let key = format!("{project}/{network}/{address}");
+                match net.load_balancers.get(&key) {
+                    None => Ok(false),
+                    Some((app, _)) if app != application => Err(AdapterError::Api {
+                        status: 409,
+                        message: format!("load balancer {address} belongs to application {app}"),
+                    }),
+                    Some(_) => Ok(net.load_balancers.remove(&key).is_some()),
+                }
+            }
+            Provider::Incus(c) => {
+                c.delete_load_balancer(project, network, address, application)
+                    .await
+            }
+        }
+    }
+
     /// A running instance's global addresses; empty while it has none (e.g. stopped).
     pub async fn instance_addresses(
         &self,
@@ -459,6 +556,8 @@ pub struct MockNetwork {
     pub acls: std::collections::BTreeMap<String, (Vec<AclRule>, Vec<AclRule>)>,
     pub address_sets: std::collections::BTreeMap<String, Vec<String>>,
     pub owners: std::collections::BTreeMap<String, String>,
+    /// `project/network/address` → (application, load balancer).
+    pub load_balancers: std::collections::BTreeMap<String, (String, LoadBalancer)>,
 }
 
 impl MockNetwork {
@@ -528,6 +627,8 @@ impl MockNetwork {
 pub struct MockInstance {
     pub instance: Instance,
     pub base_image: Option<String>,
+    /// New for every created instance, like Incus's `volatile.uuid`.
+    pub uuid: String,
 }
 
 impl MockIncus {
@@ -560,7 +661,9 @@ impl MockIncus {
                 message: "Instance already exists".into(),
             });
         }
+        let uuid = self.op();
         self.lock().push(MockInstance {
+            uuid,
             instance: Instance {
                 name: spec.name.clone(),
                 project: spec.project.clone(),
@@ -685,6 +788,7 @@ impl Default for MockIncus {
                 ]
                 .into_iter()
                 .map(|instance| MockInstance {
+                    uuid: format!("seed-{}", instance.name),
                     instance,
                     base_image: None,
                 })
