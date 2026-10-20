@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" width="1200" height="900" role="img" aria-labelledby="no-title no-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="no-title">Networking for modules, layer by layer</title>
+  <desc id="no-desc">At the top, an application's modules share one OVN network made for that application, with an access rule per module that rejects everything not drawn as a cable, address sets, a load balancer on a service address and internet access per module. In the middle are the network types Incus offers: OVN, which Apelora uses for application networks; a bridge, which the test cluster uses as the uplink; macvlan; SR-IOV; and physical networks. At the bottom, each server has a management link for the cluster, OVN tunnels between servers and an uplink, which can be a bond or a tagged VLAN, to your network, where the service address range is routed to the application's OVN router.</desc>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only -->
+  <defs>
+    <linearGradient id="no-blue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4C8DF0"/><stop offset="1" stop-color="#2F6FD6"/></linearGradient>
+    <linearGradient id="no-blue-soft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F1F6FF"/><stop offset="1" stop-color="#E3EDFD"/></linearGradient>
+    <linearGradient id="no-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF7EB"/><stop offset="1" stop-color="#FDEBCF"/></linearGradient>
+    <linearGradient id="no-amber-strong" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F2A93B"/><stop offset="1" stop-color="#D98A1C"/></linearGradient>
+    <linearGradient id="no-metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9CED6"/><stop offset="1" stop-color="#9AA2AE"/></linearGradient>
+    <radialGradient id="no-floor" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#000" stop-opacity="0.18"/><stop offset="0.7" stop-color="#000" stop-opacity="0.06"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <marker id="no-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 Z" fill="#2F6FD6"/></marker>
+    <g id="no-lock">
+      <path d="M-4 -2 V-5 A4 4 0 0 1 4 -5 V-2" fill="none" stroke="#2F6FD6" stroke-width="1.6"/>
+      <rect x="-6" y="-2" width="12" height="9" rx="2" fill="#2F6FD6"/>
+    </g>
+  </defs>
+  <style>
+    .t { fill: #1F2328; }
+    .m { fill: #57606A; }
+    .w { fill: #FFFFFF; }
+    .bl { fill: #1D4F9E; }
+    .h1 { font-size: 26px; font-weight: 700; }
+    .h2 { font-size: 15px; font-weight: 700; }
+    .b { font-size: 13px; }
+    .s { font-size: 11.5px; }
+    .tag { font-size: 10.5px; font-weight: 700; }
+    .line { stroke: #8C959F; stroke-width: 1.5; fill: none; }
+    .rule { stroke: #2F6FD6; stroke-width: 1.6; fill: none; }
+  </style>
+
+  <rect width="1200" height="900" fill="#FFFFFF"/>
+  <text x="600" y="46" text-anchor="middle" class="t h1">Networking for modules, layer by layer</text>
+
+  <!-- 1. The application's network -->
+  <g id="no-app">
+    <rect x="120" y="76" width="960" height="214" rx="14" fill="url(#no-blue-soft)" stroke="#2F6FD6" stroke-width="1.6" stroke-dasharray="7 5"/>
+    <text x="144" y="102" class="bl h2">One OVN network per application</text>
+    <text x="1056" y="102" text-anchor="end" class="m s">built by Apelora from the cables in the design</text>
+    <!-- service address -->
+    <rect x="144" y="126" width="196" height="40" rx="20" fill="#FFFFFF" stroke="#2F6FD6" stroke-width="1.6"/>
+    <text x="242" y="144" text-anchor="middle" class="t s">service address</text>
+    <text x="242" y="159" text-anchor="middle" class="m s">load balancer, port check</text>
+    <!-- modules -->
+    <rect x="400" y="124" width="132" height="44" rx="8" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="466" y="151" text-anchor="middle" class="t b">gateway</text>
+    <rect x="590" y="124" width="132" height="44" rx="8" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="656" y="151" text-anchor="middle" class="t b">web (3 replicas)</text>
+    <rect x="780" y="124" width="132" height="44" rx="8" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="846" y="151" text-anchor="middle" class="t b">db</text>
+    <path class="rule" d="M532 146 H588" marker-end="url(#no-arrow)"/>
+    <use href="#no-lock" x="560" y="136"/>
+    <path class="rule" d="M722 146 H778" marker-end="url(#no-arrow)"/>
+    <use href="#no-lock" x="750" y="136"/>
+    <path class="rule" d="M340 146 H398" marker-end="url(#no-arrow)"/>
+    <!-- features -->
+    <g id="no-features">
+      <rect x="144" y="190" width="214" height="80" rx="8" fill="#FFFFFF" stroke="#C9D8F2"/>
+      <text x="160" y="214" class="t h2">Access rules</text>
+      <text x="160" y="234" class="m s">one per module; anything no</text>
+      <text x="160" y="250" class="m s">cable allows is rejected</text>
+      <rect x="374" y="190" width="214" height="80" rx="8" fill="#FFFFFF" stroke="#C9D8F2"/>
+      <text x="390" y="214" class="t h2">Address sets</text>
+      <text x="390" y="234" class="m s">each module's addresses,</text>
+      <text x="390" y="250" class="m s">kept current by the worker</text>
+      <rect x="604" y="190" width="214" height="80" rx="8" fill="#FFFFFF" stroke="#C9D8F2"/>
+      <text x="620" y="214" class="t h2">Service discovery</text>
+      <text x="620" y="234" class="m s">APELORA_SERVICE_* variables</text>
+      <text x="620" y="250" class="m s">and names on the network</text>
+      <rect x="834" y="190" width="222" height="80" rx="8" fill="#FFFFFF" stroke="#C9D8F2"/>
+      <text x="850" y="214" class="t h2">Internet access</text>
+      <text x="850" y="234" class="m s">per module: none, web</text>
+      <text x="850" y="250" class="m s">and DNS, or any port</text>
+    </g>
+  </g>
+
+  <path class="line" d="M600 290 V318"/>
+
+  <!-- 2. Incus network types -->
+  <g id="no-types">
+    <text x="120" y="340" class="t h2">Network types Incus offers</text>
+    <text x="1080" y="340" text-anchor="end" class="m s">chosen per network by the administrator</text>
+
+    <rect x="120" y="354" width="180" height="150" rx="10" fill="url(#no-blue)"/>
+    <rect x="136" y="368" width="122" height="20" rx="10" fill="#FFFFFF"/>
+    <text x="197" y="382" text-anchor="middle" class="tag" fill="#1D4F9E">USED BY APELORA</text>
+    <text x="136" y="414" class="w h2">OVN</text>
+    <text x="136" y="436" class="w s">virtual networks across</text>
+    <text x="136" y="452" class="w s">servers: rules, load</text>
+    <text x="136" y="468" class="w s">balancers, routers</text>
+    <text x="136" y="490" class="w s" fill-opacity="0.9">application networks</text>
+
+    <rect x="315" y="354" width="180" height="150" rx="10" fill="#FFFFFF" stroke="#2F6FD6" stroke-width="1.6"/>
+    <rect x="331" y="368" width="96" height="20" rx="10" fill="#E3EDFD"/>
+    <text x="379" y="382" text-anchor="middle" class="tag" fill="#1D4F9E">TEST CLUSTER</text>
+    <text x="331" y="414" class="t h2">Bridge</text>
+    <text x="331" y="436" class="m s">a switch on each server</text>
+    <text x="331" y="452" class="m s">with address assignment,</text>
+    <text x="331" y="468" class="m s">names and outbound NAT</text>
+    <text x="331" y="490" class="m s">uplink for OVN on the lab</text>
+
+    <rect x="510" y="354" width="180" height="150" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="526" y="414" class="t h2">macvlan</text>
+    <text x="526" y="436" class="m s">instances appear directly</text>
+    <text x="526" y="452" class="m s">on your LAN; the server</text>
+    <text x="526" y="468" class="m s">itself cannot reach them</text>
+
+    <rect x="705" y="354" width="180" height="150" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="721" y="414" class="t h2">SR-IOV</text>
+    <text x="721" y="436" class="m s">a slice of the network</text>
+    <text x="721" y="452" class="m s">card per instance: line</text>
+    <text x="721" y="468" class="m s">rate, little CPU</text>
+
+    <rect x="900" y="354" width="180" height="150" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <text x="916" y="414" class="t h2">Physical</text>
+    <text x="916" y="436" class="m s">a server's NIC, bond or</text>
+    <text x="916" y="452" class="m s">VLAN, handed to OVN as</text>
+    <text x="916" y="468" class="m s">its uplink</text>
+    <text x="916" y="490" class="m s">recommended uplink</text>
+  </g>
+
+  <path class="line" d="M270 504 V544"/>
+  <path class="line" d="M990 504 V544"/>
+
+  <!-- 3. Each server -->
+  <g id="no-servers">
+    <text x="120" y="530" class="t h2">On each server</text>
+    <g>
+      <rect x="120" y="544" width="300" height="168" rx="10" fill="url(#no-amber)" stroke="#EDC27E"/>
+      <rect x="120" y="544" width="300" height="28" rx="10" fill="url(#no-amber-strong)"/>
+      <rect x="120" y="562" width="300" height="10" fill="#D98A1C"/>
+      <text x="270" y="563" text-anchor="middle" class="w h2">Server 1</text>
+      <rect x="138" y="586" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="152" y="606" class="t s">management: cluster links, Incus API</text>
+      <rect x="138" y="624" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="152" y="644" class="t s">OVN tunnels to the other servers</text>
+      <rect x="138" y="662" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="152" y="682" class="t s">uplink: NIC, bond or tagged VLAN</text>
+    </g>
+    <g>
+      <rect x="450" y="544" width="300" height="168" rx="10" fill="url(#no-amber)" stroke="#EDC27E"/>
+      <rect x="450" y="544" width="300" height="28" rx="10" fill="url(#no-amber-strong)"/>
+      <rect x="450" y="562" width="300" height="10" fill="#D98A1C"/>
+      <text x="600" y="563" text-anchor="middle" class="w h2">Server 2</text>
+      <rect x="468" y="586" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="482" y="606" class="t s">management: cluster links, Incus API</text>
+      <rect x="468" y="624" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="482" y="644" class="t s">OVN tunnels to the other servers</text>
+      <rect x="468" y="662" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="482" y="682" class="t s">uplink: NIC, bond or tagged VLAN</text>
+    </g>
+    <g>
+      <rect x="780" y="544" width="300" height="168" rx="10" fill="url(#no-amber)" stroke="#EDC27E"/>
+      <rect x="780" y="544" width="300" height="28" rx="10" fill="url(#no-amber-strong)"/>
+      <rect x="780" y="562" width="300" height="10" fill="#D98A1C"/>
+      <text x="930" y="563" text-anchor="middle" class="w h2">Server 3</text>
+      <rect x="798" y="586" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="812" y="606" class="t s">management: cluster links, Incus API</text>
+      <rect x="798" y="624" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="812" y="644" class="t s">OVN tunnels to the other servers</text>
+      <rect x="798" y="662" width="264" height="30" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
+      <text x="812" y="682" class="t s">uplink: NIC, bond or tagged VLAN</text>
+    </g>
+    <!-- tunnels between servers -->
+    <path d="M402 639 H468 M732 639 H798" stroke="#2F6FD6" stroke-width="2" stroke-dasharray="4 3"/>
+  </g>
+
+  <!-- 4. Your network -->
+  <g id="no-lan">
+    <path class="line" d="M270 712 V760 M600 712 V760 M930 712 V760"/>
+    <ellipse cx="600" cy="812" rx="400" ry="8" fill="url(#no-floor)"/>
+    <rect x="200" y="760" width="800" height="46" rx="8" fill="url(#no-metal)" stroke="#7C8592"/>
+    <g fill="#4B5563">
+      <rect x="226" y="772" width="20" height="14" rx="2"/><rect x="252" y="772" width="20" height="14" rx="2"/><rect x="278" y="772" width="20" height="14" rx="2"/><rect x="304" y="772" width="20" height="14" rx="2"/>
+      <rect x="876" y="772" width="20" height="14" rx="2"/><rect x="902" y="772" width="20" height="14" rx="2"/><rect x="928" y="772" width="20" height="14" rx="2"/><rect x="954" y="772" width="20" height="14" rx="2"/>
+    </g>
+    <text x="600" y="788" text-anchor="middle" class="t b">Your switches and router: VLANs, the uplink network, the service address range</text>
+    <text x="600" y="842" text-anchor="middle" class="m b">The router sends the service address range to each application's OVN router;</text>
+    <text x="600" y="862" text-anchor="middle" class="m b">a separate management network keeps cluster traffic apart from application traffic.</text>
+  </g>
+</svg>

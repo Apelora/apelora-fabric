@@ -72,6 +72,8 @@ A Studio node is a *logical* module; its replicas are separate Incus instances m
 
 ## 5. Virtual network fabric
 
+![Networking for modules, layer by layer](../assets/diagrams/network-options.svg)
+
 **A connection is a service dependency plus an authorisation**, compiled into network intents:
 
 ```text
@@ -151,6 +153,8 @@ Separate detectors, each with source, timestamp and freshness: member (Incus hea
 Milestones: **M1** intelligent evacuation (plan, dry run, drain, move, verify, restore); **M2** replica-aware recovery; **M3** advanced HA (tested fencing, stateful recovery, shared storage, automatic policies).
 
 ## 8. Storage
+
+![Where module data can live](../assets/diagrams/storage-options.svg)
 
 Details — how Incus models pools and volumes, local versus shared storage, the volume-class abstraction and its lifecycle — are in [storage](STORAGE.md).
 

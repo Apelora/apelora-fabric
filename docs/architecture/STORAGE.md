@@ -42,6 +42,8 @@ flowchart LR
 
 ### 1.1 Local pools and shared pools (the part that decides HA)
 
+![Where module data can live](../assets/diagrams/storage-options.svg)
+
 | | Local pool (directory, btrfs, LVM, ZFS) | Shared pool (Ceph RBD, CephFS, other remote drivers) |
 |---|---|---|
 | Where data is | On **one member's** disks. In a cluster the pool exists on every member under the same name, each with its own storage. | In a storage system **outside** Incus that every member reaches over the network |

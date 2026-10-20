@@ -52,6 +52,16 @@ Three steps, from drawing to running application:
 
 Apelora owns the application: its design, desired state, connections, replicas and health. Incus owns the servers: membership, placement and the instances themselves. Apelora talks to Incus only through its documented REST API.
 
+### Networking and storage
+
+<p align="center">
+  <img src="docs/assets/diagrams/network-options.svg" alt="Networking: one OVN network per application with access rules, address sets, service discovery and internet access; the network types Incus offers (OVN, bridge, macvlan, SR-IOV, physical); management, tunnel and uplink links on each server" width="900">
+</p>
+
+<p align="center">
+  <img src="docs/assets/diagrams/storage-options.svg" alt="Storage: local disks used today; SAN shared block and distributed storage planned for restarting VMs after a failure; NAS shares over NFS or SMB/CIFS for backups and files a module mounts" width="900">
+</p>
+
 ## What is in this repository
 
 | Part | Location | State |

@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 850" width="1200" height="850" role="img" aria-labelledby="so-title so-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="so-title">Where module data can live</title>
+  <desc id="so-desc">Apelora's volume classes map to Incus storage pools. Four kinds of storage can sit under a pool. Local disks in each server, with the dir, btrfs, LVM or ZFS drivers, are what Apelora uses today for data-local volumes and for backups. A SAN gives every server the same block device over Fibre Channel, iSCSI or NVMe over Fabrics; the clustered LVM driver shares it, so a VM can restart on another server after its old server is fenced. A distributed storage cluster, with the Ceph RBD, CephFS or LINSTOR drivers, replicates data across machines and can serve the same purpose. NAS shares over NFS or SMB/CIFS are not a pool driver in Incus for running instances: they can receive backup copies, or a module mounts them itself; a NAS that exports iSCSI counts as a SAN.</desc>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only -->
+  <defs>
+    <linearGradient id="so-teal-strong" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19B3A3"/><stop offset="1" stop-color="#0F8C80"/></linearGradient>
+    <linearGradient id="so-green-body" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3FA56B"/><stop offset="0.2" stop-color="#7CCB9B"/><stop offset="0.55" stop-color="#4DB37A"/><stop offset="0.85" stop-color="#6FC28F"/><stop offset="1" stop-color="#2F8A57"/></linearGradient>
+    <linearGradient id="so-green-soft" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F0FAF4"/><stop offset="1" stop-color="#DFF3E7"/></linearGradient>
+    <linearGradient id="so-metal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#C9CED6"/><stop offset="1" stop-color="#9AA2AE"/></linearGradient>
+    <radialGradient id="so-floor" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#000" stop-opacity="0.18"/><stop offset="0.7" stop-color="#000" stop-opacity="0.06"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <g id="so-unit">
+      <rect x="0" y="0" width="120" height="26" rx="4" fill="url(#so-metal)" stroke="#7C8592"/>
+      <rect x="8" y="6" width="62" height="14" rx="2" fill="#4B5563"/>
+      <path d="M16 9 V17 M26 9 V17 M36 9 V17 M46 9 V17 M56 9 V17" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="106" cy="13" r="3" fill="#3FB27F"/>
+    </g>
+  </defs>
+  <style>
+    .t { fill: #1F2328; }
+    .m { fill: #57606A; }
+    .w { fill: #FFFFFF; }
+    .g { fill: #1F6B44; }
+    .h1 { font-size: 26px; font-weight: 700; }
+    .h2 { font-size: 15px; font-weight: 700; }
+    .b { font-size: 13px; }
+    .s { font-size: 11.5px; }
+    .tag { font-size: 10.5px; font-weight: 700; }
+    .line { stroke: #8C959F; stroke-width: 1.5; fill: none; }
+    .plan { stroke: #8C959F; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+  </style>
+
+  <rect width="1200" height="850" fill="#FFFFFF"/>
+  <text x="600" y="46" text-anchor="middle" class="t h1">Where module data can live</text>
+
+  <!-- Apelora's view -->
+  <g id="so-apelora">
+    <rect x="120" y="72" width="960" height="70" rx="12" fill="url(#so-teal-strong)"/>
+    <text x="144" y="100" class="w h2">Apelora: volume classes, mapped to Incus pools</text>
+    <text x="144" y="124" class="w s" fill-opacity="0.92">data-local and backups use member-local pools today; data-replicated (planned) needs a shared pool</text>
+  </g>
+  <path class="line" d="M240 142 V170 M480 142 V170 M720 142 V170 M960 142 V170"/>
+
+  <!-- Four columns -->
+  <g id="so-local">
+    <rect x="120" y="170" width="228" height="404" rx="12" fill="url(#so-green-soft)" stroke="#8FD0AA"/>
+    <rect x="136" y="186" width="122" height="20" rx="10" fill="#1F6B44"/>
+    <text x="197" y="200" text-anchor="middle" class="tag w">USED BY APELORA</text>
+    <text x="136" y="232" class="t h2">Local disks</text>
+    <text x="136" y="252" class="m s">in each server: SSD, NVMe</text>
+    <text x="136" y="282" class="g tag">INCUS DRIVERS</text>
+    <text x="136" y="300" class="t s">dir, btrfs, LVM, ZFS</text>
+    <text x="136" y="330" class="g tag">GOOD FOR</text>
+    <text x="136" y="348" class="t s">fastest volumes, snapshots</text>
+    <text x="136" y="364" class="t s">VMs move live between</text>
+    <text x="136" y="380" class="t s">servers (the disk is copied)</text>
+    <text x="136" y="410" class="g tag">KEEP IN MIND</text>
+    <text x="136" y="428" class="t s">data stays on its server:</text>
+    <text x="136" y="444" class="t s">if the server dies, restore</text>
+    <text x="136" y="460" class="t s">from a backup elsewhere</text>
+    <use href="#so-unit" x="174" y="490"/>
+    <use href="#so-unit" x="174" y="524"/>
+  </g>
+
+  <g id="so-san">
+    <rect x="364" y="170" width="228" height="404" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="5 4"/>
+    <rect x="380" y="186" width="70" height="20" rx="10" fill="#E9ECEF"/>
+    <text x="415" y="200" text-anchor="middle" class="tag m">PLANNED</text>
+    <text x="380" y="232" class="t h2">SAN, shared block</text>
+    <text x="380" y="252" class="m s">Fibre Channel, iSCSI, NVMe-oF</text>
+    <text x="380" y="282" class="g tag">INCUS DRIVER</text>
+    <text x="380" y="300" class="t s">clustered LVM (lvmcluster)</text>
+    <text x="380" y="330" class="g tag">GOOD FOR</text>
+    <text x="380" y="348" class="t s">every server sees the same</text>
+    <text x="380" y="364" class="t s">disk: a VM restarts on another</text>
+    <text x="380" y="380" class="t s">server after a failure</text>
+    <text x="380" y="410" class="g tag">KEEP IN MIND</text>
+    <text x="380" y="428" class="t s">needs fencing first; thick</text>
+    <text x="380" y="444" class="t s">provisioning; no snapshots of</text>
+    <text x="380" y="460" class="t s">shared custom volumes</text>
+    <rect x="418" y="490" width="120" height="60" rx="5" fill="url(#so-metal)" stroke="#7C8592"/>
+    <path d="M430 500 H526 M430 512 H526 M430 524 H526 M430 536 H526" stroke="#4B5563" stroke-width="5"/>
+  </g>
+
+  <g id="so-distributed">
+    <rect x="608" y="170" width="228" height="404" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="5 4"/>
+    <rect x="624" y="186" width="70" height="20" rx="10" fill="#E9ECEF"/>
+    <text x="659" y="200" text-anchor="middle" class="tag m">PLANNED</text>
+    <text x="624" y="232" class="t h2">Distributed storage</text>
+    <text x="624" y="252" class="m s">a cluster of storage machines</text>
+    <text x="624" y="282" class="g tag">INCUS DRIVERS</text>
+    <text x="624" y="300" class="t s">Ceph RBD, CephFS, LINSTOR</text>
+    <text x="624" y="330" class="g tag">GOOD FOR</text>
+    <text x="624" y="348" class="t s">data copied across machines;</text>
+    <text x="624" y="364" class="t s">restart elsewhere, shared</text>
+    <text x="624" y="380" class="t s">files, snapshots</text>
+    <text x="624" y="410" class="g tag">KEEP IN MIND</text>
+    <text x="624" y="428" class="t s">at least three machines and</text>
+    <text x="624" y="444" class="t s">a fast network; one more</text>
+    <text x="624" y="460" class="t s">system to run</text>
+    <use href="#so-unit" x="662" y="482"/>
+    <use href="#so-unit" x="662" y="512"/>
+    <use href="#so-unit" x="662" y="542"/>
+  </g>
+
+  <g id="so-nas">
+    <rect x="852" y="170" width="228" height="404" rx="12" fill="#FFFFFF" stroke="#D9DCE1"/>
+    <rect x="868" y="186" width="118" height="20" rx="10" fill="#E9ECEF"/>
+    <text x="927" y="200" text-anchor="middle" class="tag m">NOT A POOL DRIVER</text>
+    <text x="868" y="232" class="t h2">NAS shares</text>
+    <text x="868" y="252" class="m s">NFS, SMB/CIFS</text>
+    <text x="868" y="282" class="g tag">IN INCUS</text>
+    <text x="868" y="300" class="t s">no driver for running instances</text>
+    <text x="868" y="330" class="g tag">GOOD FOR</text>
+    <text x="868" y="348" class="t s">backup copies (planned target)</text>
+    <text x="868" y="364" class="t s">and files a module mounts</text>
+    <text x="868" y="380" class="t s">itself, e.g. shared uploads</text>
+    <text x="868" y="410" class="g tag">KEEP IN MIND</text>
+    <text x="868" y="428" class="t s">locking and latency make it a</text>
+    <text x="868" y="444" class="t s">poor home for databases; a NAS</text>
+    <text x="868" y="460" class="t s">exporting iSCSI counts as a SAN</text>
+    <rect x="906" y="490" width="120" height="60" rx="6" fill="url(#so-metal)" stroke="#7C8592"/>
+    <rect x="918" y="500" width="40" height="40" rx="3" fill="#4B5563"/>
+    <rect x="964" y="500" width="40" height="40" rx="3" fill="#4B5563"/>
+    <circle cx="1014" cy="540" r="3" fill="#3FB27F"/>
+  </g>
+
+  <!-- What it means for failures -->
+  <g id="so-ha">
+    <text x="120" y="618" class="t h2">What each choice means when a server fails</text>
+    <rect x="120" y="632" width="960" height="150" rx="12" fill="#FBFBFC" stroke="#D9DCE1"/>
+    <text x="144" y="662" class="t b">Planned maintenance: VMs move live to another server with any of these (measured on the test cluster:</text>
+    <text x="144" y="682" class="t b">a pause under one second, no reboot). Containers stop, move and start again.</text>
+    <text x="144" y="714" class="t b">A failure on local disks: replicas behind a service address keep the service up; a single instance waits</text>
+    <text x="144" y="734" class="t b">for its server or is restored from a backup on another server.</text>
+    <text x="144" y="766" class="t b">A failure on a SAN or distributed storage: the instance restarts on another server once the old one is fenced.</text>
+  </g>
+
+  <g id="so-legend">
+    <rect x="120" y="808" width="14" height="14" rx="3" fill="#1F6B44"/>
+    <text x="142" y="820" class="m s">built and REAL INCUS TESTED</text>
+    <rect x="330" y="808" width="14" height="14" rx="3" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="3 2"/>
+    <text x="352" y="820" class="m s">planned in Apelora; Incus supports it</text>
+    <text x="1080" y="820" text-anchor="end" class="m s">Driver details: Incus storage reference at the pinned release</text>
+  </g>
+</svg>
