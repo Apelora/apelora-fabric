@@ -39,6 +39,14 @@ Every appliance class declares how it runs on Incus. A class without a runtime i
 9. Reject unsupported or mismatched terminal protocols and unresolved dependencies before deployment.
 10. Keep reference fixtures for an nginx web tier, an API, a worker, PostgreSQL (stateful safety rules) and one optional VM.
 
+### Adding a runtime (current process)
+
+1. Schema: `ApplianceClass.runtime` (`RuntimeSchema` in `packages/assembly-model/src/schema.ts`): `kind` (`incus-system-container`, `incus-oci-container`, `incus-vm`) and exactly one of `image` or `imageBy {property, images}`. `imageBy` must name an enum property and cover every option (`runtimeProblems`), so a deployment never runs something other than what the designer chose.
+2. OCI images: `registry` + `reference` pinned by digest (`name@sha256:<64 hex>`), use the multi-architecture index digest and record the `version` it resolved to on the day. System/VM images: `server` + `alias`, optional `fingerprint` only from an image server that keeps old builds (public servers drop them).
+3. Put the runtime in `packages/appliance-catalog/src/runtimes.ts`, never inline in the class list.
+4. Prove it on the disposable test cluster before committing: `npm run -s runtime-requests -w @apelora/appliance-catalog > /tmp/requests.json`, then `APELORA_TEST_CATALOG_REQUESTS=/tmp/requests.json cargo test -p apelora-deployment-worker --test real_incus -- --ignored catalog_runtimes` (see `docs/development/TEST-CLUSTER.md`). An image that has not run there stays design-only.
+5. `instanceRequestFor(class, appliance, {project, name})` maps a placed appliance to the API's `InstanceSpec` (a test keeps the two types identical). Run `npm run catalog:doc` and `npm run schema` afterwards.
+
 ## Checklist
 
 - Manifest, logo and (if relevant) template added

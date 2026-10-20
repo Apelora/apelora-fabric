@@ -12,7 +12,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 - `apps/fabric-console` — administrator console placeholder; shows control-plane and Incus status honestly.
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema.
-- `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly.
+- `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly, and Incus runtimes (`src/runtimes.ts`) for the classes whose images have run on the test cluster.
 - `services/control-plane` (Axum API: inventory, preflight, instance lifecycle, jobs, tokens), `services/deployment-worker` (durable jobs that converge instances through Incus), `crates/domain`, `crates/incus-adapter` (mTLS Incus client + labelled mock), `crates/persistence` (PostgreSQL). Tested against a real one-member Incus cluster ([test cluster](docs/development/TEST-CLUSTER.md)); the only Incus tests may change is that disposable cluster.
 - Product name in UI/code is **Apelora**. Change it in one place if branding changes (`PRODUCT_NAME`, `API_VERSION`).
 

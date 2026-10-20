@@ -1,3 +1,4 @@
 export { APPLIANCE_CLASSES, allClasses, lookupClass, setCustomClasses } from "./classes";
 export { logoUrl, GENERIC_ICONS } from "./logos";
 export { sampleCommerceStack, sampleNetworkedStack } from "./sample";
+export { RUNTIMES } from "./runtimes";

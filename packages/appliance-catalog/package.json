@@ -8,9 +8,13 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "catalog:doc": "tsx scripts/gen-catalog-doc.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "runtime-requests": "tsx scripts/runtime-requests.ts"
   },
   "dependencies": {
     "@apelora/assembly-model": "*"
+  },
+  "devDependencies": {
+    "@apelora/api-client": "*"
   }
 }

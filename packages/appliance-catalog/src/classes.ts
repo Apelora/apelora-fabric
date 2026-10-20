@@ -1,9 +1,10 @@
 import type { ApplianceClass } from "@apelora/assembly-model";
 import { cls, p, prop } from "./factory";
 import { EXTRA_CLASSES } from "./classes-extra";
+import { RUNTIMES } from "./runtimes";
 
 /** Original, conceptual manifests written for this project. Short port names double as the on-canvas labels. */
-export const APPLIANCE_CLASSES: readonly ApplianceClass[] = [
+const BASE_CLASSES: readonly ApplianceClass[] = [
   cls("gateway", "Gateway", "Network & Security", "Application edge: public entry point and routing to the assembly.", "gateway",
     [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256, [prop("public-name", "Public DNS name", "string", { default: "app.example.test", group: "Network", description: "Name clients use to reach the application." }), prop("tls", "Terminate TLS", "bool", { default: true, group: "Network" })]),
   cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router appliance.", "opnsense",
@@ -73,6 +74,8 @@ export const APPLIANCE_CLASSES: readonly ApplianceClass[] = [
     [], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System" }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
   ...EXTRA_CLASSES,
 ];
+
+export const APPLIANCE_CLASSES: readonly ApplianceClass[] = BASE_CLASSES.map((c) => (RUNTIMES[c.id] ? { ...c, runtime: RUNTIMES[c.id] } : c));
 
 const customClasses = new Map<string, ApplianceClass>();
 

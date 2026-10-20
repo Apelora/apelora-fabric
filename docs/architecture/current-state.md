@@ -47,7 +47,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Read-only preflight (`/api/v1/preflight`) | Done; REAL INCUS TESTED; clock and latency not measurable via the API | 04 |
 | Disposable test cluster (`scripts/test-cluster`, Lima VM) | Done; one member, see `docs/development/TEST-CLUSTER.md` | 04 |
 | Image pinning (fingerprint / OCI digest) and architecture checks | Done; REAL INCUS TESTED on one member (mixed-architecture and offline-member paths unit-tested only) | 04 |
-| Bootstrap/join, catalog runtime fields, multi-member test cluster | Missing | 04 |
+| Catalog runtime fields (`runtime`, `instanceRequestFor`); NGINX and Debian deployable | Done; REAL INCUS TESTED | 04 |
+| Bootstrap/join, multi-member test cluster | Missing | 04 |
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console | Placeholder app created in Phase 01 | 05 |

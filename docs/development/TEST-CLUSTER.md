@@ -43,6 +43,13 @@ APELORA_TEST_UNOWNED_INSTANCE=not-apeloras cargo test … unowned -- --ignored
 limactl shell apelora-incus sudo incus delete --force not-apeloras --project apelora
 ```
 
+Every catalog runtime (requests generated from the catalog itself):
+
+```sh
+npm run -s runtime-requests -w @apelora/appliance-catalog > /tmp/requests.json
+APELORA_TEST_CATALOG_REQUESTS=/tmp/requests.json cargo test -p apelora-deployment-worker --test real_incus -- --ignored catalog_runtimes
+```
+
 Remove everything (the VM and the credentials):
 
 ```sh

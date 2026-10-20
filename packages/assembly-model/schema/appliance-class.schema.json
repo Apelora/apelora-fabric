@@ -55,6 +55,260 @@
       ],
       "additionalProperties": false
     },
+    "runtime": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "incus-system-container"
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "server": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                },
+                "alias": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "server",
+                "alias"
+              ],
+              "additionalProperties": false
+            },
+            "imageBy": {
+              "type": "object",
+              "properties": {
+                "property": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 48
+                },
+                "images": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "server": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                      },
+                      "alias": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+                      },
+                      "fingerprint": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "server",
+                      "alias"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "property",
+                "images"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "incus-vm"
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "server": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                },
+                "alias": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "server",
+                "alias"
+              ],
+              "additionalProperties": false
+            },
+            "imageBy": {
+              "type": "object",
+              "properties": {
+                "property": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 48
+                },
+                "images": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "server": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                      },
+                      "alias": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120,
+                        "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]*$"
+                      },
+                      "fingerprint": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "server",
+                      "alias"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "property",
+                "images"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "incus-oci-container"
+            },
+            "image": {
+              "type": "object",
+              "properties": {
+                "registry": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                },
+                "reference": {
+                  "type": "string",
+                  "maxLength": 200,
+                  "pattern": "^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+                },
+                "version": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "registry",
+                "reference"
+              ],
+              "additionalProperties": false
+            },
+            "imageBy": {
+              "type": "object",
+              "properties": {
+                "property": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 48
+                },
+                "images": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "registry": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "pattern": "^https:\\/\\/[^\\s/?#]+(\\/[^\\s?#]*)?$"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "pattern": "^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$"
+                      },
+                      "version": {
+                        "type": "string",
+                        "maxLength": 40
+                      }
+                    },
+                    "required": [
+                      "registry",
+                      "reference"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "property",
+                "images"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
     "architectures": {
       "minItems": 1,
       "type": "array",

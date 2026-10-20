@@ -115,6 +115,38 @@ export const CompositionSchema = z.object({
   exposes: z.array(z.object({ port: portId, inner: z.array(EndpointSchema).min(1).max(200) })).max(64),
 });
 
+const sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "must be 64 lowercase hex digits");
+const httpsServer = z.string().max(200).regex(/^https:\/\/[^\s/?#]+(\/[^\s?#]*)?$/, "must be an https:// URL");
+
+/** A system-container or VM image from a simplestreams image server, optionally pinned to one build. */
+export const SystemImageSchema = z.object({
+  server: httpsServer,
+  alias: z.string().min(1).max(120).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, "invalid image alias"),
+  fingerprint: sha256Hex.optional(),
+});
+
+/** An OCI application image, always pinned by digest. */
+export const OciImageSchema = z.object({
+  registry: httpsServer,
+  reference: z.string().max(200).regex(/^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$/, "pin OCI images by digest: name@sha256:<64 hex digits>"),
+  /** Human-readable version of the pinned image, e.g. "1.30.6". */
+  version: z.string().max(40).optional(),
+});
+
+/** Picks the image from the value of one of the class's enum properties (e.g. its version). */
+const imageBy = <T extends z.ZodType>(image: T) =>
+  z.object({ property: z.string().min(1).max(48), images: z.record(z.string(), image) });
+
+/**
+ * How a class runs on Incus. Exactly one of `image` and `imageBy` is set (checked by
+ * `runtimeProblems`). A class without a runtime is design-only: it cannot be deployed.
+ */
+export const RuntimeSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional() }),
+  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional() }),
+  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional() }),
+]);
+
 export const ApplianceClassSchema = z.object({
   id: entityId,
   version: z.string().min(1),
@@ -122,7 +154,9 @@ export const ApplianceClassSchema = z.object({
   category: z.enum(CATEGORIES),
   summary: z.string().max(200),
   iconAssetPath: z.string(),
+  /** Superseded by `runtime`; kept so documents exported earlier still import. */
   runtimeImage: z.object({ ref: z.string().nullable() }),
+  runtime: RuntimeSchema.optional(),
   architectures: z.array(z.enum(ARCHITECTURES)).min(1),
   ports: z.array(PortSchema),
   resources: ResourcesSchema,
@@ -159,6 +193,9 @@ export type Property = z.infer<typeof PropertySchema>;
 export type ConfigValue = z.infer<typeof configValue>;
 export type Resources = z.infer<typeof ResourcesSchema>;
 export type ApplianceClass = z.infer<typeof ApplianceClassSchema>;
+export type Runtime = z.infer<typeof RuntimeSchema>;
+export type SystemImage = z.infer<typeof SystemImageSchema>;
+export type OciImage = z.infer<typeof OciImageSchema>;
 export type ApplianceInstance = z.infer<typeof ApplianceInstanceSchema>;
 export type Connection = z.infer<typeof ConnectionSchema>;
 export type CableStyle = z.infer<typeof CableStyleSchema>;

@@ -254,3 +254,41 @@ async fn unowned_instances_are_refused(pool: Pool) {
     }
     assert_eq!(status(&provider, &project, &name).await, Some(before));
 }
+
+/// Every catalog runtime runs: the requests come from the catalog itself
+/// (`npm run -s runtime-requests -w @apelora/appliance-catalog > requests.json`).
+#[ignore = "needs a disposable Incus and APELORA_TEST_CATALOG_REQUESTS"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn catalog_runtimes_run(pool: Pool) {
+    let path = std::env::var("APELORA_TEST_CATALOG_REQUESTS")
+        .expect("APELORA_TEST_CATALOG_REQUESTS: a file written by the runtime-requests script");
+    let entries: Vec<Value> =
+        serde_json::from_str(&std::fs::read_to_string(&path).expect("read requests"))
+            .expect("json");
+    assert!(!entries.is_empty(), "the catalog has no runtimes");
+    let provider = real_incus();
+    let project = project();
+    for entry in entries {
+        let name = unique("apl-cat");
+        let mut spec = entry["request"].clone();
+        spec["project"] = json!(project);
+        spec["name"] = json!(name);
+        converge(&pool, &provider, "instance.create", &spec).await;
+        let s = status(&provider, &project, &name).await.expect("created");
+        assert_eq!((s.status.as_str(), s.managed), ("Running", true), "{entry}");
+        eprintln!(
+            "{} {}: running on {} from image {}",
+            entry["class"],
+            entry["config"],
+            s.architecture,
+            s.base_image.as_deref().unwrap_or("?")
+        );
+        converge(
+            &pool,
+            &provider,
+            "instance.delete",
+            &json!({ "project": project, "name": name }),
+        )
+        .await;
+    }
+}

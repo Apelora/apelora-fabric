@@ -20,5 +20,22 @@ for (const cat of CATEGORIES) {
   for (const c of list) md += `| **${c.displayName}** (\`${c.id}\`) | ${fmt(c, "input")} | ${fmt(c, "output")} | ${c.resources.cpu} / ${c.resources.memoryMiB} | ${(c.properties ?? []).map((p) => p.label).join(", ") || "—"} |\n`;
   md += "\n";
 }
+const deployable = APPLIANCE_CLASSES.filter((c) => c.runtime);
+md += `## Deployable appliances
+
+${deployable.length} of ${APPLIANCE_CLASSES.length} classes have an Incus runtime; the others are design-only. A runtime is added only after its images have run on the disposable test cluster.
+
+| Appliance | Runtime | Image by setting |
+|---|---|---|
+`;
+for (const c of deployable) {
+  const rt = c.runtime!;
+  const show = (img: NonNullable<typeof rt.image>) => ("reference" in img ? `\`${img.reference.replace(/@sha256:(.{12}).*/, "@sha256:$1…")}\`${img.version ? ` (${img.version})` : ""}` : `\`${img.alias}\``);
+  const images = rt.image
+    ? show(rt.image)
+    : Object.entries(rt.imageBy!.images).map(([k, v]) => `${rt.imageBy!.property} = ${k}: ${show(v)}`).join("<br>");
+  md += `| **${c.displayName}** (\`${c.id}\`) | ${rt.kind} | ${images} |\n`;
+}
+md += "\n";
 writeFileSync(new URL("../../../docs/architecture/CATALOG.md", import.meta.url), md);
 console.log(`catalog doc written (${APPLIANCE_CLASSES.length} appliances)`);
