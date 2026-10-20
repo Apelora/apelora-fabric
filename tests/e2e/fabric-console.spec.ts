@@ -211,6 +211,7 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("pending-deploy")).toContainText("attempt 2");
     expect(body).toEqual({
       project: "apelora", name: "web-02", kind: "container", start: true, architectures: ["x86_64", "aarch64"],
+      config: { "limits.cpu": "1", "limits.memory": "512MiB" },
       source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724" },
     });
   });

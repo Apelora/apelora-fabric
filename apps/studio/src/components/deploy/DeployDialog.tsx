@@ -203,7 +203,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
             <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-appliances">
               {split.deployable.map((d) => (
                 <li key={d.appliance} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
-                  <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}</span>
+                  <span className="font-medium">{d.name}{d.replicas > 1 && <span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-replicas">× {d.replicas} replicas</span>}<span className="ml-1.5 text-xs font-normal text-base-content/60" data-testid="deploy-resources">{d.resources.cpu} CPU · {d.resources.memoryMiB} MiB{d.replicas > 1 ? " each" : ""}</span></span>
                   <span className="truncate font-mono text-xs text-base-content/60">{d.spec.source.alias}</span>
                 </li>
               ))}

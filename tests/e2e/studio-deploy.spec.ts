@@ -71,11 +71,14 @@ test.describe("deploying from the Studio", () => {
     await expect(dialog.getByTestId("deploy-design-only")).toHaveCount(4);
     await expect(dialog.getByTestId("deploy-design-only").first()).toContainText("Design only");
     await expect(dialog.getByTestId("deploy-replicas")).toHaveText("× 2 replicas");
+    await expect(dialog.getByTestId("deploy-resources").first()).toHaveText("1 CPU · 512 MiB each");
 
     await dialog.getByTestId("deploy-preview").click();
     expect((planBody as { appliances: { appliance: string; replicas: number; availability: string; internet: string }[] }).appliances.map((a) => [a.appliance, a.replicas, a.availability, a.internet]))
       .toEqual([["nginx-01", 2, "stateless", "web"], ["nginx-02", 1, "stateless", "none"]]);
     expect((planBody as { connections: unknown[] }).connections, "only cables between deployed appliances").toEqual([]);
+    expect((planBody as { appliances: { spec: { config: Record<string, string> } }[] }).appliances[0]!.spec.config, "resources as Incus limits")
+      .toEqual({ "limits.cpu": "1", "limits.memory": "512MiB" });
     await expect(dialog.getByTestId("plan-row")).toHaveCount(3);
     await expect(dialog).toContainText("single points of failure: nginx-02");
     await expect(dialog.getByTestId("deploy-apply")).toHaveText("Deploy 3 changes");

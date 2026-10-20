@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, resourceLimits, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -24,12 +24,23 @@ describe("runtimes", () => {
       request: {
         ...target, kind: "container", start: true, architectures: ["x86_64", "aarch64"],
         source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e" },
+        // The class's resources, as Incus limits.
+        config: { "limits.cpu": "1", "limits.memory": "512MiB" },
       },
     });
     const mainline = instanceRequestFor(nginx, { config: { channel: "mainline" } }, target);
     expect(mainline.ok && mainline.request.source.alias).toContain("@sha256:bc4cad49");
     const debian = instanceRequestFor(get("debian"), { config: { version: "13" } }, { ...target, start: false });
     expect(debian.ok && debian.request).toMatchObject({ kind: "container", start: false, source: { protocol: "simplestreams", alias: "debian/13" } });
+  });
+
+  it("an appliance's own resources become Incus limits; a container's fraction of a CPU becomes a quota", () => {
+    const nginx = get("nginx");
+    const half = instanceRequestFor(nginx, { resources: { cpu: 0.5, memoryMiB: 256 } }, target);
+    expect(half.ok && half.request.config).toEqual({ "limits.cpu": "1", "limits.cpu.allowance": "50ms/100ms", "limits.memory": "256MiB" });
+    const two = instanceRequestFor(nginx, { resources: { cpu: 2.5, memoryMiB: 1024 } }, target);
+    expect(two.ok && two.request.config).toEqual({ "limits.cpu": "3", "limits.cpu.allowance": "250ms/100ms", "limits.memory": "1024MiB" });
+    expect(resourceLimits("virtual-machine", { cpu: 1.5, memoryMiB: 2048 })).toEqual({ "limits.cpu": "2", "limits.memory": "2048MiB" });
   });
 
   it("design-only classes and unknown settings are not deployable", () => {

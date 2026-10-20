@@ -14,7 +14,7 @@ Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/dev
 | Deployment worker | `services/deployment-worker` | Job queue with leases and fencing; instance lifecycle; `network.sync` (OVN networks, ACLs, address sets, load balancers with health-check repair, publishing, internet access); replica supervisor (recreate, restart, substitute on failed members, retire, sync retry, health with hysteresis and restart of failing replicas). |
 | Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0009, Incus REST client with TLS pinning and a mock provider. |
 | Catalog and model | `packages/` | 83 original appliance classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
-| Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 128 Rust tests, 75 unit tests, 86 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
+| Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 128 Rust tests, 76 unit tests, 86 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
 | Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
 
@@ -69,6 +69,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
 | Health with hysteresis from the load balancer's port check; restart of failing stateless replicas (paced, audited); health in status and Studio | Done; REAL INCUS TESTED (four members, `demo.sh`) | 08 |
 | Application-level (HTTP) readiness, service names (DNS), rebalancing | Missing | 08 |
+| Resources per appliance as Incus limits (CPU, memory, fractional CPU quota) | Done; REAL INCUS TESTED (catalog runtimes) | 06 |
+| Volumes per appliance; resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
 | MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
@@ -83,6 +85,7 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 - **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful appliances are not recovered automatically.
 - **Publishing** needs the network outside to route service addresses to the application network's router; the OVN router does not answer ARP for them.
 - **Service names (DNS)** inside applications are not provided (ADR 0004): consumers read `APELORA_SERVICE_<PROVIDER>`, set when they are created; an instance that already existed keeps the environment it was created with.
+- **Resources** apply when an instance is created; changing them in the Studio does not resize instances that already exist.
 - **Health** is Incus status plus the load balancer's TCP port check, with hysteresis; an application that hangs behind an open port is not detected, and instances without a service address are not checked. Health trackers live in the worker's memory: after a worker restart they start over.
 - **Load balancer quirks (Incus 7.0.1):** updates may be refused while a member is down — in one drill for the whole outage (retried; the substitute joins once they succeed) — and may drop the OVN health check (detected through the state endpoint and re-applied).
 - **Offline detection:** in one drill Incus briefly reported a member that was not stopped as Offline; keep the recovery delay well above that (default 120 s).

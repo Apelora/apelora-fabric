@@ -1,5 +1,5 @@
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, InternetAccess, OciImage, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, InternetAccess, OciImage, Resources, Runtime, SystemImage } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -12,6 +12,22 @@ export interface InstanceRequest {
   source: { protocol: "simplestreams" | "oci"; server: string; alias: string; fingerprint?: string };
   architectures: string[];
   start: boolean;
+  /** Incus instance options; Apelora sets the resource limits here. */
+  config?: Record<string, string>;
+}
+
+/**
+ * Incus limits for an appliance's resources: memory in MiB, whole CPUs as `limits.cpu`. A
+ * container's fractional CPU becomes a hard time quota as well (`0.5` → `50ms/100ms` of one
+ * CPU); a VM gets whole vCPUs (rounded up), which is what Incus offers it.
+ */
+export function resourceLimits(kind: InstanceRequest["kind"], r: Resources): Record<string, string> {
+  const limits: Record<string, string> = {
+    "limits.cpu": String(Math.max(1, Math.ceil(r.cpu))),
+    "limits.memory": `${Math.max(1, Math.round(r.memoryMiB))}MiB`,
+  };
+  if (kind === "container" && !Number.isInteger(r.cpu)) limits["limits.cpu.allowance"] = `${Math.max(1, Math.round(r.cpu * 100))}ms/100ms`;
+  return limits;
 }
 
 /** Problems with a class's runtime definition (empty when it is sound or design-only). */
@@ -49,7 +65,7 @@ const isOci = (rt: Runtime, _image: SystemImage | OciImage): _image is OciImage 
  */
 export function instanceRequestFor(
   cls: ApplianceClass,
-  appliance: Pick<ApplianceInstance, "config">,
+  appliance: Pick<ApplianceInstance, "config"> & { resources?: Resources },
   target: { project: string; name: string; start?: boolean },
 ): { ok: true; request: InstanceRequest } | { ok: false; error: string } {
   const rt = cls.runtime;
@@ -61,16 +77,19 @@ export function instanceRequestFor(
   const source: InstanceRequest["source"] = isOci(rt, image)
     ? { protocol: "oci", server: image.registry, alias: image.reference }
     : { protocol: "simplestreams", server: image.server, alias: image.alias, ...(image.fingerprint ? { fingerprint: image.fingerprint } : {}) };
+  const kind = rt.kind === "incus-vm" ? "virtual-machine" : "container";
   return {
     ok: true,
     request: {
       project: target.project,
       name: target.name,
-      kind: rt.kind === "incus-vm" ? "virtual-machine" : "container",
+      kind,
       source,
       // A fingerprint pins one build of one architecture; the server checks it against the cluster.
       architectures: source.fingerprint ? [] : [...cls.architectures],
       start: target.start ?? true,
+      // The appliance's own resources (set in the Studio), else its class's.
+      config: resourceLimits(kind, appliance.resources ?? cls.resources),
     },
   };
 }
@@ -90,6 +109,8 @@ export interface DeployableAppliance {
   replicas: number;
   availability: Availability;
   internet: InternetAccess;
+  /** What each instance gets (also in `spec.config` as Incus limits). */
+  resources: Resources;
 }
 
 /** An appliance that stays in the design only, and why. */
@@ -116,7 +137,7 @@ export function deploymentAppliances(
     if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none" });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", resources: a.resources });
     else skip(r.error);
   }
   return { deployable, designOnly };
