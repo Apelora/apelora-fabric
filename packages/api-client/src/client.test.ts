@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError, createClient, operations } from "./index";
+import { ApiRequestError, createClient, followJob, operations } from "./index";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -50,6 +50,16 @@ describe("api client", () => {
     expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].method).toBe("DELETE");
     const missing = createClient({ fetch: async () => json(404, { error: { code: "not_found", message: "no pending join token for m2" } }) });
     await expect(missing.request("revoke_join_token", { params: { member: "m2" } })).rejects.toMatchObject({ status: 404, code: "not_found" });
+  });
+
+  it("follows a job until it is final", async () => {
+    const states = ["pending", "running", "succeeded"];
+    const fetch = vi.fn(async () => json(200, { id: "j1", kind: "instance.create", status: states.shift(), attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: "", updatedAt: "" }));
+    const seen: string[] = [];
+    const job = await followJob(createClient({ fetch }), "j1", (j) => seen.push(j.status), { intervalMs: 1 });
+    expect(job.status).toBe("succeeded");
+    expect(seen).toEqual(["pending", "running", "succeeded"]);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/api/v1/jobs/j1");
   });
 
   it("rejects incomplete requests at compile time", () => {

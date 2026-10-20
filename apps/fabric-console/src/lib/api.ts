@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiRequestError, createClient, type Job } from "@apelora/api-client";
+import { ApiRequestError, createClient, followJob as followJobWith, newIdempotencyKey, type Job } from "@apelora/api-client";
 
 /** The API token lives only in this browser tab (sessionStorage), never in localStorage. */
 const TOKEN_KEY = "apelora.apiToken";
@@ -36,23 +36,7 @@ export function useLoad<T>(fetcher: () => Promise<T>, onAuth: (message: string) 
   return [state, reload];
 }
 
-const FINAL = new Set(["succeeded", "failed", "cancelled"]);
+/** Follows a job until it is final (see `followJob` in the API client). */
+export const followJob = (id: string, onUpdate: (job: Job) => void) => followJobWith(client, id, onUpdate);
 
-/**
- * Follows a queued job until it is final, reporting each poll. The worker retries with
- * backoff, so a job can stay pending for a while; it gives up watching (not the job) after
- * `timeoutMs`.
- */
-export async function followJob(id: string, onUpdate: (job: Job) => void, timeoutMs = 15 * 60_000, intervalMs = 1000): Promise<Job> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const job = await client.request("job", { params: { id } });
-    onUpdate(job);
-    if (FINAL.has(job.status) || Date.now() > deadline) return job;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-}
-
-/** A random key so a retried click never queues the same change twice. */
-export const idempotencyKey = (): string =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+export const idempotencyKey = newIdempotencyKey;

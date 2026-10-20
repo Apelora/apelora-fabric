@@ -1,5 +1,5 @@
 import { effectiveValue } from "./config";
-import type { ApplianceClass, ApplianceInstance, OciImage, Runtime, SystemImage } from "./schema";
+import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, OciImage, Runtime, SystemImage } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -73,4 +73,47 @@ export function instanceRequestFor(
       start: target.start ?? true,
     },
   };
+}
+
+/** An appliance the deployment will run, with the request for its instance. */
+export interface DeployableAppliance {
+  appliance: string;
+  name: string;
+  spec: InstanceRequest;
+}
+
+/** An appliance that stays in the design only, and why. */
+export interface DesignOnlyAppliance {
+  appliance: string;
+  name: string;
+  reason: string;
+}
+
+/**
+ * Splits a design into the appliances a deployment runs and those it cannot (no runtime yet,
+ * unknown class, components). The control plane names, labels and plans the instances.
+ */
+export function deploymentAppliances(
+  assembly: ApplicationAssembly,
+  lookup: (name: string, version: string) => ApplianceClass | undefined,
+  project: string,
+): { deployable: DeployableAppliance[]; designOnly: DesignOnlyAppliance[] } {
+  const deployable: DeployableAppliance[] = [];
+  const designOnly: DesignOnlyAppliance[] = [];
+  for (const a of assembly.spec.appliances) {
+    const cls = lookup(a.classRef.name, a.classRef.version);
+    const skip = (reason: string) => designOnly.push({ appliance: a.id, name: a.name, reason });
+    if (!cls) { skip(`unknown appliance class ${a.classRef.name} ${a.classRef.version}`); continue; }
+    if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
+    const r = instanceRequestFor(cls, a, { project, name: a.id });
+    if (r.ok) deployable.push({ appliance: a.id, name: a.name, spec: r.request });
+    else skip(r.error);
+  }
+  return { deployable, designOnly };
+}
+
+/** An application name for the control plane from a design's name (letters, digits, hyphens). */
+export function applicationName(designName: string): string {
+  const s = designName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
+  return /^[a-z]/.test(s) ? s : `app-${s}`.slice(0, 40).replace(/-+$/, "");
 }

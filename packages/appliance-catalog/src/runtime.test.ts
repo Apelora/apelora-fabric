@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, instanceRequestFor, runtimeProblems, type ApplianceClass } from "@apelora/assembly-model";
-import { APPLIANCE_CLASSES, RUNTIMES, lookupClass } from "./index";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, type ApplianceClass } from "@apelora/assembly-model";
+import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
   const c = lookupClass(id, "1.0.0");
@@ -63,5 +63,24 @@ describe("runtimes", () => {
     if (!r.ok) throw new Error(r.error);
     const spec: InstanceSpec = r.request;
     expect(spec.kind).toBe("container");
+  });
+
+  it("splits a design into deployable and design-only appliances", () => {
+    const sample = sampleCommerceStack();
+    const { deployable, designOnly } = deploymentAppliances(sample, lookupClass, "apelora");
+    expect(deployable.length + designOnly.length).toBe(sample.spec.appliances.length);
+    for (const d of deployable) {
+      expect(d.spec.project).toBe("apelora");
+      expect(d.spec.name).toBe(d.appliance);
+    }
+    expect(deployable.map((d) => d.appliance)).toContain(sample.spec.appliances.find((a) => a.classRef.name === "nginx")?.id);
+    expect(designOnly.find((d) => d.reason.includes("design-only"))).toBeTruthy();
+  });
+
+  it("derives a valid application name from any design name", () => {
+    expect(applicationName("Commerce Stack (v2)")).toBe("commerce-stack-v2");
+    expect(applicationName("2024 shop")).toBe("app-2024-shop");
+    expect(applicationName("a".repeat(60))).toHaveLength(40);
+    expect(applicationName("x---")).toBe("x");
   });
 });

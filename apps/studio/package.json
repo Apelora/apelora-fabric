@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@apelora/api-client": "*",
     "@apelora/appliance-catalog": "*",
     "@apelora/assembly-model": "*",
     "@xyflow/react": "^12.12.0",

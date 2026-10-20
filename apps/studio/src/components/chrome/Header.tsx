@@ -1,8 +1,10 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { createEmptyAssembly, ensureNics, parseAssembly, serializeAssembly, usedCustomClasses, type Density } from "@apelora/assembly-model";
 import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "@apelora/appliance-catalog";
 import { useCustomCatalog } from "../../features/catalog/customCatalog";
+import { useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
+import { DeployDialog } from "../deploy/DeployDialog";
 import { IconDownload, IconFile, IconRedo, IconUndo, IconUpload } from "../icons";
 
 const DENSITIES: { id: Density; label: string; hint: string }[] = [
@@ -19,6 +21,11 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
   const canUndo = useStudio((s) => s.past.length > 0);
   const canRedo = useStudio((s) => s.future.length > 0);
   const file = useRef<HTMLInputElement>(null);
+  const [deploying, setDeploying] = useState(false);
+  const liveApp = useLive((s) => s.application);
+  const liveProvider = useLive((s) => s.provider);
+  const running = useLive((s) => Object.values(s.byAppliance).filter((a) => a.status === "Running").length);
+  const live = liveApp ? { application: liveApp, provider: liveProvider, count: running } : null;
 
   const doExport = () => {
     const base = api.getState().assembly;
@@ -48,7 +55,13 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
       <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
         <img src="/logo.svg" alt="" className="size-6 rounded" />
         <span className="text-sm font-semibold">Apelora Studio</span>
-        <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
+        {live ? (
+          <span className="badge badge-ghost badge-sm" title={`Showing the state of ${live.application} ${live.provider === "incus" ? "from Incus" : "from mock data, not a real cluster"}.`} data-testid="mock-badge">
+            {live.provider === "incus" ? `Live · ${live.count} running in Incus` : live.provider === "mock" ? "Mock data" : "Connecting…"}
+          </span>
+        ) : (
+          <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
+        )}
       </div>
       <nav className="hidden min-w-0 items-center gap-1 whitespace-nowrap text-xs text-base-content/60 min-[1400px]:flex" aria-label="Breadcrumb">
         <span>Assemblies</span><span>/</span><span className="max-w-40 truncate text-base-content" data-testid="breadcrumb-name">{name}</span>
@@ -74,9 +87,11 @@ export function Header({ theme, onTheme, saved }: { theme: string; onTheme: (t: 
         </div>
         <button className="btn btn-sm" data-testid="import" onClick={() => file.current?.click()}><IconUpload />Import</button>
         <input ref={file} type="file" accept="application/json,.json" hidden data-testid="import-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = ""; }} />
+        <button className="btn btn-sm" data-testid="deploy-open" onClick={() => setDeploying(true)} title="Run this design on the cluster through the Apelora control plane">Deploy…</button>
         <button className="btn btn-sm btn-primary" data-testid="export" onClick={doExport}><IconDownload />Export JSON</button>
         <select className="select select-sm w-24" aria-label="Theme" value={theme} onChange={(e) => onTheme(e.target.value)}>{THEMES.map((t) => <option key={t} value={t}>{t}</option>)}</select>
       </div>
+      <DeployDialog open={deploying} onClose={() => setDeploying(false)} />
     </header>
   );
 }

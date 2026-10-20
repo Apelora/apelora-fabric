@@ -82,3 +82,29 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
 }
 
 export type ApiClient = ReturnType<typeof createClient>;
+
+const FINAL_JOB_STATES = new Set(["succeeded", "failed", "cancelled"]);
+
+/**
+ * Follows a queued job until it is final, reporting every poll. The worker retries with
+ * backoff, so a job can stay pending for a while; this stops watching (not the job) after
+ * `timeoutMs` and returns the last state seen.
+ */
+export async function followJob(
+  client: ApiClient,
+  id: string,
+  onUpdate: (job: Responses["job"]) => void,
+  { timeoutMs = 15 * 60_000, intervalMs = 1000 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<Responses["job"]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const job = await client.request("job", { params: { id } });
+    onUpdate(job);
+    if (FINAL_JOB_STATES.has(job.status) || Date.now() > deadline) return job;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+/** A random key, so a retried click never queues the same change twice. */
+export const newIdempotencyKey = (): string =>
+  globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
