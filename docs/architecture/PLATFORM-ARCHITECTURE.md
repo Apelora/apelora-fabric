@@ -1,6 +1,6 @@
 # Apelora platform architecture (target)
 
-Status: **target design** — describes where we are going, not what is deployed. Nothing below runs yet except the Studio. Date: 2026-10-20. Decisions: [ADR 0001 Incus-first](../adr/0001-incus-first.md) (accepted), [ADR 0002 MAAS](../adr/0002-bare-metal-provisioning-maas.md) (proposed). Plan: [implementation phases](../development/IMPLEMENTATION-PHASES.md). Today's state: [current-state audit](current-state.md).
+Status: **target design** — describes where we are going. Much of it now runs on a disposable test cluster. Date: 2026-10-20. Decisions: [ADR 0001 Incus-first](../adr/0001-incus-first.md) (accepted), [ADR 0002 MAAS](../adr/0002-bare-metal-provisioning-maas.md) (proposed). Plan: [implementation phases](../development/IMPLEMENTATION-PHASES.md). Today's state: [current-state audit](current-state.md).
 
 ## 1. Goal
 
