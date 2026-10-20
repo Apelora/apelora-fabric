@@ -45,6 +45,8 @@ pub struct Observed<'a> {
     pub networks: &'a [Network],
     /// Projects Apelora is configured to deploy into.
     pub deploy_projects: &'a [String],
+    /// The pool behind the `data-local` volume class (`APELORA_VOLUME_POOL`), if configured.
+    pub volume_pool: Option<&'a str>,
 }
 
 pub(crate) fn check(
@@ -234,6 +236,27 @@ pub fn evaluate(o: &Observed<'_>) -> Vec<Check> {
         check("storage", "Storage pools", Pass, pools.join(", "))
     });
 
+    out.push(match o.volume_pool {
+        None => check(
+            "volume-pool",
+            "Pool for volumes",
+            Warn,
+            "none configured (APELORA_VOLUME_POOL): designs with volumes are refused",
+        ),
+        Some(v) if pools.contains(&v) => check(
+            "volume-pool",
+            "Pool for volumes",
+            Pass,
+            format!("{v} (volume class data-local)"),
+        ),
+        Some(v) => check(
+            "volume-pool",
+            "Pool for volumes",
+            Fail,
+            format!("APELORA_VOLUME_POOL is {v}, which is not a ready storage pool"),
+        ),
+    });
+
     let nets: Vec<&str> = o
         .networks
         .iter()
@@ -348,6 +371,7 @@ mod tests {
             pools: &pools,
             networks: &networks,
             deploy_projects: &deploy,
+            volume_pool: Some("local"),
         });
         for c in &checks {
             let want = if c.id == "clock" || c.id == "latency" {
@@ -358,6 +382,24 @@ mod tests {
             assert_eq!(c.status, want, "{c:?}");
         }
         assert_eq!(overall(&checks), CheckStatus::NotChecked);
+
+        // The pool for volumes: missing is a warning, one Incus does not have is a failure.
+        let with = |volume_pool| {
+            evaluate(&Observed {
+                server: &s,
+                members: &members,
+                projects: &projects,
+                pools: &pools,
+                networks: &networks,
+                deploy_projects: &deploy,
+                volume_pool,
+            })
+            .into_iter()
+            .find(|c| c.id == "volume-pool")
+            .map(|c| c.status)
+        };
+        assert_eq!(with(None), Some(CheckStatus::Warn));
+        assert_eq!(with(Some("fast-ssd")), Some(CheckStatus::Fail));
     }
 
     #[test]
@@ -377,6 +419,7 @@ mod tests {
             pools: &[],
             networks: &[],
             deploy_projects: &deploy,
+            volume_pool: None,
         });
         use CheckStatus::*;
         for (id, want) in [
@@ -414,6 +457,7 @@ mod tests {
             pools: &[],
             networks: &[],
             deploy_projects: &[],
+            volume_pool: None,
         });
         assert_eq!(status_of(&checks, "incus-version"), CheckStatus::NotChecked);
         assert_eq!(

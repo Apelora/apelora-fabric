@@ -796,6 +796,7 @@ async fn preflight(
         pools: &pools,
         networks: &networks,
         deploy_projects: &state.deploy_projects,
+        volume_pool: state.volume_pool.as_deref(),
     });
     Ok(Json(PreflightReport {
         source: source(pr.mode()),
