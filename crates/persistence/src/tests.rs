@@ -325,6 +325,7 @@ async fn deployments_are_recorded_replaced_and_removed_when_empty(pool: PgPool) 
         connections: None,
         uplink: None,
         service_range: None,
+        published: None,
     };
     record_deployment(&pool, &d).await.expect("record");
     let two = json!([{ "appliance": "web-01" }, { "appliance": "db-01" }]);

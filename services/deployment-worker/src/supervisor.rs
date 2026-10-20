@@ -104,6 +104,11 @@ impl Supervisor {
                 tracing::warn!(application = %d.application, "supervisor: unreadable deployment record");
                 continue;
             };
+            let published: Vec<apelora_domain::network::Published> = d
+                .published
+                .clone()
+                .and_then(|p| serde_json::from_value(p).ok())
+                .unwrap_or_default();
             let connections: Option<Vec<Connection>> = d
                 .connections
                 .clone()
@@ -338,14 +343,17 @@ impl Supervisor {
                 )
                 .await?
             {
-                let payload = serde_json::to_value(SyncRequest::for_deployment(
-                    &d.application,
-                    &d.project,
-                    uplink,
-                    &desired,
-                    connections,
-                    d.service_range.as_deref(),
-                ))
+                let payload = serde_json::to_value(
+                    SyncRequest::for_deployment(
+                        &d.application,
+                        &d.project,
+                        uplink,
+                        &desired,
+                        connections,
+                        d.service_range.as_deref(),
+                    )
+                    .with_published(&published),
+                )
                 .map_err(|e| StoreError::Conflict(e.to_string()))?;
                 apelora_persistence::enqueue_job(
                     pool,
@@ -480,6 +488,7 @@ mod tests {
             connections: None,
             uplink: None,
             service_range: None,
+            published: None,
         };
         apelora_persistence::record_deployment(pool, &d)
             .await
@@ -809,6 +818,7 @@ mod tests {
                 connections: Some(&conns),
                 uplink: Some("incusbr0"),
                 service_range: None,
+                published: None,
             },
         )
         .await

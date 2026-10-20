@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAppliance, allows, compileNetwork, connect, createEmptyAssembly, tagPort, type ApplicationAssembly } from "@apelora/assembly-model";
+import { addAppliance, allows, compileNetwork, connect, createEmptyAssembly, publishedPorts, tagPort, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
 
 const ids = (a: ReturnType<typeof compileNetwork>) => a.intents.map((i) => `${i.id} ${i.transport}/${i.number ?? "any"}`);
@@ -66,5 +66,13 @@ describe("network intents", () => {
     const g = compileNetwork(generic, "raw");
     expect(g.intents[0]?.number).toBeNull();
     expect(g.warnings[0]).toContain("no well-known port");
+  });
+
+  it("publishes what a gateway connects to, only when it is deployed and has a port", () => {
+    const plan = compileNetwork(sampleCommerceStack(), "shop");
+    const gateways = new Set(["gateway-01"]);
+    expect(publishedPorts(plan, gateways, new Set(["haproxy-01", "nginx-01"]))).toEqual([{ appliance: "haproxy-01", transport: "tcp", port: 80 }]);
+    expect(publishedPorts(plan, gateways, new Set(["nginx-01"])), "a design-only target is not published").toEqual([]);
+    expect(publishedPorts(plan, new Set(), new Set(["haproxy-01"])), "no gateway, nothing published").toEqual([]);
   });
 });

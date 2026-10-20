@@ -6,7 +6,7 @@
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
 use apelora_domain::InstanceSpec;
-use apelora_domain::network::{Connection, SyncRequest};
+use apelora_domain::network::{Connection, Published, SyncRequest};
 use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, deploy_spec, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
@@ -32,6 +32,9 @@ pub struct PlanRequest {
     /// The design's connections; enforced when the control plane has a network uplink.
     #[serde(default)]
     pub connections: Option<Vec<Connection>>,
+    /// Ports reachable from outside the application (needs connections to be enforced).
+    #[serde(default)]
+    pub published: Vec<Published>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -45,6 +48,9 @@ pub struct DeployRequest {
     /// The design's connections; enforced when the control plane has a network uplink.
     #[serde(default)]
     pub connections: Option<Vec<Connection>>,
+    /// Ports reachable from outside the application (needs connections to be enforced).
+    #[serde(default)]
+    pub published: Vec<Published>,
     /// Also delete the application's instances that are no longer in the design.
     #[serde(default)]
     pub remove_missing: bool,
@@ -149,8 +155,42 @@ fn check_connections(
     Ok(())
 }
 
+fn check_published(
+    appliances: &[DesiredAppliance],
+    published: &[Published],
+) -> Result<(), ApiError> {
+    for p in published {
+        p.validate().map_err(bad_request)?;
+        if !appliances.iter().any(|d| d.appliance == p.appliance) {
+            return Err(bad_request(format!(
+                "published {}: not a deployed appliance",
+                p.appliance
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Adds what the designer must know about connections to the plan's warnings.
-fn network_warnings(state: &AppState, plan: &mut Plan, connections: Option<&[Connection]>) {
+fn network_warnings(
+    state: &AppState,
+    plan: &mut Plan,
+    connections: Option<&[Connection]>,
+    published: &[Published],
+) {
+    if !published.is_empty() {
+        let names: Vec<&str> = published.iter().map(|p| p.appliance.as_str()).collect();
+        plan.warnings.push(match (&state.network_uplink, &state.service_range, connections) {
+            (Some(_), Some(_), Some(_)) => format!(
+                "published to outside clients: {}; the network outside must route the service addresses to the application's network",
+                names.join(", ")
+            ),
+            _ => format!(
+                "not published: {} (publishing needs enforced connections and APELORA_SERVICE_ADDRESSES)",
+                names.join(", ")
+            ),
+        });
+    }
     match (connections, &state.network_uplink) {
         (Some(c), None) if !c.is_empty() => plan.warnings.push(
             "connections are not enforced: the control plane has no network uplink (APELORA_NETWORK_UPLINK); instances share the project's network".into(),
@@ -244,8 +284,9 @@ pub(super) async fn preview(
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
     check(&state, &name, &req.project, &req.appliances)?;
     check_connections(&req.appliances, req.connections.as_deref())?;
+    check_published(&req.appliances, &req.published)?;
     let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
-    network_warnings(&state, &mut p, req.connections.as_deref());
+    network_warnings(&state, &mut p, req.connections.as_deref(), &req.published);
     Ok(Json(p))
 }
 
@@ -273,11 +314,17 @@ pub(super) async fn deploy(
     }
     check(&state, &name, &req.project, &req.appliances)?;
     check_connections(&req.appliances, req.connections.as_deref())?;
+    check_published(&req.appliances, &req.published)?;
     let pool = store(&state)?;
     let key = idempotency_key(&headers, &p)?;
     let enforce = req.connections.is_some() && state.network_uplink.is_some();
     let mut applied = current_plan(&state, &name, &req.project, &req.appliances).await?;
-    network_warnings(&state, &mut applied, req.connections.as_deref());
+    network_warnings(
+        &state,
+        &mut applied,
+        req.connections.as_deref(),
+        &req.published,
+    );
     if applied.has_conflicts() {
         let conflicts: Vec<String> = applied
             .items
@@ -353,6 +400,16 @@ pub(super) async fn deploy(
         .map(serde_json::to_value)
         .transpose()
         .map_err(|e| bad_request(e.to_string()))?;
+    // Published ports need a service address, so only with a service range.
+    let published: &[Published] = if service_range.is_some() {
+        &req.published
+    } else {
+        &[]
+    };
+    let published_json = (!published.is_empty())
+        .then(|| serde_json::to_value(published))
+        .transpose()
+        .map_err(|e| bad_request(e.to_string()))?;
     apelora_persistence::record_deployment(
         pool,
         &apelora_persistence::NewDeployment {
@@ -363,19 +420,23 @@ pub(super) async fn deploy(
             connections: connections.as_ref(),
             uplink: state.network_uplink.as_deref().filter(|_| enforce),
             service_range,
+            published: published_json.as_ref(),
         },
     )
     .await?;
     let mut network_job = None;
     if let (true, Some(uplink)) = (enforce, &state.network_uplink) {
-        let payload = serde_json::to_value(SyncRequest::for_deployment(
-            &name,
-            &req.project,
-            uplink,
-            &req.appliances,
-            req.connections.as_deref().unwrap_or_default(),
-            service_range,
-        ))
+        let payload = serde_json::to_value(
+            SyncRequest::for_deployment(
+                &name,
+                &req.project,
+                uplink,
+                &req.appliances,
+                req.connections.as_deref().unwrap_or_default(),
+                service_range,
+            )
+            .with_published(published),
+        )
         .map_err(|e| bad_request(e.to_string()))?;
         let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
         let job_id = apelora_persistence::enqueue_job(

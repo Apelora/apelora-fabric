@@ -191,6 +191,7 @@ pub struct DeploymentRecord {
     pub connections: Option<Value>,
     pub uplink: Option<String>,
     pub service_range: Option<String>,
+    pub published: Option<Value>,
 }
 
 /// The desired state of one deployment, as [`record_deployment`] stores it.
@@ -205,6 +206,8 @@ pub struct NewDeployment<'a> {
     pub uplink: Option<&'a str>,
     /// Set when stateless appliances get service addresses.
     pub service_range: Option<&'a str>,
+    /// Ports published outside the application.
+    pub published: Option<&'a Value>,
 }
 
 /// Records the desired state of the latest deployment; an empty `desired` removes the record.
@@ -217,6 +220,7 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
         connections,
         uplink,
         service_range,
+        published,
     } = *d;
     if desired.as_array().is_some_and(Vec::is_empty) {
         sqlx::query(
@@ -229,10 +233,10 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
         return Ok(());
     }
     sqlx::query(
-        "INSERT INTO application_deployments (application_id, project, revision, desired, connections, uplink, service_range)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        "INSERT INTO application_deployments (application_id, project, revision, desired, connections, uplink, service_range, published)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (application_id, project) DO UPDATE
-         SET revision = $3, desired = $4, connections = $5, uplink = $6, service_range = $7, updated_at = now()",
+         SET revision = $3, desired = $4, connections = $5, uplink = $6, service_range = $7, published = $8, updated_at = now()",
     )
     .bind(application_id)
     .bind(project)
@@ -241,6 +245,7 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
     .bind(connections)
     .bind(uplink)
     .bind(service_range)
+    .bind(published)
     .execute(pool)
     .await?;
     Ok(())
@@ -249,7 +254,7 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
 pub async fn list_deployments(pool: &PgPool) -> Result<Vec<DeploymentRecord>> {
     Ok(sqlx::query_as::<_, DeploymentRecord>(
         "SELECT d.application_id, a.name AS application, d.project, d.revision, d.desired, d.connections, d.uplink,
-                d.service_range
+                d.service_range, d.published
          FROM application_deployments d JOIN applications a ON a.id = d.application_id
          ORDER BY a.name, d.project",
     )

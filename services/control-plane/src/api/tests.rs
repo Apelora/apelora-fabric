@@ -1594,3 +1594,92 @@ async fn evacuation_is_previewed_then_confirmed_audited_and_restored(pool: Pool)
                 .is_some_and(|w| w.contains("only the deploy projects")))
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn published_ports_are_open_to_anyone_on_a_service_address(pool: Pool) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()))
+        .with_service_range(Some("198.18.100.0/29".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let body = json!({ "project": "apelora", "document": {},
+        "appliances": [appliance("web-01"), appliance("db-01")],
+        "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }],
+        "published": [{ "appliance": "web-01", "transport": "tcp", "port": 80 }] });
+
+    let (_, plan) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(body.clone()),
+        None,
+    )
+    .await;
+    assert!(
+        plan["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|w| w
+                .as_str()
+                .is_some_and(|w| w.starts_with("published to outside clients: web-01"))),
+        "{plan}"
+    );
+    let mut bad = body.clone();
+    bad["published"] = json!([{ "appliance": "nope-01", "transport": "tcp", "port": 80 }]);
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(bad),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body),
+        Some("pub-1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    drain(&pool, &provider).await;
+    {
+        let net = mock.net();
+        // The single web instance gets a service address because it is published…
+        let (_, lb) = net
+            .load_balancers
+            .get("apelora/shop/198.18.100.1")
+            .expect("service address");
+        assert_eq!(
+            (lb.appliance.as_str(), lb.ports.clone()),
+            ("web-01", vec![("tcp".to_owned(), 80)])
+        );
+        // …and its ACL lets anyone reach port 80, while the database stays reachable from web only.
+        let (web_in, _) = &net.acls["apelora/shop-web-01"];
+        assert!(
+            web_in
+                .iter()
+                .any(|r| r.source.is_empty() && r.destination_port == "80")
+        );
+        let (db_in, _) = &net.acls["apelora/shop-db-01"];
+        assert!(db_in.iter().all(|r| r.source == "$shop-web-01"));
+    }
+    let records = apelora_persistence::list_deployments(&pool)
+        .await
+        .expect("records");
+    assert_eq!(
+        records[0].published,
+        Some(json!([{ "appliance": "web-01", "transport": "tcp", "port": 80 }]))
+    );
+}

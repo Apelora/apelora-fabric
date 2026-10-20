@@ -374,6 +374,7 @@ async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
             connections: None,
             uplink: None,
             service_range: None,
+            published: None,
         },
     )
     .await

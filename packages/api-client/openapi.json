@@ -2266,6 +2266,13 @@
           "project": {
             "type": "string"
           },
+          "published": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Published"
+            },
+            "description": "Ports reachable from outside the application (needs connections to be enforced)."
+          },
           "removeMissing": {
             "type": "boolean",
             "description": "Also delete the application's instances that are no longer in the design."
@@ -3100,6 +3107,13 @@
           },
           "project": {
             "type": "string"
+          },
+          "published": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Published"
+            },
+            "description": "Ports reachable from outside the application (needs connections to be enforced)."
           }
         }
       },
@@ -3171,6 +3185,29 @@
           "mock",
           "incus"
         ]
+      },
+      "Published": {
+        "type": "object",
+        "description": "A port of an appliance reachable from outside the application (in the Studio: connected\nfrom a gateway). Only ports with a number can be published.",
+        "required": [
+          "appliance",
+          "transport",
+          "port"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "transport": {
+            "type": "string",
+            "description": "`tcp` or `udp`."
+          }
+        }
       },
       "QueuedChange": {
         "type": "object",

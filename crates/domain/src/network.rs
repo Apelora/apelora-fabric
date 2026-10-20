@@ -58,6 +58,59 @@ impl Connection {
     }
 }
 
+/// A port of an appliance reachable from outside the application (in the Studio: connected
+/// from a gateway). Only ports with a number can be published.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct Published {
+    pub appliance: String,
+    /// `tcp` or `udp`.
+    pub transport: String,
+    pub port: u16,
+}
+
+impl Published {
+    pub fn validate(&self) -> Result<(), String> {
+        if !is_valid_name(&self.appliance) {
+            return Err(format!(
+                "published: invalid appliance id {:?}",
+                self.appliance
+            ));
+        }
+        if !matches!(self.transport.as_str(), "tcp" | "udp") || self.port == 0 {
+            return Err(format!(
+                "published {}: needs tcp or udp and a port",
+                self.appliance
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Ingress rules that let anyone reach `appliance`'s published ports. Traffic still has to be
+/// routed to the appliance's service address by the network outside (TEST-CLUSTER.md).
+pub fn published_rules(appliance: &str, published: &[Published]) -> Vec<AclRule> {
+    let mut rules: Vec<AclRule> = published
+        .iter()
+        .filter(|p| p.appliance == appliance)
+        .map(|p| AclRule {
+            action: "allow".into(),
+            source: String::new(),
+            destination: String::new(),
+            protocol: p.transport.clone(),
+            destination_port: p.port.to_string(),
+            state: "enabled".into(),
+            description: "published".into(),
+        })
+        .collect();
+    rules.sort_by(|a, b| {
+        (&a.protocol, &a.destination_port).cmp(&(&b.protocol, &b.destination_port))
+    });
+    rules.dedup();
+    rules
+}
+
 /// Where an instance's NIC is attached: the application's network, with its own ACL.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -164,6 +217,9 @@ pub struct SyncRequest {
     /// IPv4 range service addresses come from (routed by the uplink); none: no load balancers.
     #[serde(default)]
     pub service_range: Option<String>,
+    /// Ports reachable from outside the application.
+    #[serde(default)]
+    pub published: Vec<Published>,
 }
 
 impl SyncRequest {
@@ -191,7 +247,13 @@ impl SyncRequest {
                 .map(|d| d.appliance.clone())
                 .collect(),
             service_range: service_range.map(str::to_owned),
+            published: Vec::new(),
         }
+    }
+
+    pub fn with_published(mut self, published: &[Published]) -> Self {
+        self.published = published.to_vec();
+        self
     }
 
     pub fn validate(&self) -> Result<(), String> {
@@ -215,15 +277,42 @@ impl SyncRequest {
         if let Some(r) = &self.service_range {
             service_addresses(r)?;
         }
+        for p in &self.published {
+            p.validate()?;
+            if !self.appliances.contains(&p.appliance) {
+                return Err(format!(
+                    "published {} is not in the application",
+                    p.appliance
+                ));
+            }
+        }
         Ok(())
     }
 
-    /// Appliances that get a service address: stateless, and reached on at least one port.
+    /// The ports a service address of `appliance` listens on: those other appliances connect
+    /// to and those published.
+    pub fn ports_of(&self, appliance: &str) -> Vec<(String, u16)> {
+        let mut ports = service_ports(appliance, &self.connections);
+        ports.extend(
+            self.published
+                .iter()
+                .filter(|p| p.appliance == appliance)
+                .map(|p| (p.transport.clone(), p.port)),
+        );
+        ports.sort();
+        ports.dedup();
+        ports
+    }
+
+    /// Appliances that get a service address: stateless ones reached on at least one port,
+    /// and every published one (outside clients need one stable address, even for a single
+    /// instance).
     pub fn services(&self) -> Vec<String> {
         self.appliances
             .iter()
             .filter(|a| {
-                self.stateless.contains(a) && !service_ports(a, &self.connections).is_empty()
+                self.published.iter().any(|p| &p.appliance == *a)
+                    || self.stateless.contains(a) && !service_ports(a, &self.connections).is_empty()
             })
             .cloned()
             .collect()
@@ -409,6 +498,7 @@ mod tests {
             replicas: BTreeMap::new(),
             stateless: ["web-01", "lb-01", "raw-01"].map(String::from).to_vec(),
             service_range: Some("198.18.100.0/28".into()),
+            published: vec![],
         };
         assert_eq!(s.validate(), Ok(()));
         // lb-01: stateless but nobody connects to it; db-01: connected but stateful; raw-01:
@@ -418,6 +508,58 @@ mod tests {
             SyncRequest {
                 service_range: Some("198.18.100.1/28".into()),
                 ..s
+            }
+            .validate()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn published_ports_open_to_anyone_and_get_a_service_address() {
+        let published = vec![Published {
+            appliance: "db-01".into(),
+            transport: "tcp".into(),
+            port: 5432,
+        }];
+        let rules = published_rules("db-01", &published);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            (rules[0].source.as_str(), rules[0].destination_port.as_str()),
+            ("", "5432")
+        );
+        assert!(published_rules("web-01", &published).is_empty());
+        let s = SyncRequest {
+            project: "apelora".into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            appliances: ["web-01", "db-01"].map(String::from).to_vec(),
+            connections: vec![c("web-01", "db-01", Some(5432))],
+            replicas: BTreeMap::new(),
+            stateless: vec![],
+            service_range: Some("198.18.100.0/28".into()),
+            published,
+        };
+        assert_eq!(s.validate(), Ok(()));
+        assert_eq!(
+            s.services(),
+            vec!["db-01".to_owned()],
+            "published, although not stateless"
+        );
+        assert_eq!(s.ports_of("db-01"), vec![("tcp".to_owned(), 5432)]);
+        let bad = SyncRequest {
+            published: vec![Published {
+                appliance: "nope-01".into(),
+                transport: "tcp".into(),
+                port: 1,
+            }],
+            ..s.clone()
+        };
+        assert!(bad.validate().is_err());
+        assert!(
+            Published {
+                appliance: "db-01".into(),
+                transport: "icmp".into(),
+                port: 1
             }
             .validate()
             .is_err()

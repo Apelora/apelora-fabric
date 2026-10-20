@@ -114,6 +114,8 @@ export type DeployRequest = {
   /** The Studio document, saved as an immutable revision. */
   document: Record<string, unknown>;
   project: string;
+  /** Ports reachable from outside the application (needs connections to be enforced). */
+  published?: Published[];
   /** Also delete the application's instances that are no longer in the design. */
   removeMissing?: boolean;
 };
@@ -374,6 +376,8 @@ export type PlanRequest = {
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
   project: string;
+  /** Ports reachable from outside the application (needs connections to be enforced). */
+  published?: Published[];
 };
 
 export type PreflightReport = {
@@ -397,6 +401,14 @@ export type ProjectList = {
 
 /** Where the backend's view of the infrastructure comes from. */
 export type ProviderMode = "mock" | "incus";
+
+/** A port of an appliance reachable from outside the application (in the Studio: connected from a gateway). Only ports with a number can be published. */
+export type Published = {
+  appliance: string;
+  port: number;
+  /** `tcp` or `udp`. */
+  transport: string;
+};
 
 export type QueuedChange = {
   action: PlanAction;

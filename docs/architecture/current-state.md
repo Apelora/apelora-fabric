@@ -57,7 +57,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Network intent compiler (rules, service names, segments) | Done (TypeScript, tested); shown in the Studio, not enforced | 07 |
 | Enforcing connections (per-application OVN network, ACLs and address sets) | Done; REAL INCUS TESTED across two members | 07 |
 | Cleanup of network objects with the appliances (owner-labelled) | Done; REAL INCUS TESTED | 07 |
-| Publishing, egress policy | Missing | 07 |
+| Publishing (gateway connections → service address + ingress rule) | Done; REAL INCUS TESTED (outside route required) | 07 |
+| Egress policy, service names (DNS) | Missing | 07 |
 | Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
 | Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
 | Evacuation with dry run (API, console), audited; supervisor stays out of the way | Done; REAL INCUS TESTED (two members) and verified in a real browser | 08 |

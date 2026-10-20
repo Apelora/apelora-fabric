@@ -10,8 +10,8 @@ use std::net::Ipv4Addr;
 
 use apelora_domain::Instance;
 use apelora_domain::network::{
-    Backend, LoadBalancer, SyncRequest, acl_name, acl_rules, network_name, service_addresses,
-    service_ports,
+    Backend, LoadBalancer, SyncRequest, acl_name, acl_rules, network_name, published_rules,
+    service_addresses,
 };
 use apelora_domain::plan::{replica_name, slot_instances};
 use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
@@ -94,7 +94,8 @@ async fn apply(
         provider.set_addresses(p, &name, &addresses, app).await?;
     }
     for a in &s.appliances {
-        let (ingress, egress) = acl_rules(app, a, &s.connections);
+        let (mut ingress, egress) = acl_rules(app, a, &s.connections);
+        ingress.extend(published_rules(a, &s.published));
         provider
             .set_acl_rules(p, &acl_name(app, a), &ingress, &egress, app)
             .await?;
@@ -186,7 +187,7 @@ async fn services(
             listen_address,
             appliance: a.clone(),
             backends,
-            ports: service_ports(a, &s.connections),
+            ports: s.ports_of(a),
         };
         let changed = provider.ensure_load_balancer(p, &network, &lb, app).await?;
         // Incus 7.0.1 can drop the health check in OVN on an update while still reporting it

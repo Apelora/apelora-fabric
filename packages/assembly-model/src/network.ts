@@ -177,6 +177,26 @@ export function compileNetwork(a: ApplicationAssembly, application: string): Net
   return { application, services, intents: sorted, segments, warnings: [...warnings].sort(compare) };
 }
 
+export interface PublishedPort {
+  appliance: string;
+  transport: "tcp" | "udp";
+  port: number;
+}
+
+/**
+ * Ports reachable from outside the application: a gateway (the outside world in the design)
+ * connected to a deployed appliance's terminal with a well-known port. Sorted, without
+ * duplicates; terminals without a port number cannot be published.
+ */
+export function publishedPorts(plan: NetworkPlan, gateways: ReadonlySet<string>, deployed: ReadonlySet<string>): PublishedPort[] {
+  const seen = new Map<string, PublishedPort>();
+  for (const i of plan.intents) {
+    if (!gateways.has(i.from) || !deployed.has(i.to) || i.number === null) continue;
+    seen.set(`${i.to}/${i.transport}/${i.number}`, { appliance: i.to, transport: i.transport, port: i.number });
+  }
+  return [...seen.values()].sort((p, q) => compare(`${p.appliance}/${p.port}`, `${q.appliance}/${q.port}`));
+}
+
 /** Whether the plan lets `from` reach `to` on `number` (deny by default). */
 export function allows(plan: NetworkPlan, from: string, to: string, number: number): boolean {
   return plan.intents.some((i) => i.from === from && i.to === to && (i.number === null || i.number === number));

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
 import { lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, compileNetwork, deploymentAppliances, usedCustomClasses, type NetworkPlan } from "@apelora/assembly-model";
+import { applicationName, compileNetwork, deploymentAppliances, publishedPorts, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -90,12 +90,18 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
       .filter((i) => deployed.has(i.from) && deployed.has(i.to))
       .map((i) => ({ from: i.from, to: i.to, transport: i.transport, port: i.number }));
   };
+  // A gateway in the design stands for the outside world: what it connects to is published.
+  const published = () => {
+    const a = api.getState().assembly;
+    const gateways = new Set(a.spec.appliances.filter((x) => x.classRef.name === "gateway").map((x) => x.id));
+    return publishedPorts(compileNetwork(a, appName), gateways, new Set(split.deployable.map((d) => d.appliance)));
+  };
 
   const preview = async () => {
     setBusy(true);
     setError(null);
     try {
-      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, appliances: desired(), connections: connections() } });
+      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, appliances: desired(), connections: connections(), published: published() } });
       setStep({ kind: "review", plan });
     } catch (e) {
       setError(messageOf(e));
@@ -113,7 +119,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, appliances: desired(), connections: connections(), removeMissing },
+        body: { project, document, appliances: desired(), connections: connections(), published: published(), removeMissing },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
@@ -222,7 +228,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex flex-col gap-3 text-sm">
             <p className="text-base-content/70">What deploying <strong className="font-mono">{appName}</strong> to <strong>{project}</strong> changes. Nothing has changed yet.</p>
             <PlanTable plan={step.plan} removeMissing={removeMissing} />
-            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} />
+            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} published={published()} />
             {step.plan.warnings.map((w) => <p key={w} className="flex items-start gap-2" role="note"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{w}</p>)}
             {step.plan.items.some((i) => i.action === "remove") && (
               <label className="flex items-center gap-2">
@@ -266,7 +272,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
 }
 
 /** The connections the design declares, as allow rules by service name, and whether they are enforced. */
-function NetworkRules({ plan, enforced }: { plan: NetworkPlan; enforced: boolean }) {
+function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforced: boolean; published: PublishedPort[] }) {
   if (!plan.intents.length) return null;
   return (
     <details className="rounded-box border border-base-300 px-3 py-2" data-testid="network-rules">
@@ -281,6 +287,14 @@ function NetworkRules({ plan, enforced }: { plan: NetworkPlan; enforced: boolean
           <li key={i.id} data-testid="network-rule">{i.from} → {i.service} · {i.protocol} {i.number ?? "any"}/{i.transport}</li>
         ))}
       </ul>
+      {published.length > 0 && (
+        <>
+          <p className="mt-2 text-xs text-base-content/60">Reachable from outside the application (connected from a gateway):</p>
+          <ul className="mt-1 flex flex-col gap-1 font-mono text-xs">
+            {published.map((p) => <li key={`${p.appliance}/${p.port}`} data-testid="published-port">{p.appliance} · {p.port}/{p.transport}</li>)}
+          </ul>
+        </>
+      )}
       {plan.warnings.map((w) => <p key={w} className="mt-2 text-xs">{w}</p>)}
     </details>
   );
