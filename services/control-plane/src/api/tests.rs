@@ -1042,3 +1042,98 @@ async fn applications_are_planned_deployed_revised_and_reported_by_appliance(poo
     .expect("audit");
     assert_eq!(audit, 3, "the repeated request is not audited twice");
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn connections_become_an_application_network_with_acls_on_both_sides(pool: Pool) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
+    let body = |connections: Value| json!({ "project": "apelora", "document": {}, "appliances": [appliance("web-01"), appliance("db-01"), appliance("cache-01")], "connections": connections });
+
+    // Without an uplink nothing is enforced, and the plan says so.
+    let (_, plan) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(body(conn.clone())),
+        None,
+    )
+    .await;
+    assert!(
+        plan["warnings"]
+            .as_array()
+            .expect("warnings")
+            .iter()
+            .any(|w| w.as_str().is_some_and(|w| w.contains("not enforced")))
+    );
+    let bad = json!([{ "from": "web-01", "to": "nope-01", "transport": "tcp", "port": 1 }]);
+    assert_eq!(
+        send(
+            state.clone(),
+            "POST",
+            "/api/v1/applications/shop/plan",
+            &operator,
+            Some(body(bad)),
+            None
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let state = state.with_network_uplink(Some("incusbr0".into()));
+    let (status, d) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body(conn)),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{d}");
+    assert!(d["networkJob"].is_string());
+    let create: Value = sqlx::query_scalar(
+        "SELECT payload FROM jobs WHERE kind = 'instance.create' ORDER BY created_at LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("job");
+    assert_eq!(
+        create["network"],
+        json!({ "network": "shop", "acl": "shop-web-01", "uplink": "incusbr0" })
+    );
+    drain(&pool, &provider).await;
+    let job: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'network.sync'")
+        .fetch_one(&pool)
+        .await
+        .expect("sync");
+    assert_eq!(job, "succeeded");
+
+    let net = mock.net().clone();
+    assert!(net.networks.contains("apelora/shop"));
+    let (web_in, web_out) = &net.acls["apelora/shop-web-01"];
+    assert!(web_in.is_empty());
+    assert_eq!(
+        (
+            web_out[0].destination.as_str(),
+            web_out[0].destination_port.as_str()
+        ),
+        ("$shop-db-01", "5432")
+    );
+    let (db_in, db_out) = &net.acls["apelora/shop-db-01"];
+    assert_eq!(db_in[0].source, "$shop-web-01");
+    assert!(db_out.is_empty());
+    let (cache_in, cache_out) = &net.acls["apelora/shop-cache-01"];
+    assert!(
+        cache_in.is_empty() && cache_out.is_empty(),
+        "unconnected appliances are isolated"
+    );
+    assert!(net.address_sets["apelora/shop-web-01"][0].starts_with("198.51.100."));
+}

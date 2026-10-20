@@ -77,9 +77,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err(format!("APELORA_DEPLOY_PROJECTS: invalid project name {bad:?}").into());
     }
     tracing::info!(?projects, "deployments allowed in these Incus projects");
+    let uplink = std::env::var("APELORA_NETWORK_UPLINK")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    if let Some(u) = &uplink {
+        if !apelora_domain::is_valid_name(u) {
+            return Err(format!("APELORA_NETWORK_UPLINK: invalid network name {u:?}").into());
+        }
+        tracing::info!(uplink = %u, "application connections are enforced on OVN networks");
+    }
     let state = api::AppState::new(provider, auth)
         .with_deploy_projects(projects)
-        .with_admin(admin);
+        .with_admin(admin)
+        .with_network_uplink(uplink);
     axum::serve(listener, api::router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

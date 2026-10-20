@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod network;
 pub mod plan;
 pub mod preflight;
 
@@ -267,6 +268,10 @@ pub struct InstanceSpec {
     /// Set by the control plane when the instance is part of an application deployment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Owner>,
+    /// Set by the control plane when the application's connections are enforced: the NIC
+    /// joins the application's network with its own ACL (unmatched traffic rejected).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<network::NetworkAttachment>,
 }
 
 impl InstanceSpec {
@@ -319,6 +324,13 @@ impl InstanceSpec {
         }
         if let Some(o) = &self.owner {
             o.validate()?;
+        }
+        if let Some(n) = &self.network
+            && let Some(bad) = [&n.network, &n.acl, &n.uplink]
+                .into_iter()
+                .find(|v| !is_valid_name(v))
+        {
+            return Err(format!("invalid network attachment name {bad:?}"));
         }
         if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
             return Err(format!("config key {k} is reserved for Apelora"));
@@ -520,6 +532,7 @@ mod tests {
             start: true,
             architectures: vec![],
             owner: None,
+            network: None,
         }
     }
 

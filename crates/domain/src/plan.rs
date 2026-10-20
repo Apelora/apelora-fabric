@@ -193,6 +193,7 @@ mod tests {
                 start: true,
                 architectures: vec![],
                 owner: None,
+                network: None,
             },
         }
     }

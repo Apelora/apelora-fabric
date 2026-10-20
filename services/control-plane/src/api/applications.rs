@@ -5,6 +5,8 @@
 //! computed here from current inventory, for the preview and again when applying (never taken
 //! from the caller). Applying saves an immutable revision and queues ordinary instance jobs.
 
+use apelora_domain::InstanceSpec;
+use apelora_domain::network::{Connection, attachment};
 use apelora_domain::plan::{DesiredAppliance, Plan, PlanAction, owned_spec, plan};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
@@ -27,6 +29,9 @@ const MAX_APPLIANCES: usize = 200;
 pub struct PlanRequest {
     pub project: String,
     pub appliances: Vec<DesiredAppliance>,
+    /// The design's connections; enforced when the control plane has a network uplink.
+    #[serde(default)]
+    pub connections: Option<Vec<Connection>>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -37,6 +42,9 @@ pub struct DeployRequest {
     #[schema(value_type = Object)]
     pub document: Value,
     pub appliances: Vec<DesiredAppliance>,
+    /// The design's connections; enforced when the control plane has a network uplink.
+    #[serde(default)]
+    pub connections: Option<Vec<Connection>>,
     /// Also delete the application's instances that are no longer in the design.
     #[serde(default)]
     pub remove_missing: bool,
@@ -59,6 +67,8 @@ pub struct DeployResponse {
     /// The plan that was applied (recomputed when applying).
     pub plan: Plan,
     pub jobs: Vec<QueuedChange>,
+    /// The job that applies the connections to the application's network, when enforced.
+    pub network_job: Option<Uuid>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -95,6 +105,53 @@ pub struct ApplicationStatus {
 pub struct StatusQuery {
     /// Only this Incus project.
     pub project: Option<String>,
+}
+
+/// The spec an appliance is created with; with enforced connections its NIC joins the
+/// application's network with its own ACL.
+fn spec_for(
+    state: &AppState,
+    name: &str,
+    project: &str,
+    d: &DesiredAppliance,
+    enforce: bool,
+) -> InstanceSpec {
+    let mut spec = owned_spec(name, project, d);
+    if enforce && let Some(uplink) = &state.network_uplink {
+        spec.network = Some(attachment(name, &d.appliance, uplink));
+    }
+    spec
+}
+
+fn check_connections(
+    appliances: &[DesiredAppliance],
+    connections: Option<&[Connection]>,
+) -> Result<(), ApiError> {
+    for c in connections.unwrap_or_default() {
+        c.validate().map_err(bad_request)?;
+        for end in [&c.from, &c.to] {
+            if !appliances.iter().any(|d| &d.appliance == end) {
+                return Err(bad_request(format!(
+                    "connection {} → {}: {end} is not a deployed appliance",
+                    c.from, c.to
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Adds what the designer must know about connections to the plan's warnings.
+fn network_warnings(state: &AppState, plan: &mut Plan, connections: Option<&[Connection]>) {
+    match (connections, &state.network_uplink) {
+        (Some(c), None) if !c.is_empty() => plan.warnings.push(
+            "connections are not enforced: the control plane has no network uplink (APELORA_NETWORK_UPLINK); instances share the project's network".into(),
+        ),
+        (Some(_), Some(_)) if plan.count(PlanAction::Keep) > 0 => plan.warnings.push(
+            "kept instances stay on the network they were created on; connections apply to new instances".into(),
+        ),
+        _ => {}
+    }
 }
 
 fn check(
@@ -177,9 +234,10 @@ pub(super) async fn preview(
     require(&p, Permission::Deploy)?;
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
     check(&state, &name, &req.project, &req.appliances)?;
-    Ok(Json(
-        current_plan(&state, &name, &req.project, &req.appliances).await?,
-    ))
+    check_connections(&req.appliances, req.connections.as_deref())?;
+    let mut p = current_plan(&state, &name, &req.project, &req.appliances).await?;
+    network_warnings(&state, &mut p, req.connections.as_deref());
+    Ok(Json(p))
 }
 
 /// Deploys the design: saves it as a new revision and queues the planned changes. Refuses
@@ -205,9 +263,12 @@ pub(super) async fn deploy(
         ));
     }
     check(&state, &name, &req.project, &req.appliances)?;
+    check_connections(&req.appliances, req.connections.as_deref())?;
     let pool = store(&state)?;
     let key = idempotency_key(&headers, &p)?;
-    let applied = current_plan(&state, &name, &req.project, &req.appliances).await?;
+    let enforce = req.connections.is_some() && state.network_uplink.is_some();
+    let mut applied = current_plan(&state, &name, &req.project, &req.appliances).await?;
+    network_warnings(&state, &mut applied, req.connections.as_deref());
     if applied.has_conflicts() {
         let conflicts: Vec<String> = applied
             .items
@@ -243,7 +304,7 @@ pub(super) async fn deploy(
                     .ok_or_else(|| {
                         bad_request(format!("appliance {} disappeared", item.appliance))
                     })?;
-                let spec = owned_spec(&name, &req.project, desired);
+                let spec = spec_for(&state, &name, &req.project, desired, enforce);
                 (
                     "instance.create",
                     serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?,
@@ -274,6 +335,27 @@ pub(super) async fn deploy(
             job_id,
         });
     }
+    let mut network_job = None;
+    if let (true, Some(uplink)) = (enforce, &state.network_uplink) {
+        let payload = json!({
+            "project": req.project,
+            "application": name,
+            "uplink": uplink.as_ref(),
+            "appliances": req.appliances.iter().map(|d| d.appliance.clone()).collect::<Vec<_>>(),
+            "connections": req.connections,
+        });
+        let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
+        let job_id = apelora_persistence::enqueue_job(
+            pool,
+            "network.sync",
+            Some(app.id),
+            &payload,
+            job_key.as_deref(),
+        )
+        .await?
+        .id();
+        network_job = Some(job_id);
+    }
     if new_revision {
         apelora_persistence::audit(
             pool,
@@ -297,6 +379,7 @@ pub(super) async fn deploy(
             revision: revision.revision,
             plan: applied,
             jobs,
+            network_job,
         }),
     ))
 }

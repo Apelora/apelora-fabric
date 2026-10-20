@@ -4,6 +4,7 @@
 //! [`Provider`]; see [`lifecycle`].
 
 pub mod lifecycle;
+pub mod network;
 
 use std::time::Duration;
 
@@ -25,6 +26,12 @@ async fn handle(
 ) -> Result<Outcome, StoreError> {
     if job.kind == "noop" {
         return Ok(Outcome::Succeeded);
+    }
+    if job.kind == "network.sync" {
+        return Ok(match network::NetworkSync::from_payload(&job.payload) {
+            Ok(s) => network::sync(provider, &s).await,
+            Err(msg) => Outcome::Rejected(msg),
+        });
     }
     match lifecycle::Goal::from_job(&job.kind, &job.payload) {
         Some(Ok(goal)) => lifecycle::run(pool, provider, job, worker, goal).await,

@@ -369,6 +369,7 @@ fn oci_spec() -> InstanceSpec {
         start: true,
         architectures: vec![],
         owner: None,
+        network: None,
     }
 }
 
@@ -659,4 +660,82 @@ async fn mock_join_tokens_are_labelled_and_refuse_existing_members() {
     assert!(p.create_join_token("mock-member-01").await.is_err());
     assert_eq!(p.revoke_join_token("mock-member-04").await, Ok(true));
     assert!(p.join_tokens().await.expect("list").is_empty());
+}
+
+#[tokio::test]
+async fn network_objects_are_created_once_never_adopted_and_addresses_are_read() {
+    let (base, seen) = recording_server(vec![
+        ("GET /1.0/networks/shop?project=apelora", error(404, "not found")),
+        ("POST /1.0/networks?project=apelora", sync(json!({}))),
+        (
+            "GET /1.0/network-acls/shop-web-01?project=apelora",
+            sync(json!({ "name": "shop-web-01", "config": { "user.apelora.managed": "true" } })),
+        ),
+        (
+            "GET /1.0/network-address-sets/shop-web-01?project=apelora",
+            sync(json!({ "name": "shop-web-01", "config": {} })),
+        ),
+        (
+            "GET /1.0/instances/shop-web-01/state?project=apelora",
+            sync(json!({ "status": "Running", "network": { "eth0": { "addresses": [
+                { "family": "inet", "address": "10.13.53.2", "scope": "global" },
+                { "family": "inet6", "address": "fe80::1", "scope": "link" },
+                { "family": "inet6", "address": "fd42::2", "scope": "global" } ] },
+                "lo": { "addresses": [{ "family": "inet", "address": "127.0.0.1", "scope": "local" }] } } })),
+        ),
+        (
+            "GET /1.0/instances/stopped/state?project=apelora",
+            sync(json!({ "status": "Stopped", "network": null })),
+        ),
+    ])
+    .await;
+    let c = IncusClient::plain_for_tests(&base);
+    c.ensure_network("apelora", "shop", "incusbr0")
+        .await
+        .expect("created");
+    c.ensure_acl("apelora", "shop-web-01")
+        .await
+        .expect("already ours");
+    assert!(
+        matches!(
+            c.ensure_address_set("apelora", "shop-web-01").await,
+            Err(AdapterError::Api { status: 409, .. })
+        ),
+        "an object without Apelora's marker is never adopted"
+    );
+    assert_eq!(
+        c.instance_addresses("apelora", "shop-web-01").await,
+        Ok(vec!["10.13.53.2/32".to_owned(), "fd42::2/128".to_owned()])
+    );
+    assert_eq!(c.instance_addresses("apelora", "stopped").await, Ok(vec![]));
+    let log = seen.lock().expect("log").clone();
+    let created = log
+        .iter()
+        .find(|(k, _)| k.starts_with("POST /1.0/networks"))
+        .expect("post");
+    assert_eq!(
+        created.1,
+        json!({ "name": "shop", "type": "ovn", "description": "Apelora application network",
+                "config": { "network": "incusbr0", "user.apelora.managed": "true" } })
+    );
+}
+
+#[tokio::test]
+async fn an_attached_instance_gets_its_nic_on_the_application_network_with_its_acl() {
+    let (base, seen) =
+        recording_server(vec![("POST /1.0/instances?project=apelora", accepted())]).await;
+    let mut spec = oci_spec();
+    spec.network = Some(apelora_domain::network::attachment(
+        "shop", "web-01", "incusbr0",
+    ));
+    IncusClient::plain_for_tests(&base)
+        .create_instance(&spec)
+        .await
+        .expect("create");
+    let (_, body) = seen.lock().expect("log")[0].clone();
+    assert_eq!(
+        body["devices"]["eth0"],
+        json!({ "type": "nic", "name": "eth0", "network": "shop", "security.acls": "shop-web-01",
+                "security.acls.default.ingress.action": "reject", "security.acls.default.egress.action": "reject" })
+    );
 }

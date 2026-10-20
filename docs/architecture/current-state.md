@@ -55,7 +55,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Application deployment backend (plan, deploy, revisions, status by appliance) | Done; REAL INCUS TESTED (two members) | 06 |
 | Studio deploy panel and live status overlay | Done; verified in a real browser against the test cluster | 06 |
 | Network intent compiler (rules, service names, segments) | Done (TypeScript, tested); shown in the Studio, not enforced | 07 |
-| Enforcing intents (OVN, ACLs, DNS), publishing | Missing | 07 |
+| Enforcing connections (per-application OVN network, ACLs and address sets) | Done; REAL INCUS TESTED across two members | 07 |
+| Publishing, egress policy, cleanup of network objects | Missing | 07 |
 | Coordination, HA, mobility | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
 | Build/test CI | Missing | 10 |

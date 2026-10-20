@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
 use crate::{AdapterError, InstanceState};
+use apelora_domain::network::AclRule;
 use apelora_domain::{JoinToken, PendingJoin};
 use base64::Engine as _;
 
@@ -284,8 +285,18 @@ impl IncusClient {
         if let Some(fp) = &spec.source.fingerprint {
             source["fingerprint"] = json!(fp);
         }
+        let mut devices = json!({});
+        if let Some(n) = &spec.network {
+            devices["eth0"] = json!({
+                "type": "nic", "name": "eth0", "network": n.network,
+                "security.acls": n.acl,
+                "security.acls.default.ingress.action": "reject",
+                "security.acls.default.egress.action": "reject",
+            });
+        }
         let mut body = json!({
             "name": spec.name,
+            "devices": devices,
             "type": match spec.kind {
                 InstanceKind::VirtualMachine => "virtual-machine",
                 _ => "container",
@@ -332,6 +343,130 @@ impl IncusClient {
             None,
         )
         .await
+    }
+
+    /// Creates an Apelora-owned object at `collection` (e.g. `/1.0/network-acls`) unless one
+    /// with that name exists; refuses one that exists without Apelora's marker.
+    async fn ensure_owned(
+        &self,
+        collection: &str,
+        project: &str,
+        name: &str,
+        mut body: Value,
+    ) -> Result<(), AdapterError> {
+        match self
+            .get::<wire::Owned>(&format!("{collection}/{name}?project={project}"))
+            .await
+        {
+            Ok(o) if o.config.get(MANAGED_KEY).is_some_and(|v| v == "true") => Ok(()),
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!("{collection}/{name} exists and was not created by Apelora"),
+            }),
+            Err(AdapterError::NotFound(_)) => {
+                body["name"] = json!(name);
+                body["config"][MANAGED_KEY] = json!("true");
+                self.call::<Value>(
+                    Method::POST,
+                    &format!("{collection}?project={project}"),
+                    Some(&body),
+                )
+                .await
+                .map(|_| ())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// The application's OVN network on `uplink`, created if missing.
+    pub async fn ensure_network(
+        &self,
+        project: &str,
+        name: &str,
+        uplink: &str,
+    ) -> Result<(), AdapterError> {
+        let body = json!({ "type": "ovn", "description": "Apelora application network", "config": { "network": uplink } });
+        self.ensure_owned("/1.0/networks", project, name, body)
+            .await
+    }
+
+    pub async fn ensure_acl(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+        let body = json!({ "description": "Apelora appliance", "config": {}, "ingress": [], "egress": [] });
+        self.ensure_owned("/1.0/network-acls", project, name, body)
+            .await
+    }
+
+    /// Replaces the ACL's rules (Apelora owns the whole ACL).
+    pub async fn set_acl_rules(
+        &self,
+        project: &str,
+        name: &str,
+        ingress: &[AclRule],
+        egress: &[AclRule],
+    ) -> Result<(), AdapterError> {
+        let body = json!({ "description": "Apelora appliance", "config": { MANAGED_KEY: "true" }, "ingress": ingress, "egress": egress });
+        self.call::<Value>(
+            Method::PUT,
+            &format!("/1.0/network-acls/{name}?project={project}"),
+            Some(&body),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub async fn ensure_address_set(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+        let body =
+            json!({ "description": "Apelora appliance addresses", "config": {}, "addresses": [] });
+        self.ensure_owned("/1.0/network-address-sets", project, name, body)
+            .await
+    }
+
+    /// Replaces the address set's members.
+    pub async fn set_addresses(
+        &self,
+        project: &str,
+        name: &str,
+        addresses: &[String],
+    ) -> Result<(), AdapterError> {
+        let body = json!({ "description": "Apelora appliance addresses", "config": { MANAGED_KEY: "true" }, "addresses": addresses });
+        self.call::<Value>(
+            Method::PUT,
+            &format!("/1.0/network-address-sets/{name}?project={project}"),
+            Some(&body),
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// The instance's global addresses on `eth0` (IPv4 and IPv6), as `address/32` or `/128`.
+    pub async fn instance_addresses(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        let state: wire::InstanceStateDetail = self
+            .get(&format!("/1.0/instances/{name}/state?project={project}"))
+            .await?;
+        let mut out: Vec<String> = state
+            .network
+            .as_ref()
+            .and_then(|n| n.get("eth0"))
+            .map(|n| {
+                n.addresses
+                    .iter()
+                    .filter(|a| a.scope == "global" && (a.family == "inet" || a.family == "inet6"))
+                    .map(|a| {
+                        format!(
+                            "{}/{}",
+                            a.address,
+                            if a.family == "inet" { 32 } else { 128 }
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        Ok(out)
     }
 
     /// Waits up to `timeout_secs` (kept below the request timeout) for an operation to finish

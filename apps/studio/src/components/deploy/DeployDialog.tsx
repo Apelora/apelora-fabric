@@ -83,12 +83,19 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
   }, [open]);
 
   const desired = () => split.deployable.map((d) => ({ appliance: d.appliance, spec: d.spec }));
+  /** The design's connections between appliances that are deployed (rules for the server). */
+  const connections = () => {
+    const deployed = new Set(split.deployable.map((d) => d.appliance));
+    return compileNetwork(api.getState().assembly, appName).intents
+      .filter((i) => deployed.has(i.from) && deployed.has(i.to))
+      .map((i) => ({ from: i.from, to: i.to, transport: i.transport, port: i.number }));
+  };
 
   const preview = async () => {
     setBusy(true);
     setError(null);
     try {
-      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, appliances: desired() } });
+      const plan = await client.request("plan_application", { params: { name: appName }, body: { project, appliances: desired(), connections: connections() } });
       setStep({ kind: "review", plan });
     } catch (e) {
       setError(messageOf(e));
@@ -106,7 +113,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, appliances: desired(), removeMissing },
+        body: { project, document, appliances: desired(), connections: connections(), removeMissing },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
@@ -215,7 +222,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex flex-col gap-3 text-sm">
             <p className="text-base-content/70">What deploying <strong className="font-mono">{appName}</strong> to <strong>{project}</strong> changes. Nothing has changed yet.</p>
             <PlanTable plan={step.plan} removeMissing={removeMissing} />
-            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} />
+            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} />
             {step.plan.warnings.map((w) => <p key={w} className="flex items-start gap-2" role="note"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{w}</p>)}
             {step.plan.items.some((i) => i.action === "remove") && (
               <label className="flex items-center gap-2">
@@ -258,13 +265,17 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
   );
 }
 
-/** The connections the design declares, as allow rules by service name. Shown, not enforced yet. */
-function NetworkRules({ plan }: { plan: NetworkPlan }) {
+/** The connections the design declares, as allow rules by service name, and whether they are enforced. */
+function NetworkRules({ plan, enforced }: { plan: NetworkPlan; enforced: boolean }) {
   if (!plan.intents.length) return null;
   return (
     <details className="rounded-box border border-base-300 px-3 py-2" data-testid="network-rules">
       <summary className="cursor-pointer">Connections in this design ({plan.intents.length})</summary>
-      <p className="mt-2 text-xs text-base-content/60">Each cable allows one service, by name. They are not enforced on the cluster yet: instances share the project's network.</p>
+      <p className="mt-2 text-xs text-base-content/60">
+        {enforced
+          ? "Each cable allows one service; everything else between the application's instances is rejected. Only cables between deployed appliances apply."
+          : "Each cable allows one service, by name. The control plane does not enforce them: instances share the project's network."}
+      </p>
       <ul className="mt-2 flex flex-col gap-1 font-mono text-xs">
         {plan.intents.map((i) => (
           <li key={i.id} data-testid="network-rule">{i.from} → {i.service} · {i.protocol} {i.number ?? "any"}/{i.transport}</li>

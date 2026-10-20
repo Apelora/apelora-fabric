@@ -20,6 +20,7 @@ pub use wire::Operation;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use apelora_domain::network::AclRule;
 use apelora_domain::{
     ClusterMember, Instance, InstanceAction, InstanceKind, InstanceSpec, JoinToken, Network,
     PendingJoin, Project, ProviderMode, ServerInfo, StoragePool, is_valid_name,
@@ -238,6 +239,104 @@ impl Provider {
         }
     }
 
+    /// Network objects of an application (OVN network, appliance ACLs and address sets).
+    /// All are created only when missing and refused if they exist without Apelora's marker.
+    pub async fn ensure_network(
+        &self,
+        project: &str,
+        name: &str,
+        uplink: &str,
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net().networks.insert(format!("{project}/{name}"));
+                Ok(())
+            }
+            Provider::Incus(c) => c.ensure_network(project, name, uplink).await,
+        }
+    }
+
+    pub async fn ensure_acl(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net().acls.entry(format!("{project}/{name}")).or_default();
+                Ok(())
+            }
+            Provider::Incus(c) => c.ensure_acl(project, name).await,
+        }
+    }
+
+    pub async fn set_acl_rules(
+        &self,
+        project: &str,
+        name: &str,
+        ingress: &[AclRule],
+        egress: &[AclRule],
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net().acls.insert(
+                    format!("{project}/{name}"),
+                    (ingress.to_vec(), egress.to_vec()),
+                );
+                Ok(())
+            }
+            Provider::Incus(c) => c.set_acl_rules(project, name, ingress, egress).await,
+        }
+    }
+
+    pub async fn ensure_address_set(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net()
+                    .address_sets
+                    .entry(format!("{project}/{name}"))
+                    .or_default();
+                Ok(())
+            }
+            Provider::Incus(c) => c.ensure_address_set(project, name).await,
+        }
+    }
+
+    pub async fn set_addresses(
+        &self,
+        project: &str,
+        name: &str,
+        addresses: &[String],
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                m.net()
+                    .address_sets
+                    .insert(format!("{project}/{name}"), addresses.to_vec());
+                Ok(())
+            }
+            Provider::Incus(c) => c.set_addresses(project, name, addresses).await,
+        }
+    }
+
+    /// A running instance's global addresses; empty while it has none (e.g. stopped).
+    pub async fn instance_addresses(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        match self {
+            // Documentation-range addresses so mock data can never be mistaken for real ones.
+            Provider::Mock(m) => Ok(m
+                .lock()
+                .iter()
+                .position(|i| {
+                    i.instance.project == project
+                        && i.instance.name == name
+                        && i.instance.status == "Running"
+                })
+                .map(|n| vec![format!("198.51.100.{}/32", n + 1)])
+                .unwrap_or_default()),
+            Provider::Incus(c) => c.instance_addresses(project, name).await,
+        }
+    }
+
     /// Waits for an operation to finish, for at most about `budget`.
     pub async fn wait_operation(
         &self,
@@ -272,10 +371,19 @@ pub struct MockIncus {
     pub members: Vec<ClusterMember>,
     pub instances: Arc<Mutex<Vec<MockInstance>>>,
     pub join_tokens: Arc<Mutex<Vec<PendingJoin>>>,
+    pub network: Arc<Mutex<MockNetwork>>,
     pub projects: Vec<Project>,
     pub networks: Vec<Network>,
     pub pools: Vec<StoragePool>,
     next_op: Arc<Mutex<u64>>,
+}
+
+/// Network objects the mock has been asked to create, keyed `project/name`.
+#[derive(Debug, Clone, Default)]
+pub struct MockNetwork {
+    pub networks: std::collections::BTreeSet<String>,
+    pub acls: std::collections::BTreeMap<String, (Vec<AclRule>, Vec<AclRule>)>,
+    pub address_sets: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +396,10 @@ impl MockIncus {
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<MockInstance>> {
         // A panic while holding the lock leaves plain data behind; keep using it.
         self.instances.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn net(&self) -> std::sync::MutexGuard<'_, MockNetwork> {
+        self.network.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     fn find(&self, project: &str, name: &str) -> Option<MockInstance> {
@@ -442,6 +554,7 @@ impl Default for MockIncus {
             )),
             next_op: Arc::new(Mutex::new(0)),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
+            network: Arc::default(),
             projects: vec![
                 Project {
                     name: "default".into(),

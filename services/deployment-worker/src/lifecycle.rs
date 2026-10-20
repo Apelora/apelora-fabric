@@ -257,6 +257,14 @@ async fn converge(
                     };
                     placeable(spec, &server.architectures, &members)
                 };
+                // The NIC joins the application's network with its own ACL: both must exist.
+                if let Some(n) = &spec.network {
+                    provider
+                        .ensure_network(project, &n.network, &n.uplink)
+                        .await?;
+                    provider.ensure_acl(project, &n.acl).await?;
+                    provider.ensure_address_set(project, &n.acl).await?;
+                }
                 match fits {
                     Ok(()) => provider.create_instance(spec).await?,
                     Err((false, msg)) => return Ok(Outcome::Rejected(msg)),
@@ -309,6 +317,7 @@ mod tests {
             start,
             architectures: vec![],
             owner: None,
+            network: None,
         }))
     }
     fn t() -> Target {

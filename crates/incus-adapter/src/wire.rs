@@ -68,6 +68,35 @@ pub(crate) struct Instance {
     pub config: BTreeMap<String, String>,
 }
 
+/// Any Apelora-owned object (network, ACL, address set): only its config is read.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct Owned {
+    pub config: BTreeMap<String, String>,
+}
+
+/// `GET /1.0/instances/<name>/state`: the addresses.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct InstanceStateDetail {
+    /// `null` while the instance is stopped.
+    pub network: Option<BTreeMap<String, NetworkState>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetworkState {
+    pub addresses: Vec<NetworkAddress>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetworkAddress {
+    pub family: String,
+    pub address: String,
+    pub scope: String,
+}
+
 /// `GET /1.0/instances/<name>`: only what lifecycle decisions need.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

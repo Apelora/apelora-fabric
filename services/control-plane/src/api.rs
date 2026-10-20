@@ -40,6 +40,9 @@ pub struct AppState {
     deploy_projects: Arc<Vec<String>>,
     /// Unrestricted identity for cluster administration; `None` when not configured.
     admin: Option<Arc<Provider>>,
+    /// Uplink for application OVN networks (`APELORA_NETWORK_UPLINK`); `None`: connections
+    /// are not enforced.
+    network_uplink: Option<Arc<str>>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -52,7 +55,13 @@ impl AppState {
             auth,
             deploy_projects: Arc::new(vec![DEFAULT_DEPLOY_PROJECT.to_owned()]),
             admin: None,
+            network_uplink: None,
         }
+    }
+
+    pub fn with_network_uplink(mut self, uplink: Option<String>) -> Self {
+        self.network_uplink = uplink.map(Arc::from);
+        self
     }
 
     pub fn with_admin(mut self, admin: Option<Provider>) -> Self {

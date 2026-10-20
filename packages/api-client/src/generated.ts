@@ -74,6 +74,16 @@ export type ClusterResponse = {
   source: Source;
 };
 
+/** One connection of the design: `from` may reach `to` (appliance ids). */
+export type Connection = {
+  from: string;
+  /** `None`: any port of the transport (the protocol has no well-known port). */
+  port?: number | null;
+  to: string;
+  /** `tcp` or `udp`. */
+  transport: string;
+};
+
 export type CreateJoinToken = {
   /** Name the new member will join with. */
   memberName: string;
@@ -89,6 +99,8 @@ export type CreateToken = {
 
 export type DeployRequest = {
   appliances: DesiredAppliance[];
+  /** The design's connections; enforced when the control plane has a network uplink. */
+  connections?: Connection[] | null;
   /** The Studio document, saved as an immutable revision. */
   document: Record<string, unknown>;
   project: string;
@@ -99,6 +111,8 @@ export type DeployRequest = {
 export type DeployResponse = {
   application: string;
   jobs: QueuedChange[];
+  /** The job that applies the connections to the application's network, when enforced. */
+  networkJob?: string | null;
   /** The plan that was applied (recomputed when applying). */
   plan: Plan;
   revision: number;
@@ -191,6 +205,7 @@ export type InstanceSpec = {
   /** `container` (system or OCI) or `virtual-machine`. */
   kind: InstanceKind;
   name: string;
+  network?: unknown | NetworkAttachment;
   owner?: unknown | Owner;
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
@@ -252,6 +267,14 @@ export type Network = {
   status: string;
 };
 
+/** Where an instance's NIC is attached: the application's network, with its own ACL. */
+export type NetworkAttachment = {
+  acl: string;
+  network: string;
+  /** Uplink network the application network is created on. */
+  uplink: string;
+};
+
 export type NetworkList = {
   items: Network[];
   source: Source;
@@ -291,6 +314,8 @@ export type PlanItem = {
 
 export type PlanRequest = {
   appliances: DesiredAppliance[];
+  /** The design's connections; enforced when the control plane has a network uplink. */
+  connections?: Connection[] | null;
   project: string;
 };
 

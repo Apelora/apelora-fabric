@@ -1844,6 +1844,36 @@
           }
         }
       },
+      "Connection": {
+        "type": "object",
+        "description": "One connection of the design: `from` may reach `to` (appliance ids).",
+        "required": [
+          "from",
+          "to",
+          "transport"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "port": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`None`: any port of the transport (the protocol has no well-known port).",
+            "minimum": 0
+          },
+          "to": {
+            "type": "string"
+          },
+          "transport": {
+            "type": "string",
+            "description": "`tcp` or `udp`."
+          }
+        }
+      },
       "CreateJoinToken": {
         "type": "object",
         "required": [
@@ -1894,6 +1924,16 @@
               "$ref": "#/components/schemas/DesiredAppliance"
             }
           },
+          "connections": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            },
+            "description": "The design's connections; enforced when the control plane has a network uplink."
+          },
           "document": {
             "type": "object",
             "description": "The Studio document, saved as an immutable revision."
@@ -1924,6 +1964,14 @@
             "items": {
               "$ref": "#/components/schemas/QueuedChange"
             }
+          },
+          "networkJob": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The job that applies the connections to the application's network, when enforced."
           },
           "plan": {
             "$ref": "#/components/schemas/Plan",
@@ -2202,6 +2250,17 @@
           "name": {
             "type": "string"
           },
+          "network": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetworkAttachment",
+                "description": "Set by the control plane when the application's connections are enforced: the NIC\njoins the application's network with its own ACL (unmatched traffic rejected)."
+              }
+            ]
+          },
           "owner": {
             "oneOf": [
               {
@@ -2400,6 +2459,27 @@
           }
         }
       },
+      "NetworkAttachment": {
+        "type": "object",
+        "description": "Where an instance's NIC is attached: the application's network, with its own ACL.",
+        "required": [
+          "network",
+          "acl",
+          "uplink"
+        ],
+        "properties": {
+          "acl": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "uplink": {
+            "type": "string",
+            "description": "Uplink network the application network is created on."
+          }
+        }
+      },
       "NetworkList": {
         "type": "object",
         "required": [
@@ -2530,6 +2610,16 @@
             "items": {
               "$ref": "#/components/schemas/DesiredAppliance"
             }
+          },
+          "connections": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            },
+            "description": "The design's connections; enforced when the control plane has a network uplink."
           },
           "project": {
             "type": "string"
