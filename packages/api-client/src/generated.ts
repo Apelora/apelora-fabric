@@ -1003,6 +1003,25 @@ export type RegisterMachine = {
   provider?: null | ProvisionerKind;
 };
 
+export type RemovalPlan = {
+  /** Why removing it now is refused; empty when it may proceed. */
+  blocked: string[];
+  /** Instances still on it (`project/name`). */
+  instances: string[];
+  member: string;
+  /** The member's status now (`Evacuated`, `Online`, `Offline`…). */
+  status: string;
+  /** Application volumes on it (`project/volume`). */
+  volumes: string[];
+  /** Consequences to accept before proceeding. */
+  warnings: string[];
+};
+
+export type RemovalPreview = {
+  plan: RemovalPlan;
+  source: Source;
+};
+
 export type ReplicaSummary = {
   desired: number;
   healthy: number;
@@ -1364,6 +1383,8 @@ export const operations = {
   revoke_join_token: { method: "DELETE", path: "/api/v1/cluster/join-tokens/{member}", params: ["member"], public: false },
   evacuate_member: { method: "POST", path: "/api/v1/cluster/members/{member}/evacuate", params: ["member"], public: false },
   preview_evacuation: { method: "GET", path: "/api/v1/cluster/members/{member}/evacuation", params: ["member"], public: false },
+  preview_member_removal: { method: "GET", path: "/api/v1/cluster/members/{member}/removal", params: ["member"], public: false },
+  remove_member: { method: "POST", path: "/api/v1/cluster/members/{member}/remove", params: ["member"], public: false },
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   assignments: { method: "GET", path: "/api/v1/identity/assignments", params: [], public: false },
@@ -1496,6 +1517,10 @@ export type Responses = {
   evacuate_member: MemberStateStarted;
   /** Dry run of evacuating a cluster member: per instance, what Incus will do and what it means for the application; what blocks it; what to accept. Changes nothing. */
   preview_evacuation: EvacuationPreview;
+  /** Dry run of removing a cluster member for good: what is still on it, what blocks it and what to accept. Changes nothing. */
+  preview_member_removal: RemovalPreview;
+  /** Removes an evacuated, empty member from the cluster for good, after the check runs again: refused while anything blocks it. Needs `cluster.manage`, the admin identity and the member's name typed again; audited. */
+  remove_member: null;
   /** Restores an evacuated member: Incus moves its instances back and starts them. Needs `manage-infrastructure` and the admin identity; audited. */
   restore_member: MemberStateStarted;
   /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
@@ -1651,6 +1676,8 @@ export type Bodies = {
   revoke_join_token: never;
   evacuate_member: ConfirmMember;
   preview_evacuation: never;
+  preview_member_removal: never;
+  remove_member: ConfirmMember;
   restore_member: ConfirmMember;
   health: never;
   assignments: never;

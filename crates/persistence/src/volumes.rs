@@ -83,6 +83,15 @@ pub async fn application_volumes(pool: &Pool, application: &str) -> Result<Vec<V
     .await?)
 }
 
+/// Every recorded volume, of every application.
+pub async fn all_volumes(pool: &Pool) -> Result<Vec<VolumeRecord>> {
+    Ok(sqlx::query_as::<_, VolumeRecord>(&format!(
+        "SELECT {COLUMNS} FROM volumes v ORDER BY v.member, v.project, v.incus_name"
+    ))
+    .fetch_all(pool)
+    .await?)
+}
+
 /// One of the application's volumes, by its Incus name.
 pub async fn application_volume(
     pool: &Pool,

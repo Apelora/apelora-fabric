@@ -16,6 +16,7 @@ evacuation and migration are Incus operations that Apelora requests, previews an
 | Add a server to the cluster | [member-join.md](member-join.md) |
 | Maintenance on a server | [member-maintenance.md](member-maintenance.md) |
 | A server fails | [member-failure.md](member-failure.md) |
+| Remove a server for good | [member-removal.md](member-removal.md) |
 | The cluster loses quorum | [quorum-loss.md](quorum-loss.md) |
 | OVN or the uplink fails | [network-incident.md](network-incident.md) |
 | A replica fails its health check | [replica-unhealthy.md](replica-unhealthy.md) |

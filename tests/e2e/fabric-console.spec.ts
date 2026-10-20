@@ -297,6 +297,41 @@ test.describe("fabric console views", () => {
     expect(admitted).toBe(1);
   });
 
+  test("an evacuated member is removed only when the check passes and its name is typed", async ({ page }) => {
+    let gone = false;
+    let blocked = ["1 instance is still on it (apelora/shop-db-01); an evacuation leaves instances whose volumes are on the member stopped in place"];
+    const sent: unknown[] = [];
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), ...(gone ? [] : [member("node-4", "Evacuated")])] } }),
+      "GET /api/v1/cluster/members/node-4/removal": () => ({ json: { source: { provider: "incus", observedAt: now }, plan: {
+        member: "node-4", status: "Evacuated", instances: blocked.length ? ["apelora/shop-db-01"] : [], volumes: [], blocked,
+        warnings: ["to use the server again, reinstall it and enrol it as a new machine"] } } }),
+      "POST /api/v1/cluster/members/node-4/remove": (req) => { sent.push(req.postDataJSON()); gone = true; return { status: 204 }; },
+    });
+    await page.goto("/#/membership");
+    await page.getByRole("button", { name: "Remove node-4 from the cluster" }).click();
+    const dialog = page.getByTestId("remove-member-dialog");
+    await expect(dialog.getByTestId("removal-blocked")).toContainText("Cannot remove: 1 instance is still on it");
+    await expect(dialog.getByTestId("remove-member-confirm")).toHaveCount(0);
+    await expect(dialog.getByTestId("remove-member-start")).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+
+    blocked = [];
+    await page.getByRole("button", { name: "Remove node-4 from the cluster" }).click();
+    await expect(dialog.getByTestId("removal-warning")).toContainText("To use the server again, reinstall it and enrol it as a new machine");
+    await dialog.getByTestId("remove-member-confirm").fill("node-");
+    await expect(dialog.getByTestId("remove-member-start")).toBeDisabled();
+    await dialog.getByTestId("remove-member-confirm").fill("node-4");
+    await dialog.getByTestId("remove-member-start").click();
+    await expect(page.getByTestId("membership-notice")).toContainText("node-4 was removed from the cluster");
+    await expect(page.getByTestId("membership-member")).toHaveCount(1);
+    expect(sent).toEqual([{ confirm: "node-4" }]);
+  });
+
   test("an administrator evacuates a member only after the dry run and typing its name, then restores it", async ({ page }) => {
     let status = "Online";
     const sent: { path: string; body: unknown }[] = [];

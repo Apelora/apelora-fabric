@@ -24,8 +24,8 @@ pub use machines::{
 };
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 pub use volumes::{
-    NewVolume, VolumeRecord, application_volume, application_volumes, forget_volume, record_volume,
-    set_volume_size,
+    NewVolume, VolumeRecord, all_volumes, application_volume, application_volumes, forget_volume,
+    record_volume, set_volume_size,
 };
 
 /// Embedded migrations (`crates/persistence/migrations`).

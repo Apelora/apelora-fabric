@@ -77,7 +77,8 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 | Volume snapshots and backups, relocation of `data-local` volumes | Missing | 06 |
 | Resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
-| MAAS adapter (discovery, installation, power), member removal | Missing; ADR 0002 accepted | 09 |
+| Member removal: check (evacuated, nothing left on it, recorded volumes, cluster keeps running), typed confirmation, admin identity, audited; Fabric Console *Remove…* | Done; REAL INCUS TESTED (member 4 removed and enrolled again) | 09 |
+| MAAS adapter (discovery, installation, power) | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
 | Secret scanning in CI; release workflow (draft releases; `v0.1.0-alpha.1` built); end-to-end demonstration (`demo.sh`); certificate rotation; path-aware CI | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
@@ -94,7 +95,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per appliance) wa
 - **Health** is Incus status plus the load balancer's TCP port check, with hysteresis; an application that hangs behind an open port is not detected, and instances without a service address are not checked. Health trackers live in the worker's memory: after a worker restart they start over.
 - **Load balancer quirks (Incus 7.0.1):** updates may be refused while a member is down — in one drill for the whole outage (retried; the substitute joins once they succeed) — and may drop the OVN health check (detected through the state endpoint and re-applied).
 - **Offline detection:** in one drill Incus briefly reported a member that was not stopped as Offline; keep the recovery delay well above that (default 120 s).
-- **Bare-metal provisioning** (Phase 09): servers installed by hand are enrolled, held and admitted through Apelora; the MAAS adapter (discovery, installation, power) is not implemented yet, and removing a member from the cluster is not offered. Incus cannot hold a member before it joins, so the enrolment script holds it right after the join; a member that joins another way is flagged, not blocked.
+- **Bare-metal provisioning** (Phase 09): servers installed by hand are enrolled, held and admitted through Apelora; the MAAS adapter (discovery, installation, power) is not implemented yet. An unreachable member is not removed through Apelora (Incus can only force it; see the runbook). Incus cannot hold a member before it joins, so the enrolment script holds it right after the join; a member that joins another way is flagged, not blocked.
 - **Releases:** `v0.1.0-alpha.1` exists as a draft release (artefacts and checksums built by the release workflow); no staged upgrade procedure yet.
 
 ## Deviations from the incoming specification (deliberate)

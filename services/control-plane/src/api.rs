@@ -229,6 +229,14 @@ pub fn router(state: AppState) -> Router {
             post(cluster_admin::restore),
         )
         .route(
+            "/api/v1/cluster/members/{member}/removal",
+            get(cluster_admin::preview_removal),
+        )
+        .route(
+            "/api/v1/cluster/members/{member}/remove",
+            post(cluster_admin::remove),
+        )
+        .route(
             "/api/v1/machines",
             get(machines::list).post(machines::register),
         )
@@ -1098,6 +1106,7 @@ impl Modify for BearerAuth {
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
+        cluster_admin::preview_removal, cluster_admin::remove,
         machines::list, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,

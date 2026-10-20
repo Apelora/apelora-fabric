@@ -11,6 +11,7 @@ pub mod lifecycle;
 pub mod network;
 pub mod plan;
 pub mod preflight;
+pub mod removal;
 pub mod storage;
 
 /// Version segment of the Apelora REST API (`/api/v1`).

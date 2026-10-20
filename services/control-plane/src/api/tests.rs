@@ -2580,3 +2580,92 @@ async fn volumes_grow_but_never_shrink(pool: Pool) {
     .expect("audit");
     assert_eq!(audited, 1);
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_member_is_removed_only_when_evacuated_empty_and_confirmed(pool: Pool) {
+    let Provider::Mock(m) = Provider::Mock(MockIncus::default()) else {
+        unreachable!()
+    };
+    let mock = Provider::Mock(m.clone());
+    let state =
+        AppState::new(mock.clone(), Auth::Tokens(pool.clone())).with_admin(Some(mock.clone()));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let preview = |member: &'static str| {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move {
+            send(
+                state,
+                "GET",
+                &format!("/api/v1/cluster/members/{member}/removal"),
+                &operator,
+                None,
+                None,
+            )
+            .await
+        }
+    };
+    let remove = |token: String, member: &'static str, confirm: &'static str| {
+        let state = state.clone();
+        async move {
+            send(
+                state,
+                "POST",
+                &format!("/api/v1/cluster/members/{member}/remove"),
+                &token,
+                Some(json!({ "confirm": confirm })),
+                None,
+            )
+            .await
+        }
+    };
+
+    // Online, with instances on it: blocked, with the reasons.
+    let (status, body) = preview("mock-member-03").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let blocked = body["plan"]["blocked"].to_string();
+    assert!(
+        blocked.contains("evacuate it first") && blocked.contains("still on it"),
+        "{body}"
+    );
+    assert_eq!(body["plan"]["instances"], json!(["default/mock-db-01"]));
+    let (status, body) = remove(admin.clone(), "mock-member-03", "mock-member-03").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    // A fourth member, evacuated and empty: only an administrator removes it, with its name typed.
+    mock.create_join_token("mock-member-04")
+        .await
+        .expect("token");
+    assert!(m.join("mock-member-04", false));
+    mock.member_state("mock-member-04", false)
+        .await
+        .expect("evacuate");
+    let (_, body) = preview("mock-member-04").await;
+    assert_eq!(body["plan"]["blocked"], json!([]), "{body}");
+    let (status, _) = remove(operator.clone(), "mock-member-04", "mock-member-04").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = remove(admin.clone(), "mock-member-04", "mock-member-4").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = remove(admin.clone(), "mock-member-04", "mock-member-04").await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert!(
+        !m.members
+            .lock()
+            .expect("members")
+            .iter()
+            .any(|x| x.name == "mock-member-04")
+    );
+    let audited: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE action = 'cluster.member.remove' AND target = 'mock-member-04'")
+        .fetch_one(&pool)
+        .await
+        .expect("audit");
+    assert_eq!(audited, 1);
+    let (status, _) = preview("mock-member-04").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

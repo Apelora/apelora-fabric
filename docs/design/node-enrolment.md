@@ -70,6 +70,8 @@ script and token through cloud-init; nothing in the lifecycle above changes.
 | `GET /api/v1/machines/{name}/admission` | admission checks (dry run) | — |
 | `POST /api/v1/machines/{name}/admit` | checks, then make eligible; 409 when a check fails | `machine.admit` |
 | `DELETE /api/v1/machines/{name}` | forget a machine that is not a member | `machine.remove` |
+| `GET /api/v1/cluster/members/{member}/removal` | removal check (dry run): what is left on it, blockers, warnings | — |
+| `POST /api/v1/cluster/members/{member}/remove` `{confirm}` | remove an evacuated, empty member for good (the machine becomes `left`) | `cluster.member.remove` |
 
 ## 3. Failure handling
 

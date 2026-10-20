@@ -505,6 +505,25 @@ impl Provider {
         }
     }
 
+    /// Removes a member from the cluster for good. Needs an unrestricted identity. The caller
+    /// has checked that nothing is left on it (see `apelora_domain::removal`).
+    pub async fn remove_member(&self, member: &str) -> Result<(), AdapterError> {
+        valid_member(member)?;
+        let op = match self {
+            Provider::Mock(m) => {
+                let mut members = m.members.lock().unwrap_or_else(|e| e.into_inner());
+                let before = members.len();
+                members.retain(|x| x.name != member);
+                if members.len() == before {
+                    return Err(AdapterError::NotFound(format!("cluster member {member}")));
+                }
+                None
+            }
+            Provider::Incus(c) => c.remove_member(member).await?,
+        };
+        self.finish(op, &format!("removing member {member}")).await
+    }
+
     /// The instance's identity (`volatile.uuid`); `None` when Incus does not report one.
     pub async fn instance_uuid(
         &self,

@@ -2377,6 +2377,193 @@
         }
       }
     },
+    "/api/v1/cluster/members/{member}/removal": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Dry run of removing a cluster member for good: what is still on it, what blocks it and what\nto accept. Changes nothing.",
+        "operationId": "preview_member_removal",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RemovalPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/members/{member}/remove": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Removes an evacuated, empty member from the cluster for good, after the check runs again:\nrefused while anything blocks it. Needs `cluster.manage`, the admin identity and the\nmember's name typed again; audited.",
+        "operationId": "remove_member",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmMember"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cluster/members/{member}/restore": {
       "post": {
         "tags": [
@@ -9153,6 +9340,69 @@
                 "description": "Defaults to `manual`."
               }
             ]
+          }
+        }
+      },
+      "RemovalPlan": {
+        "type": "object",
+        "required": [
+          "member",
+          "status",
+          "instances",
+          "volumes",
+          "blocked",
+          "warnings"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why removing it now is refused; empty when it may proceed."
+          },
+          "instances": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Instances still on it (`project/name`)."
+          },
+          "member": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "The member's status now (`Evacuated`, `Online`, `Offline`…)."
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Application volumes on it (`project/volume`)."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Consequences to accept before proceeding."
+          }
+        }
+      },
+      "RemovalPreview": {
+        "type": "object",
+        "required": [
+          "source",
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/RemovalPlan"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
           }
         }
       },

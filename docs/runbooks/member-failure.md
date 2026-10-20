@@ -37,6 +37,7 @@ again 84–206 s after the failure. Removing a member that never returns is NOT 
 
 ## A member that will not return (NOT YET VERIFIED)
 
+Apelora does not remove an unreachable member (an evacuated, reachable one: [member-removal.md](member-removal.md)).
 Remove it from the cluster with `incus cluster remove --force <member>` on a remaining member
 (this deletes the records of its instances), then let the supervisor recreate missing stateless
 replicas. Keep at least three database members so the cluster keeps quorum when one is lost.

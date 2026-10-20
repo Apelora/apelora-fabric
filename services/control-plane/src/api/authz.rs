@@ -418,6 +418,16 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "/api/v1/cluster/members/{member}/restore",
         &["cluster.evacuate", "cluster.evacuate_unsafe"],
     ),
+    (
+        "GET",
+        "/api/v1/cluster/members/{member}/removal",
+        &["cluster.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/cluster/members/{member}/remove",
+        &["cluster.manage"],
+    ),
     ("GET", "/api/v1/machines", &["cluster.view"]),
     ("POST", "/api/v1/machines", &["machine.enrol"]),
     ("DELETE", "/api/v1/machines/{name}", &["hardware.delete"]),

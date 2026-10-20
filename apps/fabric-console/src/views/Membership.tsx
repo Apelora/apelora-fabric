@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { ClusterMember, ClusterResponse, EvacuationPreview, JoinTokenList } from "@apelora/api-client";
+import type { ClusterMember, ClusterResponse, EvacuationPreview, JoinTokenList, RemovalPreview } from "@apelora/api-client";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -85,7 +85,70 @@ function EvacuateDialog({ member, onClose, onStarted }: { member: string | null;
   );
 }
 
-function MemberRows({ members, onEvacuate, onRestore }: { members: ClusterMember[]; onEvacuate: (m: string) => void; onRestore: (m: string) => void }) {
+/**
+ * Removing an evacuated member for good: the check runs first (nothing may be left on it, the
+ * cluster must keep running), then the member's name typed to confirm.
+ */
+function RemoveMemberDialog({ member, onClose, onRemoved }: { member: string | null; onClose: () => void; onRemoved: (message: string) => void }) {
+  const [preview, setPreview] = useState<RemovalPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!member) return;
+    let current = true;
+    setPreview(null);
+    setError(null);
+    setTyped("");
+    client.request("preview_member_removal", { params: { member } }).then(
+      (p) => { if (current) setPreview(p); },
+      (e: unknown) => { if (current) setError(messageOf(e)); },
+    );
+    return () => { current = false; };
+  }, [member]);
+  const plan = preview?.plan;
+  const blocked = !!plan?.blocked.length;
+  const remove = async () => {
+    if (!member) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.request("remove_member", { params: { member }, body: { confirm: typed } });
+      onRemoved(`${member} was removed from the cluster. To use the server again, reinstall it and enrol it as a new machine.`);
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <FormDialog open={!!member} title={`Remove ${member ?? ""} from the cluster?`} onClose={onClose} testId="remove-member-dialog">
+      <p className="text-sm text-base-content/80">It stops being a cluster member for good. This cannot be undone.</p>
+      {!plan && !error && <p className="text-sm text-base-content/60" role="status">Checking what is still on it…</p>}
+      {plan && (
+        <>
+          {plan.blocked.map((b) => <p key={b} role="alert" className="text-sm text-error" data-testid="removal-blocked">Cannot remove: {b}</p>)}
+          {!blocked && plan.warnings.map((w) => <p key={w} className="flex items-start gap-2 text-sm" role="note" data-testid="removal-warning"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{sentence(w)}</p>)}
+          {!blocked && (
+            <label className="flex flex-col gap-1 text-sm">
+              <span>Type <strong className="font-mono">{member}</strong> to confirm</span>
+              <input className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={typed} onChange={(e) => setTyped(e.target.value)} data-testid="remove-member-confirm" />
+            </label>
+          )}
+        </>
+      )}
+      {error && <ErrorPanel message={error} testId="remove-member-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn-sm btn-ghost text-error" disabled={!plan || blocked || typed !== member || busy} onClick={() => void remove()} data-testid="remove-member-start">
+          {busy ? "Removing…" : "Remove member"}
+        </button>
+      </div>
+    </FormDialog>
+  );
+}
+
+function MemberRows({ members, onEvacuate, onRestore, onRemove }: { members: ClusterMember[]; onEvacuate: (m: string) => void; onRestore: (m: string) => void; onRemove: (m: string) => void }) {
   return (
     <TableFrame>
       <thead><tr><th>Member</th><th>Status</th><th>Architecture</th><th><span className="sr-only">Actions</span></th></tr></thead>
@@ -97,7 +160,12 @@ function MemberRows({ members, onEvacuate, onRestore }: { members: ClusterMember
             <td>{m.architecture}</td>
             <td className="text-right">
               {m.status === "Evacuated"
-                ? <button type="button" className="btn btn-xs btn-ghost" onClick={() => onRestore(m.name)} data-testid="restore-member">Restore…</button>
+                ? (
+                  <span className="inline-flex flex-wrap justify-end gap-1">
+                    <button type="button" className="btn btn-xs btn-ghost" onClick={() => onRestore(m.name)} data-testid="restore-member">Restore…</button>
+                    <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Remove ${m.name} from the cluster`} onClick={() => onRemove(m.name)} data-testid="remove-member">Remove…</button>
+                  </span>
+                )
                 : <button type="button" className="btn btn-xs btn-ghost" disabled={m.status !== "Online"} onClick={() => onEvacuate(m.name)} data-testid="evacuate-member">Evacuate…</button>}
             </td>
           </tr>
@@ -111,6 +179,7 @@ export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
   const [cluster, reloadCluster] = useLoad<ClusterResponse>(() => client.get("cluster"), onAuth);
   const [toEvacuate, setToEvacuate] = useState<string | null>(null);
   const [toRestore, setToRestore] = useState<string | null>(null);
+  const [toRemove, setToRemove] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const restore = async (member: string) => {
     setError(null);
@@ -145,9 +214,9 @@ export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
         {(c) => (
           <>
             <SectionHeader title="Cluster members" count={c.members.length} source={c.source} />
-            <p className="text-sm text-base-content/70">Evacuate a member before maintenance: its instances move to the other members until you restore it.</p>
+            <p className="text-sm text-base-content/70">Evacuate a member before maintenance: its instances move to the other members until you restore it. An evacuated, empty member can be removed for good.</p>
             {notice && <p role="status" className="flex items-start gap-2 text-sm" data-testid="membership-notice"><span className="status status-info mt-1.5 shrink-0" aria-hidden="true" />{notice}</p>}
-            <MemberRows members={c.members} onEvacuate={setToEvacuate} onRestore={setToRestore} />
+            <MemberRows members={c.members} onEvacuate={setToEvacuate} onRestore={setToRestore} onRemove={setToRemove} />
           </>
         )}
       </Section>
@@ -178,6 +247,11 @@ export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
         member={toEvacuate}
         onClose={() => setToEvacuate(null)}
         onStarted={(m) => { setToEvacuate(null); setNotice(m); reloadCluster(); }}
+      />
+      <RemoveMemberDialog
+        member={toRemove}
+        onClose={() => setToRemove(null)}
+        onRemoved={(m) => { setToRemove(null); setNotice(m); reloadCluster(); }}
       />
       <ConfirmDialog
         open={!!toRestore}

@@ -613,6 +613,17 @@ impl IncusClient {
         .await
     }
 
+    /// `DELETE /1.0/cluster/members/<name>`: removes the member from the cluster for good.
+    /// Incus refuses while instances or volumes remain on it.
+    pub async fn remove_member(&self, member: &str) -> Result<Option<String>, AdapterError> {
+        self.maybe_operation(
+            Method::DELETE,
+            &format!("/1.0/cluster/members/{member}"),
+            None,
+        )
+        .await
+    }
+
     /// `DELETE /1.0/instances/<name>`; Incus refuses to delete a running instance.
     pub async fn delete_instance(&self, project: &str, name: &str) -> Result<String, AdapterError> {
         self.start_operation(

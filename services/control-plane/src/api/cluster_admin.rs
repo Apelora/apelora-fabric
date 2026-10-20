@@ -408,3 +408,122 @@ pub(super) async fn restore(
         Json(MemberStateStarted { member, operation }),
     ))
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct RemovalPreview {
+    pub source: Source,
+    pub plan: apelora_domain::removal::RemovalPlan,
+}
+
+/// The removal check: what is still on `member` and whether the cluster keeps running without
+/// it. Uses the admin identity when configured, so every project is seen.
+async fn removal_plan(
+    state: &AppState,
+    member: &str,
+) -> Result<
+    (
+        apelora_domain::removal::RemovalPlan,
+        apelora_domain::ProviderMode,
+    ),
+    ApiError,
+> {
+    use apelora_domain::removal::{RecordedVolume, plan_removal};
+    let provider: &Provider = state.admin.as_deref().unwrap_or(&state.provider);
+    let members = provider.cluster_members().await?;
+    let instances = provider.instances().await?;
+    let records = match &state.auth {
+        Auth::Tokens(pool) => apelora_persistence::all_volumes(pool).await?,
+        Auth::DisabledForDevelopment => Vec::new(),
+    };
+    let volumes: Vec<RecordedVolume<'_>> = records
+        .iter()
+        .map(|r| RecordedVolume {
+            project: &r.project,
+            name: &r.incus_name,
+            member: &r.member,
+        })
+        .collect();
+    let mut plan = plan_removal(member, &members, &instances, &volumes)
+        .map_err(|e| ApiError::new(StatusCode::NOT_FOUND, "not_found", e))?;
+    if state.admin.is_none() {
+        plan.blocked.push(
+            "cluster administration needs the admin identity: instances of other projects cannot be checked".into(),
+        );
+    }
+    Ok((plan, provider.mode()))
+}
+
+/// Dry run of removing a cluster member for good: what is still on it, what blocks it and what
+/// to accept. Changes nothing.
+#[utoipa::path(get, path = "/api/v1/cluster/members/{member}/removal", tag = "cluster", operation_id = "preview_member_removal",
+    params(("member" = String, Path, description = "Cluster member name")),
+    responses((status = 200, body = RemovalPreview), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 502, body = ErrorBody)))]
+pub(super) async fn preview_removal(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(member): Path<String>,
+) -> Result<Json<RemovalPreview>, ApiError> {
+    require(&p, Permission::ReadInventory)?;
+    member_name(&member)?;
+    let (plan, mode) = removal_plan(&state, &member).await?;
+    Ok(Json(RemovalPreview {
+        source: source(mode),
+        plan,
+    }))
+}
+
+/// Removes an evacuated, empty member from the cluster for good, after the check runs again:
+/// refused while anything blocks it. Needs `cluster.manage`, the admin identity and the
+/// member's name typed again; audited.
+#[utoipa::path(post, path = "/api/v1/cluster/members/{member}/remove", tag = "cluster", operation_id = "remove_member",
+    params(("member" = String, Path, description = "Cluster member name")), request_body = ConfirmMember,
+    responses((status = 204), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 409, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn remove(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    headers: HeaderMap,
+    Path(member): Path<String>,
+    body: Result<Json<ConfirmMember>, JsonRejection>,
+) -> Result<StatusCode, ApiError> {
+    allow_platform(&p, "cluster.manage")?;
+    member_name(&member)?;
+    if confirm(body, &member)? {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "a member is never removed by force here; see docs/runbooks/member-failure.md",
+        ));
+    }
+    let pool = audit_store(&state)?;
+    let provider = admin(&state)?;
+    let (plan, _) = removal_plan(&state, &member).await?;
+    if !plan.blocked.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "removal_blocked",
+            format!("nothing was changed: {}", plan.blocked.join("; ")),
+        ));
+    }
+    let approval = guard(
+        &state,
+        &p,
+        &headers,
+        "cluster.manage",
+        &format!("remove:{member}"),
+    )
+    .await?;
+    provider.remove_member(&member).await?;
+    super::authz::audit_as(
+        pool,
+        &p,
+        "cluster.member.remove",
+        &member,
+        &json!({ "role": p.role, "warnings": plan.warnings, "approval": approval }),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
