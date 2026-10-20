@@ -38,7 +38,19 @@ export type RequestOptions<K extends Operation> = ([keyof Params<K>] extends [ne
   ([Bodies[K]] extends [never] ? { body?: undefined } : { body: Bodies[K] }) & {
     /** Sent as `Idempotency-Key`: repeating a request with the same key returns the first result. */
     idempotencyKey?: string;
+    /** Query string parameters (the OpenAPI document lists them per route); `undefined` values are left out. */
+    query?: Query;
   };
+
+export type Query = Record<string, string | number | boolean | undefined>;
+
+/** `?a=1&b=x` for the defined values, or "" when there are none. */
+export function queryString(query: Query | undefined): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined) search.set(k, String(v));
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
 
 /** Operations that need no path parameters and no body. */
 type Simple = { [K in Operation]: [keyof Params<K>] extends [never] ? ([Bodies[K]] extends [never] ? K : never) : never }[Operation];
@@ -59,7 +71,7 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
     if (options.body !== undefined) headers["content-type"] = "application/json";
     let res: Response;
     try {
-      res = await doFetch(baseUrl + url, { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+      res = await doFetch(baseUrl + url + queryString(options.query), { method, headers, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
     } catch (e) {
       throw new ApiRequestError(0, "network_error", e instanceof Error ? e.message : String(e));
     }

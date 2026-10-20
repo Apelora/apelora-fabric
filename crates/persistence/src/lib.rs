@@ -13,6 +13,7 @@ pub use sqlx::PgPool as Pool;
 
 mod health;
 pub mod identity;
+pub mod lifecycle;
 mod machines;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
@@ -163,8 +164,8 @@ pub async fn add_revision_once(
         )));
     }
     let rev = sqlx::query_as::<_, Revision>(
-        "INSERT INTO application_revisions (id, application_id, revision, document, created_by, idempotency_key)
-         VALUES ($1, $2, COALESCE((SELECT max(revision) FROM application_revisions WHERE application_id = $2), 0) + 1, $3, $4, $5)
+        "INSERT INTO application_revisions (id, application_id, revision, document, created_by, idempotency_key, published)
+         VALUES ($1, $2, COALESCE((SELECT max(revision) FROM application_revisions WHERE application_id = $2), 0) + 1, $3, $4, $5, true)
          RETURNING id, application_id, revision, document, created_by",
     )
     .bind(Uuid::new_v4())
@@ -572,6 +573,9 @@ pub enum Outcome {
     Failed(String),
     /// Marked failed at once: retrying cannot help (e.g. the target is not Apelora's).
     Rejected(String),
+    /// Not finished and not failing: run again after this many seconds without using up an
+    /// attempt (a coordinating job waiting for the jobs it queued).
+    Waiting(u32),
 }
 
 /// Records the result. Rejected with `Conflict` when another worker has claimed the job since.
@@ -603,6 +607,18 @@ pub async fn complete_job(
         .bind(worker)
         .bind(job.generation)
         .bind(err)
+        .execute(pool)
+        .await?
+        .rows_affected(),
+        Outcome::Waiting(secs) => sqlx::query(
+            "UPDATE jobs SET status = 'pending', attempts = greatest(attempts - 1, 0), run_after = now() + make_interval(secs => $4::double precision),
+                lease_owner = NULL, lease_until = NULL, updated_at = now()
+             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
+        )
+        .bind(job.id)
+        .bind(worker)
+        .bind(job.generation)
+        .bind(f64::from(*secs))
         .execute(pool)
         .await?
         .rows_affected(),

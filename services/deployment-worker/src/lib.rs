@@ -6,6 +6,7 @@
 pub mod health;
 pub mod lifecycle;
 pub mod network;
+pub mod operations;
 pub mod supervisor;
 
 use std::time::Duration;
@@ -28,6 +29,9 @@ async fn handle(
 ) -> Result<Outcome, StoreError> {
     if job.kind == "noop" {
         return Ok(Outcome::Succeeded);
+    }
+    if job.kind == "application.operation" {
+        return operations::run(pool, provider, job).await;
     }
     if job.kind == "network.sync" {
         return Ok(match network::from_payload(&job.payload) {
@@ -303,5 +307,362 @@ mod tests {
             (j.status.as_str(), j.external_operation),
             ("succeeded", None)
         );
+    }
+    // ---- application operations ------------------------------------------------------------
+
+    async fn create_instance(pool: &Pool, provider: &Provider, name: &str) {
+        job(
+            pool,
+            "instance.create",
+            json!({ "project": "apelora", "name": name, "kind": "container",
+                    "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" },
+                    "start": true }),
+        )
+        .await;
+        drain(pool, provider).await;
+    }
+
+    fn phases(list: &[(&str, &[&str])]) -> serde_json::Value {
+        json!(list.iter().map(|(action, names)| json!({ "action": action, "state": "pending",
+            "steps": names.iter().map(|n| json!({ "project": "apelora", "name": n, "appliance": n, "state": "pending" })).collect::<Vec<_>>() })).collect::<Vec<_>>())
+    }
+
+    /// Runs the worker until nothing is runnable, skipping the coordinator's waits only when
+    /// nothing else is due (as time passing would).
+    async fn settle(pool: &Pool, provider: &Provider) {
+        settle_with(pool, provider, None).await;
+    }
+
+    async fn settle_with(pool: &Pool, provider: &Provider, cap_attempts: Option<i32>) {
+        for _ in 0..400 {
+            if let Some(n) = cap_attempts {
+                sqlx::query("UPDATE jobs SET max_attempts = $1 WHERE kind LIKE 'instance.%'")
+                    .bind(n)
+                    .execute(pool)
+                    .await
+                    .expect("cap");
+            }
+            if run_once(pool, provider, "test-worker").await.expect("run") {
+                continue;
+            }
+            let skipped = sqlx::query(
+                "UPDATE jobs SET run_after = now() WHERE status = 'pending' AND run_after > now()",
+            )
+            .execute(pool)
+            .await
+            .expect("wait")
+            .rows_affected();
+            if skipped == 0 {
+                break;
+            }
+        }
+    }
+
+    async fn operation(
+        pool: &Pool,
+        app: uuid::Uuid,
+        kind: &str,
+        ph: serde_json::Value,
+    ) -> apelora_persistence::lifecycle::OperationRow {
+        apelora_persistence::lifecycle::create_operation(
+            pool,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app,
+                project: "apelora",
+                kind,
+                phases: &ph,
+                requested_by: "tester",
+                confirmed: false,
+                key: None,
+            },
+        )
+        .await
+        .expect("operation")
+        .0
+    }
+
+    async fn status_of(provider: &Provider, name: &str) -> String {
+        provider
+            .instance("apelora", name)
+            .await
+            .expect("read")
+            .map(|i| i.status)
+            .unwrap_or_default()
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_stop_operation_takes_its_phases_in_order_and_succeeds_only_when_incus_confirms(
+        pool: Pool,
+    ) {
+        let provider = mock();
+        for n in ["web", "db"] {
+            create_instance(&pool, &provider, n).await;
+        }
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let op = operation(
+            &pool,
+            app.id,
+            "stop",
+            phases(&[("stop", &["web"]), ("stop", &["db"])]),
+        )
+        .await;
+
+        // One pass queues the first phase only: the database is not touched until the web tier is confirmed stopped.
+        assert!(run_once(&pool, &provider, "w").await.expect("run"));
+        let queued: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'instance.stop'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(queued, 1, "only the first phase is queued");
+        assert_eq!(
+            (
+                status_of(&provider, "web").await.as_str(),
+                status_of(&provider, "db").await.as_str()
+            ),
+            ("Running", "Running")
+        );
+
+        settle(&pool, &provider).await;
+        let done = apelora_persistence::lifecycle::get_operation(&pool, op.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!((done.state.as_str(), done.error), ("succeeded", None));
+        assert!(done.finished_at.is_some() && done.started_at.is_some());
+        assert_eq!(
+            (
+                status_of(&provider, "web").await.as_str(),
+                status_of(&provider, "db").await.as_str()
+            ),
+            ("Stopped", "Stopped")
+        );
+        let p: Vec<serde_json::Value> = serde_json::from_value(done.phases).expect("phases");
+        assert!(p.iter().all(|x| x["state"] == "succeeded"
+            && x["steps"][0]["state"] == "succeeded"
+            && x["steps"][0]["job"].is_string()));
+        // The web stop job was created before the database one.
+        let order: Vec<String> = sqlx::query_scalar(
+            "SELECT payload->>'name' FROM jobs WHERE kind = 'instance.stop' ORDER BY created_at",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("order");
+        assert_eq!(order, ["web", "db"]);
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn start_and_restart_bring_instances_up_providers_first(pool: Pool) {
+        let provider = mock();
+        for n in ["web", "db"] {
+            create_instance(&pool, &provider, n).await;
+        }
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let stop = operation(
+            &pool,
+            app.id,
+            "stop",
+            phases(&[("stop", &["web"]), ("stop", &["db"])]),
+        )
+        .await;
+        settle(&pool, &provider).await;
+        assert_eq!(
+            apelora_persistence::lifecycle::get_operation(&pool, stop.id)
+                .await
+                .expect("op")
+                .expect("row")
+                .state,
+            "succeeded"
+        );
+
+        let start = operation(
+            &pool,
+            app.id,
+            "start",
+            phases(&[("start", &["db"]), ("start", &["web"])]),
+        )
+        .await;
+        settle(&pool, &provider).await;
+        assert_eq!(
+            apelora_persistence::lifecycle::get_operation(&pool, start.id)
+                .await
+                .expect("op")
+                .expect("row")
+                .state,
+            "succeeded"
+        );
+        assert_eq!(
+            (
+                status_of(&provider, "db").await.as_str(),
+                status_of(&provider, "web").await.as_str()
+            ),
+            ("Running", "Running")
+        );
+        let order: Vec<String> = sqlx::query_scalar(
+            "SELECT payload->>'name' FROM jobs WHERE kind = 'instance.start' ORDER BY created_at",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("order");
+        assert_eq!(
+            order,
+            ["db", "web"],
+            "the database is up before the web tier"
+        );
+
+        let restart = operation(
+            &pool,
+            app.id,
+            "restart",
+            phases(&[
+                ("stop", &["web"]),
+                ("stop", &["db"]),
+                ("start", &["db"]),
+                ("start", &["web"]),
+            ]),
+        )
+        .await;
+        settle(&pool, &provider).await;
+        let r = apelora_persistence::lifecycle::get_operation(&pool, restart.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!(r.state, "succeeded", "{:?}", r.error);
+        assert_eq!(
+            (
+                status_of(&provider, "db").await.as_str(),
+                status_of(&provider, "web").await.as_str()
+            ),
+            ("Running", "Running")
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_failure_is_reported_as_what_failed_and_later_phases_are_not_attempted(pool: Pool) {
+        let provider = mock();
+        create_instance(&pool, &provider, "web").await; // "db" does not exist in Incus
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let op = operation(
+            &pool,
+            app.id,
+            "stop",
+            phases(&[("stop", &["web"]), ("stop", &["db"]), ("stop", &["cache"])]),
+        )
+        .await;
+        settle_with(&pool, &provider, Some(1)).await;
+        let done = apelora_persistence::lifecycle::get_operation(&pool, op.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!(done.state, "failed");
+        assert!(
+            done.error.as_deref().is_some_and(|e| e.starts_with("db:")),
+            "{:?}",
+            done.error
+        );
+        let p: Vec<serde_json::Value> = serde_json::from_value(done.phases).expect("phases");
+        let states: Vec<&str> = p
+            .iter()
+            .map(|x| x["state"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(states, ["succeeded", "failed", "skipped"]);
+        assert_eq!(
+            status_of(&provider, "web").await,
+            "Stopped",
+            "the part that worked stays done and is reported"
+        );
+        let cache_jobs: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM jobs WHERE payload->>'name' = 'cache'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(cache_jobs, 0, "nothing was attempted after the failure");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn only_one_operation_per_application_may_be_active_and_a_key_makes_a_request_safe_to_repeat(
+        pool: Pool,
+    ) {
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let ph = phases(&[("stop", &["web"])]);
+        let first = apelora_persistence::lifecycle::create_operation(
+            &pool,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app.id,
+                project: "apelora",
+                kind: "stop",
+                phases: &ph,
+                requested_by: "t",
+                confirmed: false,
+                key: Some("k1"),
+            },
+        )
+        .await
+        .expect("first");
+        assert!(first.1);
+        let again = apelora_persistence::lifecycle::create_operation(
+            &pool,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app.id,
+                project: "apelora",
+                kind: "stop",
+                phases: &ph,
+                requested_by: "t",
+                confirmed: false,
+                key: Some("k1"),
+            },
+        )
+        .await
+        .expect("same key");
+        assert_eq!(
+            (again.0.id, again.1),
+            (first.0.id, false),
+            "a repeated request returns the same operation"
+        );
+        let other = apelora_persistence::lifecycle::create_operation(
+            &pool,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app.id,
+                project: "apelora",
+                kind: "start",
+                phases: &ph,
+                requested_by: "t",
+                confirmed: false,
+                key: None,
+            },
+        )
+        .await;
+        assert!(matches!(other, Err(StoreError::Conflict(_))), "{other:?}");
+        let wrong = apelora_persistence::lifecycle::create_operation(
+            &pool,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app.id,
+                project: "apelora",
+                kind: "start",
+                phases: &ph,
+                requested_by: "t",
+                confirmed: false,
+                key: Some("k1"),
+            },
+        )
+        .await;
+        assert!(
+            matches!(wrong, Err(StoreError::Conflict(_))),
+            "the key belongs to a different request"
+        );
+        let jobs: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'application.operation'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(jobs, 1);
     }
 }

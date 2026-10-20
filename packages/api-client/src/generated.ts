@@ -3,12 +3,31 @@
 
 export const API_VERSION = "v1";
 
+export type ActionState = {
+  allowed: boolean;
+  /** Why not, in a sentence the interface can show. */
+  reason?: string | null;
+};
+
+export type Actions = {
+  restart: ActionState;
+  start: ActionState;
+  stop: ActionState;
+};
+
 export type Admission = {
   /** No check failed: the machine can be admitted. */
   admissible: boolean;
   checks: Check[];
   name: string;
   source: Source;
+};
+
+export type ApplianceDetail = {
+  appliance: string;
+  availability: Availability;
+  instances: InstanceDetail[];
+  replicas: number;
 };
 
 export type ApplianceStatus = {
@@ -21,15 +40,36 @@ export type ApplianceStatus = {
   status: string;
 };
 
+export type ApplicationDetail = {
+  appliances: ApplianceDetail[];
+  application: ApplicationInfo;
+  operations: OperationDto[];
+  versions: VersionInfo[];
+};
+
 export type ApplicationInfo = {
+  /** What the caller may do now, from their permissions and the application's state. */
+  actions: Actions;
+  archived: boolean;
   /** RFC 3339. */
   createdAt: string;
+  deployment: DeploymentInfo;
+  description: string;
+  design: DesignInfo;
+  environment?: null | EnvironmentRef;
+  /** Key of the icon (a catalog icon such as `nginx`, or a generic one such as `generic-box`). */
+  icon: string;
   latestRevision?: number | null;
   name: string;
+  project: ProjectRef;
+  updatedAt: string;
 };
 
 export type ApplicationList = {
   items: ApplicationInfo[];
+  /** When Incus was observed for these statuses (RFC 3339), and whether that failed. */
+  observed_at: string;
+  stale: boolean;
 };
 
 export type ApplicationStatus = {
@@ -196,6 +236,18 @@ export type Connection = {
   transport: string;
 };
 
+export type CreateApplication = {
+  description?: string;
+  /** The first draft (a Studio document), if any. */
+  document?: Record<string, unknown> | null;
+  /** The environment (and so the project) the application lives in. */
+  environmentId: string;
+  /** Icon key; `box` when omitted. */
+  icon?: string | null;
+  /** Lowercase letters, digits and hyphens, starting with a letter; at most 40 characters. Fixed for the life of the application (instances are named after it). */
+  name: string;
+};
+
 export type CreateJoinToken = {
   /** Name the new member will join with. */
   memberName: string;
@@ -213,13 +265,15 @@ export type DeployRequest = {
   appliances: DesiredAppliance[];
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
-  /** The Studio document, saved as an immutable revision. */
+  /** The Studio document, saved as an immutable revision. Ignored when `version` is given. */
   document: Record<string, unknown>;
   project: string;
   /** Ports reachable from outside the application (needs connections to be enforced). */
   published?: Published[];
   /** Also delete the application's instances that are no longer in the design. */
   removeMissing?: boolean;
+  /** Deploy this published version (its stored document) instead of saving `document` as a new revision. Drafts can never be deployed. */
+  version?: number | null;
 };
 
 export type DeployResponse = {
@@ -232,6 +286,35 @@ export type DeployResponse = {
   revision: number;
 };
 
+export type DeploymentInfo = {
+  appliances: number;
+  /** The published version the application was last deployed from. */
+  deployedVersion?: number | null;
+  lastActivityAt?: string | null;
+  /** When the control plane last observed Incus for this answer (RFC 3339). */
+  observedAt: string;
+  operation?: null | OperationSummary;
+  replicas: ReplicaSummary;
+  source: ProviderMode;
+  /** The answer could not be refreshed (Incus unreachable); the status is `unknown`. */
+  stale: boolean;
+  status: DeploymentStatus;
+};
+
+export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "stopped" | "failed" | "unknown";
+
+export type DesignInfo = {
+  draftVersion?: number | null;
+  /** The draft has changes that no published version contains. */
+  hasUnpublishedChanges: boolean;
+  publishedVersion?: number | null;
+  status: DesignStatus;
+  updatedAt?: string | null;
+  validationErrors: number;
+};
+
+export type DesignStatus = "draft" | "validated" | "published";
+
 /** One appliance of the design, turned into the instances it should run as. */
 export type DesiredAppliance = {
   /** The appliance's stable id in the design (e.g. `nginx-01`). */
@@ -243,6 +326,14 @@ export type DesiredAppliance = {
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
   spec: InstanceSpec;
+};
+
+export type DraftDto = {
+  document: Record<string, unknown>;
+  updatedAt: string;
+  updatedBy: string;
+  validationErrors: string[];
+  version: number;
 };
 
 export type EffectivePermission = {
@@ -281,6 +372,14 @@ export type EnvironmentDto = {
 
 export type EnvironmentList = {
   items: EnvironmentDto[];
+};
+
+export type EnvironmentRef = {
+  id: string;
+  incusProject?: string | null;
+  kind: EnvKind;
+  name: string;
+  slug: string;
 };
 
 /** Error body for every non-2xx response. */
@@ -411,6 +510,13 @@ export type Instance = {
 
 /** A state change Apelora can request for one of its instances. */
 export type InstanceAction = "start" | "stop" | "restart";
+
+export type InstanceDetail = {
+  instance: string;
+  location: string;
+  status: string;
+  unhealthy: boolean;
+};
 
 export type InstanceHealth = {
   /** What the decision rests on, e.g. `port check failing`. */
@@ -628,6 +734,48 @@ export type NewServiceIdentity = {
   restrictions?: Record<string, unknown>;
 };
 
+export type OperateRequest = {
+  action: OperationKind;
+  /** Required to stop or restart an application that has single-instance or stateful appliances: it acknowledges that their clients lose service meanwhile. */
+  confirmDisruption?: boolean;
+};
+
+export type OperationAccepted = {
+  /** False when the same `Idempotency-Key` had already created it. */
+  created: boolean;
+  operation: OperationDto;
+};
+
+export type OperationDto = {
+  createdAt: string;
+  error?: string | null;
+  finishedAt?: string | null;
+  id: string;
+  kind: OperationKind;
+  phases: PhaseDto[];
+  requestedBy: string;
+  startedAt?: string | null;
+  state: OperationState;
+  stepsDone: number;
+  stepsTotal: number;
+};
+
+export type OperationKind = "start" | "stop" | "restart";
+
+export type OperationList = {
+  items: OperationDto[];
+};
+
+export type OperationState = "pending" | "running" | "succeeded" | "failed";
+
+export type OperationSummary = {
+  createdAt: string;
+  error?: string | null;
+  id: string;
+  kind: OperationKind;
+  state: OperationState;
+};
+
 export type OrganizationDto = {
   createdAt: string;
   disabled: boolean;
@@ -667,6 +815,13 @@ export type PermissionDto = {
 
 export type PermissionList = {
   items: PermissionDto[];
+};
+
+export type PhaseDto = {
+  /** `start` or `stop`. */
+  action: string;
+  state: string;
+  steps: StepDto[];
 };
 
 export type Plan = {
@@ -752,11 +907,24 @@ export type ProjectList = {
   source: Source;
 };
 
+export type ProjectRef = {
+  id: string;
+  name: string;
+  organizationId: string;
+  organizationSlug: string;
+  slug: string;
+};
+
 /** Where the backend's view of the infrastructure comes from. */
 export type ProviderMode = "mock" | "incus";
 
 /** What installs and powers a machine. Every provisioner enrols the same way. */
 export type ProvisionerKind = "manual" | "maas";
+
+export type PublishRequest = {
+  /** A short name for the version, e.g. `after load test`. */
+  label?: string | null;
+};
 
 /** A port of an appliance reachable from outside the application (in the Studio: connected from a gateway). Only ports with a number can be published. */
 export type Published = {
@@ -778,6 +946,13 @@ export type RegisterMachine = {
   /** The name it will have as a cluster member. */
   name: string;
   provider?: null | ProvisionerKind;
+};
+
+export type ReplicaSummary = {
+  desired: number;
+  healthy: number;
+  running: number;
+  unhealthy: number;
 };
 
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */
@@ -814,6 +989,12 @@ export type RoleRef = {
 } | {
   id: string;
   type: "custom";
+};
+
+export type SaveDraft = {
+  /** The draft version this edit started from; omit only for the first save. */
+  baseVersion?: number | null;
+  document: Record<string, unknown>;
 };
 
 export type SavePolicy = {
@@ -903,6 +1084,14 @@ export type StateChange = {
   action: InstanceAction;
 };
 
+export type StepDto = {
+  appliance: string;
+  error?: string | null;
+  instance: string;
+  /** `pending`, `running`, `succeeded`, `failed` or `skipped`. */
+  state: string;
+};
+
 export type StoragePool = {
   description: string;
   driver: string;
@@ -952,6 +1141,11 @@ export type TokenList = {
   items: TokenInfo[];
 };
 
+export type UpdateApplication = {
+  description?: string | null;
+  icon?: string | null;
+};
+
 export type UserDto = {
   createdAt: string;
   disabled: boolean;
@@ -965,6 +1159,24 @@ export type UserDto = {
 
 export type UserList = {
   items: UserDto[];
+};
+
+export type VersionDocument = {
+  document: Record<string, unknown>;
+  published: boolean;
+};
+
+export type VersionInfo = {
+  createdAt: string;
+  createdBy: string;
+  draftVersion?: number | null;
+  label?: string | null;
+  published: boolean;
+  revision: number;
+};
+
+export type VersionList = {
+  items: VersionInfo[];
 };
 
 export type WhoAmI = {
@@ -989,9 +1201,22 @@ export type WhoAmI = {
 /** Operations by operationId: method, path template, path parameters and whether a token is needed. */
 export const operations = {
   applications: { method: "GET", path: "/api/v1/applications", params: [], public: false },
+  create_application: { method: "POST", path: "/api/v1/applications", params: [], public: false },
+  application: { method: "GET", path: "/api/v1/applications/{name}", params: ["name"], public: false },
+  archive_application: { method: "POST", path: "/api/v1/applications/{name}/archive", params: ["name"], public: false },
   deploy_application: { method: "POST", path: "/api/v1/applications/{name}/deployments", params: ["name"], public: false },
+  application_draft: { method: "GET", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
+  save_application_draft: { method: "PUT", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
+  application_events: { method: "GET", path: "/api/v1/applications/{name}/events", params: ["name"], public: false },
+  application_operations: { method: "GET", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
+  operate_application: { method: "POST", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
+  application_operation: { method: "GET", path: "/api/v1/applications/{name}/operations/{id}", params: ["name","id"], public: false },
   plan_application: { method: "POST", path: "/api/v1/applications/{name}/plan", params: ["name"], public: false },
+  restore_application: { method: "POST", path: "/api/v1/applications/{name}/restore", params: ["name"], public: false },
   application_status: { method: "GET", path: "/api/v1/applications/{name}/status", params: ["name"], public: false },
+  application_versions: { method: "GET", path: "/api/v1/applications/{name}/versions", params: ["name"], public: false },
+  publish_application: { method: "POST", path: "/api/v1/applications/{name}/versions", params: ["name"], public: false },
+  application_version: { method: "GET", path: "/api/v1/applications/{name}/versions/{revision}", params: ["name","revision"], public: false },
   approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
   request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
   approve_request: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
@@ -1064,14 +1289,40 @@ export const operations = {
 
 /** Success body of each operation (`null` for 204 No Content). */
 export type Responses = {
-  /** Applications that have been deployed, with their latest revision. Needs `read-inventory`. */
+  /** Applications the caller may see, each with design status, derived runtime status, replica health, and the actions they may take now. Needs `application.view`. */
   applications: ApplicationList;
+  /** Creates an application in an environment, optionally with its first draft. Needs `application.create` on the environment's project. */
+  create_application: ApplicationInfo;
+  /** One application with its appliances (desired and observed), versions and recent operations. Needs `application.view`. */
+  application: ApplicationDetail;
+  /** Archives an application that is not running; it leaves the default list and keeps its data. Needs `application.delete`. */
+  archive_application: null;
   /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`. */
   deploy_application: DeployResponse;
+  /** The application's working document. 404 when it has none yet. Needs `application.view`. */
+  application_draft: DraftDto;
+  /** Saves the draft as the next version. Refused with 409 `draft_conflict` (and the current version) when someone saved since `baseVersion`; nothing is overwritten. Needs `application.design`. */
+  save_application_draft: DraftDto;
+  /** What happened to the application: creation, saves, versions, deployments, operations, refusals. Needs `application.view`. */
+  application_events: AuditList;
+  /** Recent operations of the application, newest first. Needs `application.view`. */
+  application_operations: OperationList;
+  /** Starts, stops or restarts the application's instances, in dependency order, as an asynchronous operation. Succeeds only when Incus confirms each instance's state. Needs `application.operate` on the application. It only touches instances this application owns; networks, volumes, data and other applications are left alone. */
+  operate_application: OperationAccepted;
+  /** One operation with the progress of each phase and instance. Needs `application.view`. */
+  application_operation: OperationDto;
   /** What deploying the design would change, without changing anything. Needs `deploy`. */
   plan_application: Plan;
+  /** Brings an archived application back. Needs `application.delete`. */
+  restore_application: null;
   /** The application's instances as Incus reports them, by appliance. Needs `read-inventory`. */
   application_status: ApplicationStatus;
+  /** Versions of the application, newest first. Needs `application.view`. */
+  application_versions: VersionList;
+  /** Releases the current draft as the next immutable published version. Refused while the draft is invalid or when this draft version is already published. Needs `application.design`. */
+  publish_application: VersionInfo;
+  /** The document of one version. Needs `application.view`. */
+  application_version: VersionDocument;
   /** Requests and approvals: your own, plus every open one if you may approve. Needs `approval.request` or `approval.grant`. */
   approvals: ApprovalList;
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
@@ -1213,9 +1464,22 @@ export type Responses = {
 /** Request body of each operation (`never` when it takes none). */
 export type Bodies = {
   applications: never;
+  create_application: CreateApplication;
+  application: never;
+  archive_application: never;
   deploy_application: DeployRequest;
+  application_draft: never;
+  save_application_draft: SaveDraft;
+  application_events: never;
+  application_operations: never;
+  operate_application: OperateRequest;
+  application_operation: never;
   plan_application: PlanRequest;
+  restore_application: never;
   application_status: never;
+  application_versions: never;
+  publish_application: PublishRequest;
+  application_version: never;
   approvals: never;
   request_approval: NewApproval;
   approve_request: never;

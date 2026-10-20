@@ -253,6 +253,68 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["instance.manage"],
     ),
     ("GET", "/api/v1/applications", &["application.view"]),
+    ("POST", "/api/v1/applications", &["application.create"]),
+    ("GET", "/api/v1/applications/{name}", &["application.view"]),
+    (
+        "PATCH",
+        "/api/v1/applications/{name}",
+        &["application.design"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/draft",
+        &["application.view"],
+    ),
+    (
+        "PUT",
+        "/api/v1/applications/{name}/draft",
+        &["application.design"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/versions",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/versions",
+        &["application.design"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/versions/{revision}",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/archive",
+        &["application.delete"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/restore",
+        &["application.delete"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/operations",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/operations",
+        &["application.operate"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/operations/{id}",
+        &["application.view"],
+    ),
+    (
+        "GET",
+        "/api/v1/applications/{name}/events",
+        &["application.view"],
+    ),
     (
         "POST",
         "/api/v1/applications/{name}/plan",

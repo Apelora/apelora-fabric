@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::authz::{allow, allow_any, filter_for};
+use super::authz::{allow, allow_any};
 use super::deploy::{bad_request, ensure_project_allowed, idempotency_key, store};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal, Source, require, source};
 use apelora_auth::{EnvKind, Resource};
@@ -46,9 +46,13 @@ pub struct PlanRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DeployRequest {
     pub project: String,
-    /// The Studio document, saved as an immutable revision.
+    /// The Studio document, saved as an immutable revision. Ignored when `version` is given.
     #[schema(value_type = Object)]
     pub document: Value,
+    /// Deploy this published version (its stored document) instead of saving `document` as a
+    /// new revision. Drafts can never be deployed.
+    #[serde(default)]
+    pub version: Option<i32>,
     pub appliances: Vec<DesiredAppliance>,
     /// The design's connections; enforced when the control plane has a network uplink.
     #[serde(default)]
@@ -80,20 +84,6 @@ pub struct DeployResponse {
     pub jobs: Vec<QueuedChange>,
     /// The job that applies the connections to the application's network, when enforced.
     pub network_job: Option<Uuid>,
-}
-
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ApplicationInfo {
-    pub name: String,
-    pub latest_revision: Option<i32>,
-    /// RFC 3339.
-    pub created_at: String,
-}
-
-#[derive(Serialize, ToSchema)]
-pub struct ApplicationList {
-    pub items: Vec<ApplicationInfo>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -410,37 +400,6 @@ async fn resolve_target(
     )
 }
 
-/// Applications that have been deployed, with their latest revision. Needs `read-inventory`.
-#[utoipa::path(get, path = "/api/v1/applications", tag = "applications", operation_id = "applications",
-    responses((status = 200, body = ApplicationList), (status = 401, body = ErrorBody),
-        (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
-pub(super) async fn list(
-    State(state): State<AppState>,
-    Extension(p): Extension<Principal>,
-) -> Result<Json<ApplicationList>, ApiError> {
-    let filter = filter_for(&p, "application.view");
-    if filter.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            "you may not see applications (application.view)",
-        ));
-    }
-    let items = apelora_persistence::identity::list_applications_scoped(store(&state)?, &filter)
-        .await?
-        .into_iter()
-        .map(|a| ApplicationInfo {
-            name: a.name,
-            latest_revision: a.latest_revision,
-            created_at: a
-                .created_at
-                .format(&time::format_description::well_known::Rfc3339)
-                .unwrap_or_default(),
-        })
-        .collect();
-    Ok(Json(ApplicationList { items }))
-}
-
 /// What deploying the design would change, without changing anything. Needs `deploy`.
 #[utoipa::path(post, path = "/api/v1/applications/{name}/plan", tag = "applications", operation_id = "plan_application",
     params(("name" = String, Path, description = "Application name")), request_body = PlanRequest,
@@ -543,6 +502,36 @@ pub(super) async fn deploy(
         ));
     }
 
+    // A pinned version must be a published one of an application that already exists: a draft
+    // can never be deployed, and deploying does not create revisions of its own.
+    if let Some(v) = req.version {
+        let Some(ctx) = &target.existing else {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                format!("not found: application {name}; create it and publish a version first"),
+            ));
+        };
+        match apelora_persistence::lifecycle::version_document(pool, ctx.application_id, v).await? {
+            None => {
+                return Err(ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "not_found",
+                    format!("not found: version {v}"),
+                ));
+            }
+            Some((_, false)) => {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "not_published",
+                    format!(
+                        "version {v} is not published; only published versions can be deployed"
+                    ),
+                ));
+            }
+            Some(_) => {}
+        }
+    }
     let app = match target.project_id {
         Some(project) => {
             apelora_persistence::identity::ensure_application_in(
@@ -556,14 +545,20 @@ pub(super) async fn deploy(
         None => apelora_persistence::ensure_application(pool, &name).await?,
     };
     // A repeated request (same key) finds its revision and its jobs: nothing happens twice.
-    let (revision, new_revision) = apelora_persistence::add_revision_once(
-        pool,
-        app.id,
-        &req.document,
-        &p.actor_ref(),
-        key.as_ref().map(|k| format!("{k}:{name}")).as_deref(),
-    )
-    .await?;
+    let (revision_no, new_revision) = match req.version {
+        Some(v) => (v, true),
+        None => {
+            let (r, new) = apelora_persistence::add_revision_once(
+                pool,
+                app.id,
+                &req.document,
+                &p.actor_ref(),
+                key.as_ref().map(|k| format!("{k}:{name}")).as_deref(),
+            )
+            .await?;
+            (r.revision, new)
+        }
+    };
     // Service addresses are allocated before any instance is created, so consumers start with
     // their discovery environment (ADR 0004).
     let addresses = allocate_services(&state, pool, app.id, &name, &req).await?;
@@ -642,7 +637,7 @@ pub(super) async fn deploy(
         &apelora_persistence::NewDeployment {
             application_id: app.id,
             project: &req.project,
-            revision: revision.revision,
+            revision: revision_no,
             desired: &desired,
             connections: connections.as_ref(),
             uplink: state.network_uplink.as_deref().filter(|_| enforce),
@@ -686,7 +681,7 @@ pub(super) async fn deploy(
             "success",
             Some(&target.resource),
             &json!({
-                "revision": revision.revision,
+                "revision": revision_no,
                 "create": applied.count(PlanAction::Create),
                 "keep": applied.count(PlanAction::Keep),
                 "remove": if req.remove_missing { applied.count(PlanAction::Remove) } else { 0 },
@@ -699,7 +694,7 @@ pub(super) async fn deploy(
         StatusCode::ACCEPTED,
         Json(DeployResponse {
             application: name,
-            revision: revision.revision,
+            revision: revision_no,
             plan: applied,
             jobs,
             network_job,

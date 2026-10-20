@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod enrolment;
 pub mod evacuation;
 pub mod health;
+pub mod lifecycle;
 pub mod network;
 pub mod plan;
 pub mod preflight;

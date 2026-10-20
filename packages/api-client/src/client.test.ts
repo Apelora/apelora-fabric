@@ -43,6 +43,21 @@ describe("api client", () => {
     expect([delUrl, delInit.method, delInit.body]).toEqual(["/api/v1/instances/apelora/web-01", "DELETE", undefined]);
   });
 
+  it("adds only the defined query parameters, encoded", async () => {
+    const fetch = vi.fn(async () => json(200, { items: [] }));
+    const api = createClient({ token: () => "apl_x", fetch });
+    await api.request("lookup_user", { query: { q: "a b@example.org" } });
+    await api.request("identity_audit", { query: { action: "role.", outcome: undefined, before: 41, limit: 50 } });
+    await api.request("assignments", { query: { includeRevoked: false } });
+    await api.get("users");
+    expect(fetch.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
+      "/api/v1/identity/users/lookup?q=a+b%40example.org",
+      "/api/v1/identity/audit?action=role.&before=41&limit=50",
+      "/api/v1/identity/assignments?includeRevoked=false",
+      "/api/v1/identity/users",
+    ]);
+  });
+
   it("returns null for 204 No Content and still reports errors", async () => {
     const fetch = vi.fn(async () => new Response(null, { status: 204 }));
     const api = createClient({ token: () => "apl_x", fetch });

@@ -222,6 +222,24 @@ pub async fn environment_by_incus_project(
     }))
 }
 
+pub async fn environment_by_id(pool: &PgPool, id: Uuid) -> Result<Option<(EnvironmentRow, Uuid)>> {
+    let row = sqlx::query("SELECT e.id, e.project_id, e.slug, e.name, e.kind, e.incus_project, e.created_at, p.organization_id FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.id = $1").bind(id).fetch_optional(pool).await?;
+    Ok(row.map(|r| {
+        (
+            EnvironmentRow {
+                id: r.get("id"),
+                project_id: r.get("project_id"),
+                slug: r.get("slug"),
+                name: r.get("name"),
+                kind: r.get("kind"),
+                incus_project: r.get("incus_project"),
+                created_at: r.get("created_at"),
+            },
+            r.get("organization_id"),
+        )
+    }))
+}
+
 /// Everything needed to authorise a request about an application, resolved from the database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppContext {

@@ -15,8 +15,18 @@
         "tags": [
           "applications"
         ],
-        "summary": "Applications that have been deployed, with their latest revision. Needs `read-inventory`.",
+        "summary": "Applications the caller may see, each with design status, derived runtime status, replica\nhealth, and the actions they may take now. Needs `application.view`.",
         "operationId": "applications",
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -49,6 +59,242 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Creates an application in an environment, optionally with its first draft. Needs\n`application.create` on the environment's project.",
+        "operationId": "create_application",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApplication"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "One application with its appliances (desired and observed), versions and recent operations.\nNeeds `application.view`.",
+        "operationId": "application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Changes an application's description or icon (its name cannot change). Needs `application.design`.",
+        "operationId": "update_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApplication"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/archive": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Archives an application that is not running; it leaves the default list and keeps its data.\nNeeds `application.delete`.",
+        "operationId": "archive_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -175,6 +421,356 @@
         }
       }
     },
+    "/api/v1/applications/{name}/draft": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "The application's working document. 404 when it has none yet. Needs `application.view`.",
+        "operationId": "application_draft",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Saves the draft as the next version. Refused with 409 `draft_conflict` (and the current\nversion) when someone saved since `baseVersion`; nothing is overwritten. Needs `application.design`.",
+        "operationId": "save_application_draft",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/events": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "What happened to the application: creation, saves, versions, deployments, operations,\nrefusals. Needs `application.view`.",
+        "operationId": "application_events",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/operations": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Recent operations of the application, newest first. Needs `application.view`.",
+        "operationId": "application_operations",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Starts, stops or restarts the application's instances, in dependency order, as an\nasynchronous operation. Succeeds only when Incus confirms each instance's state. Needs\n`application.operate` on the application. It only touches instances this application owns;\nnetworks, volumes, data and other applications are left alone.",
+        "operationId": "operate_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/operations/{id}": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "One operation with the progress of each phase and instance. Needs `application.view`.",
+        "operationId": "application_operation",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Operation id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/applications/{name}/plan": {
       "post": {
         "tags": [
@@ -245,6 +841,51 @@
             }
           },
           "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/restore": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Brings an archived application back. Needs `application.delete`.",
+        "operationId": "restore_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
@@ -329,6 +970,180 @@
             }
           },
           "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/versions": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Versions of the application, newest first. Needs `application.view`.",
+        "operationId": "application_versions",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Releases the current draft as the next immutable published version. Refused while the draft\nis invalid or when this draft version is already published. Needs `application.design`.",
+        "operationId": "publish_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/versions/{revision}": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "The document of one version. Needs `application.view`.",
+        "operationId": "application_version",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "description": "Version number",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionDocument"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
@@ -4480,6 +5295,43 @@
   },
   "components": {
     "schemas": {
+      "ActionState": {
+        "type": "object",
+        "required": [
+          "allowed"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why not, in a sentence the interface can show."
+          }
+        }
+      },
+      "Actions": {
+        "type": "object",
+        "required": [
+          "start",
+          "stop",
+          "restart"
+        ],
+        "properties": {
+          "restart": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "start": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/ActionState"
+          }
+        }
+      },
       "Admission": {
         "type": "object",
         "required": [
@@ -4504,6 +5356,34 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ApplianceDetail": {
+        "type": "object",
+        "required": [
+          "appliance",
+          "replicas",
+          "availability",
+          "instances"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/Availability"
+          },
+          "instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceDetail"
+            }
+          },
+          "replicas": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -4546,16 +5426,86 @@
           }
         }
       },
+      "ApplicationDetail": {
+        "type": "object",
+        "required": [
+          "application",
+          "appliances",
+          "versions",
+          "operations"
+        ],
+        "properties": {
+          "appliances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplianceDetail"
+            }
+          },
+          "application": {
+            "$ref": "#/components/schemas/ApplicationInfo"
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationDto"
+            }
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionInfo"
+            }
+          }
+        }
+      },
       "ApplicationInfo": {
         "type": "object",
         "required": [
           "name",
-          "createdAt"
+          "createdAt",
+          "updatedAt",
+          "description",
+          "icon",
+          "project",
+          "archived",
+          "design",
+          "deployment",
+          "actions"
         ],
         "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/Actions",
+            "description": "What the caller may do now, from their permissions and the application's state."
+          },
+          "archived": {
+            "type": "boolean"
+          },
           "createdAt": {
             "type": "string",
             "description": "RFC 3339."
+          },
+          "deployment": {
+            "$ref": "#/components/schemas/DeploymentInfo"
+          },
+          "description": {
+            "type": "string"
+          },
+          "design": {
+            "$ref": "#/components/schemas/DesignInfo"
+          },
+          "environment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EnvironmentRef"
+              }
+            ]
+          },
+          "icon": {
+            "type": "string",
+            "description": "Key of the icon (a catalog icon such as `nginx`, or a generic one such as `generic-box`)."
           },
           "latestRevision": {
             "type": [
@@ -4566,13 +5516,21 @@
           },
           "name": {
             "type": "string"
+          },
+          "project": {
+            "$ref": "#/components/schemas/ProjectRef"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         }
       },
       "ApplicationList": {
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "observed_at",
+          "stale"
         ],
         "properties": {
           "items": {
@@ -4580,6 +5538,13 @@
             "items": {
               "$ref": "#/components/schemas/ApplicationInfo"
             }
+          },
+          "observed_at": {
+            "type": "string",
+            "description": "When Incus was observed for these statuses (RFC 3339), and whether that failed."
+          },
+          "stale": {
+            "type": "boolean"
           }
         }
       },
@@ -5124,6 +6089,41 @@
           }
         }
       },
+      "CreateApplication": {
+        "type": "object",
+        "required": [
+          "name",
+          "environmentId"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "document": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The first draft (a Studio document), if any."
+          },
+          "environmentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The environment (and so the project) the application lives in."
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Icon key; `box` when omitted."
+          },
+          "name": {
+            "type": "string",
+            "description": "Lowercase letters, digits and hyphens, starting with a letter; at most 40 characters. Fixed\nfor the life of the application (instances are named after it)."
+          }
+        }
+      },
       "CreateJoinToken": {
         "type": "object",
         "required": [
@@ -5186,7 +6186,7 @@
           },
           "document": {
             "type": "object",
-            "description": "The Studio document, saved as an immutable revision."
+            "description": "The Studio document, saved as an immutable revision. Ignored when `version` is given."
           },
           "project": {
             "type": "string"
@@ -5201,6 +6201,14 @@
           "removeMissing": {
             "type": "boolean",
             "description": "Also delete the application's instances that are no longer in the design."
+          },
+          "version": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Deploy this published version (its stored document) instead of saving `document` as a\nnew revision. Drafts can never be deployed."
           }
         }
       },
@@ -5240,6 +6248,127 @@
           }
         }
       },
+      "DeploymentInfo": {
+        "type": "object",
+        "required": [
+          "status",
+          "observedAt",
+          "stale",
+          "source",
+          "appliances",
+          "replicas"
+        ],
+        "properties": {
+          "appliances": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "deployedVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The published version the application was last deployed from."
+          },
+          "lastActivityAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observedAt": {
+            "type": "string",
+            "description": "When the control plane last observed Incus for this answer (RFC 3339)."
+          },
+          "operation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OperationSummary"
+              }
+            ]
+          },
+          "replicas": {
+            "$ref": "#/components/schemas/ReplicaSummary"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "The answer could not be refreshed (Incus unreachable); the status is `unknown`."
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeploymentStatus"
+          }
+        }
+      },
+      "DeploymentStatus": {
+        "type": "string",
+        "enum": [
+          "not-deployed",
+          "starting",
+          "running",
+          "degraded",
+          "stopping",
+          "stopped",
+          "failed",
+          "unknown"
+        ]
+      },
+      "DesignInfo": {
+        "type": "object",
+        "required": [
+          "status",
+          "validationErrors",
+          "hasUnpublishedChanges"
+        ],
+        "properties": {
+          "draftVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "hasUnpublishedChanges": {
+            "type": "boolean",
+            "description": "The draft has changes that no published version contains."
+          },
+          "publishedVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DesignStatus"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "validationErrors": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DesignStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "validated",
+          "published"
+        ]
+      },
       "DesiredAppliance": {
         "type": "object",
         "description": "One appliance of the design, turned into the instances it should run as.",
@@ -5268,6 +6397,37 @@
           "spec": {
             "$ref": "#/components/schemas/InstanceSpec",
             "description": "Image, kind and settings; the control plane sets the name, project and owner."
+          }
+        }
+      },
+      "DraftDto": {
+        "type": "object",
+        "required": [
+          "version",
+          "document",
+          "validationErrors",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "properties": {
+          "document": {
+            "type": "object"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "validationErrors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -5398,6 +6558,36 @@
             "items": {
               "$ref": "#/components/schemas/EnvironmentDto"
             }
+          }
+        }
+      },
+      "EnvironmentRef": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EnvKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
           }
         }
       },
@@ -5813,6 +7003,29 @@
           "stop",
           "restart"
         ]
+      },
+      "InstanceDetail": {
+        "type": "object",
+        "required": [
+          "instance",
+          "status",
+          "location",
+          "unhealthy"
+        ],
+        "properties": {
+          "instance": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "unhealthy": {
+            "type": "boolean"
+          }
+        }
       },
       "InstanceHealth": {
         "type": "object",
@@ -6540,6 +7753,163 @@
           }
         }
       },
+      "OperateRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/OperationKind"
+          },
+          "confirmDisruption": {
+            "type": "boolean",
+            "description": "Required to stop or restart an application that has single-instance or stateful\nappliances: it acknowledges that their clients lose service meanwhile."
+          }
+        }
+      },
+      "OperationAccepted": {
+        "type": "object",
+        "required": [
+          "operation",
+          "created"
+        ],
+        "properties": {
+          "created": {
+            "type": "boolean",
+            "description": "False when the same `Idempotency-Key` had already created it."
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationDto"
+          }
+        }
+      },
+      "OperationDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "requestedBy",
+          "createdAt",
+          "phases",
+          "stepsDone",
+          "stepsTotal"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OperationKind"
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhaseDto"
+            }
+          },
+          "requestedBy": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/OperationState"
+          },
+          "stepsDone": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "stepsTotal": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "OperationKind": {
+        "type": "string",
+        "enum": [
+          "start",
+          "stop",
+          "restart"
+        ]
+      },
+      "OperationList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationDto"
+            }
+          }
+        }
+      },
+      "OperationState": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed"
+        ]
+      },
+      "OperationSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "state",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OperationKind"
+          },
+          "state": {
+            "$ref": "#/components/schemas/OperationState"
+          }
+        }
+      },
       "OrganizationDto": {
         "type": "object",
         "required": [
@@ -6669,6 +8039,29 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PermissionDto"
+            }
+          }
+        }
+      },
+      "PhaseDto": {
+        "type": "object",
+        "required": [
+          "action",
+          "state",
+          "steps"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "`start` or `stop`."
+          },
+          "state": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StepDto"
             }
           }
         }
@@ -6978,6 +8371,35 @@
           }
         }
       },
+      "ProjectRef": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "organizationId",
+          "organizationSlug"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "organizationSlug": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
       "ProviderMode": {
         "type": "string",
         "description": "Where the backend's view of the infrastructure comes from.",
@@ -6993,6 +8415,18 @@
           "manual",
           "maas"
         ]
+      },
+      "PublishRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A short name for the version, e.g. `after load test`."
+          }
+        }
       },
       "Published": {
         "type": "object",
@@ -7064,6 +8498,37 @@
                 "description": "Defaults to `manual`."
               }
             ]
+          }
+        }
+      },
+      "ReplicaSummary": {
+        "type": "object",
+        "required": [
+          "desired",
+          "running",
+          "healthy",
+          "unhealthy"
+        ],
+        "properties": {
+          "desired": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "healthy": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "running": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "unhealthy": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -7204,6 +8669,25 @@
             }
           }
         ]
+      },
+      "SaveDraft": {
+        "type": "object",
+        "required": [
+          "document"
+        ],
+        "properties": {
+          "baseVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The draft version this edit started from; omit only for the first save."
+          },
+          "document": {
+            "type": "object"
+          }
+        }
       },
       "SavePolicy": {
         "type": "object",
@@ -7534,6 +9018,32 @@
           }
         }
       },
+      "StepDto": {
+        "type": "object",
+        "required": [
+          "instance",
+          "appliance",
+          "state"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "description": "`pending`, `running`, `succeeded`, `failed` or `skipped`."
+          }
+        }
+      },
       "StoragePool": {
         "type": "object",
         "required": [
@@ -7694,6 +9204,23 @@
           }
         }
       },
+      "UpdateApplication": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UserDto": {
         "type": "object",
         "required": [
@@ -7752,6 +9279,72 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/UserDto"
+            }
+          }
+        }
+      },
+      "VersionDocument": {
+        "type": "object",
+        "required": [
+          "document",
+          "published"
+        ],
+        "properties": {
+          "document": {
+            "type": "object"
+          },
+          "published": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VersionInfo": {
+        "type": "object",
+        "required": [
+          "revision",
+          "published",
+          "createdBy",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "draftVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "VersionList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionInfo"
             }
           }
         }

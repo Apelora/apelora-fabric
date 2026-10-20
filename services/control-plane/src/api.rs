@@ -128,7 +128,37 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/instances/{project}/{name}",
             delete(deploy::delete_instance),
         )
-        .route("/api/v1/applications", get(applications::list))
+        .route(
+            "/api/v1/applications",
+            get(manage::list).post(manage::create),
+        )
+        .route(
+            "/api/v1/applications/{name}",
+            get(manage::detail).patch(manage::update),
+        )
+        .route(
+            "/api/v1/applications/{name}/draft",
+            get(manage::get_draft).put(manage::put_draft),
+        )
+        .route(
+            "/api/v1/applications/{name}/versions",
+            get(manage::versions).post(manage::publish),
+        )
+        .route(
+            "/api/v1/applications/{name}/versions/{revision}",
+            get(manage::version),
+        )
+        .route("/api/v1/applications/{name}/archive", post(manage::archive))
+        .route("/api/v1/applications/{name}/restore", post(manage::restore))
+        .route(
+            "/api/v1/applications/{name}/operations",
+            get(manage::operations).post(manage::operate),
+        )
+        .route(
+            "/api/v1/applications/{name}/operations/{id}",
+            get(manage::operation),
+        )
+        .route("/api/v1/applications/{name}/events", get(manage::events))
         .route(
             "/api/v1/applications/{name}/plan",
             post(applications::preview),
@@ -1030,7 +1060,7 @@ impl Modify for BearerAuth {
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
-        applications::list, applications::preview, applications::deploy, applications::status,
+        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         machines::list, machines::register, machines::approve, machines::withdraw,
@@ -1071,10 +1101,14 @@ mod applications;
 mod authz;
 mod cluster_admin;
 mod deploy;
+mod document;
 mod identity;
 mod machines;
+mod manage;
 
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod manage_tests;
 #[cfg(test)]
 mod tests;

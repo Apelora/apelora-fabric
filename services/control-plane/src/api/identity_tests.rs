@@ -20,14 +20,15 @@ use super::*;
 const ISS: &str = "https://id.example.test/realms/apelora";
 const AUD: &str = "apelora-api";
 
-struct Lab {
-    pool: Pool,
-    state: AppState,
+pub(super) struct Lab {
+    pub(super) pool: Pool,
+    pub(super) state: AppState,
     pem: String,
+    #[allow(dead_code)]
     jwks: jsonwebtoken::jwk::JwkSet,
 }
 
-fn lab_with(pool: Pool, legacy: bool) -> Lab {
+pub(super) fn lab_with(pool: Pool, legacy: bool) -> Lab {
     let kp = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("key");
     let raw = kp.public_key_raw();
     let jwks: jsonwebtoken::jwk::JwkSet = serde_json::from_value(json!({ "keys": [{ "kty": "EC", "crv": "P-256", "kid": "k1", "use": "sig", "alg": "ES256", "x": B64.encode(&raw[1..33]), "y": B64.encode(&raw[33..65]) }] })).expect("jwks");
@@ -50,7 +51,7 @@ fn lab_with(pool: Pool, legacy: bool) -> Lab {
     }
 }
 
-fn lab(pool: Pool) -> Lab {
+pub(super) fn lab(pool: Pool) -> Lab {
     lab_with(pool, true)
 }
 
@@ -59,7 +60,7 @@ fn now() -> i64 {
 }
 
 impl Lab {
-    fn sign(&self, claims: &serde_json::Value, kid: Option<&str>) -> String {
+    pub(super) fn sign(&self, claims: &serde_json::Value, kid: Option<&str>) -> String {
         let mut h = Header::new(Algorithm::ES256);
         h.kid = kid.map(str::to_owned);
         encode(
@@ -70,20 +71,26 @@ impl Lab {
         .expect("sign")
     }
 
-    fn claims(&self, sub: &str, name: &str, groups: &[&str], mfa: bool) -> serde_json::Value {
+    pub(super) fn claims(
+        &self,
+        sub: &str,
+        name: &str,
+        groups: &[&str],
+        mfa: bool,
+    ) -> serde_json::Value {
         json!({ "iss": ISS, "aud": AUD, "sub": sub, "iat": now() - 5, "exp": now() + 600, "preferred_username": name, "email": format!("{name}@example.test"),
                 "groups": groups, "amr": if mfa { json!(["pwd", "otp"]) } else { json!(["pwd"]) } })
     }
 
-    fn token(&self, sub: &str, name: &str) -> String {
+    pub(super) fn token(&self, sub: &str, name: &str) -> String {
         self.sign(&self.claims(sub, name, &[], false), Some("k1"))
     }
 
-    fn token_mfa(&self, sub: &str, name: &str) -> String {
+    pub(super) fn token_mfa(&self, sub: &str, name: &str) -> String {
         self.sign(&self.claims(sub, name, &[], true), Some("k1"))
     }
 
-    async fn req(
+    pub(super) async fn req(
         &self,
         method: &str,
         path: &str,
@@ -94,7 +101,7 @@ impl Lab {
     }
 
     /// Signs the person in once (which creates their account) and returns their user id.
-    async fn user(&self, sub: &str, name: &str) -> Uuid {
+    pub(super) async fn user(&self, sub: &str, name: &str) -> Uuid {
         let (status, me) = self
             .req("GET", "/api/v1/whoami", &self.token(sub, name), None)
             .await;
@@ -103,7 +110,7 @@ impl Lab {
     }
 
     /// A person who is a platform super admin (granted directly in the database, as the bootstrap command does).
-    async fn super_admin(&self, sub: &str, name: &str) -> (Uuid, String) {
+    pub(super) async fn super_admin(&self, sub: &str, name: &str) -> (Uuid, String) {
         let id = self.user(sub, name).await;
         db::insert_assignment(
             &self.pool,
@@ -114,7 +121,7 @@ impl Lab {
         (id, self.token(sub, name))
     }
 
-    async fn grant(
+    pub(super) async fn grant(
         &self,
         by: &str,
         user: Uuid,
@@ -140,20 +147,20 @@ fn new_assignment(user: Uuid, role: Builtin, scope: Scope) -> db::NewAssignment 
     }
 }
 
-fn code(v: &serde_json::Value) -> Option<&str> {
+pub(super) fn code(v: &serde_json::Value) -> Option<&str> {
     v["error"]["code"].as_str()
 }
 
 /// Two organisations with a project and a production environment each, and the people who run them.
-struct World {
-    acme: Uuid,
-    acme_prod: Uuid,
-    other: Uuid,
-    other_proj: Uuid,
-    admin: String,
+pub(super) struct World {
+    pub(super) acme: Uuid,
+    pub(super) acme_prod: Uuid,
+    pub(super) other: Uuid,
+    pub(super) other_proj: Uuid,
+    pub(super) admin: String,
 }
 
-async fn world(l: &Lab) -> World {
+pub(super) async fn world(l: &Lab) -> World {
     let (_, admin) = l.super_admin("sub-root", "root").await;
     let mk = |slug: &'static str| {
         let admin = admin.clone();
@@ -223,7 +230,7 @@ async fn world(l: &Lab) -> World {
     }
 }
 
-fn deploy_body(project: &str) -> serde_json::Value {
+pub(super) fn deploy_body(project: &str) -> serde_json::Value {
     json!({ "project": project, "document": {}, "appliances": [appliance("web-01")] })
 }
 
