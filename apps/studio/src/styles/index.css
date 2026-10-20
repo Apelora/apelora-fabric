@@ -233,3 +233,10 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 .apl-handle[data-drag="dim"] { opacity: 0.35; }
 .apl-guide { stroke: oklch(62% 0.2 25); stroke-width: 1; stroke-dasharray: 4 3; }
 .react-flow__minimap { border: 1px solid var(--apl-canvas-border); border-radius: 8px; overflow: hidden; box-shadow: none; }
+
+/* Soft status badges: darken the text so it meets WCAG AA on the tinted background. */
+.badge-soft.badge-success { color: color-mix(in oklab, var(--color-success) 45%, black); }
+.badge-soft.badge-warning { color: color-mix(in oklab, var(--color-warning) 40%, black); }
+.badge-soft.badge-error { color: color-mix(in oklab, var(--color-error) 60%, black); }
+.badge-soft.badge-info { color: color-mix(in oklab, var(--color-info) 55%, black); }
+[data-theme="night"] .badge-soft.badge-success, [data-theme="night"] .badge-soft.badge-warning, [data-theme="night"] .badge-soft.badge-error, [data-theme="night"] .badge-soft.badge-info { color: revert-layer; }

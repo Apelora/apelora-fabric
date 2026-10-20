@@ -39,3 +39,11 @@ export const IconClock = mk(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3
 export const IconShare = mk(<><circle cx="6" cy="12" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="18" cy="18" r="2.5" /><path d="M8.2 11l7.6-4M8.2 13l7.6 4" /></>);
 export const IconImage = mk(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="M21 16l-5-5-8 8" /></>);
 export const IconLink = mk(<><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1" /></>);
+export const IconPlay = mk(<path d="M7 4.5v15l12-7.5z" />);
+export const IconStop = mk(<rect x="6" y="6" width="12" height="12" rx="1.5" />);
+export const IconRestart = mk(<><path d="M20 11a8 8 0 10-2.3 5.7" /><path d="M20 4v7h-7" /></>);
+export const IconCards = mk(<><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></>);
+export const IconList = mk(<><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.01M4 12h.01M4 18h.01" /></>);
+export const IconMore = mk(<><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>);
+export const IconBack = mk(<path d="M15 6l-6 6 6 6" />);
+export const IconSpinner = mk(<path d="M12 3a9 9 0 109 9" />);

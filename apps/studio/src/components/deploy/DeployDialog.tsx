@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
 import { lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, compileNetwork, deploymentAppliances, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
+import { applicationName, compileNetwork, type ApplicationAssembly, deploymentAppliances, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -25,7 +25,16 @@ const ACTION: Record<PlanAction, { label: string; tone: string }> = {
 };
 const NAME = /^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
-export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+/** Deploying one published version of a named application into the environment's Incus project. */
+export interface DeployTarget {
+  application: string;
+  version: number;
+  /** The Incus project of the application's environment. */
+  project: string;
+  assembly: ApplicationAssembly;
+}
+
+export function DeployDialog({ open, onClose, target, onDone }: { open: boolean; onClose: () => void; target?: DeployTarget; onDone?: () => void }) {
   const api = useStudioApi();
   const ref = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState<Step>({ kind: "connecting" });
@@ -38,7 +47,8 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [error, setError] = useState<string | null>(null);
   const live = useLive();
 
-  const assembly = open ? api.getState().assembly : null;
+  const current = () => target?.assembly ?? api.getState().assembly;
+  const assembly = open ? current() : null;
   const split = useMemo(() => (assembly ? deploymentAppliances(assembly, lookupClass, project || "apelora") : { deployable: [], designOnly: [] }), [assembly, project]);
 
   const connect = async () => {
@@ -53,6 +63,12 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
     try {
       const who = await client.get("whoami");
       setMe(who);
+      if (target) {
+        // The server decides who may deploy this application; people and services have no platform-wide "deploy".
+        setProject(target.project);
+        setStep({ kind: "configure" });
+        return;
+      }
       if (!who.permissions.includes("deploy")) {
         setStep({ kind: "not-allowed", message: `Signed in as ${who.name} (${who.role}); deploying needs the operator or fabric-admin role.` });
         return;
@@ -74,7 +90,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (!d) return;
     if (open && !d.open) {
       d.showModal();
-      setAppName((n) => n || applicationName(api.getState().assembly.metadata.name));
+      setAppName((n) => target?.application ?? (n || applicationName(api.getState().assembly.metadata.name)));
       setRemoveMissing(false);
       void connect();
     }
@@ -86,13 +102,13 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
   /** The design's connections between appliances that are deployed (rules for the server). */
   const connections = () => {
     const deployed = new Set(split.deployable.map((d) => d.appliance));
-    return compileNetwork(api.getState().assembly, appName).intents
+    return compileNetwork(current(), appName).intents
       .filter((i) => deployed.has(i.from) && deployed.has(i.to))
       .map((i) => ({ from: i.from, to: i.to, transport: i.transport, port: i.number }));
   };
   // A gateway in the design stands for the outside world: what it connects to is published.
   const published = () => {
-    const a = api.getState().assembly;
+    const a = current();
     const gateways = new Set(a.spec.appliances.filter((x) => x.classRef.name === "gateway").map((x) => x.id));
     return publishedPorts(compileNetwork(a, appName), gateways, new Set(split.deployable.map((d) => d.appliance)));
   };
@@ -114,12 +130,12 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
     setBusy(true);
     setError(null);
     try {
-      const base = api.getState().assembly;
+      const base = current();
       const used = usedCustomClasses(base, lookupClass);
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, appliances: desired(), connections: connections(), published: published(), removeMissing },
+        body: { project, document, appliances: desired(), connections: connections(), published: published(), removeMissing, ...(target ? { version: target.version } : {}) },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
@@ -133,7 +149,8 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
         ),
       );
       await live.refresh();
-      api.getState().toast("success", `Deployed revision ${res.revision} of ${appName}`);
+      api.getState().toast("success", `Deployed ${target ? "version" : "revision"} ${res.revision} of ${appName}`);
+      onDone?.();
     } catch (e) {
       setError(messageOf(e));
       if (plan) setStep({ kind: "review", plan });
@@ -149,7 +166,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
   return (
     <dialog ref={ref} className="modal" aria-labelledby="deploy-title" onCancel={(e) => { e.preventDefault(); onClose(); }} data-testid="deploy-dialog">
       <div className="modal-box flex max-w-2xl flex-col gap-4">
-        <h3 id="deploy-title" className="font-semibold">Deploy to the cluster</h3>
+        <h3 id="deploy-title" className="font-semibold">{target ? `Deploy version ${target.version} of ${target.application}` : "Deploy to the cluster"}</h3>
 
         {step.kind === "connecting" && <p className="text-sm text-base-content/70">Connecting to the control plane…</p>}
 
@@ -190,13 +207,13 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
             <div className="flex flex-wrap gap-3">
               <label className="flex flex-col gap-1">
                 <span>Application name</span>
-                <input className="input input-sm w-60 font-mono" value={appName} onChange={(e) => setAppName(e.target.value)} aria-invalid={!!nameError} aria-describedby="deploy-app-hint" data-testid="deploy-app" />
+                <input className="input input-sm w-60 font-mono" value={appName} readOnly={!!target} onChange={(e) => setAppName(e.target.value)} aria-invalid={!!nameError} aria-describedby="deploy-app-hint" data-testid="deploy-app" />
                 <span id="deploy-app-hint" className={`text-xs ${nameError ? "text-error" : "text-base-content/60"}`}>{nameError ?? "Instances are named <application>-<appliance>."}</span>
               </label>
               <label className="flex flex-col gap-1">
                 <span>Project</span>
-                <select className="select select-sm w-40" value={project} onChange={(e) => setProject(e.target.value)} data-testid="deploy-project">
-                  {me?.deployProjects.map((p) => <option key={p} value={p}>{p}</option>)}
+                <select className="select select-sm w-40" value={project} disabled={!!target} onChange={(e) => setProject(e.target.value)} data-testid="deploy-project">
+                  {(target ? [target.project] : me?.deployProjects ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               </label>
             </div>
@@ -228,7 +245,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex flex-col gap-3 text-sm">
             <p className="text-base-content/70">What deploying <strong className="font-mono">{appName}</strong> to <strong>{project}</strong> changes. Nothing has changed yet.</p>
             <PlanTable plan={step.plan} removeMissing={removeMissing} />
-            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} published={published()} />
+            <NetworkRules plan={compileNetwork(current(), appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} published={published()} />
             {step.plan.warnings.map((w) => <p key={w} className="flex items-start gap-2" role="note"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{w}</p>)}
             {step.plan.items.some((i) => i.action === "remove") && (
               <label className="flex items-center gap-2">
