@@ -132,6 +132,9 @@ pub struct ServerInfo {
     #[cfg_attr(feature = "utoipa", schema(required = true))]
     pub kernel_version: Option<String>,
     pub api_extensions: Vec<String>,
+    /// Architectures this server can run (`environment.architectures`); empty when unknown.
+    #[serde(default)]
+    pub architectures: Vec<String>,
     pub clustered: bool,
     pub auth: String,
 }
@@ -170,8 +173,38 @@ pub struct ImageSource {
     pub protocol: ImageProtocol,
     /// Image server URL, e.g. a simplestreams server or an OCI registry.
     pub server: String,
-    /// Alias such as `debian/13` or, for OCI, `repository:tag`.
+    /// Alias such as `debian/13` or, for OCI, `repository:tag`. Pin an OCI image by digest:
+    /// `repository@sha256:<64 hex digits>`.
     pub alias: String,
+    /// Pins a simplestreams image: the full SHA-256 fingerprint Incus gives it. The instance
+    /// must then be built from exactly this image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
+/// Architecture names as Incus reports them.
+pub const ARCHITECTURES: &[&str] = &[
+    "i686",
+    "x86_64",
+    "armv6l",
+    "armv7l",
+    "armv8l",
+    "aarch64",
+    "ppc",
+    "ppc64",
+    "ppc64le",
+    "s390x",
+    "mips",
+    "mips64",
+    "riscv32",
+    "riscv64",
+    "loongarch64",
+];
+
+fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
 /// An instance Apelora should create. Apelora's ownership marker is added on creation.
@@ -184,6 +217,7 @@ pub struct InstanceSpec {
     /// `container` (system or OCI) or `virtual-machine`.
     pub kind: InstanceKind,
     pub source: ImageSource,
+    /// Profiles to apply, in order; empty applies the project's `default` profile.
     #[serde(default)]
     pub profiles: Vec<String>,
     /// Extra instance config; keys under `user.apelora.` are reserved.
@@ -192,6 +226,10 @@ pub struct InstanceSpec {
     /// Start the instance once created.
     #[serde(default)]
     pub start: bool,
+    /// Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any.
+    /// Checked against the cluster before creating and against the instance Incus created.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub architectures: Vec<String>,
 }
 
 impl InstanceSpec {
@@ -214,6 +252,33 @@ impl InstanceSpec {
         }
         if self.source.alias.is_empty() {
             return Err("an image alias is required".into());
+        }
+        if let Some(fp) = &self.source.fingerprint {
+            if self.source.protocol != ImageProtocol::Simplestreams {
+                return Err("pin an OCI image with a digest in the alias (name@sha256:…)".into());
+            }
+            if !is_sha256_hex(fp) {
+                return Err("the image fingerprint must be 64 lowercase hex digits".into());
+            }
+            if self.architectures.len() > 1 {
+                return Err("a fingerprint pins one image, which has one architecture".into());
+            }
+        }
+        if let Some((_, digest)) = self.source.alias.split_once('@') {
+            let pinned = self.source.protocol == ImageProtocol::Oci
+                && digest.strip_prefix("sha256:").is_some_and(is_sha256_hex);
+            if !pinned {
+                return Err(
+                    "an image digest must be @sha256:<64 lowercase hex digits> (OCI only)".into(),
+                );
+            }
+        }
+        if let Some(a) = self
+            .architectures
+            .iter()
+            .find(|a| !ARCHITECTURES.contains(&a.as_str()))
+        {
+            return Err(format!("unknown architecture {a:?}"));
         }
         if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
             return Err(format!("config key {k} is reserved for Apelora"));
@@ -374,10 +439,12 @@ mod tests {
                 protocol: ImageProtocol::Oci,
                 server: "https://registry.example".into(),
                 alias: "nginx:1.29".into(),
+                fingerprint: None,
             },
             profiles: vec!["default".into()],
             config: Default::default(),
             start: true,
+            architectures: vec![],
         }
     }
 
@@ -413,6 +480,59 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn images_are_pinned_by_fingerprint_or_digest() {
+        let hex = "ab".repeat(32);
+        let with = |protocol, alias: &str, fingerprint: Option<&str>, arch: &[&str]| {
+            InstanceSpec {
+                source: ImageSource {
+                    protocol,
+                    server: "https://images.example".into(),
+                    alias: alias.into(),
+                    fingerprint: fingerprint.map(str::to_owned),
+                },
+                architectures: arch.iter().map(|a| (*a).to_owned()).collect(),
+                ..spec()
+            }
+            .validate()
+        };
+        use ImageProtocol::{Oci, Simplestreams};
+        assert_eq!(
+            with(Simplestreams, "debian/13", Some(&hex), &["aarch64"]),
+            Ok(())
+        );
+        assert_eq!(
+            with(
+                Oci,
+                "library/nginx:1.29",
+                None,
+                &["aarch64", "x86_64", "loongarch64"]
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            with(Oci, &format!("library/nginx@sha256:{hex}"), None, &[]),
+            Ok(())
+        );
+        for bad in [
+            with(Oci, "nginx:1.29", Some(&hex), &[]),
+            with(Simplestreams, "debian/13", Some(&hex.to_uppercase()), &[]),
+            with(Simplestreams, "debian/13", Some("abc"), &[]),
+            with(Oci, "library/nginx@sha256:abc", None, &[]),
+            with(Oci, &format!("library/nginx@md5:{hex}"), None, &[]),
+            with(Simplestreams, &format!("debian@sha256:{hex}"), None, &[]),
+            with(Simplestreams, "debian/13", None, &["amd64"]),
+            with(
+                Simplestreams,
+                "debian/13",
+                Some(&hex),
+                &["aarch64", "x86_64"],
+            ),
+        ] {
+            assert!(bad.is_err(), "{bad:?}");
+        }
     }
 
     #[test]

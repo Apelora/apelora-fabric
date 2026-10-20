@@ -1009,7 +1009,14 @@
         "properties": {
           "alias": {
             "type": "string",
-            "description": "Alias such as `debian/13` or, for OCI, `repository:tag`."
+            "description": "Alias such as `debian/13` or, for OCI, `repository:tag`. Pin an OCI image by digest:\n`repository@sha256:<64 hex digits>`."
+          },
+          "fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pins a simplestreams image: the full SHA-256 fingerprint Incus gives it. The instance\nmust then be built from exactly this image."
           },
           "protocol": {
             "$ref": "#/components/schemas/ImageProtocol"
@@ -1130,6 +1137,13 @@
           "source"
         ],
         "properties": {
+          "architectures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any.\nChecked against the cluster before creating and against the instance Incus created."
+          },
           "config": {
             "type": "object",
             "description": "Extra instance config; keys under `user.apelora.` are reserved.",
@@ -1151,7 +1165,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Profiles to apply, in order; empty applies the project's `default` profile."
           },
           "project": {
             "type": "string"
@@ -1400,6 +1415,13 @@
           },
           "apiVersion": {
             "type": "string"
+          },
+          "architectures": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Architectures this server can run (`environment.architectures`); empty when unknown."
           },
           "auth": {
             "type": "string"

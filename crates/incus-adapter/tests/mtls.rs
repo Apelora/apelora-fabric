@@ -181,3 +181,27 @@ fn an_explicit_name_the_certificate_does_not_cover_is_refused() {
         "{err:?}"
     );
 }
+
+/// An X.509 v1 certificate (public part only), as `openssl req -x509` without extensions makes.
+const V1_CERT: &str = "-----BEGIN CERTIFICATE-----
+MIIBGDCBwAIJANDltaFVvjsDMAoGCCqGSM49BAMCMBUxEzARBgNVBAMMCnYxLWZp
+eHR1cmUwHhcNMjYxMDIwMDAxNDMxWhcNMzYxMDE3MDAxNDMxWjAVMRMwEQYDVQQD
+DAp2MS1maXh0dXJlMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEY7F5JBaf3JKv
+feE1YKCMo6MIOiaREi77va27MqH7rpgK60npZpQVOmZoolvuewS6EEpPsSAOypgE
+SfkyU0Gy2zAKBggqhkjOPQQDAgNHADBEAiAaLgTLvjB+4ZQq9ra5gXgs5TlM0Pvp
+/gWbWvQ5pDTAwgIgTnOk8GtesUkJw/B0atIOG1z0TM+cd49HeJ3zIXG2iYQ=
+-----END CERTIFICATE-----
+";
+
+#[test]
+fn a_version_1_client_certificate_is_named_as_the_problem() {
+    let server = incus_like(&["unspecified"], false);
+    let client = incus_like(&[], true);
+    let mut c = cfg(8443, "127.0.0.1", &client, &server, None);
+    c.client_cert_pem = V1_CERT.as_bytes().to_vec();
+    let err = IncusClient::mtls(&c).expect_err("v1 is refused");
+    assert!(
+        matches!(&err, AdapterError::InvalidConfig(m) if m.contains("client certificate: X.509 v3 is required")),
+        "{err:?}"
+    );
+}

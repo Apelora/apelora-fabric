@@ -52,6 +52,10 @@ pub struct InstanceState {
     pub status: String,
     /// Carries Apelora's ownership marker.
     pub managed: bool,
+    /// Incus architecture name, e.g. `x86_64`.
+    pub architecture: String,
+    /// Fingerprint of the image the instance was built from (`volatile.base_image`).
+    pub base_image: Option<String>,
 }
 
 /// The result of waiting on an Incus operation.
@@ -154,6 +158,8 @@ impl Provider {
             Provider::Mock(m) => Ok(m.find(project, name).map(|i| InstanceState {
                 status: i.instance.status.clone(),
                 managed: i.managed,
+                architecture: i.instance.architecture.clone(),
+                base_image: i.base_image.clone(),
             })),
             Provider::Incus(c) => c.instance(project, name).await,
         }
@@ -231,6 +237,7 @@ pub struct MockIncus {
 pub struct MockInstance {
     pub instance: Instance,
     pub managed: bool,
+    pub base_image: Option<String>,
 }
 
 impl MockIncus {
@@ -270,6 +277,7 @@ impl MockIncus {
                 description: "mock data".into(),
             },
             managed: true,
+            base_image: spec.source.fingerprint.clone(),
         });
         Ok(self.op())
     }
@@ -341,6 +349,7 @@ impl Default for MockIncus {
                 server_version: None,
                 kernel_version: None,
                 api_extensions: Vec::new(),
+                architectures: vec!["x86_64".into()],
                 clustered: true,
                 auth: "mock".into(),
             },
@@ -360,6 +369,7 @@ impl Default for MockIncus {
                 .map(|instance| MockInstance {
                     instance,
                     managed: false,
+                    base_image: None,
                 })
                 .collect(),
             )),

@@ -38,3 +38,17 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - A standalone (non-clustered) server has no members; check `environment.server_clustered` before calling `/1.0/cluster/members`.
 - Incus generates self-signed ECDSA P-384 certificates, not CAs, with server-auth or client-auth usage. A server certificate created without host names is named only **`unspecified`**: the adapter verifies against that name automatically (or `APELORA_INCUS_TLS_SERVER_NAME`) while connecting to the configured address. Certificates must be X.509 v3; LibreSSL's `openssl req` on macOS can produce v1 certificates and EC keys rustls rejects, so generate test certificates with `rcgen` (see `crates/incus-adapter/tests/mtls.rs`).
 - Configuration: `APELORA_INCUS_URL` (https only), `APELORA_INCUS_CLIENT_CERT`, `APELORA_INCUS_CLIENT_KEY`, `APELORA_INCUS_SERVER_CERT` (pinned; no public CAs trusted). No URL = labelled mock provider; URL with missing certificates = refuse to start.
+- Clustered servers present the **cluster certificate**, named after the member's host name (plus loopback), not the address clients dial: set `APELORA_INCUS_TLS_SERVER_NAME` to that name (`scripts/test-cluster/up.sh` reads it from the certificate). The adapter refuses to guess.
+
+## Facts from the disposable test cluster (REAL INCUS TESTED, Incus 7.0.1, Debian 13 arm64, 2026-10-20)
+
+Runbook: `docs/development/TEST-CLUSTER.md` (`scripts/test-cluster/up.sh`, `down.sh`). Real tests: `services/deployment-worker/tests/real_incus.rs` (ignored by default; refuse to run against the mock).
+
+- **`"profiles": []` applies no profiles** (no root disk: "No root device could be found"); only an absent list gets `default`. Send the field only when non-empty.
+- **Instance source fingerprint wins over the alias** (`source.fingerprint`), so a pinned simplestreams image is exactly that image. For OCI the fingerprint would be passed to the registry client as a reference: pin OCI images with a digest in the alias (`repository@sha256:…`; a multi-arch index digest works).
+- **`volatile.base_image`** records the image fingerprint of every instance, OCI included; for OCI it is Incus's own hash, not the registry's manifest digest. Compare pins against it.
+- Incus places an instance only on members whose architecture the image offers (`SuitableArchitectures`); `InstancesPost.architecture` is ignored for image sources. So Apelora checks before creating (`lifecycle::placeable`): a standalone server against `environment.architectures`, a cluster against its members, and in a cluster that mixes architectures only a fingerprint pin is accepted. Never let a create succeed and then refuse the result.
+- **A VM still booting may ignore a graceful stop** ("Failed shutting down instance … context deadline exceeded" after the 30 s timeout). The job retries with backoff and succeeds; do not escalate to force on your own.
+- A client certificate restricted to one project can still read cluster members, managed networks and storage pools, and sees only its own projects: inventory and preflight work with least privilege.
+- With `instance_create_start`, `POST /1.0/instances` with `start: true` returns one operation that covers create and start.
+- OCI support (`instance_oci`) works out of the box with the 7.0 LTS packages; a cached image makes a second create take seconds.

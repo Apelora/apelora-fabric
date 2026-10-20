@@ -106,7 +106,7 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use apelora_incus_adapter::{InstanceState, MockIncus};
+    use apelora_incus_adapter::MockIncus;
     use apelora_persistence::{enqueue_job, get_job, job_status};
     use serde_json::json;
 
@@ -183,11 +183,11 @@ mod tests {
             "succeeded"
         );
         assert_eq!(
-            provider.instance("apelora", "web-01").await,
-            Ok(Some(InstanceState {
-                status: "Running".into(),
-                managed: true
-            }))
+            provider
+                .instance("apelora", "web-01")
+                .await
+                .map(|s| s.map(|s| (s.status, s.managed))),
+            Ok(Some(("Running".into(), true)))
         );
 
         // Creating again is a no-op, not an error.

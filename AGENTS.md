@@ -13,7 +13,7 @@ Apelora composes applications from appliances in a visual designer and runs them
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema.
 - `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly.
-- `services/control-plane` (Axum API, `/api/v1/health` only), `services/deployment-worker`, `crates/domain`, `crates/incus-adapter` (provider trait + mock) — Phase 01 skeletons. **No real Incus integration yet.**
+- `services/control-plane` (Axum API: inventory, preflight, instance lifecycle, jobs, tokens), `services/deployment-worker` (durable jobs that converge instances through Incus), `crates/domain`, `crates/incus-adapter` (mTLS Incus client + labelled mock), `crates/persistence` (PostgreSQL). Tested against a real one-member Incus cluster ([test cluster](docs/development/TEST-CLUSTER.md)); the only Incus tests may change is that disposable cluster.
 - Product name in UI/code is **Apelora**. Change it in one place if branding changes (`PRODUCT_NAME`, `API_VERSION`).
 
 ## Non-negotiables
@@ -45,6 +45,8 @@ cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && ca
 SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 npm run schema           # regenerate JSON Schemas
 bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/development/UPSTREAM-INCUS.md)
+bash scripts/test-cluster/up.sh && source ~/.config/apelora/test-cluster/env   # disposable Incus in a Lima VM (docs/development/TEST-CLUSTER.md)
+DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1   # REAL INCUS TESTED lifecycle
 ```
 
 ## How to change things

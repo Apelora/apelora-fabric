@@ -73,6 +73,26 @@ fn tls_name(
     }
 }
 
+/// TLS libraries reject some client certificates only when the client is built, with an
+/// error that blames the peer. Name the actual problem instead (e.g. an X.509 v1 certificate,
+/// which some `openssl req -x509` versions produce without extensions).
+fn check_client_certificate(pem: &[u8]) -> Result<(), AdapterError> {
+    use rustls_pki_types::CertificateDer;
+    use rustls_pki_types::pem::PemObject;
+    let der = CertificateDer::from_pem_slice(pem)
+        .map_err(|e| AdapterError::InvalidConfig(format!("client certificate: {e}")))?;
+    webpki::EndEntityCert::try_from(&der)
+        .map(|_| ())
+        .map_err(|e| {
+            AdapterError::InvalidConfig(match e {
+                webpki::Error::UnsupportedCertVersion => {
+                    "client certificate: X.509 v3 is required (this one is an older version)".into()
+                }
+                e => format!("client certificate: {e}"),
+            })
+        })
+}
+
 /// An error with its causes, e.g. "builder error: no crypto provider".
 fn chain(e: &dyn std::error::Error) -> String {
     let mut out = e.to_string();
@@ -100,6 +120,7 @@ impl IncusClient {
                 "Incus URL must use https://".into(),
             ));
         }
+        check_client_certificate(&cfg.client_cert_pem)?;
         let mut pem = cfg.client_cert_pem.clone();
         pem.push(b'\n');
         pem.extend_from_slice(&cfg.client_key_pem);
@@ -226,7 +247,9 @@ impl IncusClient {
         match self.get::<wire::InstanceDetail>(&path).await {
             Ok(d) => Ok(Some(InstanceState {
                 managed: d.config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
+                base_image: d.config.get("volatile.base_image").cloned(),
                 status: d.status,
+                architecture: d.architecture,
             })),
             Err(AdapterError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
@@ -237,25 +260,34 @@ impl IncusClient {
     pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
         let mut config = spec.config.clone();
         config.insert(MANAGED_KEY.into(), "true".into());
-        let body = json!({
+        let mut source = json!({
+            "type": "image",
+            "protocol": match spec.source.protocol {
+                ImageProtocol::Simplestreams => "simplestreams",
+                ImageProtocol::Oci => "oci",
+            },
+            "server": spec.source.server,
+            "alias": spec.source.alias,
+        });
+        // Incus prefers the fingerprint to the alias, so only the pinned image can be used.
+        if let Some(fp) = &spec.source.fingerprint {
+            source["fingerprint"] = json!(fp);
+        }
+        let mut body = json!({
             "name": spec.name,
             "type": match spec.kind {
                 InstanceKind::VirtualMachine => "virtual-machine",
                 _ => "container",
             },
-            "source": {
-                "type": "image",
-                "protocol": match spec.source.protocol {
-                    ImageProtocol::Simplestreams => "simplestreams",
-                    ImageProtocol::Oci => "oci",
-                },
-                "server": spec.source.server,
-                "alias": spec.source.alias,
-            },
-            "profiles": spec.profiles,
+            "source": source,
             "config": config,
             "start": spec.start,
         });
+        // Incus applies the `default` profile only when the list is absent; an empty list
+        // means no profiles at all (and so no root disk).
+        if !spec.profiles.is_empty() {
+            body["profiles"] = json!(spec.profiles);
+        }
         self.start_operation(
             Method::POST,
             &format!("/1.0/instances?project={}", spec.project),
@@ -314,6 +346,7 @@ impl IncusClient {
             server_version: Some(s.environment.server_version).filter(|v| !v.is_empty()),
             kernel_version: Some(s.environment.kernel_version).filter(|v| !v.is_empty()),
             api_extensions: s.api_extensions,
+            architectures: s.environment.architectures,
             clustered: s.environment.server_clustered,
             auth: s.auth,
         })

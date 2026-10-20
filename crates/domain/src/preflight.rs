@@ -269,6 +269,7 @@ mod tests {
 
     fn server(version: Option<&str>, kernel: Option<&str>, ext: &[&str]) -> ServerInfo {
         ServerInfo {
+            architectures: vec![],
             api_version: "1.0".into(),
             server_version: version.map(Into::into),
             kernel_version: kernel.map(Into::into),

@@ -75,8 +75,10 @@ export type ImageProtocol = "simplestreams" | "oci";
 
 /** Where an instance's root image comes from. */
 export type ImageSource = {
-  /** Alias such as `debian/13` or, for OCI, `repository:tag`. */
+  /** Alias such as `debian/13` or, for OCI, `repository:tag`. Pin an OCI image by digest: `repository@sha256:<64 hex digits>`. */
   alias: string;
+  /** Pins a simplestreams image: the full SHA-256 fingerprint Incus gives it. The instance must then be built from exactly this image. */
+  fingerprint?: string | null;
   protocol: ImageProtocol;
   /** Image server URL, e.g. a simplestreams server or an OCI registry. */
   server: string;
@@ -116,11 +118,14 @@ export type InstanceList = {
 
 /** An instance Apelora should create. Apelora's ownership marker is added on creation. */
 export type InstanceSpec = {
+  /** Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
+  architectures?: string[];
   /** Extra instance config; keys under `user.apelora.` are reserved. */
   config?: Record<string, unknown>;
   /** `container` (system or OCI) or `virtual-machine`. */
   kind: InstanceKind;
   name: string;
+  /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
   source: ImageSource;
@@ -197,6 +202,8 @@ export type Role = "fabric-admin" | "operator" | "studio-designer" | "auditor";
 export type ServerInfo = {
   apiExtensions: string[];
   apiVersion: string;
+  /** Architectures this server can run (`environment.architectures`); empty when unknown. */
+  architectures?: string[];
   auth: string;
   clustered: boolean;
   /** `None` when unknown (e.g. the mock provider). */

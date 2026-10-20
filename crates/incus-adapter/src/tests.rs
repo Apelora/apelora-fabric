@@ -357,10 +357,12 @@ fn oci_spec() -> InstanceSpec {
             protocol: apelora_domain::ImageProtocol::Oci,
             server: "https://registry.example".into(),
             alias: "nginx:1.29".into(),
+            fingerprint: None,
         },
         profiles: vec!["default".into()],
         config: [("limits.cpu".to_owned(), "1".to_owned())].into(),
         start: true,
+        architectures: vec![],
     }
 }
 
@@ -390,8 +392,40 @@ async fn create_sends_the_spec_with_the_ownership_marker_and_returns_the_operati
         json!({ "type": "image", "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" })
     );
     assert_eq!(body["config"]["user.apelora.managed"], "true");
+    assert_eq!(body["profiles"], json!(["default"]));
     assert_eq!(body["config"]["limits.cpu"], "1");
     assert_eq!(body["start"], true);
+}
+
+const FP: &str = "0f5b9e1c2d3a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9012345678";
+
+#[tokio::test]
+async fn a_pinned_image_is_requested_by_fingerprint() {
+    let (base, seen) =
+        recording_server(vec![("POST /1.0/instances?project=apelora", accepted())]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let mut spec = oci_spec();
+    spec.kind = InstanceKind::VirtualMachine;
+    spec.source = apelora_domain::ImageSource {
+        protocol: apelora_domain::ImageProtocol::Simplestreams,
+        server: "https://images.example".into(),
+        alias: "debian/13".into(),
+        fingerprint: Some(FP.into()),
+    };
+    spec.profiles = vec![];
+    p.create_instance(&spec).await.expect("create");
+    let (_, body) = seen.lock().expect("log")[0].clone();
+    assert_eq!(body["type"], "virtual-machine");
+    assert_eq!(
+        body.get("profiles"),
+        None,
+        "absent, so Incus applies the default profile (an empty list would apply none)"
+    );
+    assert_eq!(
+        body["source"],
+        json!({ "type": "image", "protocol": "simplestreams", "server": "https://images.example",
+                "alias": "debian/13", "fingerprint": FP })
+    );
 }
 
 #[tokio::test]
@@ -419,7 +453,10 @@ async fn reads_ownership_and_reports_failed_operations() {
     let (base, seen) = recording_server(vec![
         (
             "GET /1.0/instances/web-01?project=apelora",
-            sync(json!({ "name": "web-01", "status": "Running", "config": { "user.apelora.managed": "true", "image.os": "Debian" } })),
+            sync(
+                json!({ "name": "web-01", "status": "Running", "architecture": "aarch64",
+                        "config": { "user.apelora.managed": "true", "image.os": "Debian", "volatile.base_image": FP } }),
+            ),
         ),
         (
             "GET /1.0/instances/theirs?project=apelora",
@@ -438,7 +475,9 @@ async fn reads_ownership_and_reports_failed_operations() {
         p.instance("apelora", "web-01").await,
         Ok(Some(InstanceState {
             status: "Running".into(),
-            managed: true
+            managed: true,
+            architecture: "aarch64".into(),
+            base_image: Some(FP.into()),
         }))
     );
     assert_eq!(
@@ -500,7 +539,9 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
         b.instance("default", "web-01").await,
         Ok(Some(InstanceState {
             status: "Running".into(),
-            managed: true
+            managed: true,
+            architecture: "x86_64".into(),
+            base_image: None,
         }))
     );
     assert_eq!(

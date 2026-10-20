@@ -8,7 +8,7 @@
 
 use std::time::Duration;
 
-use apelora_domain::{InstanceAction, InstanceSpec, is_valid_name};
+use apelora_domain::{ClusterMember, InstanceAction, InstanceSpec, is_valid_name};
 use apelora_incus_adapter::{AdapterError, InstanceState, OperationOutcome, Provider};
 use apelora_persistence::{ClaimedJob, Outcome, Pool, StoreError, record_operation};
 use serde::Deserialize;
@@ -87,10 +87,15 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
     match (goal, now) {
         (Goal::Exists(_), None) => Step::Create,
         (Goal::Exists(_), Some(s)) if !s.managed => not_ours(),
-        (Goal::Exists(spec), Some(s)) if spec.start && s.status != "Running" => {
-            Step::Change(InstanceAction::Start, false)
-        }
-        (Goal::Exists(_), Some(_)) => Step::Done,
+        (Goal::Exists(spec), Some(s)) => match image_mismatch(spec, s) {
+            Some(why) => Step::Reject(format!(
+                "instance {project}/{name} {why}; delete it to create it again"
+            )),
+            None if spec.start && s.status != "Running" => {
+                Step::Change(InstanceAction::Start, false)
+            }
+            None => Step::Done,
+        },
         (Goal::State(..), None) => {
             Step::Reject(format!("instance {project}/{name} does not exist"))
         }
@@ -105,6 +110,75 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
         }
         (Goal::Absent(_), Some(_)) => Step::Delete,
     }
+}
+
+/// Why an existing instance does not match the image the spec pins, if it does not.
+fn image_mismatch(spec: &InstanceSpec, now: &InstanceState) -> Option<String> {
+    if let Some(fp) = &spec.source.fingerprint
+        && now.base_image.as_deref() != Some(fp.as_str())
+    {
+        return Some(format!(
+            "was built from image {}, not the pinned {fp}",
+            now.base_image.as_deref().unwrap_or("(unknown)")
+        ));
+    }
+    if !spec.architectures.is_empty() && !spec.architectures.contains(&now.architecture) {
+        return Some(format!(
+            "runs on {}, which the image does not support ({})",
+            now.architecture,
+            spec.architectures.join(", ")
+        ));
+    }
+    None
+}
+
+/// Before creating: will Incus put the instance on an architecture the image supports?
+/// Incus places instances; this refuses, before anything is created, specs it cannot be sure
+/// of. `Err((true, _))` may succeed later (suitable members exist but none is online).
+///
+/// `server_architectures` is used for a standalone server (no members). In a cluster that
+/// mixes architectures, Incus may place an image offered for several architectures on any of
+/// them, so only a fingerprint pin (one image, one architecture) is accepted there.
+pub fn placeable(
+    spec: &InstanceSpec,
+    server_architectures: &[String],
+    members: &[ClusterMember],
+) -> Result<(), (bool, String)> {
+    if spec.architectures.is_empty() {
+        return Ok(());
+    }
+    let wanted = spec.architectures.join(", ");
+    let supported = |arch: &String| spec.architectures.contains(arch);
+    if members.is_empty() {
+        return if server_architectures.iter().any(supported) {
+            Ok(())
+        } else {
+            Err((
+                false,
+                format!("the server does not run a supported architecture ({wanted})"),
+            ))
+        };
+    }
+    let online = || members.iter().filter(|m| m.status == "Online");
+    if !members.iter().any(|m| supported(&m.architecture)) {
+        return Err((
+            false,
+            format!("no cluster member has a supported architecture ({wanted})"),
+        ));
+    }
+    if !online().any(|m| supported(&m.architecture)) {
+        return Err((true, format!("no {wanted} member is online")));
+    }
+    if spec.source.fingerprint.is_none() && online().any(|m| !supported(&m.architecture)) {
+        return Err((
+            false,
+            format!(
+                "the cluster also has members of other architectures and Incus could place the \
+                 instance on one; pin the image by fingerprint to run it only on {wanted}"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 enum Failure {
@@ -172,7 +246,22 @@ async fn converge(
                 let Goal::Exists(spec) = goal else {
                     unreachable!("create is only decided for Exists")
                 };
-                provider.create_instance(spec).await?
+                let fits = if spec.architectures.is_empty() {
+                    Ok(())
+                } else {
+                    let server = provider.server_info().await?;
+                    let members = if server.clustered {
+                        provider.cluster_members().await?
+                    } else {
+                        Vec::new()
+                    };
+                    placeable(spec, &server.architectures, &members)
+                };
+                match fits {
+                    Ok(()) => provider.create_instance(spec).await?,
+                    Err((false, msg)) => return Ok(Outcome::Rejected(msg)),
+                    Err((true, msg)) => return Err(Failure::Retry(msg)),
+                }
             }
             Step::Change(action, force) => {
                 provider.change_state(project, name, action, force).await?
@@ -213,10 +302,12 @@ mod tests {
                 protocol: ImageProtocol::Simplestreams,
                 server: "https://images.example".into(),
                 alias: "debian/13".into(),
+                fingerprint: None,
             },
             profiles: vec![],
             config: Default::default(),
             start,
+            architectures: vec![],
         }))
     }
     fn t() -> Target {
@@ -229,7 +320,83 @@ mod tests {
         Some(InstanceState {
             status: status.into(),
             managed,
+            architecture: "aarch64".into(),
+            base_image: Some(FP.into()),
         })
+    }
+
+    const FP: &str = "aa11bb22cc33dd44ee55ff6600778899aabbccddeeff00112233445566778899";
+
+    fn pinned(fingerprint: &str, architectures: &[&str]) -> InstanceSpec {
+        let Goal::Exists(mut s) = spec(true) else {
+            unreachable!()
+        };
+        s.source.fingerprint = Some(fingerprint.into());
+        s.architectures = architectures.iter().map(|a| (*a).to_owned()).collect();
+        *s
+    }
+
+    #[test]
+    fn existing_instances_must_match_the_pinned_image() {
+        let ok = Goal::Exists(Box::new(pinned(FP, &["aarch64"])));
+        assert_eq!(next_step(&ok, st("Running", true).as_ref()), Step::Done);
+        let other = Goal::Exists(Box::new(pinned(&"0".repeat(64), &[])));
+        assert!(
+            matches!(next_step(&other, st("Stopped", true).as_ref()), Step::Reject(m) if m.contains("not the pinned")),
+            "a stopped instance from another image is not started"
+        );
+        let arch = Goal::Exists(Box::new(pinned(FP, &["x86_64"])));
+        assert!(
+            matches!(next_step(&arch, st("Running", true).as_ref()), Step::Reject(m) if m.contains("runs on aarch64"))
+        );
+    }
+
+    #[test]
+    fn creation_needs_a_member_of_a_supported_architecture() {
+        let member = |arch: &str, status: &str| ClusterMember {
+            name: format!("m-{arch}"),
+            url: String::new(),
+            roles: vec![],
+            status: status.into(),
+            message: String::new(),
+            architecture: arch.into(),
+            failure_domain: String::new(),
+            database: false,
+            groups: vec![],
+        };
+        let x86 = pinned(FP, &["x86_64"]);
+        let mut x86_by_alias = x86.clone();
+        x86_by_alias.source.fingerprint = None;
+        let arm = ["aarch64".to_owned()];
+        let mixed = [member("aarch64", "Online"), member("x86_64", "Online")];
+        // Standalone servers are checked against their own architectures.
+        assert!(matches!(placeable(&x86, &arm, &[]), Err((false, _))));
+        assert_eq!(placeable(&x86, &["x86_64".to_owned()], &[]), Ok(()));
+        assert_eq!(
+            placeable(&pinned(FP, &[]), &[], &[member("aarch64", "Online")]),
+            Ok(())
+        );
+        assert_eq!(
+            placeable(&x86, &[], &mixed),
+            Ok(()),
+            "a fingerprint fixes the architecture"
+        );
+        assert!(
+            matches!(placeable(&x86_by_alias, &[], &mixed), Err((false, m)) if m.contains("pin the image by fingerprint")),
+            "an alias could be placed on the other architecture"
+        );
+        assert_eq!(
+            placeable(&x86_by_alias, &[], &[member("x86_64", "Online")]),
+            Ok(())
+        );
+        assert!(matches!(
+            placeable(&x86, &[], &[member("aarch64", "Online")]),
+            Err((false, _))
+        ));
+        assert!(matches!(
+            placeable(&x86, &[], &[member("x86_64", "Offline")]),
+            Err((true, _))
+        ));
     }
 
     #[test]
