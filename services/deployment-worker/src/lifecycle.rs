@@ -259,11 +259,15 @@ async fn converge(
                 };
                 // The NIC joins the application's network with its own ACL: both must exist.
                 if let Some(n) = &spec.network {
+                    let app = spec
+                        .owner
+                        .as_ref()
+                        .map_or(n.network.as_str(), |o| o.application.as_str());
                     provider
-                        .ensure_network(project, &n.network, &n.uplink)
+                        .ensure_network(project, &n.network, &n.uplink, app)
                         .await?;
-                    provider.ensure_acl(project, &n.acl).await?;
-                    provider.ensure_address_set(project, &n.acl).await?;
+                    provider.ensure_acl(project, &n.acl, app).await?;
+                    provider.ensure_address_set(project, &n.acl, app).await?;
                 }
                 match fits {
                     Ok(()) => provider.create_instance(spec).await?,

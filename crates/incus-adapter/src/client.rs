@@ -96,6 +96,14 @@ fn check_client_certificate(pem: &[u8]) -> Result<(), AdapterError> {
         })
 }
 
+/// Created by Apelora for exactly this application (marker and label both match).
+fn owned_by(o: &wire::Owned, application: &str) -> bool {
+    o.config.get(MANAGED_KEY).is_some_and(|v| v == "true")
+        && o.config
+            .get(APPLICATION_KEY)
+            .is_some_and(|v| v == application)
+}
+
 /// Operation ids are UUIDs; anything else must never reach an API path.
 fn is_operation_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-')
@@ -352,20 +360,24 @@ impl IncusClient {
         collection: &str,
         project: &str,
         name: &str,
+        application: &str,
         mut body: Value,
     ) -> Result<(), AdapterError> {
         match self
             .get::<wire::Owned>(&format!("{collection}/{name}?project={project}"))
             .await
         {
-            Ok(o) if o.config.get(MANAGED_KEY).is_some_and(|v| v == "true") => Ok(()),
+            Ok(o) if owned_by(&o, application) => Ok(()),
             Ok(_) => Err(AdapterError::Api {
                 status: 409,
-                message: format!("{collection}/{name} exists and was not created by Apelora"),
+                message: format!(
+                    "{collection}/{name} exists and does not belong to application {application}"
+                ),
             }),
             Err(AdapterError::NotFound(_)) => {
                 body["name"] = json!(name);
                 body["config"][MANAGED_KEY] = json!("true");
+                body["config"][APPLICATION_KEY] = json!(application);
                 self.call::<Value>(
                     Method::POST,
                     &format!("{collection}?project={project}"),
@@ -378,21 +390,76 @@ impl IncusClient {
         }
     }
 
+    /// Names of the objects in `collection` (e.g. `/1.0/network-acls`) that Apelora created for
+    /// `application`.
+    pub async fn owned_names(
+        &self,
+        collection: &str,
+        project: &str,
+        application: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        let all: Vec<wire::Owned> = self
+            .get(&format!("{collection}?recursion=1&project={project}"))
+            .await?;
+        Ok(all
+            .into_iter()
+            .filter(|o| owned_by(o, application))
+            .map(|o| o.name)
+            .collect())
+    }
+
+    /// Deletes an object Apelora created for `application`; `false` when it did not exist.
+    pub async fn delete_owned(
+        &self,
+        collection: &str,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        match self
+            .get::<wire::Owned>(&format!("{collection}/{name}?project={project}"))
+            .await
+        {
+            Ok(o) if owned_by(&o, application) => self
+                .call::<Value>(
+                    Method::DELETE,
+                    &format!("{collection}/{name}?project={project}"),
+                    None,
+                )
+                .await
+                .map(|_| true),
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!(
+                    "{collection}/{name} does not belong to application {application}"
+                ),
+            }),
+            Err(AdapterError::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     /// The application's OVN network on `uplink`, created if missing.
     pub async fn ensure_network(
         &self,
         project: &str,
         name: &str,
         uplink: &str,
+        application: &str,
     ) -> Result<(), AdapterError> {
         let body = json!({ "type": "ovn", "description": "Apelora application network", "config": { "network": uplink } });
-        self.ensure_owned("/1.0/networks", project, name, body)
+        self.ensure_owned("/1.0/networks", project, name, application, body)
             .await
     }
 
-    pub async fn ensure_acl(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+    pub async fn ensure_acl(
+        &self,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
         let body = json!({ "description": "Apelora appliance", "config": {}, "ingress": [], "egress": [] });
-        self.ensure_owned("/1.0/network-acls", project, name, body)
+        self.ensure_owned("/1.0/network-acls", project, name, application, body)
             .await
     }
 
@@ -403,8 +470,9 @@ impl IncusClient {
         name: &str,
         ingress: &[AclRule],
         egress: &[AclRule],
+        application: &str,
     ) -> Result<(), AdapterError> {
-        let body = json!({ "description": "Apelora appliance", "config": { MANAGED_KEY: "true" }, "ingress": ingress, "egress": egress });
+        let body = json!({ "description": "Apelora appliance", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "ingress": ingress, "egress": egress });
         self.call::<Value>(
             Method::PUT,
             &format!("/1.0/network-acls/{name}?project={project}"),
@@ -414,11 +482,22 @@ impl IncusClient {
         .map(|_| ())
     }
 
-    pub async fn ensure_address_set(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+    pub async fn ensure_address_set(
+        &self,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
         let body =
             json!({ "description": "Apelora appliance addresses", "config": {}, "addresses": [] });
-        self.ensure_owned("/1.0/network-address-sets", project, name, body)
-            .await
+        self.ensure_owned(
+            "/1.0/network-address-sets",
+            project,
+            name,
+            application,
+            body,
+        )
+        .await
     }
 
     /// Replaces the address set's members.
@@ -427,8 +506,9 @@ impl IncusClient {
         project: &str,
         name: &str,
         addresses: &[String],
+        application: &str,
     ) -> Result<(), AdapterError> {
-        let body = json!({ "description": "Apelora appliance addresses", "config": { MANAGED_KEY: "true" }, "addresses": addresses });
+        let body = json!({ "description": "Apelora appliance addresses", "config": { MANAGED_KEY: "true", APPLICATION_KEY: application }, "addresses": addresses });
         self.call::<Value>(
             Method::PUT,
             &format!("/1.0/network-address-sets/{name}?project={project}"),

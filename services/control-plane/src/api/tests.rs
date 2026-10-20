@@ -1137,3 +1137,78 @@ async fn connections_become_an_application_network_with_acls_on_both_sides(pool:
     );
     assert!(net.address_sets["apelora/shop-web-01"][0].starts_with("198.51.100."));
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn removed_appliances_lose_their_network_objects_and_other_applications_keep_theirs(
+    pool: Pool,
+) {
+    let mock = MockIncus::default();
+    let provider = Provider::Mock(mock.clone());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_network_uplink(Some("incusbr0".into()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let conn = json!([{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }]);
+    let deploy = |app: &'static str, appliances: Value, connections: Value| {
+        let state = state.clone();
+        let operator = operator.clone();
+        async move {
+            let body = json!({ "project": "apelora", "document": {}, "appliances": appliances, "connections": connections, "removeMissing": true });
+            let (status, d) = send(
+                state,
+                "POST",
+                &format!("/api/v1/applications/{app}/deployments"),
+                &operator,
+                Some(body),
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{d}");
+        }
+    };
+    deploy(
+        "shop",
+        json!([appliance("web-01"), appliance("db-01")]),
+        conn.clone(),
+    )
+    .await;
+    // "shop-eu" starts with "shop-": a name prefix must never decide ownership.
+    deploy(
+        "shop-eu",
+        json!([appliance("web-01"), appliance("db-01")]),
+        conn,
+    )
+    .await;
+    drain(&pool, &provider).await;
+    let eu_before = mock
+        .net()
+        .acls
+        .keys()
+        .filter(|k| k.contains("shop-eu"))
+        .count();
+    assert_eq!(eu_before, 2);
+
+    deploy("shop", json!([appliance("web-01")]), json!([])).await;
+    drain(&pool, &provider).await;
+    let net = mock.net().clone();
+    assert!(!net.acls.contains_key("apelora/shop-db-01"));
+    assert!(!net.address_sets.contains_key("apelora/shop-db-01"));
+    assert!(net.acls.contains_key("apelora/shop-web-01"));
+    assert_eq!(
+        net.acls.keys().filter(|k| k.contains("shop-eu")).count(),
+        2,
+        "the other application is untouched"
+    );
+
+    deploy("shop", json!([]), json!([])).await;
+    drain(&pool, &provider).await;
+    let net = mock.net().clone();
+    assert!(
+        !net.networks.contains("apelora/shop"),
+        "the network goes with the last appliance"
+    );
+    assert!(net.networks.contains("apelora/shop-eu"));
+    assert!(net.address_sets.keys().all(|k| k.contains("shop-eu")));
+}

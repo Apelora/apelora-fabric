@@ -669,7 +669,7 @@ async fn network_objects_are_created_once_never_adopted_and_addresses_are_read()
         ("POST /1.0/networks?project=apelora", sync(json!({}))),
         (
             "GET /1.0/network-acls/shop-web-01?project=apelora",
-            sync(json!({ "name": "shop-web-01", "config": { "user.apelora.managed": "true" } })),
+            sync(json!({ "name": "shop-web-01", "config": { "user.apelora.managed": "true", "user.apelora.application": "shop" } })),
         ),
         (
             "GET /1.0/network-address-sets/shop-web-01?project=apelora",
@@ -690,15 +690,15 @@ async fn network_objects_are_created_once_never_adopted_and_addresses_are_read()
     ])
     .await;
     let c = IncusClient::plain_for_tests(&base);
-    c.ensure_network("apelora", "shop", "incusbr0")
+    c.ensure_network("apelora", "shop", "incusbr0", "shop")
         .await
         .expect("created");
-    c.ensure_acl("apelora", "shop-web-01")
+    c.ensure_acl("apelora", "shop-web-01", "shop")
         .await
         .expect("already ours");
     assert!(
         matches!(
-            c.ensure_address_set("apelora", "shop-web-01").await,
+            c.ensure_address_set("apelora", "shop-web-01", "shop").await,
             Err(AdapterError::Api { status: 409, .. })
         ),
         "an object without Apelora's marker is never adopted"
@@ -716,7 +716,7 @@ async fn network_objects_are_created_once_never_adopted_and_addresses_are_read()
     assert_eq!(
         created.1,
         json!({ "name": "shop", "type": "ovn", "description": "Apelora application network",
-                "config": { "network": "incusbr0", "user.apelora.managed": "true" } })
+                "config": { "network": "incusbr0", "user.apelora.managed": "true", "user.apelora.application": "shop" } })
     );
 }
 

@@ -240,29 +240,34 @@ impl Provider {
     }
 
     /// Network objects of an application (OVN network, appliance ACLs and address sets).
-    /// All are created only when missing and refused if they exist without Apelora's marker.
+    /// Each is created only when missing and labelled with its application; one that exists
+    /// for another application or without Apelora's marker is refused, never adopted.
     pub async fn ensure_network(
         &self,
         project: &str,
         name: &str,
         uplink: &str,
+        application: &str,
     ) -> Result<(), AdapterError> {
         match self {
-            Provider::Mock(m) => {
-                m.net().networks.insert(format!("{project}/{name}"));
-                Ok(())
-            }
-            Provider::Incus(c) => c.ensure_network(project, name, uplink).await,
+            Provider::Mock(m) => m
+                .net()
+                .ensure(NetworkObject::Network, project, name, application),
+            Provider::Incus(c) => c.ensure_network(project, name, uplink, application).await,
         }
     }
 
-    pub async fn ensure_acl(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+    pub async fn ensure_acl(
+        &self,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
         match self {
-            Provider::Mock(m) => {
-                m.net().acls.entry(format!("{project}/{name}")).or_default();
-                Ok(())
-            }
-            Provider::Incus(c) => c.ensure_acl(project, name).await,
+            Provider::Mock(m) => m
+                .net()
+                .ensure(NetworkObject::Acl, project, name, application),
+            Provider::Incus(c) => c.ensure_acl(project, name, application).await,
         }
     }
 
@@ -272,29 +277,37 @@ impl Provider {
         name: &str,
         ingress: &[AclRule],
         egress: &[AclRule],
+        application: &str,
     ) -> Result<(), AdapterError> {
         match self {
             Provider::Mock(m) => {
-                m.net().acls.insert(
+                let mut net = m.net();
+                net.ensure(NetworkObject::Acl, project, name, application)?;
+                net.acls.insert(
                     format!("{project}/{name}"),
                     (ingress.to_vec(), egress.to_vec()),
                 );
                 Ok(())
             }
-            Provider::Incus(c) => c.set_acl_rules(project, name, ingress, egress).await,
+            Provider::Incus(c) => {
+                c.set_acl_rules(project, name, ingress, egress, application)
+                    .await
+            }
         }
     }
 
-    pub async fn ensure_address_set(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+    pub async fn ensure_address_set(
+        &self,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
         match self {
             Provider::Mock(m) => {
                 m.net()
-                    .address_sets
-                    .entry(format!("{project}/{name}"))
-                    .or_default();
-                Ok(())
+                    .ensure(NetworkObject::AddressSet, project, name, application)
             }
-            Provider::Incus(c) => c.ensure_address_set(project, name).await,
+            Provider::Incus(c) => c.ensure_address_set(project, name, application).await,
         }
     }
 
@@ -303,15 +316,57 @@ impl Provider {
         project: &str,
         name: &str,
         addresses: &[String],
+        application: &str,
     ) -> Result<(), AdapterError> {
         match self {
             Provider::Mock(m) => {
-                m.net()
-                    .address_sets
+                let mut net = m.net();
+                net.ensure(NetworkObject::AddressSet, project, name, application)?;
+                net.address_sets
                     .insert(format!("{project}/{name}"), addresses.to_vec());
                 Ok(())
             }
-            Provider::Incus(c) => c.set_addresses(project, name, addresses).await,
+            Provider::Incus(c) => c.set_addresses(project, name, addresses, application).await,
+        }
+    }
+
+    /// Names of the network objects of one kind that Apelora created for `application`.
+    pub async fn owned_network_objects(
+        &self,
+        kind: NetworkObject,
+        project: &str,
+        application: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let prefix = format!("{kind:?}:{project}/");
+                Ok(m.net()
+                    .owners
+                    .iter()
+                    .filter(|(k, app)| k.starts_with(&prefix) && app.as_str() == application)
+                    .map(|(k, _)| k[prefix.len()..].to_owned())
+                    .collect())
+            }
+            Provider::Incus(c) => c.owned_names(kind.collection(), project, application).await,
+        }
+    }
+
+    /// Deletes a network object Apelora created for `application`; `false` when it did not
+    /// exist. Incus refuses while it is in use (an ACL referencing an address set, a NIC on a
+    /// network).
+    pub async fn delete_network_object(
+        &self,
+        kind: NetworkObject,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        match self {
+            Provider::Mock(m) => m.net().delete(kind, project, name, application),
+            Provider::Incus(c) => {
+                c.delete_owned(kind.collection(), project, name, application)
+                    .await
+            }
         }
     }
 
@@ -378,12 +433,95 @@ pub struct MockIncus {
     next_op: Arc<Mutex<u64>>,
 }
 
-/// Network objects the mock has been asked to create, keyed `project/name`.
+/// Kinds of network objects Apelora owns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkObject {
+    Network,
+    Acl,
+    AddressSet,
+}
+
+impl NetworkObject {
+    fn collection(self) -> &'static str {
+        match self {
+            NetworkObject::Network => "/1.0/networks",
+            NetworkObject::Acl => "/1.0/network-acls",
+            NetworkObject::AddressSet => "/1.0/network-address-sets",
+        }
+    }
+}
+
+/// Network objects the mock has been asked to create, keyed `project/name`; `owners` maps
+/// `<kind>:project/name` to the application that owns the object.
 #[derive(Debug, Clone, Default)]
 pub struct MockNetwork {
     pub networks: std::collections::BTreeSet<String>,
     pub acls: std::collections::BTreeMap<String, (Vec<AclRule>, Vec<AclRule>)>,
     pub address_sets: std::collections::BTreeMap<String, Vec<String>>,
+    pub owners: std::collections::BTreeMap<String, String>,
+}
+
+impl MockNetwork {
+    fn ensure(
+        &mut self,
+        kind: NetworkObject,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        let owner = format!("{kind:?}:{project}/{name}");
+        match self.owners.get(&owner) {
+            Some(app) if app != application => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: format!("{name} belongs to application {app}"),
+                });
+            }
+            Some(_) => return Ok(()),
+            None => {}
+        }
+        self.owners.insert(owner, application.to_owned());
+        let key = format!("{project}/{name}");
+        match kind {
+            NetworkObject::Network => {
+                self.networks.insert(key);
+            }
+            NetworkObject::Acl => {
+                self.acls.entry(key).or_default();
+            }
+            NetworkObject::AddressSet => {
+                self.address_sets.entry(key).or_default();
+            }
+        }
+        Ok(())
+    }
+
+    fn delete(
+        &mut self,
+        kind: NetworkObject,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<bool, AdapterError> {
+        let owner = format!("{kind:?}:{project}/{name}");
+        match self.owners.get(&owner) {
+            None => return Ok(false),
+            Some(app) if app != application => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: format!("{name} belongs to application {app}"),
+                });
+            }
+            Some(_) => {}
+        }
+        self.owners.remove(&owner);
+        let key = format!("{project}/{name}");
+        Ok(match kind {
+            NetworkObject::Network => self.networks.remove(&key),
+            NetworkObject::Acl => self.acls.remove(&key).is_some(),
+            NetworkObject::AddressSet => self.address_sets.remove(&key).is_some(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -72,6 +72,7 @@ pub(crate) struct Instance {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct Owned {
+    pub name: String,
     pub config: BTreeMap<String, String>,
 }
 

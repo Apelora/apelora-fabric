@@ -9,7 +9,7 @@
 use apelora_domain::is_valid_name;
 use apelora_domain::network::{Connection, acl_name, acl_rules, network_name};
 use apelora_domain::plan::instance_name;
-use apelora_incus_adapter::{AdapterError, Provider};
+use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
 use apelora_persistence::Outcome;
 use serde::Deserialize;
 
@@ -58,28 +58,56 @@ pub async fn sync(provider: &Provider, s: &NetworkSync) -> Outcome {
 
 /// Returns the appliances whose instances have no address yet.
 async fn apply(provider: &Provider, s: &NetworkSync) -> Result<Vec<String>, AdapterError> {
-    let p = &s.project;
-    provider
-        .ensure_network(p, &network_name(&s.application), &s.uplink)
-        .await?;
+    let (p, app) = (&s.project, s.application.as_str());
     let mut missing = Vec::new();
+    if !s.appliances.is_empty() {
+        provider
+            .ensure_network(p, &network_name(app), &s.uplink, app)
+            .await?;
+    }
     for a in &s.appliances {
-        let name = acl_name(&s.application, a);
-        provider.ensure_acl(p, &name).await?;
-        provider.ensure_address_set(p, &name).await?;
+        let name = acl_name(app, a);
+        provider.ensure_acl(p, &name, app).await?;
+        provider.ensure_address_set(p, &name, app).await?;
         let addresses = provider
-            .instance_addresses(p, &instance_name(&s.application, a))
+            .instance_addresses(p, &instance_name(app, a))
             .await?;
         if addresses.is_empty() {
             missing.push(a.clone());
         }
-        provider.set_addresses(p, &name, &addresses).await?;
+        provider.set_addresses(p, &name, &addresses, app).await?;
     }
     for a in &s.appliances {
-        let (ingress, egress) = acl_rules(&s.application, a, &s.connections);
+        let (ingress, egress) = acl_rules(app, a, &s.connections);
         provider
-            .set_acl_rules(p, &acl_name(&s.application, a), &ingress, &egress)
+            .set_acl_rules(p, &acl_name(app, a), &ingress, &egress, app)
             .await?;
     }
+    remove_stale(provider, s).await?;
     Ok(missing)
+}
+
+/// Deletes the application's ACLs and address sets for appliances no longer in the design
+/// (ACLs first: they reference the sets), and its network once no appliance is left. Only
+/// objects labelled with this application are considered.
+async fn remove_stale(provider: &Provider, s: &NetworkSync) -> Result<(), AdapterError> {
+    let (p, app) = (&s.project, s.application.as_str());
+    let current: Vec<String> = s.appliances.iter().map(|a| acl_name(app, a)).collect();
+    for kind in [NetworkObject::Acl, NetworkObject::AddressSet] {
+        let stale: Vec<String> = provider
+            .owned_network_objects(kind, p, app)
+            .await?
+            .into_iter()
+            .filter(|n| !current.contains(n))
+            .collect();
+        for name in stale {
+            provider.delete_network_object(kind, p, &name, app).await?;
+        }
+    }
+    if s.appliances.is_empty() {
+        provider
+            .delete_network_object(NetworkObject::Network, p, &network_name(app), app)
+            .await?;
+    }
+    Ok(())
 }
