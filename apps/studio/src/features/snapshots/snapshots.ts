@@ -1,4 +1,4 @@
-import { ensureNics, parseAssembly, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
+import { ensureNics, parseAssembly, randomUid, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/appliance-catalog";
 
 const KEY = "apelora.studio.snapshots.v1";
@@ -23,7 +23,7 @@ function write(list: Snapshot[]): boolean {
 export function addSnapshot(name: string, a: ApplicationAssembly): { ok: true; list: Snapshot[] } | { ok: false; error: string } {
   const json = serializeAssembly(a);
   if (json.length > 800_000) return { ok: false, error: "This diagram is too large to keep as a snapshot. Export it as a file instead." };
-  const snap: Snapshot = { id: `snap-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, name: name.trim().slice(0, 60) || "Snapshot", at: new Date().toISOString(), json };
+  const snap: Snapshot = { id: `snap-${Date.now().toString(36)}-${randomUid(4)}`, name: name.trim().slice(0, 60) || "Snapshot", at: new Date().toISOString(), json };
   let list = [...listSnapshots(), snap].slice(-MAX_SNAPSHOTS);
   while (list.length > 1 && list.reduce((n, s) => n + s.json.length, 0) > MAX_TOTAL_CHARS) list = list.slice(1);
   return write(list) ? { ok: true, list } : { ok: false, error: "Browser storage is full or unavailable, so the snapshot was not saved." };

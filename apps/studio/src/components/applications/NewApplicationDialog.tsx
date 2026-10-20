@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { TEMPLATES } from "@apelora/appliance-catalog";
-import { serializeAssembly } from "@apelora/assembly-model";
+import { randomUid, serializeAssembly } from "@apelora/assembly-model";
 
 import { useBackend } from "../../features/applications/backend";
 import { AppError, type EnvChoice } from "../../features/applications/model";
@@ -49,7 +49,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       let document: unknown;
-      if (from === "template") document = JSON.parse(serializeAssembly({ ...TEMPLATES.find((t) => t.id === template)!.build(), metadata: { name, uid: `assembly-${Math.random().toString(36).slice(2, 10)}` } }));
+      if (from === "template") document = JSON.parse(serializeAssembly({ ...TEMPLATES.find((t) => t.id === template)!.build(), metadata: { name, uid: `assembly-${randomUid()}` } }));
       else if (from === "library" && library) document = JSON.parse(serializeAssembly({ ...library, metadata: { ...library.metadata, name } }));
       await backend.create({ name, description: description.trim(), icon, environmentId: env, document });
       toast("success", `Created ${name}.`);

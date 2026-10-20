@@ -1,5 +1,5 @@
 import { sampleCommerceStack, lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, ensureNics, parseAssembly, serializeAssembly, validateAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
+import { applicationName, ensureNics, parseAssembly, randomUid, serializeAssembly, validateAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
 
 import { loadAssembly } from "../editor/persistence";
 import { AppError, type AppBackend, type AppDetailView, type AppView, type EnvChoice, type ListResult, type NewApplicationInput, type OperationKind, type SaveResult, type VersionInfo } from "./model";
@@ -122,7 +122,7 @@ export function createLocalBackend(): AppBackend {
       const s = load();
       if (s.apps.some((a) => a.name === input.name)) throw new AppError(`An application named ${input.name} already exists.`, "conflict");
       const t = now();
-      const document = input.document ?? JSON.parse(serializeAssembly({ apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name: input.name, uid: `assembly-${Math.random().toString(36).slice(2, 10)}` }, spec: { appliances: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } })) as unknown;
+      const document = input.document ?? JSON.parse(serializeAssembly({ apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name: input.name, uid: `assembly-${randomUid()}` }, spec: { appliances: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } })) as unknown;
       const app: LocalApp = { name: input.name, description: input.description, icon: input.icon, createdAt: t, updatedAt: t, archived: false, draft: { version: 1, document, updatedAt: t }, versions: [] };
       s.apps.push(app);
       write(s);

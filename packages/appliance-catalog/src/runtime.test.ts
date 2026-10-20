@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, guestOsOf, instanceRequestFor, resourceLimits, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -133,5 +133,20 @@ describe("runtimes", () => {
     expect(applicationName("2024 shop")).toBe("app-2024-shop");
     expect(applicationName("a".repeat(60))).toHaveLength(40);
     expect(applicationName("x---")).toBe("x");
+    expect(applicationName("--Shop--")).toBe("shop");
+    expect(applicationName(`${"a".repeat(39)}-b`)).toBe("a".repeat(39));
+    // Hyphens are trimmed with a loop: a long run of separators stays fast.
+    const t0 = performance.now();
+    expect(applicationName(`${"-".repeat(100_000)}x`)).toBe("x");
+    expect(performance.now() - t0).toBeLessThan(500);
+  });
+
+  it("random ids come from the cryptographic generator and keep their shape", () => {
+    const ids = new Set(Array.from({ length: 200 }, () => randomUid()));
+    expect(ids.size).toBe(200);
+    for (const id of ids) expect(id).toMatch(/^[0-9a-z]{8}$/);
+    expect(randomUid(4)).toMatch(/^[0-9a-z]{4}$/);
+    expect(trimHyphens("--a-b--")).toBe("a-b");
+    expect(trimHyphens("---")).toBe("");
   });
 });

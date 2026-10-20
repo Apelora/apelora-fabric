@@ -1,5 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test";
+import { expect as baseExpect, test, type Page, type Route, type WebSocketRoute } from "@playwright/test";
+
+// The session dialog loads the terminal code on first use; on a cold dev server that compile can
+// take longer than the default five seconds, whichever test happens to open it first.
+const expect = baseExpect.configure({ timeout: 15_000 });
 
 // Terminal sessions in the Studio, against a stubbed control plane and a stubbed websocket. These
 // prove the interface: what is offered and why not, the approval step, how a session is opened,

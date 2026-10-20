@@ -1,3 +1,4 @@
+import { trimHyphens } from "./ops";
 import { effectiveValue } from "./config";
 import type { ApplianceClass, ApplianceInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage } from "./schema";
 
@@ -149,6 +150,6 @@ export function deploymentAppliances(
 
 /** An application name for the control plane from a design's name (letters, digits, hyphens). */
 export function applicationName(designName: string): string {
-  const s = designName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
-  return /^[a-z]/.test(s) ? s : `app-${s}`.slice(0, 40).replace(/-+$/, "");
+  const s = trimHyphens(trimHyphens(designName.toLowerCase().replace(/[^a-z0-9]+/g, "-")).slice(0, 40));
+  return /^[a-z]/.test(s) ? s : trimHyphens(`app-${s}`.slice(0, 40));
 }

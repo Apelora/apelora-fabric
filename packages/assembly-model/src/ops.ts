@@ -10,8 +10,24 @@ function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAsse
   return next.length ? next : undefined;
 }
 
+/** Lowercase letters and digits from the platform's cryptographic generator (identifiers, not secrets). */
+export function randomUid(length = 8): string {
+  const bytes = new Uint8Array(length);
+  globalThis.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => "0123456789abcdefghijklmnopqrstuvwxyz"[b % 36]).join("");
+}
+
+/** Removes leading and trailing hyphens (a loop, so long inputs cannot make it backtrack). */
+export function trimHyphens(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === "-") start++;
+  while (end > start && s[end - 1] === "-") end--;
+  return s.slice(start, end);
+}
+
 export function slug(input: string): string {
-  const s = input.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  const s = trimHyphens(input.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
   return /^[a-z]/.test(s) ? s.slice(0, 40) : `x-${s}`.slice(0, 40);
 }
 
@@ -26,7 +42,7 @@ export function createEmptyAssembly(name = "untitled-assembly"): ApplicationAsse
   return {
     apiVersion: API_VERSION,
     kind: ASSEMBLY_KIND,
-    metadata: { name, uid: `assembly-${Math.random().toString(36).slice(2, 10)}` },
+    metadata: { name, uid: `assembly-${randomUid()}` },
     spec: { appliances: [], connections: [] },
     editor: { layoutVersion: LAYOUT_VERSION, density: "compact", nodes: [] },
   };
