@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
 import { lookupClass } from "@apelora/appliance-catalog";
-import { applicationName, deploymentAppliances, usedCustomClasses } from "@apelora/assembly-model";
+import { applicationName, compileNetwork, deploymentAppliances, usedCustomClasses, type NetworkPlan } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -215,6 +215,7 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="flex flex-col gap-3 text-sm">
             <p className="text-base-content/70">What deploying <strong className="font-mono">{appName}</strong> to <strong>{project}</strong> changes. Nothing has changed yet.</p>
             <PlanTable plan={step.plan} removeMissing={removeMissing} />
+            <NetworkRules plan={compileNetwork(api.getState().assembly, appName)} />
             {step.plan.warnings.map((w) => <p key={w} className="flex items-start gap-2" role="note"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{w}</p>)}
             {step.plan.items.some((i) => i.action === "remove") && (
               <label className="flex items-center gap-2">
@@ -254,6 +255,23 @@ export function DeployDialog({ open, onClose }: { open: boolean; onClose: () => 
         )}
       </div>
     </dialog>
+  );
+}
+
+/** The connections the design declares, as allow rules by service name. Shown, not enforced yet. */
+function NetworkRules({ plan }: { plan: NetworkPlan }) {
+  if (!plan.intents.length) return null;
+  return (
+    <details className="rounded-box border border-base-300 px-3 py-2" data-testid="network-rules">
+      <summary className="cursor-pointer">Connections in this design ({plan.intents.length})</summary>
+      <p className="mt-2 text-xs text-base-content/60">Each cable allows one service, by name. They are not enforced on the cluster yet: instances share the project's network.</p>
+      <ul className="mt-2 flex flex-col gap-1 font-mono text-xs">
+        {plan.intents.map((i) => (
+          <li key={i.id} data-testid="network-rule">{i.from} → {i.service} · {i.protocol} {i.number ?? "any"}/{i.transport}</li>
+        ))}
+      </ul>
+      {plan.warnings.map((w) => <p key={w} className="mt-2 text-xs">{w}</p>)}
+    </details>
   );
 }
 

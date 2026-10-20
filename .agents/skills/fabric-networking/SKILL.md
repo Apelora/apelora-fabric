@@ -36,3 +36,9 @@ Each connection compiles to an intent such as: source service `web`, target serv
 - Snapshot tests of compiled intents for representative graphs; re-compiling an unchanged graph yields no diff
 - Isolation tests: unconnected services have no path; other projects unreachable
 - Mock-provider tests labelled MOCK VERIFIED; real connectivity only claimed after a test-cluster run (`testing-operations`)
+
+## Current implementation
+
+- Compiler: `packages/assembly-model/src/network.ts` — `compileNetwork(assembly, application)` → `{ services, intents, segments, warnings }`; `allows(plan, from, to, port)`. Default ports per protocol in `DEFAULT_PORTS` (generic `tcp` has none: the rule allows any TCP port and the plan warns). Tests: `packages/appliance-catalog/src/network.test.ts` (snapshot of the commerce stack, order independence, isolation, tags, generic TCP).
+- Links are cables plus every pair of terminals sharing a link tag; the output terminal is the consumer, the input the provider; `network` terminals only form segments.
+- Not enforced yet: the Studio shows the rules in the deploy review with that statement. Enforcement (OVN networks, ACLs, DNS) comes next and must be REAL INCUS TESTED across members before any claim.

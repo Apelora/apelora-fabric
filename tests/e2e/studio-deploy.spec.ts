@@ -66,6 +66,10 @@ test.describe("deploying from the Studio", () => {
     await expect(dialog.getByTestId("plan-row")).toHaveCount(2);
     await expect(dialog).toContainText("single instance");
     await expect(dialog.getByTestId("deploy-apply")).toHaveText("Deploy 2 changes");
+    await dialog.getByTestId("network-rules").locator("summary").click();
+    await expect(dialog.getByTestId("network-rule")).toHaveCount(6);
+    await expect(dialog.getByTestId("network-rules")).toContainText("nginx-01 → postgresql-01.commerce-stack.internal · postgres 5432/tcp");
+    await expect(dialog.getByTestId("network-rules")).toContainText("not enforced on the cluster yet");
 
     await dialog.getByTestId("deploy-apply").click();
     await expect(dialog.getByTestId("deploy-job")).toHaveCount(2);
