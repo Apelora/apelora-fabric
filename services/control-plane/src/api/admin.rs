@@ -69,6 +69,44 @@ pub struct SystemInfo {
     pub incus_series: String,
     /// Evidence recorded for the pin.
     pub incus_tested_with: String,
+    /// The certificates Apelora uses to reach Incus and when they expire (empty with the mock).
+    pub certificates: Vec<CertificateStatus>,
+}
+
+/// Certificates expiring sooner than this get a warning.
+const CERTIFICATE_WARNING_DAYS: i64 = 30;
+
+#[derive(Serialize, ToSchema, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CertificateStatus {
+    /// `deploy` (restricted client identity), `admin` (unrestricted client identity) or
+    /// `server` (the pinned Incus server certificate).
+    pub certificate: String,
+    /// RFC 3339.
+    pub expires_at: String,
+    /// Whole days left; negative once expired.
+    pub days_left: i64,
+    /// `ok`, `expiring` (within 30 days) or `expired`.
+    pub state: String,
+}
+
+pub(super) fn certificate_status(certificate: &str, not_after: i64, now: i64) -> CertificateStatus {
+    let days_left = (not_after - now).div_euclid(86_400);
+    CertificateStatus {
+        certificate: certificate.into(),
+        expires_at: time::OffsetDateTime::from_unix_timestamp(not_after)
+            .map(rfc3339)
+            .unwrap_or_default(),
+        days_left,
+        state: if not_after <= now {
+            "expired"
+        } else if days_left < CERTIFICATE_WARNING_DAYS {
+            "expiring"
+        } else {
+            "ok"
+        }
+        .into(),
+    }
 }
 
 pub(super) fn rfc3339(t: time::OffsetDateTime) -> String {
@@ -210,26 +248,60 @@ fn lock_value(lock: &str, key: &str) -> String {
     String::new()
 }
 
-/// Versions of this control plane and the Incus release it is pinned to. Needs
-/// `read-inventory`. The running Incus version is in `/api/v1/health`.
+/// Versions of this control plane and the Incus release it is pinned to, and when the
+/// certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus
+/// version is in `/api/v1/health`.
 #[utoipa::path(get, path = "/api/v1/system", tag = "system", operation_id = "system",
     responses((status = 200, body = SystemInfo), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
 pub(super) async fn system(
+    State(state): State<AppState>,
     Extension(p): Extension<Principal>,
 ) -> Result<Json<SystemInfo>, ApiError> {
     require(&p, Permission::ReadInventory)?;
     const LOCK: &str = include_str!("../../../../upstream.lock.yaml");
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    // The two client identities first, then the pinned server certificate.
+    let deploy = state.provider.certificate_expiry();
+    let mut certificates: Vec<CertificateStatus> = deploy
+        .map(|e| certificate_status("deploy", e.client, now))
+        .into_iter()
+        .collect();
+    if let Some(e) = state.admin.as_deref().and_then(|a| a.certificate_expiry()) {
+        certificates.push(certificate_status("admin", e.client, now));
+    }
+    certificates.extend(deploy.map(|e| certificate_status("server", e.server, now)));
     Ok(Json(SystemInfo {
         version: env!("CARGO_PKG_VERSION").into(),
         api_version: API_VERSION.into(),
         incus_pinned: lock_value(LOCK, "pinned_tag"),
         incus_series: lock_value(LOCK, "series"),
         incus_tested_with: lock_value(LOCK, "tested_with"),
+        certificates,
     }))
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn certificates_warn_a_month_ahead_and_say_when_they_expired() {
+        let now = 1_800_000_000;
+        let day = 86_400;
+        let s = |t| super::certificate_status("deploy", t, now);
+        assert_eq!(
+            (
+                s(now + 90 * day).days_left,
+                s(now + 90 * day).state.as_str()
+            ),
+            (90, "ok")
+        );
+        assert_eq!(s(now + 29 * day + 5).state, "expiring");
+        assert_eq!(
+            (s(now - day).days_left, s(now - day).state.as_str()),
+            (-1, "expired")
+        );
+        assert!(s(now).expires_at.starts_with("2027-01-15"));
+    }
+
     #[test]
     fn the_pinned_incus_release_is_read_from_the_lock_file() {
         const LOCK: &str = include_str!("../../../../upstream.lock.yaml");

@@ -65,6 +65,17 @@ export type Capabilities = {
   powers: boolean;
 };
 
+export type CertificateStatus = {
+  /** `deploy` (restricted client identity), `admin` (unrestricted client identity) or `server` (the pinned Incus server certificate). */
+  certificate: string;
+  /** Whole days left; negative once expired. */
+  daysLeft: number;
+  /** RFC 3339. */
+  expiresAt: string;
+  /** `ok`, `expiring` (within 30 days) or `expired`. */
+  state: string;
+};
+
 export type Check = {
   detail: string;
   /** Stable identifier, e.g. `kernel-version`. */
@@ -559,6 +570,8 @@ export type StoragePoolList = {
 /** Facts about this control plane and the Incus release it is pinned to. */
 export type SystemInfo = {
   apiVersion: string;
+  /** The certificates Apelora uses to reach Incus and when they expire (empty with the mock). */
+  certificates: CertificateStatus[];
   /** Incus release Apelora is tested against (`upstream.lock.yaml`). */
   incusPinned: string;
   /** Incus LTS series the pin follows, e.g. "7.0". */
@@ -698,7 +711,7 @@ export type Responses = {
   projects: ProjectList;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
-  /** Versions of this control plane and the Incus release it is pinned to. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
+  /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
   system: SystemInfo;
   /** API tokens, active and revoked (never the tokens themselves). Needs `manage-tokens`. */
   tokens: TokenList;

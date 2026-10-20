@@ -156,10 +156,31 @@ fn chain(e: &dyn std::error::Error) -> String {
     out
 }
 
+/// When the certificates a client was built with stop being valid (Unix seconds).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CertificateExpiry {
+    /// Apelora's client certificate (its Incus identity).
+    pub client: i64,
+    /// The pinned Incus server certificate.
+    pub server: i64,
+}
+
+/// When a PEM certificate stops being valid (Unix seconds).
+pub fn certificate_not_after(pem: &[u8]) -> Result<i64, AdapterError> {
+    use rustls_pki_types::CertificateDer;
+    use rustls_pki_types::pem::PemObject;
+    let der = CertificateDer::from_pem_slice(pem)
+        .map_err(|e| AdapterError::InvalidConfig(format!("certificate: {e}")))?;
+    let (_, cert) = x509_parser::parse_x509_certificate(&der)
+        .map_err(|e| AdapterError::InvalidConfig(format!("certificate: {e}")))?;
+    Ok(cert.validity().not_after.timestamp())
+}
+
 #[derive(Debug, Clone)]
 pub struct IncusClient {
     base: String,
     http: reqwest::Client,
+    expiry: Option<CertificateExpiry>,
 }
 
 impl IncusClient {
@@ -207,10 +228,20 @@ impl IncusClient {
         let http = builder
             .build()
             .map_err(|e| AdapterError::InvalidConfig(chain(&e)))?;
+        let expiry = CertificateExpiry {
+            client: certificate_not_after(&cfg.client_cert_pem)?,
+            server: certificate_not_after(&cfg.server_cert_pem)?,
+        };
         Ok(Self {
             base: url.as_str().trim_end_matches('/').to_owned(),
             http,
+            expiry: Some(expiry),
         })
+    }
+
+    /// When this client's certificates expire; `None` for test clients without TLS.
+    pub fn certificate_expiry(&self) -> Option<CertificateExpiry> {
+        self.expiry
     }
 
     /// Test-only constructor for contract tests against a local plain-HTTP fixture server.
@@ -220,6 +251,7 @@ impl IncusClient {
         Self {
             base: base.trim_end_matches('/').to_owned(),
             http: reqwest::Client::new(),
+            expiry: None,
         }
     }
 

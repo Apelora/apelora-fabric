@@ -7,7 +7,9 @@ deploy identity kept its project restriction, and the real Incus tests passed wi
 Apelora talks to Incus with two client certificates (ADR 0003): the **deploy identity**,
 restricted to the deploy projects (control plane and worker), and the **admin identity**,
 unrestricted (control plane only, cluster administration). The test cluster issues them for 90
-days; rotate them well before they expire, and at once if a key may have leaked.
+days; rotate them well before they expire, and at once if a key may have leaked. Fabric Console →
+Administration → System shows when each expires (`GET /api/v1/system`, `certificates`), and warns
+30 days ahead.
 
 Rotation never leaves Apelora without access:
 

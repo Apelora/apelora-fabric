@@ -492,7 +492,10 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2" } }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2", certificates: [
+        { certificate: "deploy", expiresAt: "2026-11-02T00:00:00Z", daysLeft: 12, state: "expiring" },
+        { certificate: "server", expiresAt: "2036-10-18T00:00:00Z", daysLeft: 3650, state: "ok" },
+      ] } }),
       "GET /api/v1/tokens": () => ({ json: { items } }),
       "POST /api/v1/tokens": (req) => {
         body = req.postDataJSON();
@@ -504,6 +507,10 @@ test.describe("fabric console operations and administration", () => {
     });
     await page.goto("/#/administration");
     await expect(page.getByTestId("system")).toContainText("7.0.3 (7.0 LTS series) · running 7.0.2 differs");
+    await expect(page.getByTestId("certificate-row")).toHaveCount(2);
+    await expect(page.getByTestId("certificate-row").first()).toContainText("Deploy identity certificate");
+    await expect(page.getByTestId("certificate-row").first()).toContainText("12 days left: rotate it soon");
+    await expect(page.getByTestId("certificate-row").nth(1)).toContainText("3650 days left");
     await page.getByTestId("token-open").click();
     await page.getByTestId("token-name").fill("ci");
     await page.getByTestId("token-role").selectOption("auditor");

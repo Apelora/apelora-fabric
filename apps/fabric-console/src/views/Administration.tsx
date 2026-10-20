@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { Health, Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } from "@apelora/api-client";
+import type { CertificateStatus, Health, Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } from "@apelora/api-client";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -37,12 +37,35 @@ function SystemSection({ health, onAuth }: { health: Health | null; onAuth: (m: 
                   <dd className="text-base-content/70 sm:max-w-[65%] sm:text-right">{v}</dd>
                 </div>
               ))}
+              {s.certificates.map((c) => (
+                <div key={c.certificate} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:justify-between sm:gap-6" data-testid="certificate-row">
+                  <dt className="font-medium">{CERTIFICATES[c.certificate] ?? c.certificate}</dt>
+                  <dd className="flex items-start gap-2 text-base-content/70 sm:max-w-[65%] sm:justify-end sm:text-right">
+                    <span className={`status mt-1.5 shrink-0 ${c.state === "ok" ? "status-success" : c.state === "expiring" ? "status-warning" : "status-error"}`} aria-hidden="true" />
+                    <span>{expiry(c)}</span>
+                  </dd>
+                </div>
+              ))}
             </dl>
           </>
         );
       }}
     </Section>
   );
+}
+
+const CERTIFICATES: Record<string, string> = {
+  deploy: "Deploy identity certificate",
+  admin: "Admin identity certificate",
+  server: "Incus server certificate (pinned)",
+};
+
+/** When a certificate expires, in words; expiring and expired ones point to the rotation runbook. */
+function expiry(c: CertificateStatus): string {
+  const date = new Date(c.expiresAt).toLocaleDateString();
+  if (c.state === "expired") return `Expired ${date}: rotate it (docs/runbooks/certificates.md)`;
+  const left = `${c.daysLeft} ${c.daysLeft === 1 ? "day" : "days"} left`;
+  return c.state === "expiring" ? `${left}: rotate it soon (docs/runbooks/certificates.md)` : `${left} · until ${date}`;
 }
 
 function CreateTokenDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (t: TokenCreated) => void }) {

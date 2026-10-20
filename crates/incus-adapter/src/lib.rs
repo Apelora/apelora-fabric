@@ -14,7 +14,7 @@ mod client;
 pub mod config;
 mod wire;
 
-pub use client::{IncusClient, IncusConfig};
+pub use client::{CertificateExpiry, IncusClient, IncusConfig, certificate_not_after};
 pub use wire::Operation;
 
 use std::sync::{Arc, Mutex};
@@ -84,6 +84,14 @@ pub enum Provider {
 }
 
 impl Provider {
+    /// When the client and pinned server certificates expire (none for the mock).
+    pub fn certificate_expiry(&self) -> Option<CertificateExpiry> {
+        match self {
+            Provider::Mock(_) => None,
+            Provider::Incus(c) => c.certificate_expiry(),
+        }
+    }
+
     pub fn mode(&self) -> ProviderMode {
         match self {
             Provider::Mock(_) => ProviderMode::Mock,

@@ -2277,7 +2277,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Versions of this control plane and the Incus release it is pinned to. Needs\n`read-inventory`. The running Incus version is in `/api/v1/health`.",
+        "summary": "Versions of this control plane and the Incus release it is pinned to, and when the\ncertificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus\nversion is in `/api/v1/health`.",
         "operationId": "system",
         "responses": {
           "200": {
@@ -2742,6 +2742,34 @@
           },
           "powers": {
             "type": "boolean"
+          }
+        }
+      },
+      "CertificateStatus": {
+        "type": "object",
+        "required": [
+          "certificate",
+          "expiresAt",
+          "daysLeft",
+          "state"
+        ],
+        "properties": {
+          "certificate": {
+            "type": "string",
+            "description": "`deploy` (restricted client identity), `admin` (unrestricted client identity) or\n`server` (the pinned Incus server certificate)."
+          },
+          "daysLeft": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Whole days left; negative once expired."
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "state": {
+            "type": "string",
+            "description": "`ok`, `expiring` (within 30 days) or `expired`."
           }
         }
       },
@@ -4342,11 +4370,19 @@
           "apiVersion",
           "incusPinned",
           "incusSeries",
-          "incusTestedWith"
+          "incusTestedWith",
+          "certificates"
         ],
         "properties": {
           "apiVersion": {
             "type": "string"
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CertificateStatus"
+            },
+            "description": "The certificates Apelora uses to reach Incus and when they expire (empty with the mock)."
           },
           "incusPinned": {
             "type": "string",

@@ -205,3 +205,28 @@ fn a_version_1_client_certificate_is_named_as_the_problem() {
         "{err:?}"
     );
 }
+
+#[test]
+fn the_client_knows_when_its_certificates_expire() {
+    let server = incus_like(&["unspecified"], false);
+    let mut p = CertificateParams::new(Vec::<String>::new()).expect("params");
+    p.not_after = rcgen::date_time_ymd(2027, 1, 15);
+    p.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+    let key = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).expect("key");
+    let cert = p.self_signed(&key).expect("cert");
+    let client = Pem {
+        cert: cert.pem(),
+        key: key.serialize_pem(),
+        der: cert.der().clone(),
+        key_der: key.serialize_der(),
+    };
+    let c = IncusClient::mtls(&cfg(8443, "127.0.0.1", &client, &server, None)).expect("client");
+    let expiry = c.certificate_expiry().expect("expiry");
+    // 2027-01-15T00:00:00Z
+    assert_eq!(expiry.client, 1_799_971_200);
+    assert_eq!(
+        Some(expiry.server),
+        apelora_incus_adapter::certificate_not_after(server.cert.as_bytes()).ok()
+    );
+    assert!(apelora_incus_adapter::certificate_not_after(b"not a certificate").is_err());
+}
