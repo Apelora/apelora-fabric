@@ -2260,7 +2260,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectList"
+                  "$ref": "#/components/schemas/IdentityProjectList"
                 }
               }
             }
@@ -5662,6 +5662,21 @@
           "unhealthy"
         ]
       },
+      "IdentityProjectList": {
+        "type": "object",
+        "description": "Identity projects (`/api/v1/identity/projects`); not the Incus projects of\n`/api/v1/projects`, whose schema is `ProjectList`.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectDto"
+            }
+          }
+        }
+      },
       "ImageProtocol": {
         "type": "string",
         "description": "How Incus fetches an image.",
@@ -6948,14 +6963,18 @@
       "ProjectList": {
         "type": "object",
         "required": [
+          "source",
           "items"
         ],
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ProjectDto"
+              "$ref": "#/components/schemas/Project"
             }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
           }
         }
       },

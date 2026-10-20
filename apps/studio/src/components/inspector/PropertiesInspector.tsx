@@ -62,7 +62,7 @@ export function PortSection({ appId, ports, direction }: { appId: string; ports:
       </div>
       <ul className="flex flex-col gap-1.5">
         {side.map((p, i) => <PortRow key={p.id} appId={appId} port={p} first={i === 0} last={i === side.length - 1} />)}
-        {side.length === 0 && <li className="text-xs text-base-content/50">No {direction} ports.</li>}
+        {side.length === 0 && <li className="text-xs text-base-content/70">No {direction} ports.</li>}
       </ul>
     </section>
   );

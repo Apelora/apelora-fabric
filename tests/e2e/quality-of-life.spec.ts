@@ -74,7 +74,7 @@ test.describe("hypervisor target and totals", () => {
     await expect(page.getByTestId("assembly-totals")).toContainText("vCPU");
     await page.getByTestId("props-close").click();
     await node(page, "nginx-01").click();
-    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
     await node(page, "nginx-02").click({ button: "right" });
     await menuItem(page, "wrap").click();
     await menuItem(page, "wrap-rect").click();
@@ -334,6 +334,9 @@ test.describe("help and first run", () => {
 });
 
 test.describe("accessibility", () => {
+  // Measure what settles on screen: with reduced motion, dialogs appear without fading in, so
+  // contrast is not read halfway through an animation.
+  test.use({ reducedMotion: "reduce" });
   const serious = async (page: Page) => (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`);
 
   test("main view has no serious or critical axe violations", async ({ page }) => {

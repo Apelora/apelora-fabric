@@ -18,7 +18,7 @@ export function TemplatesDialog() {
             <button type="button" className="flex h-full w-full flex-col items-start gap-1.5 rounded-box border border-base-300 p-3 text-left hover:border-base-content/40 hover:bg-base-200" data-testid="template-card" data-template-id={t.id}
               onClick={() => { api.getState().replace(setPlatform(t.build(), target)); api.getState().setDialog(null); api.getState().toast("success", `Opened the “${t.title}” template. Undo restores the previous diagram.`); }}>
               <span className="text-sm font-semibold">{t.title}</span>
-              <span className="text-xs text-base-content/70">{t.summary}</span>
+              <span className="text-xs text-base-content/80">{t.summary}</span>
               <span className="mt-auto flex flex-wrap gap-1 pt-1">{t.tags.map((x) => <span key={x} className="badge badge-ghost badge-xs">{x}</span>)}</span>
             </button>
           </li>

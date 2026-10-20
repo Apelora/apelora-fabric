@@ -173,7 +173,10 @@ pub struct ProjectDto {
     pub name: String,
     pub created_at: String,
 }
+/// Identity projects (`/api/v1/identity/projects`); not the Incus projects of
+/// `/api/v1/projects`, whose schema is `ProjectList`.
 #[derive(Serialize, ToSchema)]
+#[schema(as = IdentityProjectList)]
 pub struct ProjectList {
     pub items: Vec<ProjectDto>,
 }

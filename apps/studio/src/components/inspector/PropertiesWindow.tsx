@@ -53,7 +53,7 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
         <input key={app.name} defaultValue={app.name} data-testid="instance-name" className="input input-sm w-full" onBlur={(e) => api.getState().rename(app.id, e.currentTarget.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
       </label>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
-        <dt className="text-base-content/60">Class</dt><dd className="truncate">{cls?.displayName ?? app.classRef.name} <span className="text-base-content/50">v{app.classRef.version}</span></dd>
+        <dt className="text-base-content/60">Class</dt><dd className="truncate">{cls?.displayName ?? app.classRef.name} <span className="text-base-content/70">v{app.classRef.version}</span></dd>
         <dt className="text-base-content/60">Id</dt><dd className="truncate font-mono">{app.id}</dd>
         <dt className="text-base-content/60">Network</dt><dd className="truncate" data-testid="nic-status">{nicStatus(assembly, app.id)}</dd>
         <dt className="text-base-content/60">Size</dt><dd className="tabular-nums" data-testid="node-size">{size.width} × {size.height}{layout.custom && <button className="link ml-2" onClick={() => api.getState().resetSize(app.id)}>reset</button>}</dd>
@@ -97,12 +97,12 @@ function ApplianceBody({ id, tab }: { id: string; tab: "general" | "config" | "p
       {cls?.composition && (
         <Section title={`Contents (${cls.composition.appliances.length})`} right={<button className="btn btn-ghost btn-xs" data-testid="ungroup" onClick={() => api.getState().ungroupSelection(app.id)}>Ungroup</button>}>
           <div data-testid="component-contents">
-            <ul className="flex flex-col gap-0.5 text-xs">{cls.composition.appliances.map((x) => <li key={x.id} className="truncate">{x.name} <span className="text-base-content/50">· {lookupClass(x.classRef.name, x.classRef.version)?.displayName ?? x.classRef.name}</span></li>)}</ul>
-            <p className="mt-1 text-[10px] text-base-content/50">Its <span className="font-mono">net</span> plugs every inner appliance into the network.</p>
+            <ul className="flex flex-col gap-0.5 text-xs">{cls.composition.appliances.map((x) => <li key={x.id} className="truncate">{x.name} <span className="text-base-content/70">· {lookupClass(x.classRef.name, x.classRef.version)?.displayName ?? x.classRef.name}</span></li>)}</ul>
+            <p className="mt-1 text-[10px] text-base-content/70">Its <span className="font-mono">net</span> plugs every inner appliance into the network.</p>
           </div>
         </Section>
       )}
-      <Section title="Health policy"><p className="text-xs text-base-content/50">Placeholder: health checks are defined in a later milestone.</p></Section>
+      <Section title="Health policy"><p className="text-xs text-base-content/70">Placeholder: health checks are defined in a later milestone.</p></Section>
       <div className="flex gap-2">
         <button className="btn btn-sm btn-outline flex-1" data-testid="save-as-class" title="Turn this appliance, with its ports, into a reusable catalog appliance" disabled={!!cls?.composition} onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom appliance…</button>
         <button className="btn btn-sm btn-outline" data-testid="delete-appliance" onClick={() => { api.getState().deleteElements([app.id], []); }}><IconTrash size={14} />Delete</button>
@@ -122,8 +122,8 @@ function CableBody({ id, api, assembly }: { id: string; api: Api; assembly: Appl
   return (
     <div className="flex flex-col gap-3 text-xs" data-testid="inspector-connection">
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
-        <dt className="text-base-content/60">From</dt><dd>{sa?.name} · {sp?.name} <span className="text-base-content/50">({sp?.type})</span></dd>
-        <dt className="text-base-content/60">To</dt><dd>{ta?.name} · {tp?.name} <span className="text-base-content/50">({tp?.type})</span></dd>
+        <dt className="text-base-content/60">From</dt><dd>{sa?.name} · {sp?.name} <span className="text-base-content/70">({sp?.type})</span></dd>
+        <dt className="text-base-content/60">To</dt><dd>{ta?.name} · {tp?.name} <span className="text-base-content/70">({tp?.type})</span></dd>
         <dt className="text-base-content/60">Protocol</dt><dd>{sp?.type}</dd>
         <dt className="text-base-content/60">Id</dt><dd className="font-mono">{conn.id}</dd>
       </dl>
@@ -156,7 +156,7 @@ function TagBody({ name, api, assembly }: { name: string; api: Api; assembly: Ap
       <p className="text-base-content/60">Terminals with the same name are linked without a drawn cable. {members.length} terminals: {outs} output{outs === 1 ? "" : "s"}, {members.length - outs} input{members.length - outs === 1 ? "" : "s"}.</p>
       <ul className="flex flex-col gap-1" data-testid="tag-members">
         {members.map((m) => { const a = assembly.spec.appliances.find((x) => x.id === m.endpoint.applianceId); const p = portOf(assembly, m.endpoint); return (
-          <li key={m.id}><button type="button" className="btn btn-ghost btn-xs w-full justify-start font-normal" onClick={() => api.getState().selectNode(m.endpoint.applianceId)}><span className="badge badge-xs">{p?.direction === "output" ? "out" : "in"}</span>{a?.name}.{p?.name} <span className="text-base-content/50">({p?.type})</span></button></li>
+          <li key={m.id}><button type="button" className="btn btn-ghost btn-xs w-full justify-start font-normal" onClick={() => api.getState().selectNode(m.endpoint.applianceId)}><span className="badge badge-xs">{p?.direction === "output" ? "out" : "in"}</span>{a?.name}.{p?.name} <span className="text-base-content/70">({p?.type})</span></button></li>
         ); })}
       </ul>
       <div className="flex gap-2">
@@ -199,7 +199,7 @@ function AssemblyBody({ assembly }: { assembly: ApplicationAssembly }) {
           <dt className="text-base-content/60">NIC models</dt><dd>{info.nicModels.join(", ")}</dd>
           <dt className="text-base-content/60">Packaging</dt><dd>{info.packaging}</dd>
         </dl>
-        <p className="mt-2 text-[11px] text-base-content/50">The appliances, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
+        <p className="mt-2 text-[11px] text-base-content/70">The appliances, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
       </section>
     </div>
   );
@@ -279,7 +279,7 @@ export function PropertiesWindow() {
     tabs = (
       <div role="tablist" className="tabs tabs-border px-3" data-testid="props-tabs">
         {TABS.map((t) => (
-          <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} data-testid={`props-tab-${t.id}`} className={`tab h-9 text-xs ${tab === t.id ? "tab-active" : ""}`} onClick={() => api.getState().setPropsTab(t.id)}>
+          <button key={t.id} role="tab" type="button" aria-selected={tab === t.id} data-testid={`props-tab-${t.id}`} className={`tab h-9 text-xs ${tab === t.id ? "tab-active" : "text-base-content/70"}`} onClick={() => api.getState().setPropsTab(t.id)}>
             {t.label}{t.id === "config" && cls?.properties?.length ? ` (${cls.properties.length})` : ""}{t.id === "ports" && app ? ` (${app.ports.length})` : ""}{t.id === "issues" && nIssues > 0 ? <span className="badge badge-error badge-xs ml-1">{nIssues}</span> : null}
           </button>
         ))}
@@ -309,7 +309,7 @@ export function PropertiesWindow() {
       <div className="flex cursor-move select-none items-center gap-2 border-b border-base-300 px-3 py-2" onPointerDown={drag} data-testid="props-header" style={accent ? { boxShadow: `inset 0 3px 0 ${accent}` } : undefined}>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold" data-testid="props-title">{title}</h2>
-          {subtitle && <p className="truncate font-mono text-[10px] text-base-content/50">{subtitle}</p>}
+          {subtitle && <p className="truncate font-mono text-[10px] text-base-content/70">{subtitle}</p>}
         </div>
         <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Close properties" data-testid="props-close" onClick={() => api.getState().closeProps()}><IconX size={14} /></button>
       </div>

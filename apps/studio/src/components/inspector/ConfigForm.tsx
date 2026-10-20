@@ -34,11 +34,11 @@ function Field({ app, prop }: { app: ApplianceInstance; prop: Property }) {
   return (
     <div className="flex flex-col gap-0.5" data-testid="cfg-field" data-prop-id={prop.id} data-modified={modified}>
       <div className="flex items-center justify-between gap-2">
-        <label htmlFor={uid} className="text-[11px] font-semibold">{prop.label}{prop.required && <span className="text-error" aria-hidden="true"> *</span>}{modified && <span className="ml-1 text-base-content/50" title="Changed from the default">•</span>}</label>
+        <label htmlFor={uid} className="text-[11px] font-semibold">{prop.label}{prop.required && <span className="text-error" aria-hidden="true"> *</span>}{modified && <span className="ml-1 text-base-content/70" title="Changed from the default">•</span>}</label>
         {modified && <button type="button" className="link text-[10px]" data-testid={`cfg-reset-${prop.id}`} onClick={() => api.getState().setCfg(app.id, prop.id, undefined)}>reset</button>}
       </div>
       {prop.type === "bool" ? <div>{control}</div> : control}
-      <p id={`${uid}-d`} className={`text-[10px] leading-snug ${problem ? "text-error" : "text-base-content/50"}`} role={problem ? "alert" : undefined} data-testid={problem ? "cfg-error" : undefined}>
+      <p id={`${uid}-d`} className={`text-[10px] leading-snug ${problem ? "text-error" : "text-base-content/70"}`} role={problem ? "alert" : undefined} data-testid={problem ? "cfg-error" : undefined}>
         {problem ? `${problem.message} ${problem.hint}` : prop.type === "secret" ? `Reference name only; the secret itself is never stored here.${prop.description ? ` ${prop.description}` : ""}` : prop.description ?? ""}
       </p>
     </div>
@@ -62,7 +62,7 @@ export function ConfigForm({ app }: { app: ApplianceInstance }) {
       <div className="flex flex-col gap-2">
         {[...groups].map(([name, list], i) => (
           <details key={name} open={i === 0 || list.some((p) => app.config?.[p.id] !== undefined || validateProperty(p, effectiveValue(p, app.config)) !== null)} className="apl-details rounded-box border border-base-300" data-testid="cfg-group" data-group={name}>
-            <summary className="flex cursor-pointer select-none items-center justify-between px-2 py-1 text-[11px] font-medium">{name}<span className="text-base-content/50">{list.length}</span></summary>
+            <summary className="flex cursor-pointer select-none items-center justify-between px-2 py-1 text-[11px] font-medium">{name}<span className="text-base-content/70">{list.length}</span></summary>
             <div className="flex flex-col gap-2.5 border-t border-base-300 p-2">{list.map((p) => <Field key={p.id} app={app} prop={p} />)}</div>
           </details>
         ))}

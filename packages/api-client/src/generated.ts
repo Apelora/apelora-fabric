@@ -362,6 +362,11 @@ export type Health = {
 /** The decided health of an instance. */
 export type HealthState = "unknown" | "healthy" | "unhealthy";
 
+/** Identity projects (`/api/v1/identity/projects`); not the Incus projects of `/api/v1/projects`, whose schema is `ProjectList`. */
+export type IdentityProjectList = {
+  items: ProjectDto[];
+};
+
 /** How Incus fetches an image. */
 export type ImageProtocol = "simplestreams" | "oci";
 
@@ -743,7 +748,8 @@ export type ProjectDto = {
 };
 
 export type ProjectList = {
-  items: ProjectDto[];
+  items: Project[];
+  source: Source;
 };
 
 /** Where the backend's view of the infrastructure comes from. */
@@ -1131,7 +1137,7 @@ export type Responses = {
   /** Deletes a policy. Needs `access_policy.manage`. */
   delete_policy: null;
   /** Projects the caller may see, optionally of one organisation. Needs `project.view`. */
-  projects_list: ProjectList;
+  projects_list: IdentityProjectList;
   /** Environments of a project. Needs `project.view` on it. */
   environments: EnvironmentList;
   /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators may map an existing one. Needs `environment.manage`. */
