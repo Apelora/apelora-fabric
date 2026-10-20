@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/auth",
   "crates/domain",
   "crates/incus-adapter",
   "crates/persistence", "crates/persistence",
