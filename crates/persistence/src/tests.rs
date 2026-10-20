@@ -286,3 +286,29 @@ async fn recent_jobs_are_newest_first_and_bounded(pool: PgPool) {
         "at least one"
     );
 }
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn applications_are_found_or_created_by_name_and_listed_with_their_latest_revision(
+    pool: PgPool,
+) {
+    let a = ensure_application(&pool, "shop").await.expect("create");
+    assert_eq!(
+        ensure_application(&pool, "shop").await.expect("again"),
+        a,
+        "same row"
+    );
+    ensure_application(&pool, "blog").await.expect("create");
+    add_revision(&pool, a.id, &json!({ "v": 1 }), "alex")
+        .await
+        .expect("rev");
+    add_revision(&pool, a.id, &json!({ "v": 2 }), "alex")
+        .await
+        .expect("rev");
+    let list = list_applications(&pool).await.expect("list");
+    assert_eq!(
+        list.iter()
+            .map(|s| (s.name.as_str(), s.latest_revision))
+            .collect::<Vec<_>>(),
+        vec![("blog", None), ("shop", Some(2))]
+    );
+}

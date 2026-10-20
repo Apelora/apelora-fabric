@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod plan;
 pub mod preflight;
 
 /// Version segment of the Apelora REST API (`/api/v1`).
@@ -88,6 +89,36 @@ pub struct Instance {
     /// Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora.
     #[serde(default)]
     pub managed: bool,
+    /// The application and appliance this instance was deployed for (Apelora's labels).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
+}
+
+/// Instance config keys Apelora writes so an instance can be traced back to the application
+/// and the appliance (a node in the Studio design) it was deployed for.
+pub const APPLICATION_KEY: &str = "user.apelora.application";
+pub const APPLIANCE_KEY: &str = "user.apelora.appliance";
+
+/// The application and appliance an instance belongs to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct Owner {
+    pub application: String,
+    pub appliance: String,
+}
+
+impl Owner {
+    pub fn validate(&self) -> Result<(), String> {
+        for (what, v) in [
+            ("application", &self.application),
+            ("appliance", &self.appliance),
+        ] {
+            if !is_valid_name(v) {
+                return Err(format!("invalid {what} name {v:?}"));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -233,6 +264,9 @@ pub struct InstanceSpec {
     /// Checked against the cluster before creating and against the instance Incus created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub architectures: Vec<String>,
+    /// Set by the control plane when the instance is part of an application deployment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Owner>,
 }
 
 impl InstanceSpec {
@@ -282,6 +316,9 @@ impl InstanceSpec {
             .find(|a| !ARCHITECTURES.contains(&a.as_str()))
         {
             return Err(format!("unknown architecture {a:?}"));
+        }
+        if let Some(o) = &self.owner {
+            o.validate()?;
         }
         if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
             return Err(format!("config key {k} is reserved for Apelora"));
@@ -482,6 +519,7 @@ mod tests {
             config: Default::default(),
             start: true,
             architectures: vec![],
+            owner: None,
         }
     }
 

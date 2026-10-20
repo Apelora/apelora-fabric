@@ -84,11 +84,11 @@ impl From<JobView> for Job {
     }
 }
 
-fn bad_request(msg: impl Into<String>) -> ApiError {
+pub(super) fn bad_request(msg: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", msg)
 }
 
-fn store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
+pub(super) fn store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
     match &state.auth {
         Auth::Tokens(pool) => Ok(pool),
         Auth::DisabledForDevelopment => Err(ApiError::new(
@@ -100,7 +100,7 @@ fn store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
 }
 
 /// Apelora only changes projects it was configured for (`APELORA_DEPLOY_PROJECTS`).
-fn allowed_project(state: &AppState, project: &str) -> Result<(), ApiError> {
+pub(super) fn allowed_project(state: &AppState, project: &str) -> Result<(), ApiError> {
     if !is_valid_name(project) {
         return Err(bad_request(format!("invalid project name {project:?}")));
     }
@@ -118,7 +118,10 @@ fn allowed_project(state: &AppState, project: &str) -> Result<(), ApiError> {
     }
 }
 
-fn idempotency_key(headers: &HeaderMap, p: &Principal) -> Result<Option<String>, ApiError> {
+pub(super) fn idempotency_key(
+    headers: &HeaderMap,
+    p: &Principal,
+) -> Result<Option<String>, ApiError> {
     let Some(v) = headers.get(IDEMPOTENCY_KEY) else {
         return Ok(None);
     };

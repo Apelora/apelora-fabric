@@ -320,6 +320,7 @@ impl MockIncus {
                 architecture: "x86_64".into(),
                 description: "mock data".into(),
                 managed: true,
+                owner: spec.owner.clone(),
             },
             base_image: spec.source.fingerprint.clone(),
         });
@@ -408,6 +409,7 @@ impl Default for MockIncus {
             architecture: "x86_64".into(),
             description: "mock data".into(),
             managed: false,
+            owner: None,
         };
         Self {
             server: ServerInfo {

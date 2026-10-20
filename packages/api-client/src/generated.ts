@@ -3,6 +3,31 @@
 
 export const API_VERSION = "v1";
 
+export type ApplianceStatus = {
+  appliance: string;
+  instance: string;
+  location: string;
+  project: string;
+  /** Incus status, e.g. `Running`. */
+  status: string;
+};
+
+export type ApplicationInfo = {
+  /** RFC 3339. */
+  createdAt: string;
+  latestRevision?: number | null;
+  name: string;
+};
+
+export type ApplicationList = {
+  items: ApplicationInfo[];
+};
+
+export type ApplicationStatus = {
+  items: ApplianceStatus[];
+  source: Source;
+};
+
 export type AuditItem = {
   action: string;
   actor: string;
@@ -62,6 +87,31 @@ export type CreateToken = {
   role: Role;
 };
 
+export type DeployRequest = {
+  appliances: DesiredAppliance[];
+  /** The Studio document, saved as an immutable revision. */
+  document: Record<string, unknown>;
+  project: string;
+  /** Also delete the application's instances that are no longer in the design. */
+  removeMissing?: boolean;
+};
+
+export type DeployResponse = {
+  application: string;
+  jobs: QueuedChange[];
+  /** The plan that was applied (recomputed when applying). */
+  plan: Plan;
+  revision: number;
+};
+
+/** One appliance of the design, turned into the instance it should run as. */
+export type DesiredAppliance = {
+  /** The appliance's stable id in the design (e.g. `nginx-01`). */
+  appliance: string;
+  /** Image, kind and settings; the control plane sets the name, project and owner. */
+  spec: InstanceSpec;
+};
+
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
   error: ErrorDetail;
@@ -116,6 +166,7 @@ export type Instance = {
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
   managed?: boolean;
   name: string;
+  owner?: unknown | Owner;
   project: string;
   status: string;
 };
@@ -140,6 +191,7 @@ export type InstanceSpec = {
   /** `container` (system or OCI) or `virtual-machine`. */
   kind: InstanceKind;
   name: string;
+  owner?: unknown | Owner;
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
@@ -205,6 +257,12 @@ export type NetworkList = {
   source: Source;
 };
 
+/** The application and appliance an instance belongs to. */
+export type Owner = {
+  appliance: string;
+  application: string;
+};
+
 /** A join token that has been issued and not yet used, revoked or expired (no secret). */
 export type PendingJoin = {
   /** RFC 3339, as Incus reports it. */
@@ -213,6 +271,28 @@ export type PendingJoin = {
 };
 
 export type Permission = "read-inventory" | "read-audit" | "manage-tokens" | "manage-infrastructure" | "design-applications" | "deploy";
+
+export type Plan = {
+  items: PlanItem[];
+  /** Facts the designer should know before applying, e.g. single points of failure. */
+  warnings: string[];
+};
+
+export type PlanAction = "create" | "keep" | "remove" | "conflict";
+
+export type PlanItem = {
+  action: PlanAction;
+  /** The appliance in the design (for `remove`: the label of the instance being removed). */
+  appliance: string;
+  instance: string;
+  /** Why, in a sentence (e.g. what the conflicting instance is). */
+  reason: string;
+};
+
+export type PlanRequest = {
+  appliances: DesiredAppliance[];
+  project: string;
+};
 
 export type PreflightReport = {
   checks: Check[];
@@ -235,6 +315,13 @@ export type ProjectList = {
 
 /** Where the backend's view of the infrastructure comes from. */
 export type ProviderMode = "mock" | "incus";
+
+export type QueuedChange = {
+  action: PlanAction;
+  appliance: string;
+  instance: string;
+  jobId: string;
+};
 
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */
 export type Role = "fabric-admin" | "operator" | "studio-designer" | "auditor";
@@ -319,6 +406,10 @@ export type WhoAmI = {
 
 /** Operations by operationId: method, path template, path parameters and whether a token is needed. */
 export const operations = {
+  applications: { method: "GET", path: "/api/v1/applications", params: [], public: false },
+  deploy_application: { method: "POST", path: "/api/v1/applications/{name}/deployments", params: ["name"], public: false },
+  plan_application: { method: "POST", path: "/api/v1/applications/{name}/plan", params: ["name"], public: false },
+  application_status: { method: "GET", path: "/api/v1/applications/{name}/status", params: ["name"], public: false },
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
@@ -344,6 +435,14 @@ export const operations = {
 
 /** Success body of each operation (`null` for 204 No Content). */
 export type Responses = {
+  /** Applications that have been deployed, with their latest revision. Needs `read-inventory`. */
+  applications: ApplicationList;
+  /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`. */
+  deploy_application: DeployResponse;
+  /** What deploying the design would change, without changing anything. Needs `deploy`. */
+  plan_application: Plan;
+  /** The application's instances as Incus reports them, by appliance. Needs `read-inventory`. */
+  application_status: ApplicationStatus;
   /** The 100 most recent audit events, newest first. Needs `read-audit` and a database. */
   audit: AuditList;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
@@ -390,6 +489,10 @@ export type Responses = {
 
 /** Request body of each operation (`never` when it takes none). */
 export type Bodies = {
+  applications: never;
+  deploy_application: DeployRequest;
+  plan_application: PlanRequest;
+  application_status: never;
   audit: never;
   cluster: never;
   list_join_tokens: never;

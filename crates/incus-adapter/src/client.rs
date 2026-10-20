@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Read-only Incus REST client over mutual TLS.
+//! Incus REST client over mutual TLS.
 
 use std::time::Duration;
 
 use apelora_domain::{
-    ClusterMember, ImageProtocol, Instance, InstanceAction, InstanceKind, InstanceSpec,
-    MANAGED_KEY, Network, Project, ServerInfo, StoragePool,
+    APPLIANCE_KEY, APPLICATION_KEY, ClusterMember, ImageProtocol, Instance, InstanceAction,
+    InstanceKind, InstanceSpec, MANAGED_KEY, Network, Owner, Project, ServerInfo, StoragePool,
 };
 use reqwest::Method;
 use serde::de::DeserializeOwned;
@@ -267,6 +267,10 @@ impl IncusClient {
     pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
         let mut config = spec.config.clone();
         config.insert(MANAGED_KEY.into(), "true".into());
+        if let Some(o) = &spec.owner {
+            config.insert(APPLICATION_KEY.into(), o.application.clone());
+            config.insert(APPLIANCE_KEY.into(), o.appliance.clone());
+        }
         let mut source = json!({
             "type": "image",
             "protocol": match spec.source.protocol {
@@ -391,6 +395,13 @@ impl IncusClient {
                     _ => InstanceKind::Unknown,
                 },
                 managed: i.config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
+                owner: match (i.config.get(APPLICATION_KEY), i.config.get(APPLIANCE_KEY)) {
+                    (Some(application), Some(appliance)) => Some(Owner {
+                        application: application.clone(),
+                        appliance: appliance.clone(),
+                    }),
+                    _ => None,
+                },
                 name: i.name,
                 project: i.project,
                 status: i.status,

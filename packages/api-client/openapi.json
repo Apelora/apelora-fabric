@@ -10,6 +10,337 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/applications": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Applications that have been deployed, with their latest revision. Needs `read-inventory`.",
+        "operationId": "applications",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/deployments": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Deploys the design: saves it as a new revision and queues the planned changes. Refuses\nthe whole deployment if any appliance conflicts with an existing instance. Needs `deploy`.",
+        "operationId": "deploy_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/plan": {
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "What deploying the design would change, without changing anything. Needs `deploy`.",
+        "operationId": "plan_application",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/status": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "The application's instances as Incus reports them, by appliance. Needs `read-inventory`.",
+        "operationId": "application_status",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "project",
+            "in": "query",
+            "description": "Only this Incus project.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplicationStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "tags": [
@@ -1270,6 +1601,89 @@
   },
   "components": {
     "schemas": {
+      "ApplianceStatus": {
+        "type": "object",
+        "required": [
+          "appliance",
+          "instance",
+          "project",
+          "status",
+          "location"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Incus status, e.g. `Running`."
+          }
+        }
+      },
+      "ApplicationInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "latestRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ApplicationList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationInfo"
+            }
+          }
+        }
+      },
+      "ApplicationStatus": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplianceStatus"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "AuditItem": {
         "type": "object",
         "required": [
@@ -1466,6 +1880,79 @@
           }
         }
       },
+      "DeployRequest": {
+        "type": "object",
+        "required": [
+          "project",
+          "document",
+          "appliances"
+        ],
+        "properties": {
+          "appliances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DesiredAppliance"
+            }
+          },
+          "document": {
+            "type": "object",
+            "description": "The Studio document, saved as an immutable revision."
+          },
+          "project": {
+            "type": "string"
+          },
+          "removeMissing": {
+            "type": "boolean",
+            "description": "Also delete the application's instances that are no longer in the design."
+          }
+        }
+      },
+      "DeployResponse": {
+        "type": "object",
+        "required": [
+          "application",
+          "revision",
+          "plan",
+          "jobs"
+        ],
+        "properties": {
+          "application": {
+            "type": "string"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueuedChange"
+            }
+          },
+          "plan": {
+            "$ref": "#/components/schemas/Plan",
+            "description": "The plan that was applied (recomputed when applying)."
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DesiredAppliance": {
+        "type": "object",
+        "description": "One appliance of the design, turned into the instance it should run as.",
+        "required": [
+          "appliance",
+          "spec"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string",
+            "description": "The appliance's stable id in the design (e.g. `nginx-01`)."
+          },
+          "spec": {
+            "$ref": "#/components/schemas/InstanceSpec",
+            "description": "Image, kind and settings; the control plane sets the name, project and owner."
+          }
+        }
+      },
       "ErrorBody": {
         "type": "object",
         "description": "Error body for every non-2xx response.",
@@ -1627,6 +2114,17 @@
           "name": {
             "type": "string"
           },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Owner",
+                "description": "The application and appliance this instance was deployed for (Apelora's labels)."
+              }
+            ]
+          },
           "project": {
             "type": "string"
           },
@@ -1703,6 +2201,17 @@
           },
           "name": {
             "type": "string"
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Owner",
+                "description": "Set by the control plane when the instance is part of an application deployment."
+              }
+            ]
           },
           "profiles": {
             "type": "array",
@@ -1909,6 +2418,22 @@
           }
         }
       },
+      "Owner": {
+        "type": "object",
+        "description": "The application and appliance an instance belongs to.",
+        "required": [
+          "application",
+          "appliance"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "application": {
+            "type": "string"
+          }
+        }
+      },
       "PendingJoin": {
         "type": "object",
         "description": "A join token that has been issued and not yet used, revoked or expired (no secret).",
@@ -1936,6 +2461,80 @@
           "design-applications",
           "deploy"
         ]
+      },
+      "Plan": {
+        "type": "object",
+        "required": [
+          "items",
+          "warnings"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanItem"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Facts the designer should know before applying, e.g. single points of failure."
+          }
+        }
+      },
+      "PlanAction": {
+        "type": "string",
+        "enum": [
+          "create",
+          "keep",
+          "remove",
+          "conflict"
+        ]
+      },
+      "PlanItem": {
+        "type": "object",
+        "required": [
+          "appliance",
+          "instance",
+          "action",
+          "reason"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/PlanAction"
+          },
+          "appliance": {
+            "type": "string",
+            "description": "The appliance in the design (for `remove`: the label of the instance being removed)."
+          },
+          "instance": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, in a sentence (e.g. what the conflicting instance is)."
+          }
+        }
+      },
+      "PlanRequest": {
+        "type": "object",
+        "required": [
+          "project",
+          "appliances"
+        ],
+        "properties": {
+          "appliances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DesiredAppliance"
+            }
+          },
+          "project": {
+            "type": "string"
+          }
+        }
       },
       "PreflightReport": {
         "type": "object",
@@ -2005,6 +2604,30 @@
           "mock",
           "incus"
         ]
+      },
+      "QueuedChange": {
+        "type": "object",
+        "required": [
+          "appliance",
+          "instance",
+          "action",
+          "jobId"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/PlanAction"
+          },
+          "appliance": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "jobId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
       },
       "Role": {
         "type": "string",
@@ -2292,6 +2915,9 @@
     },
     {
       "name": "deployment"
+    },
+    {
+      "name": "applications"
     },
     {
       "name": "cluster"

@@ -52,6 +52,8 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Auth (API tokens) and roles | Done; OIDC sign-in and project scoping later | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |
 | Fabric Console views (instances and deploy, operations, preflight, networks and storage, membership, administration, audit) | Done (slices 1–2); verified in a real browser against the test cluster | 05 |
+| Application deployment backend (plan, deploy, revisions, status by appliance) | Done; REAL INCUS TESTED (two members) | 06 |
+| Studio deploy panel and live status overlay | Missing | 06 |
 | Network fabric, service discovery, publishing | Missing | 07 |
 | Coordination, HA, mobility | Missing | 08 |
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |

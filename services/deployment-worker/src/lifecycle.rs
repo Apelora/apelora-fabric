@@ -308,6 +308,7 @@ mod tests {
             config: Default::default(),
             start,
             architectures: vec![],
+            owner: None,
         }))
     }
     fn t() -> Target {

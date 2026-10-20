@@ -73,6 +73,42 @@ pub async fn create_application(pool: &PgPool, name: &str) -> Result<Application
     Ok(app)
 }
 
+/// The application with this name, created if it does not exist yet.
+pub async fn ensure_application(pool: &PgPool, name: &str) -> Result<Application> {
+    sqlx::query(
+        "INSERT INTO applications (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
+    )
+    .bind(Uuid::new_v4())
+    .bind(name)
+    .execute(pool)
+    .await?;
+    Ok(
+        sqlx::query_as::<_, Application>("SELECT id, name FROM applications WHERE name = $1")
+            .bind(name)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+/// An application and its latest revision number, if it has one.
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct ApplicationSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub latest_revision: Option<i32>,
+    pub created_at: time::OffsetDateTime,
+}
+
+pub async fn list_applications(pool: &PgPool) -> Result<Vec<ApplicationSummary>> {
+    Ok(sqlx::query_as::<_, ApplicationSummary>(
+        "SELECT a.id, a.name, max(r.revision) AS latest_revision, a.created_at
+         FROM applications a LEFT JOIN application_revisions r ON r.application_id = a.id
+         GROUP BY a.id ORDER BY a.name",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Saves a new immutable revision numbered one above the latest. Concurrent saves of the same
 /// application are serialised by locking the application row.
 pub async fn add_revision(
@@ -81,6 +117,33 @@ pub async fn add_revision(
     document: &Value,
     created_by: &str,
 ) -> Result<Revision> {
+    Ok(
+        add_revision_once(pool, application_id, document, created_by, None)
+            .await?
+            .0,
+    )
+}
+
+/// Like [`add_revision`], but a repeated `idempotency_key` returns the revision saved the first
+/// time; `true` means the revision was created now.
+pub async fn add_revision_once(
+    pool: &PgPool,
+    application_id: Uuid,
+    document: &Value,
+    created_by: &str,
+    idempotency_key: Option<&str>,
+) -> Result<(Revision, bool)> {
+    if let Some(key) = idempotency_key
+        && let Some(existing) = sqlx::query_as::<_, Revision>(
+            "SELECT id, application_id, revision, document, created_by FROM application_revisions
+             WHERE idempotency_key = $1",
+        )
+        .bind(key)
+        .fetch_optional(pool)
+        .await?
+    {
+        return Ok((existing, false));
+    }
     let mut tx = pool.begin().await?;
     let exists = sqlx::query("SELECT 1 FROM applications WHERE id = $1 FOR UPDATE")
         .bind(application_id)
@@ -92,18 +155,19 @@ pub async fn add_revision(
         )));
     }
     let rev = sqlx::query_as::<_, Revision>(
-        "INSERT INTO application_revisions (id, application_id, revision, document, created_by)
-         VALUES ($1, $2, COALESCE((SELECT max(revision) FROM application_revisions WHERE application_id = $2), 0) + 1, $3, $4)
+        "INSERT INTO application_revisions (id, application_id, revision, document, created_by, idempotency_key)
+         VALUES ($1, $2, COALESCE((SELECT max(revision) FROM application_revisions WHERE application_id = $2), 0) + 1, $3, $4, $5)
          RETURNING id, application_id, revision, document, created_by",
     )
     .bind(Uuid::new_v4())
     .bind(application_id)
     .bind(document)
     .bind(created_by)
+    .bind(idempotency_key)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(rev)
+    Ok((rev, true))
 }
 
 pub async fn latest_revision(pool: &PgPool, application_id: Uuid) -> Result<Option<Revision>> {

@@ -368,6 +368,7 @@ fn oci_spec() -> InstanceSpec {
         config: [("limits.cpu".to_owned(), "1".to_owned())].into(),
         start: true,
         architectures: vec![],
+        owner: None,
     }
 }
 

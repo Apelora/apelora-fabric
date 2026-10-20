@@ -89,6 +89,19 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/instances/{project}/{name}",
             delete(deploy::delete_instance),
         )
+        .route("/api/v1/applications", get(applications::list))
+        .route(
+            "/api/v1/applications/{name}/plan",
+            post(applications::preview),
+        )
+        .route(
+            "/api/v1/applications/{name}/deployments",
+            post(applications::deploy),
+        )
+        .route(
+            "/api/v1/applications/{name}/status",
+            get(applications::status),
+        )
         .route("/api/v1/jobs", get(deploy::jobs))
         .route("/api/v1/jobs/{id}", get(deploy::job))
         .route("/api/v1/tokens", get(admin::list).post(admin::create))
@@ -611,10 +624,11 @@ impl Modify for BearerAuth {
     paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
+        applications::list, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "cluster"), (name = "administration"), (name = "audit"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"))
 )]
 pub struct ApiDoc;
 
@@ -634,6 +648,7 @@ async fn openapi() -> impl IntoResponse {
 }
 
 mod admin;
+mod applications;
 mod cluster_admin;
 mod deploy;
 

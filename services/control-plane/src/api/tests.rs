@@ -237,6 +237,8 @@ async fn openapi_document_is_public_and_lists_every_route() {
     assert!(doc["paths"]["/api/v1/tokens/{id}"]["delete"].is_object());
     assert!(doc["paths"]["/api/v1/jobs"]["get"].is_object());
     assert!(doc["paths"]["/api/v1/system"]["get"].is_object());
+    assert!(doc["paths"]["/api/v1/applications/{name}/deployments"]["post"].is_object());
+    assert!(doc["paths"]["/api/v1/applications/{name}/plan"]["post"].is_object());
     assert_eq!(
         doc["paths"]["/api/v1/health"]["get"]["security"],
         json!([{}]),
@@ -803,4 +805,240 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
             .as_str()
             .is_some_and(|v| v.starts_with("v7.0."))
     );
+}
+
+// ---- Applications ----------------------------------------------------------------------------
+
+fn appliance(id: &str) -> Value {
+    json!({ "appliance": id, "spec": {
+        "project": "ignored", "name": "ignored", "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.example", "alias": "debian/13" } } })
+}
+
+async fn drain(pool: &Pool, provider: &Provider) {
+    while apelora_deployment_worker::run_once(pool, provider, "w")
+        .await
+        .expect("worker")
+    {}
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn applications_are_planned_deployed_revised_and_reported_by_appliance(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_deploy_projects(vec!["apelora".into(), "default".into()]);
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let designer = apelora_persistence::create_token(&pool, "designer", "studio-designer", None)
+        .await
+        .expect("token")
+        .0;
+    let doc = json!({ "apiVersion": "fabric.apelora/v1alpha1", "kind": "ApplicationAssembly" });
+    let both =
+        json!({ "project": "apelora", "appliances": [appliance("web-01"), appliance("db-01")] });
+
+    // Only `deploy` may plan; names are checked before Incus is asked.
+    assert_eq!(
+        send(
+            state.clone(),
+            "POST",
+            "/api/v1/applications/shop/plan",
+            &designer,
+            Some(both.clone()),
+            None
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            state.clone(),
+            "POST",
+            "/api/v1/applications/Shop_1/plan",
+            &operator,
+            Some(both.clone()),
+            None
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let twice =
+        json!({ "project": "apelora", "appliances": [appliance("web-01"), appliance("web-01")] });
+    assert_eq!(
+        send(
+            state.clone(),
+            "POST",
+            "/api/v1/applications/shop/plan",
+            &operator,
+            Some(twice),
+            None
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+
+    let (status, plan) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/plan",
+        &operator,
+        Some(both.clone()),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(plan["items"][0]["instance"], "shop-web-01");
+    assert_eq!(plan["items"][0]["action"], "create");
+    assert!(
+        plan["warnings"][0]
+            .as_str()
+            .is_some_and(|w| w.contains("single instance"))
+    );
+
+    let mut body = both.clone();
+    body["document"] = doc.clone();
+    let (status, first) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body.clone()),
+        Some("d1"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{first}");
+    assert_eq!(first["revision"], 1);
+    assert_eq!(first["jobs"].as_array().map(Vec::len), Some(2));
+    let (_, again) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(body.clone()),
+        Some("d1"),
+    )
+    .await;
+    assert_eq!(
+        again["jobs"][0]["jobId"], first["jobs"][0]["jobId"],
+        "the same key queues nothing new"
+    );
+    assert_eq!(again["revision"], 1, "and saves no new revision");
+    drain(&pool, &provider).await;
+
+    let (_, st) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications/shop/status?project=apelora",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    let mut seen: Vec<(String, String)> = st["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|i| {
+            (
+                i["appliance"].as_str().unwrap_or_default().to_owned(),
+                i["status"].as_str().unwrap_or_default().to_owned(),
+            )
+        })
+        .collect();
+    seen.sort();
+    assert_eq!(
+        seen,
+        vec![
+            ("db-01".into(), "Running".into()),
+            ("web-01".into(), "Running".into())
+        ]
+    );
+
+    // Drop db-01 from the design: kept unless removal is asked for.
+    let mut one =
+        json!({ "project": "apelora", "appliances": [appliance("web-01")], "document": doc });
+    let (_, keep) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(one.clone()),
+        None,
+    )
+    .await;
+    assert_eq!(keep["revision"], 2);
+    assert_eq!(keep["jobs"].as_array().map(Vec::len), Some(0));
+    assert_eq!(keep["plan"]["items"][1]["action"], "remove");
+    one["removeMissing"] = json!(true);
+    let (_, removed) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/shop/deployments",
+        &operator,
+        Some(one),
+        None,
+    )
+    .await;
+    assert_eq!(removed["jobs"][0]["instance"], "shop-db-01");
+    drain(&pool, &provider).await;
+    let (_, st) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications/shop/status",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(st["items"].as_array().map(Vec::len), Some(1));
+
+    // The seeded mock-web-01 in "default" is not Apelora's: deploying over it is refused.
+    let clash =
+        json!({ "project": "default", "appliances": [appliance("web-01")], "document": {} });
+    let (status, err) = send(
+        state.clone(),
+        "POST",
+        "/api/v1/applications/mock/deployments",
+        &operator,
+        Some(clash),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (status, err["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("plan_conflict"))
+    );
+    assert!(
+        err["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("not created by Apelora"))
+    );
+
+    let (_, apps) = send(
+        state.clone(),
+        "GET",
+        "/api/v1/applications",
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        apps["items"].as_array().map(Vec::len),
+        Some(1),
+        "a refused deployment saves nothing"
+    );
+    assert_eq!(apps["items"][0]["latestRevision"], 3);
+    let audit: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'application.deploy.requested'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(audit, 3, "the repeated request is not audited twice");
 }
