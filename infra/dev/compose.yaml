@@ -19,5 +19,15 @@ services:
       interval: 2s
       timeout: 2s
       retries: 30
+  # Optional: an OpenID Connect provider for trying sign-in (see dex.yaml). Started only with --profile oidc.
+  oidc:
+    image: ghcr.io/dexidp/dex:v2.41.1
+    container_name: apelora-dev-oidc
+    profiles: ["oidc"]
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "127.0.0.1:5556:5556"
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml:ro
 volumes:
   apelora-dev-db: {}

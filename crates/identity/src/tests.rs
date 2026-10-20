@@ -289,3 +289,28 @@ fn tells_tokens_from_api_tokens() {
     assert!(!looks_like_jwt("a.b.c.d"));
     assert!(!looks_like_jwt("..x"));
 }
+
+#[test]
+fn the_issuer_is_read_only_to_choose_a_verifier() {
+    use base64::Engine as _;
+    let enc = |v: &str| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v);
+    let token = format!(
+        "{}.{}.sig",
+        enc("{\"alg\":\"RS256\"}"),
+        enc("{\"iss\":\"https://id.example.test\",\"sub\":\"a\"}")
+    );
+    assert_eq!(
+        super::unverified_issuer(&token).as_deref(),
+        Some("https://id.example.test")
+    );
+    assert_eq!(super::unverified_issuer("not.a.token"), None);
+    assert_eq!(super::unverified_issuer("apl_abc"), None);
+}
+
+#[test]
+fn only_secure_or_local_urls_are_accepted() {
+    assert!(super::secure_url("https://id.example.test"));
+    assert!(super::secure_url("http://127.0.0.1:5556/dex"));
+    assert!(!super::secure_url("http://id.example.test"));
+    assert!(!super::secure_url("ftp://x"));
+}

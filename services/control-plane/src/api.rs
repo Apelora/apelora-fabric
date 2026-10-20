@@ -17,7 +17,7 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{Extension, Json, Router};
 use serde::Serialize;
 use serde_json::Value;
@@ -52,6 +52,11 @@ pub struct AppState {
     volume_pool: Option<Arc<str>>,
     /// OIDC token validation; `None`: people cannot sign in with an identity provider yet.
     oidc: Option<Arc<apelora_identity::Verifier>>,
+    /// How a browser signs people in with the identity provider (public client, PKCE);
+    /// `None` when OIDC sign-in is not set up.
+    sign_in: Option<Arc<OidcSignIn>>,
+    /// Identity providers and settings saved in the Console (`auth_config`), reloaded on change.
+    auth_runtime: Arc<std::sync::RwLock<Arc<auth_config::AuthRuntime>>>,
     /// Accept legacy platform-wide `apl_…` API tokens (default). Turn off to require OIDC
     /// sign-in or automation service identities, and to put every caller under approvals.
     legacy_tokens: bool,
@@ -75,6 +80,8 @@ impl AppState {
             service_range: None,
             volume_pool: None,
             oidc: None,
+            sign_in: None,
+            auth_runtime: Arc::default(),
             legacy_tokens: true,
             console: Arc::new(sessions::ConsoleSettings::default()),
             sessions: Arc::new(sessions::Sessions::default()),
@@ -88,6 +95,11 @@ impl AppState {
 
     pub fn with_oidc(mut self, verifier: Option<Arc<apelora_identity::Verifier>>) -> Self {
         self.oidc = verifier;
+        self
+    }
+
+    pub fn with_sign_in(mut self, sign_in: Option<OidcSignIn>) -> Self {
+        self.sign_in = sign_in.map(Arc::new);
         self
     }
 
@@ -348,6 +360,20 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/identity/policies",
             get(identity::policies).put(identity::save_policy),
         )
+        .route("/api/v1/identity/sign-in", get(auth_config::get_settings))
+        .route("/api/v1/identity/sign-in/check", post(auth_config::check))
+        .route(
+            "/api/v1/identity/sign-in/providers",
+            post(auth_config::create),
+        )
+        .route(
+            "/api/v1/identity/sign-in/providers/{id}",
+            put(auth_config::update).delete(auth_config::delete),
+        )
+        .route(
+            "/api/v1/identity/sign-in/api-tokens",
+            put(auth_config::set_api_tokens),
+        )
         .route(
             "/api/v1/identity/policies/{id}",
             delete(identity::delete_policy),
@@ -379,6 +405,7 @@ pub fn router(state: AppState) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/sign-in", get(sign_in))
         .route("/api/v1/openapi.json", get(openapi))
         // Authenticated by its single-use ticket instead of a bearer token (browsers cannot set
         // headers on a websocket); see `sessions`.
@@ -395,6 +422,11 @@ pub struct ApiError {
 }
 
 impl ApiError {
+    /// The readable message (for logs).
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
         Self {
             status,
@@ -461,7 +493,7 @@ impl From<apelora_persistence::StoreError> for ApiError {
     }
 }
 
-fn unauthenticated(message: &'static str) -> ApiError {
+fn unauthenticated(message: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated", message)
 }
 
@@ -511,11 +543,9 @@ async fn resolve_principal(
 ) -> Result<Principal, ApiError> {
     let fail = |e: ApiError| e;
     if apelora_identity::looks_like_jwt(token) {
-        let Some(verifier) = &state.oidc else {
-            return Err(unauthenticated(
-                "OIDC sign-in is not configured on this control plane",
-            ));
-        };
+        let verifier = state
+            .verifier_for(apelora_identity::unverified_issuer(token).as_deref())
+            .map_err(unauthenticated)?;
         let identity = verifier
             .verify(token, authz::now())
             .await
@@ -587,7 +617,7 @@ async fn resolve_principal(
             Err(e) => Err(fail(e.into())),
         };
     }
-    if !state.legacy_tokens {
+    if !state.api_tokens_accepted() {
         return Err(unauthenticated(
             "legacy API tokens are disabled; sign in with your identity provider or use a service identity",
         ));
@@ -612,6 +642,19 @@ async fn resolve_principal(
     }
 }
 
+/// What kind of credential was presented, for logs: never any part of the token.
+fn credential_kind(token: &str) -> &'static str {
+    if apelora_identity::looks_like_jwt(token) {
+        "identity-provider token"
+    } else if token.starts_with("aps_") {
+        "service token"
+    } else if token.starts_with("apl_") {
+        "API token"
+    } else {
+        "unrecognised"
+    }
+}
+
 async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
     let principal = match &state.auth {
         Auth::DisabledForDevelopment => Principal {
@@ -628,6 +671,7 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
                 .map(str::trim)
                 .filter(|t| !t.is_empty());
             let Some(token) = presented else {
+                tracing::debug!(method = %req.method(), path = req.uri().path(), "request without a bearer token");
                 return unauthenticated(
                     "a bearer token is required (Authorization: Bearer <token>)",
                 )
@@ -635,7 +679,26 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
             };
             match resolve_principal(&state, pool, token).await {
                 Ok(p) => p,
-                Err(e) => return e.into_response(),
+                Err(e) => {
+                    // Refused credentials are logged (never the token itself), so a sign-in
+                    // problem can be traced from the server side. They are not audited: an
+                    // audit row per bad request would let anyone fill the log.
+                    if !e.status.is_server_error() {
+                        let issuer = apelora_identity::looks_like_jwt(token)
+                            .then(|| apelora_identity::unverified_issuer(token))
+                            .flatten();
+                        tracing::warn!(
+                            method = %req.method(),
+                            path = req.uri().path(),
+                            credential = credential_kind(token),
+                            issuer = issuer.as_deref().unwrap_or("-"),
+                            code = e.code,
+                            reason = %e.message,
+                            "credential refused"
+                        );
+                    }
+                    return e.into_response();
+                }
             }
         }
     };
@@ -902,6 +965,39 @@ async fn health(State(state): State<AppState>) -> Json<Health> {
     })
 }
 
+/// What a browser needs to sign a person in with the identity provider: an OpenID Connect
+/// authorization-code flow with PKCE for a public client. Nothing here is secret.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcSignIn {
+    /// The provider's issuer; its discovery document is at `<issuer>/.well-known/openid-configuration`.
+    pub issuer: String,
+    /// The public client registered for the Fabric Console and the Studio (no client secret).
+    pub client_id: String,
+    pub scopes: Vec<String>,
+    /// What the button says after "Sign in with", e.g. the organisation's name.
+    pub label: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInOptions {
+    /// The organisation's identity providers people can sign in with, in order.
+    pub providers: Vec<OidcSignIn>,
+    /// Whether API tokens are accepted (legacy platform-wide tokens).
+    pub api_tokens: bool,
+}
+
+/// Public. How people can sign in to this control plane.
+#[utoipa::path(get, path = "/api/v1/sign-in", tag = "system", security(()), operation_id = "sign_in_options",
+    responses((status = 200, body = SignInOptions)))]
+async fn sign_in(State(state): State<AppState>) -> Json<SignInOptions> {
+    Json(SignInOptions {
+        providers: state.sign_in_providers(),
+        api_tokens: state.api_tokens_accepted(),
+    })
+}
+
 /// Who is calling, with the role assignments and permissions in force.
 #[utoipa::path(get, path = "/api/v1/whoami", tag = "system",
     responses((status = 200, body = WhoAmI), (status = 401, body = ErrorBody)))]
@@ -1117,7 +1213,7 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
+    paths(health, sign_in, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
@@ -1134,7 +1230,7 @@ impl Modify for BearerAuth {
         identity::create_assignment, identity::preview_assignment, identity::revoke_assignment,
         identity::emergency_access, identity::service_identities, identity::create_service_identity,
         identity::disable_service, identity::enable_service, identity::policies, identity::save_policy,
-        identity::delete_policy, identity::audit_history, identity::approvals, identity::request_approval,
+        identity::delete_policy, auth_config::get_settings, auth_config::check, auth_config::create, auth_config::update, auth_config::delete, auth_config::set_api_tokens, identity::audit_history, identity::approvals, identity::request_approval,
         identity::approve_request, identity::reject_request, identity::cancel_request,
         sessions::access, sessions::open, sessions::list, sessions::terminate),
     modifiers(&BearerAuth),
@@ -1160,6 +1256,7 @@ async fn openapi() -> impl IntoResponse {
 
 mod admin;
 mod applications;
+pub mod auth_config;
 mod authz;
 mod cluster_admin;
 mod deploy;

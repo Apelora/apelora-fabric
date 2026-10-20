@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { ApiRequestError, type ClusterResponse, type Health, type Permission, type WhoAmI } from "@apelora/api-client";
+import { ApiRequestError, completeOidcSignIn, type ClusterResponse, type Health, type Permission, type WhoAmI } from "@apelora/api-client";
 
 import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
-import { client, useLoad, writeToken } from "./lib/api";
+import { client, messageOf, readToken, useLoad, writeToken } from "./lib/api";
 import { AdministrationView } from "./views/Administration";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
@@ -12,6 +12,7 @@ import { InstancesView } from "./views/Instances";
 import { MembershipView } from "./views/Membership";
 import { OperationsView } from "./views/Operations";
 import { PreflightView } from "./views/Preflight";
+import { SignInPage, type SignInReason } from "./views/SignIn";
 import { IdentityPage } from "./views/identity";
 import { IDENTITY_PAGES, isIdentityPage, type IdentityPageId } from "./views/identity/pages";
 import { holds } from "./lib/identity";
@@ -41,21 +42,6 @@ const viewFromHash = (): ViewId => {
   if (isIdentityPage(id)) return id;
   return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
 };
-
-function SignIn({ message, onSubmit }: { message: string; onSubmit: (token: string) => void }) {
-  const [value, setValue] = useState("");
-  return (
-    <form className="flex flex-col gap-3 rounded-box border border-base-300 p-6" data-testid="sign-in" onSubmit={(e) => { e.preventDefault(); if (value.trim()) onSubmit(value.trim()); }}>
-      <h2 className="font-semibold">Sign in with an API token</h2>
-      <p className="text-sm text-base-content/70">{message} An administrator creates tokens with <code className="rounded bg-base-200 px-1 py-0.5 text-xs">apelora-control-plane token create</code>. It is kept only for this browser tab.</p>
-      <label className="flex flex-col gap-1 text-sm">
-        <span>API token</span>
-        <input type="password" autoComplete="off" spellCheck={false} className="input input-sm w-full max-w-md font-mono" value={value} onChange={(e) => setValue(e.target.value)} data-testid="token-input" />
-      </label>
-      <button type="submit" className="btn btn-sm btn-primary self-start" disabled={!value.trim()}>Sign in</button>
-    </form>
-  );
-}
 
 function Members({ onAuth }: { onAuth: (m: string) => void }) {
   const [cluster, reload] = useLoad<ClusterResponse>(() => client.get("cluster"), onAuth);
@@ -88,9 +74,20 @@ function Members({ onAuth }: { onAuth: (m: string) => void }) {
   );
 }
 
+// A provider's code can be exchanged once; effects may run twice (StrictMode), so the page load
+// shares one exchange.
+let oidcReturn: ReturnType<typeof completeOidcSignIn> | null = null;
+const finishOidcSignIn = () => (oidcReturn ??= completeOidcSignIn(new URL(window.location.href)));
+
 export function App() {
   const [api, setApi] = useState<ApiState>({ kind: "checking" });
-  const [authNeeded, setAuthNeeded] = useState<string | null>(null);
+  const [authNeeded, setAuthNeeded] = useState<SignInReason | null>(null);
+  // A token was just typed in: a 401 now means it was not accepted.
+  const submitted = useRef(false);
+  // The identity provider sent the browser back with an error: show it on the sign-in page.
+  const providerError = useRef<string | null>(null);
+  // The token in hand came from the identity provider just now: a refusal is not "session ended".
+  const fromProvider = useRef(false);
   const [me, setMe] = useState<WhoAmI | null>(null);
   const [view, setView] = useState<ViewId>(viewFromHash);
   const [attempt, setAttempt] = useState(0);
@@ -101,7 +98,19 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const onAuth = useCallback((msg: string) => { writeToken(null); setMe(null); setAuthNeeded(msg); }, []);
+  const onAuth = useCallback((msg: string) => {
+    const had = readToken() !== null;
+    writeToken(null);
+    setMe(null);
+    setAuthNeeded(
+      providerError.current ? { error: providerError.current }
+        : fromProvider.current ? { error: `You signed in, but Apelora did not accept the identity provider's token: ${msg}` }
+        : submitted.current ? "rejected" : had ? "ended" : "required",
+    );
+    submitted.current = false;
+    fromProvider.current = false;
+    providerError.current = null;
+  }, []);
 
   const check = useCallback(() => {
     setApi({ kind: "checking" });
@@ -111,13 +120,29 @@ export function App() {
         setApi({ kind: "up", health });
         setAttempt((n) => n + 1);
         client.get("whoami")
-          .then(setMe)
+          .then((who) => { submitted.current = false; fromProvider.current = false; setMe(who); })
           .catch((e: unknown) => { if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message); });
       })
       .catch(() => setApi({ kind: "down" }));
   }, [onAuth]);
 
-  useEffect(check, [check]);
+  // Back from the identity provider (?code&state): finish signing in, then tidy the address.
+  const [returning, setReturning] = useState(() => new URL(window.location.href).searchParams.has("state"));
+  useEffect(() => {
+    if (!returning) { check(); return; }
+    finishOidcSignIn()
+      .then((r) => {
+        window.history.replaceState(null, "", `${window.location.pathname}${r?.returnTo ?? ""}`);
+        setView(viewFromHash()); // replaceState fires no hashchange
+        if (r) { writeToken(r.token); fromProvider.current = true; }
+        setReturning(false);
+      })
+      .catch((e: unknown) => {
+        window.history.replaceState(null, "", window.location.pathname);
+        providerError.current = messageOf(e);
+        setReturning(false);
+      });
+  }, [returning, check]);
 
   const up = api.kind === "up" ? api.health : null;
   const controlPlane =
@@ -139,6 +164,14 @@ export function App() {
   const identityViews = me ? IDENTITY_PAGES.filter((p) => holds(me, ...p.any)) : [];
   const current: ViewId = views.some((v) => v.id === view) || identityViews.some((p) => p.id === view) ? view : "overview";
 
+  if (authNeeded && api.kind !== "down") {
+    return (
+      <div className="h-full overflow-auto bg-base-100 text-base-content">
+        <SignInPage reason={authNeeded} health={up} onToken={(t) => { writeToken(t); submitted.current = true; check(); }} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100 text-base-content">
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-base-300 px-4">
@@ -147,7 +180,7 @@ export function App() {
           <span className="whitespace-nowrap text-sm font-semibold">Apelora Fabric Console</span>
           <span className="badge badge-sm badge-ghost" data-testid="mock-badge" title="Shows whether the data below comes from a real Incus cluster.">{badge}</span>
         </div>
-        {me && <span className="hidden truncate text-xs text-base-content/60 sm:inline" data-testid="whoami">{me.name} · {me.role}</span>}
+        {me && <span className="hidden truncate text-xs text-base-content/60 sm:inline" data-testid="whoami">{me.role ? `${me.name} · ${me.role}` : me.name}</span>}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -187,7 +220,6 @@ export function App() {
               </section>
             )}
 
-            {authNeeded && <SignIn message={authNeeded} onSubmit={(t) => { writeToken(t); check(); }} />}
 
             {current === "overview" && !incusConnected && (
               <section className="flex flex-col items-start gap-3 rounded-box border border-dashed border-base-300 p-6" data-testid="empty-state">

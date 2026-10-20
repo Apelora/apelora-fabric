@@ -1,0 +1,28 @@
+# Local OpenID Connect identity provider for trying sign-in. Development credentials only.
+# Start:   docker compose -f infra/dev/compose.yaml --profile oidc up -d
+# Sign in: dev@apelora.test / apelora-dev-only
+# Add it in the Fabric Console (Identity & Access → Sign-in): issuer http://127.0.0.1:5556/dex,
+# audience and browser client ID apelora-console.
+issuer: http://127.0.0.1:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+  allowedOrigins: ["http://127.0.0.1:5173", "http://127.0.0.1:5174"]
+oauth2:
+  skipApprovalScreen: true
+# Apelora accepts tokens that live at most an hour (the provider's default here is a day).
+expiry:
+  idTokens: "1h"
+staticClients:
+  - id: apelora-console
+    name: Apelora
+    public: true
+    redirectURIs: ["http://127.0.0.1:5173/", "http://127.0.0.1:5174/"]
+enablePasswordDB: true
+staticPasswords:
+  - email: dev@apelora.test
+    username: dev
+    userID: 7d1c3a52-0f0e-4f43-9a55-5f1e4b0c2a11
+    # bcrypt of the development password above
+    hash: "$2a$10$bYboVGEvZ0xmGAMi7X0fg.7WGkkr4MRPqNEnjUyUTXPOIMlqk6rPe"

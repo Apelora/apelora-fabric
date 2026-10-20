@@ -596,9 +596,9 @@ test.describe("roles and permissions", () => {
     await stub(page, base());
     await page.goto("/#/identity/roles");
     const rows = page.getByTestId("catalogue-row");
-    await expect(rows).toHaveCount(23);
+    await expect(rows).toHaveCount(24);
     await page.getByTestId("catalogue-class").selectOption("security");
-    await expect(rows).toHaveCount(6);
+    await expect(rows).toHaveCount(7);
     await expect(rows.first()).toContainText("Security");
     await page.getByTestId("catalogue-class").selectOption("infrastructure");
     await expect(rows.filter({ hasText: "Needs approval" })).toHaveCount(2);
@@ -780,6 +780,138 @@ test.describe("service identities", () => {
     await stub(page, { ...base(), "GET /api/v1/identity/service-identities": error(403, "forbidden", "you may not do this (service_identity.manage)") });
     await page.reload();
     await expect(page.getByTestId("services-error")).toHaveText("you may not do this (service_identity.manage)");
+  });
+});
+
+test.describe("sign-in settings", () => {
+  const ENV = { id: null, source: "environment", name: "Example Corp", issuer: "https://login.example.org/realms/apelora", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null };
+  const MAIN = { ...ENV, id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", clientId: null, updatedBy: `user:${ME}` };
+  const settings = (providers: unknown[], apiTokens = { enabled: true, lockedByEnvironment: false }) => ({ json: { providers, apiTokens } });
+
+  test("lists providers in words; the environment's is read-only", async ({ page }) => {
+    await stub(page, { ...base(), "GET /api/v1/identity/sign-in": settings([ENV, { ...MAIN, reachable: false, error: "the provider's keys could not be read" }]) });
+    await page.goto("/#/identity/sign-in");
+    const rows = page.getByTestId("provider-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText("set by environment variables");
+    await expect(rows.nth(0)).toContainText("Answers");
+    await expect(rows.nth(0).getByRole("button")).toHaveCount(0);
+    await expect(rows.nth(1)).toContainText("Tokens only, no button");
+    await expect(rows.nth(1)).toContainText("Not reachable");
+    await expect(rows.nth(1)).toContainText("the provider's keys could not be read");
+    await expect(rows.nth(1).getByRole("button", { name: "Edit Globex staff" })).toBeVisible();
+  });
+
+  test("without platform.security.manage the page is not offered", async ({ page }) => {
+    await stub(page, { ...base(whoami(["user.view"])), "GET /api/v1/cluster": cluster });
+    await page.goto("/#/identity/sign-in");
+    await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign-in" })).toHaveCount(0);
+  });
+
+  test("adding a provider checks the connection, validates the issuer and sends the cleaned-up fields", async ({ page }) => {
+    let list: unknown[] = [];
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/identity/sign-in": () => settings(list),
+      "POST /api/v1/identity/sign-in/check": { json: { authorizationEndpoint: "https://id.globex.example/oidc/authorize", tokenEndpoint: "https://id.globex.example/oidc/token", jwksUri: "https://id.globex.example/oidc/keys", keys: 2 } },
+      "POST /api/v1/identity/sign-in/providers": () => { list = [MAIN]; return { status: 201, json: MAIN }; },
+    });
+    await page.goto("/#/identity/sign-in");
+    await expect(page.getByTestId("no-providers")).toBeVisible();
+    await page.getByTestId("provider-add").click();
+    const dialog = page.getByTestId("provider-dialog");
+    await dialog.getByTestId("provider-name").fill("Globex staff");
+    await dialog.getByTestId("provider-issuer").fill("http://id.globex.example/oidc");
+    await expect(dialog.getByText("Use https://")).toBeVisible();
+    await expect(dialog.getByTestId("provider-check")).toBeDisabled();
+    await expect(dialog.getByTestId("provider-save")).toBeDisabled();
+    await dialog.getByTestId("provider-issuer").fill("https://id.globex.example/oidc");
+    await dialog.getByTestId("provider-check").click();
+    await expect(dialog.getByTestId("provider-check-ok")).toContainText("2 signing keys");
+    await expect(dialog.getByTestId("provider-check-ok")).toContainText("id.globex.example");
+    await expect(dialog.getByTestId("provider-save")).toBeDisabled();
+    await dialog.getByTestId("provider-audiences").fill("apelora-api, apelora-cli");
+    await dialog.getByTestId("provider-client").fill("apelora-console");
+    await dialog.getByTestId("provider-save").click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId("provider-row")).toHaveCount(1);
+    expect(bodyOf(calls, "POST /api/v1/identity/sign-in/check")).toEqual([{ issuer: "https://id.globex.example/oidc" }]);
+    expect(bodyOf(calls, "POST /api/v1/identity/sign-in/providers")).toEqual([{
+      name: "Globex staff", issuer: "https://id.globex.example/oidc", audiences: ["apelora-api", "apelora-cli"], clientId: "apelora-console",
+      scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa", "otp", "hwk"], mfaAcr: [], authorizedParties: [], enabled: true,
+    }]);
+  });
+
+  test("a provider that does not answer, and a server refusal, are shown inside the dialog", async ({ page }) => {
+    await stub(page, {
+      ...base(),
+      "GET /api/v1/identity/sign-in": settings([]),
+      "POST /api/v1/identity/sign-in/check": error(422, "invalid", "discovery failed: connection refused"),
+      "POST /api/v1/identity/sign-in/providers": error(409, "conflict", "a provider with this issuer exists"),
+    });
+    await page.goto("/#/identity/sign-in");
+    await page.getByTestId("provider-add").click();
+    const dialog = page.getByTestId("provider-dialog");
+    await dialog.getByTestId("provider-name").fill("Again");
+    await dialog.getByTestId("provider-issuer").fill("https://id.globex.example/oidc");
+    await dialog.getByTestId("provider-check").click();
+    await expect(dialog.getByTestId("provider-check-error")).toContainText("connection refused");
+    await dialog.getByTestId("provider-audiences").fill("apelora-api");
+    await dialog.getByTestId("provider-save").click();
+    await expect(dialog.getByTestId("provider-save-error")).toHaveText("a provider with this issuer exists");
+    await expect(dialog).toBeVisible();
+  });
+
+  test("editing keeps the fields, turning off sends enabled false, removing needs the name typed", async ({ page }) => {
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/identity/sign-in": settings([MAIN]),
+      [`PUT /api/v1/identity/sign-in/providers/${MAIN.id}`]: { json: MAIN },
+      [`DELETE /api/v1/identity/sign-in/providers/${MAIN.id}`]: { status: 204 },
+    });
+    await page.goto("/#/identity/sign-in");
+    await page.getByRole("button", { name: "Edit Globex staff" }).click();
+    const dialog = page.getByTestId("provider-dialog");
+    await expect(dialog.getByTestId("provider-issuer")).toHaveValue(MAIN.issuer);
+    await expect(dialog.getByTestId("provider-audiences")).toHaveValue("apelora-api");
+    await dialog.getByTestId("provider-name").fill("Globex people");
+    await dialog.getByTestId("provider-save").click();
+    await expect(dialog).toBeHidden();
+    await page.getByRole("button", { name: "Turn off Globex staff" }).click();
+    const puts = bodyOf(calls, `PUT /api/v1/identity/sign-in/providers/${MAIN.id}`) as Array<Record<string, unknown>>;
+    await expect.poll(() => puts.length).toBe(2);
+    expect(puts[0]).toMatchObject({ name: "Globex people", issuer: MAIN.issuer, enabled: true });
+    expect(puts[1]).toMatchObject({ name: "Globex staff", enabled: false });
+
+    await page.getByRole("button", { name: "Remove Globex staff" }).click();
+    await expect(confirmDialog(page)).toContainText("accounts and roles in Apelora stay");
+    await expect(page.locator("dialog[open]").getByTestId("confirm-action")).toBeDisabled();
+    await page.locator("dialog[open]").getByRole("textbox").fill("Globex staff");
+    await confirm(page);
+    await expect.poll(() => countOf(calls, `DELETE /api/v1/identity/sign-in/providers/${MAIN.id}`)).toBe(1);
+    expect(bodyOf(calls, `DELETE /api/v1/identity/sign-in/providers/${MAIN.id}`)).toEqual([{ confirm: "Globex staff" }]);
+  });
+
+  test("turning API tokens off asks first and shows the lockout refusal", async ({ page }) => {
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/identity/sign-in": settings([MAIN]),
+      "PUT /api/v1/identity/sign-in/api-tokens": error(409, "conflict", "sign in with an identity provider first: an API token cannot turn API tokens off"),
+    });
+    await page.goto("/#/identity/sign-in");
+    await page.getByTestId("api-tokens-toggle").click();
+    await expect(confirmDialog(page)).toContainText("Every API token stops working at once");
+    await confirm(page);
+    await expect(page.getByTestId("sign-in-settings-error")).toContainText("an API token cannot turn API tokens off");
+    expect(bodyOf(calls, "PUT /api/v1/identity/sign-in/api-tokens")).toEqual([{ enabled: false }]);
+  });
+
+  test("API tokens turned off by the environment offer no button", async ({ page }) => {
+    await stub(page, { ...base(), "GET /api/v1/identity/sign-in": settings([MAIN], { enabled: false, lockedByEnvironment: true }) });
+    await page.goto("/#/identity/sign-in");
+    await expect(page.getByTestId("api-tokens-setting")).toContainText("APELORA_LEGACY_TOKENS=disabled");
+    await expect(page.getByTestId("api-tokens-toggle")).toHaveCount(0);
   });
 });
 
@@ -1058,7 +1190,7 @@ test.describe("quality", () => {
       [`GET /api/v1/identity/projects/${SHOP.id}/environments`]: items([PROD]),
       [`GET /api/v1/identity/groups/${GROUP_ACME.id}/members`]: items([SAM]),
     });
-    for (const hash of ["groups", "memberships", "roles", "services", "policies", "audit"]) {
+    for (const hash of ["groups", "memberships", "roles", "services", "sign-in", "policies", "audit"]) {
       await page.goto(`/#/identity/${hash}`);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -1081,11 +1213,16 @@ test.describe("quality", () => {
     await page.goto("/#/identity/services");
     await page.getByTestId("service-open").click();
     expect(await serious(page), "service dialog").toEqual([]);
+    await page.keyboard.press("Escape");
+    await page.goto("/#/identity/sign-in");
+    await page.getByRole("button", { name: "Edit Globex staff" }).click();
+    await page.getByTestId("provider-advanced").locator("summary").click();
+    expect(await serious(page), "provider dialog").toEqual([]);
   });
 
   test("each page keeps at most one primary button", async ({ page }) => {
     await stub(page, { ...base(), "GET /api/v1/identity/projects": items([SHOP]) });
-    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "policies", "audit"]) {
+    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "sign-in", "policies", "audit"]) {
       await page.goto(`/#/identity/${hash}`);
       await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -1111,7 +1248,7 @@ test.describe("quality", () => {
     });
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     const shots = process.env.SHOTS_DIR;
-    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "policies", "audit"]) {
+    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "sign-in", "policies", "audit"]) {
       await page.goto(`/#/identity/${hash}`);
       await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
       await page.waitForLoadState("networkidle");
@@ -1145,7 +1282,7 @@ test.describe("quality", () => {
       "POST /api/v1/identity/assignments/preview": { json: previewOk() },
       "GET /api/v1/identity/users/lookup": items([SAM]),
     });
-    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "policies", "audit"]) {
+    for (const hash of ["users", "groups", "organizations", "memberships", "roles", "services", "sign-in", "policies", "audit"]) {
       await page.goto(`/#/identity/${hash}`);
       await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
       await page.waitForLoadState("networkidle");

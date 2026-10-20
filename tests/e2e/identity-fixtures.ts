@@ -52,6 +52,7 @@ export const PERMISSIONS = [
   perm("access_policy.manage", "security", "platform", "Change access policies"),
   perm("platform.emergency_access", "security", "platform", "Grant time-limited emergency access"),
   perm("user.manage", "security", "platform", "Disable users and see every user"),
+  perm("platform.security.manage", "security", "platform", "Configure sign-in: identity providers and API tokens"),
 ];
 export const ALL_PERMISSION_IDS = PERMISSIONS.map((p) => p.id);
 
@@ -138,6 +139,7 @@ export function base(me: unknown = SUPER): Record<string, Handler | Result> {
     "GET /api/v1/identity/groups": items([GROUP_PLATFORM, GROUP_ACME]),
     "GET /api/v1/identity/users": items([ALEX, SAM, OFF]),
     "GET /api/v1/identity/service-identities": items([SVC_AUTO, SVC_INCUS]),
+    "GET /api/v1/identity/sign-in": { json: { providers: [{ id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null }], apiTokens: { enabled: true, lockedByEnvironment: false } } },
     "GET /api/v1/identity/policies": items([]),
     "GET /api/v1/approvals": items([]),
     "GET /api/v1/identity/audit": items([]),

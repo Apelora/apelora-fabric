@@ -17,7 +17,9 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 | Evaluator (deny by default) | `crates/auth/src/evaluate.rs` |
 | Escalation guard for assignments (`check_assignment`) | `crates/auth/src/assign.rs` |
 | Four-eyes approvals | `crates/auth/src/approval.rs` |
-| OIDC token validation | `crates/identity` |
+| OIDC token validation, discovery | `crates/identity` |
+| Identity providers and API-token setting (Console-configured, lockout guards) | `services/control-plane/src/api/auth_config.rs`, `crates/persistence/src/auth_settings.rs` |
+| Browser sign-in (PKCE) | `packages/api-client/src/oidc.ts`, `apps/fabric-console/src/views/SignIn.tsx` |
 | Route gate (`GATES`) and per-handler checks | `services/control-plane/src/api/authz.rs` |
 | Identity API | `services/control-plane/src/api/identity.rs` |
 | Tables and scoped queries | `crates/persistence/migrations/0010_identity.sql`, `crates/persistence/src/identity.rs` |
@@ -32,8 +34,9 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 6. **Approvals** (`approval: true` in the catalogue): sensitive actions need a recorded approval from a *different* person, for the exact action and target, single use, 30 minutes, sent as `Apelora-Approval`. Self-approval is refused.
 7. **Emergency access** is time-limited (≤ 4 h), needs a written reason, cannot be self-granted, and every request made under it is audited.
 8. **Audit is append-only** (database trigger). Record actor, action, target, outcome (`success`/`denied`/`failed`) and scope. Never put secrets, tokens, or request bodies with secrets in audit detail.
-9. **Legacy `apl_` tokens** stay platform-wide and exempt from approvals; `APELORA_LEGACY_TOKENS=disabled` turns them off. Do not extend what they can do.
+9. **Legacy `apl_` tokens** stay platform-wide and exempt from approvals; `APELORA_LEGACY_TOKENS=disabled` or the Console setting turns them off. Do not extend what they can do. Sign-in changes must keep the lockout guards in `auth_config.rs` (never leave nobody able to sign in).
 10. **The UI only avoids dead ends.** Hide or disable actions from `whoami.capabilities` / the `actions` object returned per resource, always with the reason; the server enforces regardless.
+11. **Troubleshooting without leaks.** Log refused credentials and denied actions with method, path, credential kind, issuer and reason; never a token, certificate, password or the Authorization header.
 
 ## Adding a protected route — checklist
 
@@ -47,4 +50,4 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 
 ## Not yet verified against real systems
 
-Keycloak/OIDC against a live realm, the MAAS 3.8 entitlement mapping, and Incus restricted-project enforcement are written from documentation and tested with stubs. Say so in reports; do not label them as verified.
+Browser sign-in with PKCE is REAL-BROWSER TESTED against the local development provider (`infra/dev/dex.yaml`); enterprise providers in production, the MAAS 3.8 entitlement mapping, and Incus restricted-project enforcement are written from documentation and tested with stubs. Say so in reports; do not label them as verified.

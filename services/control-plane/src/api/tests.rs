@@ -2884,3 +2884,26 @@ async fn an_instance_is_moved_after_a_dry_run_with_its_volume_and_a_stop_only_wh
     .await;
     assert_eq!(list["items"][0]["member"], "mock-member-02", "{list}");
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn sign_in_options_are_public_and_name_the_identity_provider_only_when_set_up(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let plain = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let (status, body, _) = call(plain, "/api/v1/sign-in", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, json!({ "providers": [], "apiTokens": true }));
+
+    let with_oidc = AppState::new(provider, Auth::Tokens(pool))
+        .with_legacy_tokens(false)
+        .with_sign_in(Some(super::OidcSignIn {
+            issuer: "https://id.example.test/realms/apelora".into(),
+            client_id: "apelora-console".into(),
+            scopes: vec!["openid".into(), "profile".into()],
+            label: "Example Corp".into(),
+        }));
+    let (status, body, _) = call(with_oidc, "/api/v1/sign-in", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["providers"][0]["clientId"], "apelora-console");
+    assert_eq!(body["providers"][0]["label"], "Example Corp");
+    assert_eq!(body["apiTokens"], false);
+}

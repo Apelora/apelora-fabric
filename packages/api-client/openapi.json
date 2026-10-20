@@ -4539,6 +4539,387 @@
         }
       }
     },
+    "/api/v1/identity/sign-in": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Sign-in settings: identity providers (saved and from the environment) and whether API\ntokens are accepted. Needs `platform.security.manage`.",
+        "operationId": "sign_in_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/api-tokens": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Turns API tokens on or off. Turning them off is refused while no identity provider that\nanswers is enabled, and for someone signed in with an API token (they would lock themselves\nout). Needs `platform.security.manage`; audited.",
+        "operationId": "set_api_tokens",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiTokensRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenSetting"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/check": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Reads a provider's discovery document and key set, without saving anything: what an\nadministrator checks before saving. Needs `platform.security.manage`.",
+        "operationId": "check_identity_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/providers": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Adds an identity provider; it is checked and applied at once. Needs\n`platform.security.manage` (and an approval where the policy asks for one); audited.",
+        "operationId": "create_identity_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/providers/{id}": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Changes a provider saved in the Console. Needs `platform.security.manage`; audited.",
+        "operationId": "update_identity_provider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProviderView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Removes a provider saved in the Console: people stop being able to sign in with it.\nIts name must be typed again. Needs `platform.security.manage`; audited.",
+        "operationId": "delete_identity_provider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Provider id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmProvider"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/users": {
       "get": {
         "tags": [
@@ -6244,6 +6625,30 @@
         }
       }
     },
+    "/api/v1/sign-in": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Public. How people can sign in to this control plane.",
+        "operationId": "sign_in_options",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptions"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/v1/storage-pools": {
       "get": {
         "tags": [
@@ -6652,6 +7057,33 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ApiTokenSetting": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "lockedByEnvironment"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "lockedByEnvironment": {
+            "type": "boolean",
+            "description": "Turned off by `APELORA_LEGACY_TOKENS=disabled`: it cannot be turned on here."
+          }
+        }
+      },
+      "ApiTokensRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -7176,6 +7608,17 @@
           }
         }
       },
+      "CheckRequest": {
+        "type": "object",
+        "required": [
+          "issuer"
+        ],
+        "properties": {
+          "issuer": {
+            "type": "string"
+          }
+        }
+      },
       "CheckStatus": {
         "type": "string",
         "enum": [
@@ -7303,6 +7746,18 @@
           "force": {
             "type": "boolean",
             "description": "Evacuate although the dry run found blockers (a workload may lose service). Needs the\nunsafe-evacuation permission and an approval from another person."
+          }
+        }
+      },
+      "ConfirmProvider": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The provider's name again."
           }
         }
       },
@@ -9298,6 +9753,36 @@
           }
         }
       },
+      "OidcSignIn": {
+        "type": "object",
+        "description": "What a browser needs to sign a person in with the identity provider: an OpenID Connect\nauthorization-code flow with PKCE for a public client. Nothing here is secret.",
+        "required": [
+          "issuer",
+          "clientId",
+          "scopes",
+          "label"
+        ],
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "The public client registered for the Fabric Console and the Studio (no client secret)."
+          },
+          "issuer": {
+            "type": "string",
+            "description": "The provider's issuer; its discovery document is at `<issuer>/.well-known/openid-configuration`."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the button says after \"Sign in with\", e.g. the organisation's name."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "OperateRequest": {
         "type": "object",
         "required": [
@@ -9945,6 +10430,102 @@
           }
         }
       },
+      "ProviderCheck": {
+        "type": "object",
+        "required": [
+          "authorizationEndpoint",
+          "tokenEndpoint",
+          "jwksUri",
+          "keys"
+        ],
+        "properties": {
+          "authorizationEndpoint": {
+            "type": "string"
+          },
+          "jwksUri": {
+            "type": "string"
+          },
+          "keys": {
+            "type": "integer",
+            "description": "Signing keys the provider publishes now.",
+            "minimum": 0
+          },
+          "tokenEndpoint": {
+            "type": "string"
+          }
+        }
+      },
+      "ProviderInput": {
+        "type": "object",
+        "description": "The editable fields of a provider. Lists default to the provider defaults when left empty.",
+        "required": [
+          "name",
+          "issuer",
+          "audiences"
+        ],
+        "properties": {
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authorizedParties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "groupsClaim": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "mfaAcr": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mfaAmr": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "usernameClaim": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "ProviderMode": {
         "type": "string",
         "description": "Where the backend's view of the infrastructure comes from.",
@@ -9952,6 +10533,110 @@
           "mock",
           "incus"
         ]
+      },
+      "ProviderSource": {
+        "type": "string",
+        "enum": [
+          "console",
+          "environment"
+        ]
+      },
+      "ProviderView": {
+        "type": "object",
+        "required": [
+          "source",
+          "name",
+          "issuer",
+          "audiences",
+          "scopes",
+          "groupsClaim",
+          "usernameClaim",
+          "mfaAmr",
+          "mfaAcr",
+          "authorizedParties",
+          "enabled",
+          "reachable"
+        ],
+        "properties": {
+          "audiences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "authorizedParties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "clientId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupsClaim": {
+            "type": "string"
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "None for the environment's provider."
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "mfaAcr": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mfaAmr": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Whether its key set could be read at the last reload; the reason when not."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/ProviderSource"
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usernameClaim": {
+            "type": "string"
+          }
+        }
       },
       "ProvisionerKind": {
         "type": "string",
@@ -10709,6 +11394,44 @@
           "ticket": {
             "type": "string",
             "description": "Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket;\nnever put it in a URL."
+          }
+        }
+      },
+      "SignInOptions": {
+        "type": "object",
+        "required": [
+          "providers",
+          "apiTokens"
+        ],
+        "properties": {
+          "apiTokens": {
+            "type": "boolean",
+            "description": "Whether API tokens are accepted (legacy platform-wide tokens)."
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OidcSignIn"
+            },
+            "description": "The organisation's identity providers people can sign in with, in order."
+          }
+        }
+      },
+      "SignInSettings": {
+        "type": "object",
+        "required": [
+          "providers",
+          "apiTokens"
+        ],
+        "properties": {
+          "apiTokens": {
+            "$ref": "#/components/schemas/ApiTokenSetting"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProviderView"
+            }
           }
         }
       },

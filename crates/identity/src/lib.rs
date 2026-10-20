@@ -341,5 +341,91 @@ pub fn looks_like_jwt(s: &str) -> bool {
     matches!((parts.next(), parts.next(), parts.next(), parts.next()), (Some(a), Some(b), Some(c), None) if !a.is_empty() && !b.is_empty() && !c.is_empty())
 }
 
+/// The `iss` claim of a signed token, read **without verifying anything**. Only used to pick
+/// which configured provider's verifier checks the token; the verifier then checks it fully.
+pub fn unverified_issuer(token: &str) -> Option<String> {
+    use base64::Engine as _;
+    let payload = token.split('.').nth(1)?;
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload.trim_end_matches('='))
+        .ok()?;
+    serde_json::from_slice::<Value>(&bytes)
+        .ok()?
+        .get("iss")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+/// What a provider publishes about itself (`<issuer>/.well-known/openid-configuration`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct Discovery {
+    pub issuer: String,
+    pub authorization_endpoint: String,
+    pub token_endpoint: String,
+    pub jwks_uri: String,
+}
+
+/// https, or plain http to this computer (a development identity provider).
+pub fn secure_url(u: &str) -> bool {
+    u.starts_with("https://")
+        || u.starts_with("http://127.0.0.1")
+        || u.starts_with("http://localhost")
+        || u.starts_with("http://[::1]")
+}
+
+/// Reads a provider's discovery document and checks that it names the same issuer and secure
+/// endpoints; then reads its key set and returns how many signing keys it has.
+pub async fn discover(issuer: &str) -> Result<(Discovery, usize), TokenError> {
+    let issuer = issuer.trim_end_matches('/');
+    if !secure_url(issuer) {
+        return Err(TokenError::KeysUnavailable(
+            "the issuer must be an https:// URL".into(),
+        ));
+    }
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
+    let unavailable =
+        |what: &str, e: reqwest::Error| TokenError::KeysUnavailable(format!("{what}: {e}"));
+    let doc: Discovery = client
+        .get(format!("{issuer}/.well-known/openid-configuration"))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| unavailable("discovery document", e))?
+        .json()
+        .await
+        .map_err(|e| unavailable("discovery document", e))?;
+    if doc.issuer.trim_end_matches('/') != issuer {
+        return Err(TokenError::KeysUnavailable(format!(
+            "the provider calls itself {}, not {issuer}",
+            doc.issuer
+        )));
+    }
+    if let Some(bad) = [
+        &doc.authorization_endpoint,
+        &doc.token_endpoint,
+        &doc.jwks_uri,
+    ]
+    .into_iter()
+    .find(|u| !secure_url(u))
+    {
+        return Err(TokenError::KeysUnavailable(format!(
+            "the provider names an insecure endpoint ({bad})"
+        )));
+    }
+    let keys: JwkSet = client
+        .get(&doc.jwks_uri)
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| unavailable("key set", e))?
+        .json()
+        .await
+        .map_err(|e| unavailable("key set", e))?;
+    Ok((doc, keys.keys.len()))
+}
+
 #[cfg(test)]
 mod tests;

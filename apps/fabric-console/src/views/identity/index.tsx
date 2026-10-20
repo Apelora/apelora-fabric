@@ -8,6 +8,7 @@ import type { IdentityPageId } from "./pages";
 import { PoliciesView } from "./Policies";
 import { RolesView } from "./Roles";
 import { ServiceIdentitiesView } from "./ServiceIdentities";
+import { SignInSettingsView } from "./SignInSettings";
 import { UsersView } from "./Users";
 
 /** The page for one Identity & Access route. */
@@ -19,6 +20,7 @@ export function IdentityPage({ id, me, onAuth }: { id: IdentityPageId; me: WhoAm
     case "identity/memberships": return <MembershipsView me={me} onAuth={onAuth} />;
     case "identity/roles": return <RolesView me={me} onAuth={onAuth} />;
     case "identity/services": return <ServiceIdentitiesView onAuth={onAuth} />;
+    case "identity/sign-in": return <SignInSettingsView onAuth={onAuth} />;
     case "identity/policies": return <PoliciesView me={me} onAuth={onAuth} />;
     case "identity/audit": return <IdentityAuditView me={me} onAuth={onAuth} />;
   }

@@ -77,26 +77,108 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("instances-error")).toHaveText(message);
   });
 
-  test("token mode: asks for a token, sends it as a Bearer header, keeps it only for the tab", async ({ page }) => {
+  test("token mode: a sign-in page asks for a token, sends it as a Bearer header, keeps it only for the tab", async ({ page }) => {
     const good = "apl_" + "a".repeat(64);
     const guard = (body: unknown) => (route: import("@playwright/test").Route) =>
       route.request().headers()["authorization"] === `Bearer ${good}`
         ? route.fulfill({ json: body })
         : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "an API token is required (Authorization: Bearer <token>)" } } });
     await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("mock", false), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [], apiTokens: true } }));
+    await page.route("**/api/v1/whoami", guard(whoami("fabric-admin", ADMIN)));
     await page.route("**/api/v1/cluster", guard(cluster("mock", ["mock-member-01"])));
     await page.route("**/api/v1/instances", guard(instances("mock")));
     await page.goto("/");
-    await expect(page.getByTestId("status")).toContainText("API tokens required");
-    const form = page.getByTestId("sign-in");
-    await expect(form).toContainText("an API token is required");
-    await expect(page.getByTestId("member-row")).toHaveCount(0);
+    const signIn = page.getByTestId("sign-in-page");
+    await expect(signIn.getByRole("heading", { level: 1 })).toHaveText("Sign in to the Fabric Console");
+    await expect(signIn.getByTestId("sign-in-error")).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Console" })).toHaveCount(0);
     await expect(page.locator(".btn-primary")).toHaveCount(1);
+    await expect(page.getByTestId("sign-in-status")).toContainText("showing mock data");
+
+    // A wrong token: said plainly, the field is marked and keeps what was typed.
+    await page.getByTestId("token-input").fill("apl_wrong");
+    await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByTestId("sign-in-error")).toHaveText("That token was not accepted. It may have expired or been revoked.");
+    await expect(page.getByTestId("token-input")).toHaveAttribute("aria-invalid", "true");
+
     await page.getByTestId("token-input").fill(good);
-    await form.getByRole("button", { name: "Sign in" }).click();
+    await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByTestId("member-row")).toHaveCount(1);
-    await expect(form).toHaveCount(0);
+    await expect(signIn).toHaveCount(0);
     expect(await page.evaluate(() => [sessionStorage.getItem("apelora.apiToken"), localStorage.getItem("apelora.apiToken")])).toEqual([good, null]);
+  });
+
+  test("organisation sign-in: the identity provider signs the person in and the token stays in the tab", async ({ page }) => {
+    const issuer = "https://id.example.test/realms/apelora";
+    const at = "eyJhbGciOiJSUzI1NiJ9.access.token";
+    let tokenRequest: URLSearchParams | null = null;
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("incus", true), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [{ issuer, clientId: "apelora-console", scopes: ["openid", "profile"], label: "Example Corp" }], apiTokens: true } }));
+    await page.route("**/api/v1/whoami", (route) => route.request().headers()["authorization"] === `Bearer ${at}`
+      ? route.fulfill({ json: whoami("operator", OPERATOR) })
+      : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "sign in" } } }));
+    await page.route("**/api/v1/cluster", (route) => route.fulfill({ json: cluster("incus", ["node-1"]) }));
+    await page.route("**/api/v1/instances", (route) => route.fulfill({ json: instances("incus") }));
+    // A provider allows its registered browser client to call it (CORS), as real ones do.
+    const cors = { "access-control-allow-origin": "*" };
+    await page.route(`${issuer}/.well-known/openid-configuration`, (route) => route.fulfill({ headers: cors, json: { issuer, authorization_endpoint: `${issuer}/auth`, token_endpoint: `${issuer}/token` } }));
+    // The provider "signs in" at once and sends the browser back with a code.
+    await page.route(`${issuer}/auth?**`, (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 302, headers: { location: `${u.searchParams.get("redirect_uri")}?code=the-code&state=${u.searchParams.get("state")}` } });
+    });
+    let tokenRequests = 0;
+    await page.route(`${issuer}/token`, async (route) => {
+      tokenRequests += 1;
+      tokenRequest = new URLSearchParams(route.request().postData() ?? "");
+      const pending = tokenRequest; // nonce is checked only when an id_token is returned
+      await new Promise((r) => setTimeout(r, 400)); // a real provider takes a moment: the app must wait, once
+      return route.fulfill({ headers: cors, json: { access_token: at, token_type: "Bearer", scope: pending.get("scope") ?? "" } });
+    });
+    await page.goto("/#/instances");
+    await expect(page.getByTestId("sign-in-oidc")).toHaveText("Sign in with Example Corp");
+    await expect(page.getByTestId("sign-in")).toHaveCount(0);
+    await page.getByTestId("sign-in-use-token").click();
+    await expect(page.getByTestId("sign-in")).toBeVisible();
+    await expect(page.locator(".btn-primary")).toHaveCount(1);
+    await page.getByTestId("sign-in-oidc").click();
+    await expect(page.getByTestId("instance-row")).toHaveCount(2);
+    expect(page.url()).not.toContain("code=");
+    expect(page.url()).toContain("#/instances");
+    await expect(page.getByTestId("sign-in-error")).toHaveCount(0);
+    expect(tokenRequests).toBe(1);
+    expect(tokenRequest!.get("code")).toBe("the-code");
+    expect(tokenRequest!.get("code_verifier")).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(await page.evaluate(() => sessionStorage.getItem("apelora.apiToken"))).toBe(at);
+  });
+
+  test("a token from the identity provider that Apelora refuses says why, not that the session ended", async ({ page }) => {
+    const issuer = "https://id.example.test";
+    const cors = { "access-control-allow-origin": "*" };
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("incus", true), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [{ issuer, clientId: "c", scopes: ["openid"], label: "Example Corp" }], apiTokens: false } }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ status: 401, json: { error: { code: "invalid_token", message: "the token lives longer than Apelora accepts" } } }));
+    await page.route(`${issuer}/.well-known/openid-configuration`, (route) => route.fulfill({ headers: cors, json: { issuer, authorization_endpoint: `${issuer}/auth`, token_endpoint: `${issuer}/token` } }));
+    await page.route(`${issuer}/auth?**`, (route) => {
+      const u = new URL(route.request().url());
+      return route.fulfill({ status: 302, headers: { location: `${u.searchParams.get("redirect_uri")}?code=c&state=${u.searchParams.get("state")}` } });
+    });
+    await page.route(`${issuer}/token`, (route) => route.fulfill({ headers: cors, json: { access_token: "a.b.c", token_type: "Bearer" } }));
+    await page.goto("/");
+    await page.getByTestId("sign-in-oidc").click();
+    await expect(page.getByTestId("sign-in-error")).toHaveText("You signed in, but Apelora did not accept the identity provider's token: the token lives longer than Apelora accepts");
+    expect(await page.evaluate(() => sessionStorage.getItem("apelora.apiToken"))).toBeNull();
+  });
+
+  test("organisation sign-in that the person cancels comes back to the sign-in page with the reason", async ({ page }) => {
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("incus", true), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [{ issuer: "https://id.example.test", clientId: "c", scopes: ["openid"], label: "Example Corp" }], apiTokens: false } }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "sign in" } } }));
+    await page.goto("/?error=access_denied&error_description=The%20sign-in%20was%20cancelled&state=x");
+    await expect(page.getByTestId("sign-in-error")).toContainText("The sign-in was cancelled");
+    await expect(page.getByTestId("sign-in")).toHaveCount(0);
+    expect(page.url()).not.toContain("error=");
   });
 
   test("development mode says authentication is disabled", async ({ page }) => {

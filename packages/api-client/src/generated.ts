@@ -32,6 +32,16 @@ export type Admission = {
   source: Source;
 };
 
+export type ApiTokenSetting = {
+  enabled: boolean;
+  /** Turned off by `APELORA_LEGACY_TOKENS=disabled`: it cannot be turned on here. */
+  lockedByEnvironment: boolean;
+};
+
+export type ApiTokensRequest = {
+  enabled: boolean;
+};
+
 export type ApplicationDetail = {
   application: ApplicationInfo;
   modules: ModuleDetail[];
@@ -182,6 +192,10 @@ export type Check = {
   title: string;
 };
 
+export type CheckRequest = {
+  issuer: string;
+};
+
 export type CheckStatus = "pass" | "not-checked" | "warn" | "fail";
 
 /** What kind of power a permission is. Only `Tenant` permissions can be granted below the platform level, so an organisation or project role can never reach physical servers, the Incus cluster or the platform's own security settings. */
@@ -221,6 +235,11 @@ export type ConfirmMember = {
   confirm: string;
   /** Evacuate although the dry run found blockers (a workload may lose service). Needs the unsafe-evacuation permission and an approval from another person. */
   force?: boolean;
+};
+
+export type ConfirmProvider = {
+  /** The provider's name again. */
+  confirm: string;
 };
 
 export type ConfirmSnapshot = {
@@ -825,6 +844,17 @@ export type NewSession = {
   rows?: number;
 };
 
+/** What a browser needs to sign a person in with the identity provider: an OpenID Connect authorization-code flow with PKCE for a public client. Nothing here is secret. */
+export type OidcSignIn = {
+  /** The public client registered for the Fabric Console and the Studio (no client secret). */
+  clientId: string;
+  /** The provider's issuer; its discovery document is at `<issuer>/.well-known/openid-configuration`. */
+  issuer: string;
+  /** What the button says after "Sign in with", e.g. the organisation's name. */
+  label: string;
+  scopes: string[];
+};
+
 export type OperateRequest = {
   action: OperationKind;
   /** Required to stop or restart an application that has single-instance or stateful modules: it acknowledges that their clients lose service meanwhile. */
@@ -1006,8 +1036,54 @@ export type ProjectRef = {
   slug: string;
 };
 
+export type ProviderCheck = {
+  authorizationEndpoint: string;
+  jwksUri: string;
+  /** Signing keys the provider publishes now. */
+  keys: number;
+  tokenEndpoint: string;
+};
+
+/** The editable fields of a provider. Lists default to the provider defaults when left empty. */
+export type ProviderInput = {
+  audiences: string[];
+  authorizedParties?: string[];
+  clientId?: string | null;
+  enabled?: boolean;
+  groupsClaim?: string | null;
+  issuer: string;
+  mfaAcr?: string[];
+  mfaAmr?: string[] | null;
+  name: string;
+  scopes?: string[];
+  usernameClaim?: string | null;
+};
+
 /** Where the backend's view of the infrastructure comes from. */
 export type ProviderMode = "mock" | "incus";
+
+export type ProviderSource = "console" | "environment";
+
+export type ProviderView = {
+  audiences: string[];
+  authorizedParties: string[];
+  clientId?: string | null;
+  enabled: boolean;
+  error?: string | null;
+  groupsClaim: string;
+  /** None for the environment's provider. */
+  id?: string | null;
+  issuer: string;
+  mfaAcr: string[];
+  mfaAmr: string[];
+  name: string;
+  /** Whether its key set could be read at the last reload; the reason when not. */
+  reachable: boolean;
+  scopes: string[];
+  source: ProviderSource;
+  updatedBy?: string | null;
+  usernameClaim: string;
+};
 
 /** What installs and powers a machine. Every provisioner enrols the same way. */
 export type ProvisionerKind = "manual" | "maas";
@@ -1214,6 +1290,18 @@ export type SessionTicket = {
   provider: ProviderMode;
   /** Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket; never put it in a URL. */
   ticket: string;
+};
+
+export type SignInOptions = {
+  /** Whether API tokens are accepted (legacy platform-wide tokens). */
+  apiTokens: boolean;
+  /** The organisation's identity providers people can sign in with, in order. */
+  providers: OidcSignIn[];
+};
+
+export type SignInSettings = {
+  apiTokens: ApiTokenSetting;
+  providers: ProviderView[];
 };
 
 export type SnapshotItem = {
@@ -1473,6 +1561,12 @@ export const operations = {
   create_service_identity: { method: "POST", path: "/api/v1/identity/service-identities", params: [], public: false },
   disable_service_identity: { method: "POST", path: "/api/v1/identity/service-identities/{id}/disable", params: ["id"], public: false },
   enable_service_identity: { method: "POST", path: "/api/v1/identity/service-identities/{id}/enable", params: ["id"], public: false },
+  sign_in_settings: { method: "GET", path: "/api/v1/identity/sign-in", params: [], public: false },
+  set_api_tokens: { method: "PUT", path: "/api/v1/identity/sign-in/api-tokens", params: [], public: false },
+  check_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/check", params: [], public: false },
+  create_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/providers", params: [], public: false },
+  update_identity_provider: { method: "PUT", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
+  delete_identity_provider: { method: "DELETE", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
   users: { method: "GET", path: "/api/v1/identity/users", params: [], public: false },
   lookup_user: { method: "GET", path: "/api/v1/identity/users/lookup", params: [], public: false },
   disable_user: { method: "POST", path: "/api/v1/identity/users/{user}/disable", params: ["user"], public: false },
@@ -1497,6 +1591,7 @@ export const operations = {
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
+  sign_in_options: { method: "GET", path: "/api/v1/sign-in", params: [], public: true },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
   system: { method: "GET", path: "/api/v1/system", params: [], public: false },
   tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
@@ -1649,6 +1744,18 @@ export type Responses = {
   disable_service_identity: null;
   /** Re-enables a service identity. Needs `service_identity.manage`. */
   enable_service_identity: null;
+  /** Sign-in settings: identity providers (saved and from the environment) and whether API tokens are accepted. Needs `platform.security.manage`. */
+  sign_in_settings: SignInSettings;
+  /** Turns API tokens on or off. Turning them off is refused while no identity provider that answers is enabled, and for someone signed in with an API token (they would lock themselves out). Needs `platform.security.manage`; audited. */
+  set_api_tokens: ApiTokenSetting;
+  /** Reads a provider's discovery document and key set, without saving anything: what an administrator checks before saving. Needs `platform.security.manage`. */
+  check_identity_provider: ProviderCheck;
+  /** Adds an identity provider; it is checked and applied at once. Needs `platform.security.manage` (and an approval where the policy asks for one); audited. */
+  create_identity_provider: ProviderView;
+  /** Changes a provider saved in the Console. Needs `platform.security.manage`; audited. */
+  update_identity_provider: ProviderView;
+  /** Removes a provider saved in the Console: people stop being able to sign in with it. Its name must be typed again. Needs `platform.security.manage`; audited. */
+  delete_identity_provider: null;
   /** People who have signed in, as far as the caller may see them: everyone for a platform administrator, otherwise those with a role in the caller's scopes. Needs `user.view`. */
   users: UserList;
   /** Finds one person by exact user name or e-mail so a role can be given to them. Someone who has never signed in does not exist yet. Needs `role.assign` or `group.manage`. */
@@ -1697,6 +1804,8 @@ export type Responses = {
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
   terminate_session: null;
+  /** Public. How people can sign in to this control plane. */
+  sign_in_options: SignInOptions;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
   /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
@@ -1784,6 +1893,12 @@ export type Bodies = {
   create_service_identity: NewServiceIdentity;
   disable_service_identity: never;
   enable_service_identity: never;
+  sign_in_settings: never;
+  set_api_tokens: ApiTokensRequest;
+  check_identity_provider: CheckRequest;
+  create_identity_provider: ProviderInput;
+  update_identity_provider: ProviderInput;
+  delete_identity_provider: ConfirmProvider;
   users: never;
   lookup_user: never;
   disable_user: never;
@@ -1808,6 +1923,7 @@ export type Bodies = {
   projects: never;
   sessions: never;
   terminate_session: never;
+  sign_in_options: never;
   storage_pools: never;
   system: never;
   tokens: never;

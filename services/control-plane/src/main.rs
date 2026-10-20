@@ -114,6 +114,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(pool = %p, "volumes of class data-local are created in this pool");
     }
     let oidc = oidc_from_env(|k| std::env::var(k).ok())?;
+    let sign_in = sign_in_from_env(|k| std::env::var(k).ok())?;
+    if sign_in.is_some() && oidc.is_none() {
+        return Err(
+            "APELORA_OIDC_CLIENT_ID needs APELORA_OIDC_ISSUER and APELORA_OIDC_AUDIENCE".into(),
+        );
+    }
     let legacy_tokens = !matches!(
         std::env::var("APELORA_LEGACY_TOKENS").ok().as_deref(),
         Some("disabled" | "off" | "false" | "0")
@@ -136,12 +142,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = api::AppState::new(provider, auth)
         .with_console(console)
         .with_oidc(oidc)
+        .with_sign_in(sign_in)
         .with_legacy_tokens(legacy_tokens)
         .with_deploy_projects(projects)
         .with_admin(admin)
         .with_network_uplink(uplink)
         .with_service_range(services)
         .with_volume_pool(volume_pool);
+    // Identity providers saved in the Fabric Console (on top of the environment's).
+    if let Err(e) = api::auth_config::reload(&state).await {
+        tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");
+    }
+    tokio::spawn(api::auth_config::retry_unreachable(state.clone()));
     axum::serve(
         listener,
         api::router(state).into_make_service_with_connect_info::<SocketAddr>(),
@@ -151,6 +163,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .await?;
     Ok(())
+}
+
+/// Browser sign-in settings: the public client the Console and the Studio use
+/// (`APELORA_OIDC_CLIENT_ID`), the scopes they ask for (`APELORA_OIDC_SCOPES`, default
+/// `openid profile email`) and the button's label (`APELORA_OIDC_LABEL`).
+fn sign_in_from_env(
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<Option<api::OidcSignIn>, Box<dyn std::error::Error>> {
+    let Some(client_id) = get("APELORA_OIDC_CLIENT_ID").filter(|v| !v.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let issuer = get("APELORA_OIDC_ISSUER").unwrap_or_default();
+    if !issuer.starts_with("https://")
+        && !issuer.starts_with("http://127.0.0.1")
+        && !issuer.starts_with("http://localhost")
+    {
+        return Err("APELORA_OIDC_ISSUER must be an https:// URL for browser sign-in".into());
+    }
+    let scopes: Vec<String> = get("APELORA_OIDC_SCOPES")
+        .unwrap_or_else(|| "openid profile email".into())
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+    if !scopes.iter().any(|s| s == "openid") {
+        return Err("APELORA_OIDC_SCOPES must include openid".into());
+    }
+    Ok(Some(api::OidcSignIn {
+        issuer: issuer.trim_end_matches('/').to_owned(),
+        client_id: client_id.trim().to_owned(),
+        scopes,
+        label: get("APELORA_OIDC_LABEL")
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| "your organization".into()),
+    }))
 }
 
 /// OIDC settings from the environment. Absent `APELORA_OIDC_ISSUER`, sign-in by identity provider is off.

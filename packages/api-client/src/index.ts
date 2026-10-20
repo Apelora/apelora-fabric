@@ -4,6 +4,7 @@
 import { operations, type Bodies, type ErrorBody, type Responses } from "./generated";
 
 export * from "./generated";
+export * from "./oidc";
 
 export type Operation = keyof Responses;
 

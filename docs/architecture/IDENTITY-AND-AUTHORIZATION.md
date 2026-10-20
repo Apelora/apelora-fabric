@@ -1,6 +1,6 @@
 # Identity and authorization
 
-Status: **built and tested against stubs and a mock provider; not yet verified against a live identity provider, MAAS or a real restricted Incus project.** Design rationale: [access and roles](ACCESS-AND-ROLES.md) and [ADR 0005](../adr/0005-access-model.md). Working checklist for contributors: the `identity-authorization` skill.
+Status: **built and tested against stubs and a mock provider; browser sign-in tested in a real browser against a local development identity provider; not yet verified against an enterprise provider in production, MAAS or a real restricted Incus project.** Design rationale: [access and roles](ACCESS-AND-ROLES.md) and [ADR 0005](../adr/0005-access-model.md). Working checklist for contributors: the `identity-authorization` skill.
 
 Evidence labels: **BUILT** (in the repository, covered by tests), **NOT VERIFIED** (written from documentation, exercised only by stubs).
 
@@ -55,7 +55,21 @@ Rules that are enforced and tested (API integration tests, 22 for identity, 13 f
 
 OIDC access tokens are validated by `crates/identity`: asymmetric algorithms only (no `none`, no shared-secret algorithms), issuer and audience pinned, `exp`/`nbf`/`iat` checked with 30 s leeway, maximum lifetime, key set fetched over TLS only (loopback allowed for development) and cached. An application end-user token with another audience is refused. MFA is derived from configured `amr`/`acr` values and can be required by an access policy.
 
-Configuration is environment-only: `APELORA_OIDC_ISSUER`, `APELORA_OIDC_AUDIENCE`, optional `APELORA_OIDC_GROUPS_CLAIM`, `APELORA_OIDC_USERNAME_CLAIM`, `APELORA_OIDC_MFA_AMR`, `APELORA_OIDC_MFA_ACR`, `APELORA_OIDC_AUTHORIZED_PARTIES`. Without an issuer, only API tokens work. A realm setup guide with no secrets is in [infra/identity/keycloak](../../infra/identity/keycloak/README.md) (**NOT VERIFIED** against a running server).
+**Where sign-in is configured.** Platform administrators (`platform.security.manage`) add, edit, turn off and remove identity providers in the Fabric Console (Identity & Access → Sign-in); changes apply at once, without a restart, and are audited (`identity.provider.saved`, `identity.provider.deleted`). Any OpenID Connect provider works. Per provider: name on the button, issuer, audiences, an optional public browser client ID (no secret; the browser uses authorization code with PKCE, `state` and `nonce`), scopes, the groups and username claims, the `amr`/`acr` values that count as multi-factor, and the clients a token must be issued to (`azp`). *Check connection* reads the provider's discovery document and key set before saving. A provider set by environment variables (`APELORA_OIDC_ISSUER`, `APELORA_OIDC_AUDIENCE`, `APELORA_OIDC_CLIENT_ID`, `APELORA_OIDC_SCOPES`, `APELORA_OIDC_LABEL` and the claim variables; see `.env.example`) keeps working and is shown read-only.
+
+**Choosing the provider for a token.** The control plane reads the token's `iss` (unverified) only to pick the configured provider with that issuer, then verifies the token against that provider alone. An issuer nobody configured is refused.
+
+**API tokens** (`apl_`) can be turned off in the Console once people sign in with a provider (`identity.api_tokens.disabled`). `APELORA_LEGACY_TOKENS=disabled` turns them off for good; the Console cannot turn them back on.
+
+**Nobody is locked out.** The server refuses: turning API tokens off while signed in with one, or while no provider answers; removing or turning off the last answering provider while API tokens are off. Both guards are enforced by the API, not only by the Console.
+
+**Sign-in page.** The Fabric Console shows one button per provider with a browser client ID, then "Use an API token instead" while API tokens are accepted. The access token is kept for the browser tab only (sessionStorage). If the provider signs someone in but Apelora refuses its token, the page says why (for example "the token lives longer than Apelora accepts": tokens may live at most an hour).
+
+**Troubleshooting.** Each refused credential is logged at `warn` as `credential refused` with method, path, credential kind (`identity-provider token`, `service token`, `API token`), the token's issuer and the reason; the token itself is never logged. Refusals are not written to the audit log (one row per bad request would let anyone fill it); a disabled account signing in is (`auth.refused`). At startup and after every change the control plane logs each provider as `identity provider accepted for sign-in` or `identity provider not reachable` with the error; unreachable providers are retried every minute.
+
+**Trying it locally.** `docker compose -f infra/dev/compose.yaml --profile oidc up -d` starts a development identity provider (`infra/dev/dex.yaml`; development credentials only). Add it in the Console with issuer `http://127.0.0.1:5556/dex` and audience and client ID `apelora-console`. A realm setup guide with no secrets is in [infra/identity/keycloak](../../infra/identity/keycloak/README.md).
+
+Evidence: provider configuration, lockout guards, discovery and token verification against a local HTTP provider in the API tests (MOCK VERIFIED); the full browser round trip with PKCE against the local development provider in a real browser (sign-in, `whoami` as the new user, refusal of a 24-hour token with its reason) on 2026-10-21. Enterprise providers in production are NOT VERIFIED.
 
 ## 4. Backends
 

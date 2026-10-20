@@ -471,7 +471,8 @@ async fn every_route_has_an_access_rule_so_a_new_route_is_denied_until_someone_d
     assert_eq!(status, StatusCode::OK);
     let mut seen = 0;
     for (path, item) in doc["paths"].as_object().expect("paths") {
-        if path == "/api/v1/health" || path == "/api/v1/openapi.json" {
+        // Public: what any visitor needs before signing in.
+        if path == "/api/v1/health" || path == "/api/v1/openapi.json" || path == "/api/v1/sign-in" {
             continue;
         }
         for method in item.as_object().expect("item").keys() {
@@ -2689,4 +2690,175 @@ async fn the_application_of_end_users_is_separate_from_apelora_access(pool: Pool
         "no Apelora account is created for application users"
     );
     let _ = Arc::new(l.jwks.clone());
+}
+
+/// A real identity provider over HTTP on this computer: its discovery document and key set,
+/// as the control plane reads them when a provider is saved in the Console.
+async fn local_provider(jwks: jsonwebtoken::jwk::JwkSet) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let issuer = format!("http://{}", listener.local_addr().expect("addr"));
+    let doc = json!({ "issuer": issuer, "authorization_endpoint": format!("{issuer}/auth"), "token_endpoint": format!("{issuer}/token"), "jwks_uri": format!("{issuer}/keys") });
+    let app = axum::Router::new()
+        .route(
+            "/.well-known/openid-configuration",
+            axum::routing::get(move || {
+                let d = doc.clone();
+                async move { axum::Json(d) }
+            }),
+        )
+        .route(
+            "/keys",
+            axum::routing::get(move || {
+                let k = jwks.clone();
+                async move { axum::Json(k) }
+            }),
+        );
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    issuer
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn identity_providers_are_configured_in_the_console_applied_at_once_and_nobody_is_locked_out(
+    pool: Pool,
+) {
+    let l = lab(pool.clone());
+    // A control plane with no provider in its environment: everything comes from the Console.
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    let req = |token: String,
+               method: &'static str,
+               path: &'static str,
+               body: Option<serde_json::Value>| {
+        let state = state.clone();
+        async move { send(state, method, path, &token, body, None).await }
+    };
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let issuer = local_provider(l.jwks.clone()).await;
+    let sign = |sub: &str, iss: &str| {
+        l.sign(&json!({ "iss": iss, "aud": "apelora-api", "sub": sub, "iat": now() - 5, "exp": now() + 600, "preferred_username": sub }), Some("k1"))
+    };
+
+    let (status, s) = req(admin.clone(), "GET", "/api/v1/identity/sign-in", None).await;
+    assert_eq!(status, StatusCode::OK, "{s}");
+    assert_eq!(
+        (
+            s["providers"].as_array().map(Vec::len),
+            s["apiTokens"]["enabled"].as_bool()
+        ),
+        (Some(0), Some(true))
+    );
+    let (status, _) = req(sign("alex", &issuer), "GET", "/api/v1/whoami", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "no provider yet");
+
+    // Check first: what the provider publishes.
+    let (status, c) = req(
+        admin.clone(),
+        "POST",
+        "/api/v1/identity/sign-in/check",
+        Some(json!({ "issuer": issuer })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{c}");
+    assert_eq!(c["keys"], 1);
+    let (status, _) = req(
+        admin.clone(),
+        "POST",
+        "/api/v1/identity/sign-in/check",
+        Some(json!({ "issuer": "http://id.example.test" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // Save it: tokens it issues are accepted at once, others are not.
+    let (status, p) = req(admin.clone(), "POST", "/api/v1/identity/sign-in/providers",
+        Some(json!({ "name": "Lab IdP", "issuer": issuer, "audiences": ["apelora-api"], "clientId": "apelora-console" }))).await;
+    assert_eq!(status, StatusCode::CREATED, "{p}");
+    assert_eq!(
+        (p["reachable"].as_bool(), p["source"].as_str()),
+        (Some(true), Some("console"))
+    );
+    let id = p["id"].as_str().expect("id").to_owned();
+    let (status, me) = req(sign("alex", &issuer), "GET", "/api/v1/whoami", None).await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    let (status, e) = req(
+        sign("alex", "https://other.example.test"),
+        "GET",
+        "/api/v1/whoami",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(
+        e["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no identity provider set up here"),
+        "{e}"
+    );
+    let (_, opts) = send(state.clone(), "GET", "/api/v1/sign-in", "", None, None).await;
+    assert_eq!(opts["providers"][0]["label"], "Lab IdP", "{opts}");
+
+    // Turning API tokens off: not by someone signed in with one.
+    let (status, e) = req(
+        admin.clone(),
+        "PUT",
+        "/api/v1/identity/sign-in/api-tokens",
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{e}");
+    // A super admin signed in through the provider may.
+    let me_id: Uuid = me["id"].as_str().expect("id").parse().expect("uuid");
+    db::insert_assignment(
+        &pool,
+        &new_assignment(me_id, Builtin::PlatformSuperAdmin, Scope::Platform),
+    )
+    .await
+    .expect("assign");
+    let person = sign("alex", &issuer);
+    let (status, t) = req(
+        person.clone(),
+        "PUT",
+        "/api/v1/identity/sign-in/api-tokens",
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["enabled"], false);
+    let (status, _) = req(admin.clone(), "GET", "/api/v1/cluster", None).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "API tokens are refused now"
+    );
+
+    // The last way in cannot be disabled or removed.
+    let path = format!("/api/v1/identity/sign-in/providers/{id}");
+    let put = send(state.clone(), "PUT", &path, &person, Some(json!({ "name": "Lab IdP", "issuer": issuer, "audiences": ["apelora-api"], "clientId": "apelora-console", "enabled": false })), None).await;
+    assert_eq!(put.0, StatusCode::CONFLICT, "{}", put.1);
+    let del = send(
+        state.clone(),
+        "DELETE",
+        &path,
+        &person,
+        Some(json!({ "confirm": "Lab IdP" })),
+        None,
+    )
+    .await;
+    assert_eq!(del.0, StatusCode::CONFLICT, "{}", del.1);
+    // Renaming works and is applied.
+    let put = send(state.clone(), "PUT", &path, &person, Some(json!({ "name": "Lab sign-in", "issuer": issuer, "audiences": ["apelora-api"], "clientId": "apelora-console" })), None).await;
+    assert_eq!(put.0, StatusCode::OK, "{}", put.1);
+    let audited: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE action IN ('identity.provider.saved', 'identity.api_tokens.disabled')")
+        .fetch_one(&pool)
+        .await
+        .expect("audit");
+    assert_eq!(audited, 3);
 }

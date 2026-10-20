@@ -10,6 +10,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Already in the workspace (incus-adapter): reading a token's issuer before choosing its verifier.
+base64 = "0.22.1"
 jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }

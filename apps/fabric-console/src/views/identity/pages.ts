@@ -10,6 +10,7 @@ export const IDENTITY_PAGES = [
   { id: "identity/memberships", label: "Project memberships", any: ["user.view", "role.assign"] },
   { id: "identity/roles", label: "Roles & permissions", any: ["role.assign", "role.manage", "user.view"] },
   { id: "identity/services", label: "Service identities", any: ["service_identity.manage"] },
+  { id: "identity/sign-in", label: "Sign-in", any: ["platform.security.manage"] },
   { id: "identity/policies", label: "Access policies", any: ["access_policy.manage", "audit.read", "approval.request", "approval.grant"] },
   { id: "identity/audit", label: "Audit history", any: ["audit.read"] },
 ] as const;
