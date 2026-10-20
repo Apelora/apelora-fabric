@@ -3,6 +3,7 @@
 // workspace) against the same allow-list as deny.toml. Development tools are not shipped and
 // are not checked. Exits non-zero naming each package whose licence is not allowed.
 // Usage: node scripts/licenses/check-npm.mjs
+/* global console, process */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,7 +35,7 @@ const seen = new Map();
 const problems = [];
 for (const [id, via] of seen) {
   const name = id.slice(0, id.lastIndexOf("@"));
-  let license = "UNKNOWN";
+  let license;
   try {
     const pkg = JSON.parse(readFileSync(join("node_modules", name, "package.json"), "utf8"));
     license = typeof pkg.license === "string" ? pkg.license : (pkg.license?.type ?? "UNKNOWN");
