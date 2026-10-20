@@ -7,6 +7,8 @@ test.skip(!process.env.SCREENSHOTS, "screenshots are generated on demand");
 for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
   test(`screenshots ${w}x${h}`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
+    // Windows and menus animate in; reduced motion shows them finished.
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await open(page);
     const out = (n: string) => `docs/screenshots/${n}-${w}x${h}.png`;
     await page.screenshot({ path: out("01-commerce-stack") });
@@ -22,7 +24,7 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("props-close").click();
 
     await node(page, "nginx-01").click({ button: "right" });
-    await page.screenshot({ path: out("10-context-menu-appliance") });
+    await page.screenshot({ path: out("10-context-menu-module") });
     await page.keyboard.press("Escape");
     await page.locator(".react-flow__node[data-id=postgresql-01] .react-flow__handle[data-port-id=postgres]").click({ button: "right", force: true });
     await page.screenshot({ path: out("11-context-menu-port") });
@@ -49,18 +51,18 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("validation-toggle").click();
     await page.screenshot({ path: out("04-validation") });
 
-    await page.getByTestId("new-appliance").click();
+    await page.getByTestId("new-module").click();
     await page.getByTestId("designer-name").fill("Session cache");
     await page.getByTestId("designer-add-output").click();
     await page.getByTestId("designer-port").first().getByLabel("Port type").selectOption("redis");
-    await page.screenshot({ path: out("06-appliance-designer") });
+    await page.screenshot({ path: out("06-module-designer") });
     await page.getByTestId("designer-tab-config").click();
     await page.getByTestId("designer-add-prop").click();
     await page.getByTestId("designer-prop").first().getByLabel("Field label").fill("Max connections");
     await page.getByTestId("designer-prop").first().getByLabel("Field type").selectOption("int");
     await page.screenshot({ path: out("14-designer-configuration") });
     await page.getByTestId("designer-save").click();
-    // port placement showcase: new appliances side by side
+    // port placement showcase: new modules side by side
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-empty").click();
     const cv2 = (await page.getByTestId("canvas").boundingBox())!;
@@ -72,16 +74,16 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.getByTestId("catalog-search").fill("");
     await page.getByRole("button", { name: "Fit to view" }).click();
     await page.waitForTimeout(500);
-    await page.screenshot({ path: out("18-new-appliances-port-placement") });
+    await page.screenshot({ path: out("18-new-modules-port-placement") });
     void cv2;
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-sample-network").click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: out("15-networked-stack-link-tags") });
     await node(page, "haproxy-01").click();
-    await node(page, "nginx-01").click({ modifiers: ["Control"] });
-    await node(page, "nginx-02").click({ modifiers: ["Control"] });
-    await page.keyboard.press("Control+g");
+    await node(page, "nginx-01").click({ modifiers: ["ControlOrMeta"] });
+    await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
+    await page.keyboard.press("ControlOrMeta+g");
     await page.getByTestId("component-name").fill("Web tier");
     await page.screenshot({ path: out("16-group-into-component") });
     await page.getByTestId("component-create").click();
@@ -92,8 +94,8 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.waitForTimeout(400);
     // zones: wrap the web tier, add a circle and a triangle sector, label and colour them
     await node(page, "haproxy-01").click();
-    await node(page, "nginx-01").click({ modifiers: ["Control"] });
-    await node(page, "nginx-02").click({ modifiers: ["Control"] });
+    await node(page, "nginx-01").click({ modifiers: ["ControlOrMeta"] });
+    await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });
     await node(page, "nginx-02").click({ button: "right" });
     await page.getByTestId("menu-wrap").click();
     await page.getByTestId("menu-wrap-rounded").click();
