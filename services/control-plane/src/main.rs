@@ -118,18 +118,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "legacy platform-wide API tokens are still accepted; set APELORA_LEGACY_TOKENS=disabled once people sign in with OIDC"
         );
     }
+    let console = api::sessions::ConsoleSettings::from_env(|k| std::env::var(k).ok())?;
+    if console.enabled && console.uid == 0 {
+        tracing::warn!(
+            "terminal sessions run as root inside instances (APELORA_CONSOLE_UID=0); prefer an unprivileged user"
+        );
+    }
     let state = api::AppState::new(provider, auth)
+        .with_console(console)
         .with_oidc(oidc)
         .with_legacy_tokens(legacy_tokens)
         .with_deploy_projects(projects)
         .with_admin(admin)
         .with_network_uplink(uplink)
         .with_service_range(services);
-    axum::serve(listener, api::router(state))
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
+    axum::serve(
+        listener,
+        api::router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     Ok(())
 }
 

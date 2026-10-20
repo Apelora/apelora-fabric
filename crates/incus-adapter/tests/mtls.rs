@@ -4,49 +4,18 @@
 //! server-auth/client-auth usage, server name "unspecified"). Evidence: CONTRACT VERIFIED for
 //! the TLS layer; not a real Incus server.
 
+mod common;
+
 use std::sync::Arc;
 
-use apelora_incus_adapter::{AdapterError, IncusClient, IncusConfig, Provider};
-use rcgen::{
-    CertificateParams, DistinguishedName, ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose,
-    PKCS_ECDSA_P384_SHA384,
-};
+use apelora_incus_adapter::{AdapterError, IncusClient, Provider};
+use common::{Pem, cfg, incus_like};
+use rcgen::{CertificateParams, ExtendedKeyUsagePurpose, KeyPair, PKCS_ECDSA_P384_SHA384};
 use rustls::RootCertStore;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::WebPkiClientVerifier;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_rustls::TlsAcceptor;
-
-struct Pem {
-    cert: String,
-    key: String,
-    der: CertificateDer<'static>,
-    key_der: Vec<u8>,
-}
-
-fn incus_like(names: &[&str], client: bool) -> Pem {
-    let key = KeyPair::generate_for(&PKCS_ECDSA_P384_SHA384).expect("key");
-    let mut p = CertificateParams::new(names.iter().map(|n| (*n).to_owned()).collect::<Vec<_>>())
-        .expect("params");
-    p.distinguished_name = DistinguishedName::new();
-    p.is_ca = IsCa::ExplicitNoCa;
-    p.key_usages = vec![
-        KeyUsagePurpose::DigitalSignature,
-        KeyUsagePurpose::KeyEncipherment,
-    ];
-    p.extended_key_usages = vec![if client {
-        ExtendedKeyUsagePurpose::ClientAuth
-    } else {
-        ExtendedKeyUsagePurpose::ServerAuth
-    }];
-    let cert = p.self_signed(&key).expect("cert");
-    Pem {
-        cert: cert.pem(),
-        key: key.serialize_pem(),
-        der: cert.der().clone(),
-        key_der: key.serialize_der(),
-    }
-}
 
 const SERVER_JSON: &str = r#"{"type":"sync","status":"Success","status_code":200,"error_code":0,"error":"","metadata":{"api_extensions":["clustering"],"api_status":"stable","api_version":"1.0","auth":"trusted","environment":{"server_clustered":false,"server_version":"7.0.2"}}}"#;
 
@@ -91,22 +60,6 @@ async fn tls_server(server: &Pem, trusted_client: &Pem) -> u16 {
         }
     });
     port
-}
-
-fn cfg(
-    port: u16,
-    host: &str,
-    client: &Pem,
-    pinned_server: &Pem,
-    tls_name: Option<&str>,
-) -> IncusConfig {
-    IncusConfig {
-        url: format!("https://{host}:{port}"),
-        client_cert_pem: client.cert.clone().into_bytes(),
-        client_key_pem: client.key.clone().into_bytes(),
-        server_cert_pem: pinned_server.cert.clone().into_bytes(),
-        tls_server_name: tls_name.map(str::to_owned),
-    }
 }
 
 #[tokio::test]

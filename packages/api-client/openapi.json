@@ -252,6 +252,48 @@
         }
       }
     },
+    "/api/v1/applications/{name}/access": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "What the caller may open on each instance of the application now, with the reason when not.\nThis is the source for the interface's menu entries. Needs `application.view`.",
+        "operationId": "application_access",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessList"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/applications/{name}/archive": {
       "post": {
         "tags": [
@@ -563,6 +605,107 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/instances/{instance}/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Opens a session: checks the caller, the instance and the approval rule, and answers with a\nsingle-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or\n`instance.desktop` (RDP) on the application; in production also an approval\n(`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`.",
+        "operationId": "open_session",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance",
+            "in": "path",
+            "description": "Instance name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewSession"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTicket"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
             "description": "",
             "content": {
               "application/json": {
@@ -4983,6 +5126,63 @@
         }
       }
     },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Open sessions the caller started, and those on applications they may operate.",
+        "operationId": "sessions",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{id}": {
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Ends a session now. Allowed for the person who has it and for whoever may operate its\napplication. Anything else answers 404.",
+        "operationId": "terminate_session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/storage-pools": {
       "get": {
         "tags": [
@@ -5295,6 +5495,41 @@
   },
   "components": {
     "schemas": {
+      "AccessList": {
+        "type": "object",
+        "required": [
+          "items",
+          "observed",
+          "provider",
+          "idleSecs",
+          "maxSecs"
+        ],
+        "properties": {
+          "idleSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceAccess"
+            }
+          },
+          "maxSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "observed": {
+            "type": "boolean",
+            "description": "Incus could be read just now. When false, `items` is empty and nothing may be opened."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode"
+          }
+        }
+      },
       "ActionState": {
         "type": "object",
         "required": [
@@ -6384,6 +6619,10 @@
           "availability": {
             "$ref": "#/components/schemas/Availability"
           },
+          "guestOs": {
+            "$ref": "#/components/schemas/GuestOs",
+            "description": "The operating system inside (from the class): decides which sessions it offers."
+          },
           "internet": {
             "$ref": "#/components/schemas/Internet",
             "description": "What it may reach outside the application (enforced with the connections)."
@@ -6808,6 +7047,14 @@
           }
         }
       },
+      "GuestOs": {
+        "type": "string",
+        "description": "The operating system inside an appliance, from its catalog class (never guessed from names).",
+        "enum": [
+          "linux",
+          "windows"
+        ]
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -6992,6 +7239,36 @@
           "unreachable": {
             "type": "boolean",
             "description": "Incus cannot report its configuration because its member is unreachable, so its\nlabels (and `managed`, `owner`) are unknown, not absent."
+          }
+        }
+      },
+      "InstanceAccess": {
+        "type": "object",
+        "required": [
+          "instance",
+          "appliance",
+          "guestOs",
+          "status",
+          "kinds"
+        ],
+        "properties": {
+          "appliance": {
+            "type": "string"
+          },
+          "guestOs": {
+            "$ref": "#/components/schemas/GuestOs"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KindAccess"
+            }
+          },
+          "status": {
+            "type": "string"
           }
         }
       },
@@ -7300,6 +7577,34 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "KindAccess": {
+        "type": "object",
+        "description": "What a person may open on one instance, with the reason when not.",
+        "required": [
+          "kind",
+          "allowed",
+          "approvalRequired"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "approvalRequired": {
+            "type": "boolean",
+            "description": "Another person must approve first (production). The request goes through `/approvals`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is not available (permission, state, set-up). Absent when allowed."
           }
         }
       },
@@ -7750,6 +8055,27 @@
           },
           "restrictions": {
             "type": "object"
+          }
+        }
+      },
+      "NewSession": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "cols": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -8990,6 +9316,120 @@
           }
         }
       },
+      "SessionInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "application",
+          "instance",
+          "kind",
+          "person",
+          "startedAt",
+          "endsBy"
+        ],
+        "properties": {
+          "application": {
+            "type": "string"
+          },
+          "endsBy": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "person": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionKind": {
+        "type": "string",
+        "description": "What a person can open on an appliance.",
+        "enum": [
+          "terminal",
+          "powershell",
+          "rdp"
+        ]
+      },
+      "SessionList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionInfo"
+            }
+          }
+        }
+      },
+      "SessionTicket": {
+        "type": "object",
+        "required": [
+          "id",
+          "ticket",
+          "expiresAt",
+          "connectPath",
+          "protocol",
+          "kind",
+          "instance",
+          "idleSecs",
+          "maxSecs",
+          "provider"
+        ],
+        "properties": {
+          "connectPath": {
+            "type": "string",
+            "description": "Path of the websocket, relative to the API."
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idleSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "instance": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/SessionKind"
+          },
+          "maxSecs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode",
+            "description": "Where the instance lives: a `mock` provider's sessions talk to a labelled fake shell."
+          },
+          "ticket": {
+            "type": "string",
+            "description": "Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket;\nnever put it in a URL."
+          }
+        }
+      },
       "Source": {
         "type": "object",
         "description": "Where inventory data came from and when it was read.",
@@ -9462,6 +9902,9 @@
     },
     {
       "name": "identity"
+    },
+    {
+      "name": "sessions"
     }
   ]
 }

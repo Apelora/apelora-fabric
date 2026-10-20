@@ -103,6 +103,9 @@ pub struct DesiredAppliance {
     /// What it may reach outside the application (enforced with the connections).
     #[serde(default)]
     pub internet: crate::network::Internet,
+    /// The operating system inside (from the class): decides which sessions it offers.
+    #[serde(default)]
+    pub guest_os: crate::access::GuestOs,
 }
 
 impl DesiredAppliance {
@@ -340,6 +343,7 @@ mod tests {
             replicas: 1,
             availability: Availability::Singleton,
             internet: Default::default(),
+            guest_os: Default::default(),
         }
     }
 

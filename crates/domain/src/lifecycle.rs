@@ -165,10 +165,7 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
     if running == 0 && !observed.is_empty() {
         return DeploymentStatus::Stopped;
     }
-    if running == 0 && observed.is_empty() {
-        // Deployed according to the records, but nothing exists in Incus.
-        return DeploymentStatus::Degraded;
-    }
+    // Includes "deployed according to the records, but nothing exists in Incus".
     DeploymentStatus::Degraded
 }
 
@@ -281,6 +278,19 @@ mod tests {
             layers(&a, &c, false),
             vec![names(&["web"]), names(&["api"]), names(&["cache", "db"])]
         );
+    }
+
+    #[test]
+    fn a_self_connection_or_an_unknown_endpoint_never_changes_the_order() {
+        let a = names(&["a", "b"]);
+        // b needs a; a "needs" itself and a ghost. Only the real dependency counts.
+        let c = [
+            conn("b", "a"),
+            conn("a", "a"),
+            conn("ghost", "a"),
+            conn("b", "ghost"),
+        ];
+        assert_eq!(layers(&a, &c, true), vec![names(&["a"]), names(&["b"])]);
     }
 
     #[test]
@@ -448,6 +458,7 @@ mod tests {
             replicas: 1,
             availability,
             internet: Default::default(),
+            guest_os: Default::default(),
         };
         let list = [
             d("web", Availability::Stateless),

@@ -10,7 +10,7 @@ use uuid::Uuid;
 use super::identity_tests::{Lab, World, code, lab, world};
 use super::*;
 
-fn mock_lab(pool: Pool) -> (Lab, MockIncus) {
+pub(super) fn mock_lab(pool: Pool) -> (Lab, MockIncus) {
     let mock = MockIncus::default();
     let mut l = lab(pool);
     l.state = l
@@ -26,7 +26,7 @@ fn mock_lab(pool: Pool) -> (Lab, MockIncus) {
 }
 
 /// Runs the worker until nothing is due, skipping waits only when nothing else is runnable.
-async fn settle(l: &Lab) {
+pub(super) async fn settle(l: &Lab) {
     for _ in 0..600 {
         if apelora_deployment_worker::run_once(&l.pool, &l.state.provider, "w")
             .await
@@ -79,14 +79,14 @@ async fn env_id(l: &Lab, w: &World, project: Uuid) -> Uuid {
         .expect("uuid")
 }
 
-struct Shop {
-    w: World,
-    owner: String,
-    env: Uuid,
+pub(super) struct Shop {
+    pub(super) w: World,
+    pub(super) owner: String,
+    pub(super) env: Uuid,
 }
 
 /// Two organisations; an organisation owner in the first, who creates application `shop` with a draft.
-async fn shop(l: &Lab) -> Shop {
+pub(super) async fn shop(l: &Lab) -> Shop {
     let w = world(l).await;
     let alice = l.user("sub-alice", "alice").await;
     l.grant(
@@ -119,7 +119,7 @@ async fn deploy_version(l: &Lab, token: &str, version: Option<i32>) -> (StatusCo
 }
 
 /// Publishes the draft and deploys that version; returns once the instances exist.
-async fn deployed(l: &Lab, s: &Shop) {
+pub(super) async fn deployed(l: &Lab, s: &Shop) {
     let (st, v) = l
         .req(
             "POST",

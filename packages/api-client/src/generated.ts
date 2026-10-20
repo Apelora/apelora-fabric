@@ -3,6 +3,15 @@
 
 export const API_VERSION = "v1";
 
+export type AccessList = {
+  idleSecs: number;
+  items: InstanceAccess[];
+  maxSecs: number;
+  /** Incus could be read just now. When false, `items` is empty and nothing may be opened. */
+  observed: boolean;
+  provider: ProviderMode;
+};
+
 export type ActionState = {
   allowed: boolean;
   /** Why not, in a sentence the interface can show. */
@@ -320,6 +329,8 @@ export type DesiredAppliance = {
   /** The appliance's stable id in the design (e.g. `nginx-01`). */
   appliance: string;
   availability?: Availability;
+  /** The operating system inside (from the class): decides which sessions it offers. */
+  guestOs?: GuestOs;
   /** What it may reach outside the application (enforced with the connections). */
   internet?: Internet;
   /** How many instances (1–9); more than one only for stateless appliances. */
@@ -448,6 +459,9 @@ export type GroupList = {
   items: GroupDto[];
 };
 
+/** The operating system inside an appliance, from its catalog class (never guessed from names). */
+export type GuestOs = "linux" | "windows";
+
 export type Health = {
   apiVersion: string;
   auth: AuthMode;
@@ -506,6 +520,14 @@ export type Instance = {
   status: string;
   /** Incus cannot report its configuration because its member is unreachable, so its labels (and `managed`, `owner`) are unknown, not absent. */
   unreachable?: boolean;
+};
+
+export type InstanceAccess = {
+  appliance: string;
+  guestOs: GuestOs;
+  instance: string;
+  kinds: KindAccess[];
+  status: string;
 };
 
 /** A state change Apelora can request for one of its instances. */
@@ -599,6 +621,16 @@ export type JoinTokenCreated = {
 export type JoinTokenList = {
   items: PendingJoin[];
   source: Source;
+};
+
+/** What a person may open on one instance, with the reason when not. */
+export type KindAccess = {
+  allowed: boolean;
+  /** Another person must approve first (production). The request goes through `/approvals`. */
+  approvalRequired: boolean;
+  kind: SessionKind;
+  /** Why it is not available (permission, state, set-up). Absent when allowed. */
+  reason?: string | null;
 };
 
 /** How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform. */
@@ -732,6 +764,12 @@ export type NewServiceIdentity = {
   kind: ServiceKind;
   name: string;
   restrictions?: Record<string, unknown>;
+};
+
+export type NewSession = {
+  cols?: number;
+  kind: SessionKind;
+  rows?: number;
 };
 
 export type OperateRequest = {
@@ -1073,6 +1111,39 @@ export type ServiceStatus = {
   project: string;
 };
 
+export type SessionInfo = {
+  application: string;
+  endsBy: string;
+  id: string;
+  instance: string;
+  kind: SessionKind;
+  person: string;
+  startedAt: string;
+};
+
+/** What a person can open on an appliance. */
+export type SessionKind = "terminal" | "powershell" | "rdp";
+
+export type SessionList = {
+  items: SessionInfo[];
+};
+
+export type SessionTicket = {
+  /** Path of the websocket, relative to the API. */
+  connectPath: string;
+  expiresAt: string;
+  id: string;
+  idleSecs: number;
+  instance: string;
+  kind: SessionKind;
+  maxSecs: number;
+  protocol: string;
+  /** Where the instance lives: a `mock` provider's sessions talk to a labelled fake shell. */
+  provider: ProviderMode;
+  /** Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket; never put it in a URL. */
+  ticket: string;
+};
+
 /** Where inventory data came from and when it was read. */
 export type Source = {
   /** RFC 3339 timestamp (UTC). */
@@ -1204,11 +1275,13 @@ export const operations = {
   create_application: { method: "POST", path: "/api/v1/applications", params: [], public: false },
   application: { method: "GET", path: "/api/v1/applications/{name}", params: ["name"], public: false },
   update_application: { method: "PATCH", path: "/api/v1/applications/{name}", params: ["name"], public: false },
+  application_access: { method: "GET", path: "/api/v1/applications/{name}/access", params: ["name"], public: false },
   archive_application: { method: "POST", path: "/api/v1/applications/{name}/archive", params: ["name"], public: false },
   deploy_application: { method: "POST", path: "/api/v1/applications/{name}/deployments", params: ["name"], public: false },
   application_draft: { method: "GET", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
   save_application_draft: { method: "PUT", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
   application_events: { method: "GET", path: "/api/v1/applications/{name}/events", params: ["name"], public: false },
+  open_session: { method: "POST", path: "/api/v1/applications/{name}/instances/{instance}/sessions", params: ["name","instance"], public: false },
   application_operations: { method: "GET", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
   operate_application: { method: "POST", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
   application_operation: { method: "GET", path: "/api/v1/applications/{name}/operations/{id}", params: ["name","id"], public: false },
@@ -1280,6 +1353,8 @@ export const operations = {
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
+  sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
+  terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
   system: { method: "GET", path: "/api/v1/system", params: [], public: false },
   tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
@@ -1298,6 +1373,8 @@ export type Responses = {
   application: ApplicationDetail;
   /** Changes an application's description or icon (its name cannot change). Needs `application.design`. */
   update_application: ApplicationInfo;
+  /** What the caller may open on each instance of the application now, with the reason when not. This is the source for the interface's menu entries. Needs `application.view`. */
+  application_access: AccessList;
   /** Archives an application that is not running; it leaves the default list and keeps its data. Needs `application.delete`. */
   archive_application: null;
   /** Deploys the design: saves it as a new revision and queues the planned changes. Refuses the whole deployment if any appliance conflicts with an existing instance. Needs `deploy`. */
@@ -1308,6 +1385,8 @@ export type Responses = {
   save_application_draft: DraftDto;
   /** What happened to the application: creation, saves, versions, deployments, operations, refusals. Needs `application.view`. */
   application_events: AuditList;
+  /** Opens a session: checks the caller, the instance and the approval rule, and answers with a single-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or `instance.desktop` (RDP) on the application; in production also an approval (`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`. */
+  open_session: SessionTicket;
   /** Recent operations of the application, newest first. Needs `application.view`. */
   application_operations: OperationList;
   /** Starts, stops or restarts the application's instances, in dependency order, as an asynchronous operation. Succeeds only when Incus confirms each instance's state. Needs `application.operate` on the application. It only touches instances this application owns; networks, volumes, data and other applications are left alone. */
@@ -1450,6 +1529,10 @@ export type Responses = {
   preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
   projects: ProjectList;
+  /** Open sessions the caller started, and those on applications they may operate. */
+  sessions: SessionList;
+  /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
+  terminate_session: null;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
   /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
@@ -1470,11 +1553,13 @@ export type Bodies = {
   create_application: CreateApplication;
   application: never;
   update_application: UpdateApplication;
+  application_access: never;
   archive_application: never;
   deploy_application: DeployRequest;
   application_draft: never;
   save_application_draft: SaveDraft;
   application_events: never;
+  open_session: NewSession;
   application_operations: never;
   operate_application: OperateRequest;
   application_operation: never;
@@ -1546,6 +1631,8 @@ export type Bodies = {
   networks: never;
   preflight: never;
   projects: never;
+  sessions: never;
+  terminate_session: never;
   storage_pools: never;
   system: never;
   tokens: never;

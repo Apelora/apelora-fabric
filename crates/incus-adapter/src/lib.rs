@@ -12,9 +12,11 @@
 
 mod client;
 pub mod config;
+mod shell;
 mod wire;
 
 pub use client::{CertificateExpiry, IncusClient, IncusConfig, certificate_not_after};
+pub use shell::{MAX_CHUNK, MockShell, ShellInput, ShellRequest, ShellSession};
 pub use wire::Operation;
 
 use std::sync::{Arc, Mutex};
@@ -74,10 +76,6 @@ const WAIT_STEP_SECS: u32 = 15;
 
 /// Where inventory comes from: a real Incus server or labelled mock data.
 #[derive(Debug, Clone)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "built once at startup and shared behind an Arc; its size does not matter"
-)]
 pub enum Provider {
     Mock(MockIncus),
     Incus(IncusClient),
@@ -89,6 +87,15 @@ impl Provider {
         match self {
             Provider::Mock(_) => None,
             Provider::Incus(c) => c.certificate_expiry(),
+        }
+    }
+
+    /// Starts an interactive program in a running instance Apelora owns (the mock answers with
+    /// a labelled fake shell). Nothing here decides who may do it: the control plane does.
+    pub async fn open_shell(&self, req: &ShellRequest) -> Result<ShellSession, AdapterError> {
+        match self {
+            Provider::Mock(m) => m.open_shell(req),
+            Provider::Incus(c) => c.open_shell(req).await,
         }
     }
 

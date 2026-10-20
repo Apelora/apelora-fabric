@@ -21,12 +21,13 @@ pub enum Builtin {
     ProjectAdministrator,
     ApplicationDesigner,
     ApplicationOperator,
+    InstanceAccess,
     Viewer,
     Auditor,
 }
 
 impl Builtin {
-    pub const ALL: [Builtin; 9] = [
+    pub const ALL: [Builtin; 10] = [
         Builtin::PlatformSuperAdmin,
         Builtin::FabricAdministrator,
         Builtin::HardwareOperator,
@@ -34,6 +35,7 @@ impl Builtin {
         Builtin::ProjectAdministrator,
         Builtin::ApplicationDesigner,
         Builtin::ApplicationOperator,
+        Builtin::InstanceAccess,
         Builtin::Viewer,
         Builtin::Auditor,
     ];
@@ -47,6 +49,7 @@ impl Builtin {
             Builtin::ProjectAdministrator => "project-administrator",
             Builtin::ApplicationDesigner => "application-designer",
             Builtin::ApplicationOperator => "application-operator",
+            Builtin::InstanceAccess => "instance-access",
             Builtin::Viewer => "viewer",
             Builtin::Auditor => "auditor",
         }
@@ -65,6 +68,7 @@ impl Builtin {
             Builtin::ProjectAdministrator => "Project Administrator",
             Builtin::ApplicationDesigner => "Application Designer",
             Builtin::ApplicationOperator => "Application Operator",
+            Builtin::InstanceAccess => "Instance Access",
             Builtin::Viewer => "Viewer",
             Builtin::Auditor => "Auditor",
         }
@@ -93,6 +97,9 @@ impl Builtin {
             Builtin::ApplicationOperator => {
                 "Deploys approved designs and starts, stops and recovers applications."
             }
+            Builtin::InstanceAccess => {
+                "Opens a terminal, PowerShell or remote desktop session on running appliances, and reads the scope. Cannot change or operate anything else; production sessions need another person's approval."
+            }
             Builtin::Viewer => "Reads what the scope contains.",
             Builtin::Auditor => {
                 "Reads what the scope contains, plus its audit trail, changing nothing."
@@ -110,6 +117,7 @@ impl Builtin {
             Builtin::ProjectAdministrator => &[Project],
             Builtin::ApplicationDesigner => &[Project, Application],
             Builtin::ApplicationOperator => &[Project, Application],
+            Builtin::InstanceAccess => &[Project, Application],
             Builtin::Viewer => &[Platform, Organization, Project, Application],
             Builtin::Auditor => &[Platform, Organization, Project, Application],
         }
@@ -168,6 +176,15 @@ impl Builtin {
                 "application.operate",
                 "application.logs.read",
                 "application.metrics.read",
+                "approval.request",
+            ],
+            Builtin::InstanceAccess => vec![
+                "project.view",
+                "application.view",
+                "application.logs.read",
+                "application.metrics.read",
+                "instance.console",
+                "instance.desktop",
                 "approval.request",
             ],
             Builtin::Viewer => vec![

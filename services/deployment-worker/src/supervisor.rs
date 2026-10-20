@@ -515,6 +515,7 @@ mod tests {
             replicas,
             availability,
             internet: Default::default(),
+            guest_os: Default::default(),
         }
     }
 

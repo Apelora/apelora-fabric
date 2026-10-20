@@ -38,6 +38,8 @@ export type RequestOptions<K extends Operation> = ([keyof Params<K>] extends [ne
   ([Bodies[K]] extends [never] ? { body?: undefined } : { body: Bodies[K] }) & {
     /** Sent as `Idempotency-Key`: repeating a request with the same key returns the first result. */
     idempotencyKey?: string;
+    /** Sent as `Apelora-Approval`: the approval another person granted for a protected action. */
+    approvalId?: string;
     /** Query string parameters (the OpenAPI document lists them per route); `undefined` values are left out. */
     query?: Query;
   };
@@ -68,6 +70,7 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
     const headers: Record<string, string> = { accept: "application/json" };
     if (t) headers.authorization = `Bearer ${t}`;
     if (options.idempotencyKey) headers["idempotency-key"] = options.idempotencyKey;
+    if (options.approvalId) headers["apelora-approval"] = options.approvalId;
     if (options.body !== undefined) headers["content-type"] = "application/json";
     let res: Response;
     try {

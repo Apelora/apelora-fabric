@@ -140,7 +140,7 @@ fn owned_by(o: &wire::Owned, application: &str) -> bool {
 }
 
 /// Operation ids are UUIDs; anything else must never reach an API path.
-fn is_operation_id(id: &str) -> bool {
+pub(crate) fn is_operation_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-')
 }
 
@@ -181,6 +181,8 @@ pub struct IncusClient {
     base: String,
     http: reqwest::Client,
     expiry: Option<CertificateExpiry>,
+    /// How to open websockets (exec sessions); absent for plain-HTTP test clients.
+    pub(crate) ws: Option<crate::shell::WsTarget>,
 }
 
 impl IncusClient {
@@ -216,7 +218,16 @@ impl IncusClient {
             .timeout(Duration::from_secs(20));
         // Incus server certificates often name only "unspecified". Verify against the name the
         // pinned certificate actually carries, while still connecting to the configured address.
-        if let Some(name) = tls_name(&cfg.server_cert_pem, &host, cfg.tls_server_name.as_deref())? {
+        let name = tls_name(&cfg.server_cert_pem, &host, cfg.tls_server_name.as_deref())?;
+        let ws = crate::shell::WsTarget::build(
+            &cfg.client_cert_pem,
+            &cfg.client_key_pem,
+            &cfg.server_cert_pem,
+            host.clone(),
+            port,
+            name.clone().unwrap_or_else(|| host.clone()),
+        )?;
+        if let Some(name) = name {
             let addr = std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), port))
                 .map_err(|e| AdapterError::InvalidConfig(format!("cannot resolve {host}: {e}")))?
                 .next()
@@ -236,6 +247,7 @@ impl IncusClient {
             base: url.as_str().trim_end_matches('/').to_owned(),
             http,
             expiry: Some(expiry),
+            ws: Some(ws),
         })
     }
 
@@ -252,11 +264,12 @@ impl IncusClient {
             base: base.trim_end_matches('/').to_owned(),
             http: reqwest::Client::new(),
             expiry: None,
+            ws: None,
         }
     }
 
     /// Sends a request and checks the Incus envelope. 404s become [`AdapterError::NotFound`].
-    async fn call<T: DeserializeOwned>(
+    pub(crate) async fn call<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,

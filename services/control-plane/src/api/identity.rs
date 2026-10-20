@@ -33,6 +33,9 @@ use super::{ApiError, AppState, AuditItem, AuditList, ErrorBody, Principal};
 
 type Res<T> = Result<T, ApiError>;
 
+/// Requests one person may have waiting for a decision at once.
+const MAX_OPEN_REQUESTS: i64 = 20;
+
 fn bad(msg: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", msg)
 }
@@ -2045,7 +2048,25 @@ pub(super) async fn approvals(
     let rows = if allow_platform(&p, "approval.grant").is_ok() {
         db::list_approvals(pool, None, false).await?
     } else {
-        db::list_approvals(pool, Some(&p.actor_ref()), false).await?
+        // Your own requests, and open requests for interactive access to applications you may approve for.
+        let me = p.actor_ref();
+        let mut out = db::list_approvals(pool, Some(&me), false).await?;
+        for row in
+            db::list_open_approvals_for(pool, &["instance.console", "instance.desktop"]).await?
+        {
+            if row.requester == me {
+                continue;
+            }
+            let approvable = match super::sessions::approval_resource(&state, &row.target).await? {
+                Some(res) => allow(&p, "approval.grant", &res).is_ok(),
+                None => false,
+            };
+            if approvable {
+                out.push(row);
+            }
+        }
+        out.sort_by_key(|a| std::cmp::Reverse(a.created_at));
+        out
     };
     Ok(Json(ApprovalList {
         items: rows.into_iter().map(approval_dto).collect(),
@@ -2061,7 +2082,6 @@ pub(super) async fn request_approval(
     Extension(p): Extension<Principal>,
     body: Result<Json<NewApproval>, JsonRejection>,
 ) -> Res<(StatusCode, Json<ApprovalDto>)> {
-    allow_platform(&p, "approval.request")?;
     let req = json_body(body)?;
     let pool = store(&state)?;
     let (engine, _) = actor(&p);
@@ -2071,10 +2091,40 @@ pub(super) async fn request_approval(
     };
     let mut engine = engine;
     engine.policies = db::load_policies(pool).await?;
-    if !engine.needs_approval(&req.action) {
-        return Err(bad("that action does not need approval"));
+    if apelora_auth::is_interactive_access(&req.action) {
+        // Access to one appliance: judged on its application, not on the platform.
+        // An application that does not exist and one the caller cannot see answer alike.
+        let unknown = || {
+            bad(
+                "a target looks like instance:<application>/<instance>, of an application you can see",
+            )
+        };
+        let Some(res) = super::sessions::approval_resource(&state, req.target.trim()).await? else {
+            return Err(unknown());
+        };
+        if allow(&p, "application.view", &res).is_err() {
+            return Err(unknown());
+        }
+        // A person's waiting requests are capped, so requests cannot bury other people's.
+        if db::count_open_approvals(pool, &p.actor_ref()).await? >= MAX_OPEN_REQUESTS {
+            return Err(ApiError::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "too_many_requests",
+                "you already have many requests waiting; cancel or wait for some",
+            ));
+        }
+        allow(&p, "approval.request", &res)?;
+        allow(&p, &req.action, &res)?;
+        if !engine.needs_approval_on(&req.action, &res) {
+            return Err(bad("that action does not need approval here"));
+        }
+    } else {
+        allow_platform(&p, "approval.request")?;
+        if !engine.needs_approval(&req.action) {
+            return Err(bad("that action does not need approval"));
+        }
+        allow_platform(&p, &req.action)?;
     }
-    allow_platform(&p, &req.action)?;
     let target = req.target.trim();
     if target.is_empty()
         || target.len() > 200
@@ -2110,8 +2160,19 @@ async fn decide(
     id: Uuid,
     approve: bool,
 ) -> Res<Json<ApprovalDto>> {
-    allow_platform(p, "approval.grant")?;
     let pool = store(state)?;
+    // Interactive access is approved by someone who may approve on that application; the rest
+    // by a platform approver.
+    let scoped = match db::approval(pool, id).await? {
+        Some(row) if apelora_auth::is_interactive_access(&row.action) => {
+            super::sessions::approval_resource(state, &row.target).await?
+        }
+        _ => None,
+    };
+    match &scoped {
+        Some(res) => allow(p, "approval.grant", res)?,
+        None => allow_platform(p, "approval.grant")?,
+    }
     let outcome = db::decide_approval(pool, id, &p.actor_ref(), true, approve).await?;
     match outcome {
         Ok(row) => {

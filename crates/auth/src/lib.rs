@@ -9,6 +9,8 @@ pub mod approval;
 pub mod assign;
 pub mod backend;
 pub mod evaluate;
+#[cfg(test)]
+mod hardening;
 pub mod permission;
 pub mod role;
 pub mod scope;
@@ -20,7 +22,10 @@ pub use evaluate::{
     AccessFilter, Assignment, AssignmentKind, Conditions, Decision, Denial, Engine, Grant,
     Policies, PrincipalRef, Subject, confers,
 };
-pub use permission::{Class, PERMISSIONS, PermissionDef, needs_approval, permission};
+pub use permission::{
+    Class, PERMISSIONS, PermissionDef, is_interactive_access, needs_approval, needs_approval_in,
+    permission,
+};
 pub use role::{
     Builtin, CustomRole, ResolvedRole, RoleError, RoleRef, custom_scopes, validate_custom,
 };

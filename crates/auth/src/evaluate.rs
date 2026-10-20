@@ -172,6 +172,7 @@ pub fn confers(scope: &Scope, def: &PermissionDef) -> bool {
 /// Permissions a service identity can never hold: acting on people and approvals needs a person.
 pub fn withheld_from_services(def: &PermissionDef) -> bool {
     def.class == Class::Security
+        || crate::permission::is_interactive_access(def.id)
         || matches!(def.id, "role.assign" | "approval.grant" | "group.manage")
 }
 
@@ -342,6 +343,13 @@ impl Engine {
     /// Does the action need a second person's approval?
     pub fn needs_approval(&self, permission_id: &str) -> bool {
         crate::permission::needs_approval(permission_id)
+            || self.policies.extra_approval.contains(permission_id)
+    }
+
+    /// [`Engine::needs_approval`] for a particular resource: interactive access to an
+    /// appliance in a production environment always does.
+    pub fn needs_approval_on(&self, permission_id: &str, res: &Resource) -> bool {
+        crate::permission::needs_approval_in(permission_id, res.environment)
             || self.policies.extra_approval.contains(permission_id)
     }
 }
@@ -842,6 +850,8 @@ mod tests {
             "platform.emergency_access",
             "group.manage",
             "user.manage",
+            "instance.console",
+            "instance.desktop",
         ] {
             assert!(!e.check(&svc, p, &Resource::platform(), NOW).allowed, "{p}");
         }
@@ -973,5 +983,53 @@ mod tests {
         assert!(!e.needs_approval("cluster.manage"));
         e.policies.extra_approval.insert("cluster.manage".into());
         assert!(e.needs_approval("cluster.manage"));
+    }
+
+    #[test]
+    fn terminal_and_desktop_sessions_need_instance_access_or_a_project_or_organisation_admin() {
+        let w = world();
+        let mine = w.portal_res();
+        for (b, may) in [
+            (Builtin::InstanceAccess, true),
+            (Builtin::ApplicationOperator, false),
+            (Builtin::ProjectAdministrator, true),
+            (Builtin::ApplicationDesigner, false),
+            (Builtin::Viewer, false),
+            (Builtin::Auditor, false),
+        ] {
+            let e = engine(vec![assign(
+                1,
+                PrincipalRef::User { id: id(1) },
+                b,
+                Scope::Project { id: w.acme_prod },
+            )]);
+            for perm in ["instance.console", "instance.desktop"] {
+                assert_eq!(
+                    e.check(&user(1), perm, &mine, NOW).allowed,
+                    may,
+                    "{b:?} {perm}"
+                );
+                assert!(
+                    !e.check(&user(1), perm, &w.other_res(), NOW).allowed,
+                    "{b:?} {perm}: another organisation's application"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn production_sessions_need_approval_and_other_environments_do_not() {
+        let w = world();
+        let e = Engine::default();
+        assert!(e.needs_approval_on("instance.console", &w.portal_res()));
+        assert!(e.needs_approval_on("instance.desktop", &w.portal_res()));
+        let dev = Resource::application(w.acme, w.acme_prod, id(14), Some(EnvKind::Development));
+        assert!(!e.needs_approval_on("instance.console", &dev));
+        let mut strict = Engine::default();
+        strict
+            .policies
+            .extra_approval
+            .insert("instance.console".into());
+        assert!(strict.needs_approval_on("instance.console", &dev));
     }
 }

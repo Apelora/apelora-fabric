@@ -118,6 +118,17 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         Proj,
         "Create, change and delete single instances in a project's environments",
     ),
+    // --- interactive access to running appliances (brokered by the control plane)
+    t(
+        "instance.console",
+        App,
+        "Open a terminal or PowerShell session in a running appliance of the application",
+    ),
+    t(
+        "instance.desktop",
+        App,
+        "Open a remote desktop (RDP) session to a running Windows appliance of the application",
+    ),
     // --- people and access inside a scope
     t("user.view", Proj, "See users with access in the scope"),
     t(
@@ -252,6 +263,21 @@ pub fn needs_approval(id: &str) -> bool {
     permission(id).is_some_and(|p| p.approval)
 }
 
+/// Interactive sessions into an appliance. They are the most direct way to change a running
+/// system, so they are never open to service identities or legacy tokens, and in production
+/// they need a second person's approval.
+pub fn is_interactive_access(id: &str) -> bool {
+    matches!(id, "instance.console" | "instance.desktop")
+}
+
+/// [`needs_approval`] for a resource in an environment of the given kind. An environment whose
+/// kind is not known is treated like production: a session is never easier to get by accident.
+pub fn needs_approval_in(id: &str, environment: Option<crate::scope::EnvKind>) -> bool {
+    needs_approval(id)
+        || (is_interactive_access(id)
+            && environment.is_none_or(|e| e == crate::scope::EnvKind::Production))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +322,24 @@ mod tests {
         }
         assert!(!needs_approval("application.deploy"));
         assert!(!needs_approval("no.such.permission"));
+    }
+
+    #[test]
+    fn interactive_access_needs_approval_only_in_production() {
+        use crate::scope::EnvKind;
+        for id in ["instance.console", "instance.desktop"] {
+            assert!(!needs_approval(id));
+            assert!(needs_approval_in(id, Some(EnvKind::Production)), "{id}");
+            assert!(!needs_approval_in(id, Some(EnvKind::Staging)), "{id}");
+            assert!(!needs_approval_in(id, Some(EnvKind::Development)), "{id}");
+            assert!(!needs_approval_in(id, Some(EnvKind::Other)), "{id}");
+            // An environment of unknown kind is not assumed to be safe.
+            assert!(needs_approval_in(id, None), "{id}");
+        }
+        assert!(!needs_approval_in(
+            "application.operate",
+            Some(EnvKind::Production)
+        ));
+        assert!(needs_approval_in("hardware.delete", None));
     }
 }

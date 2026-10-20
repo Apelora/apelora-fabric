@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod access;
 pub mod enrolment;
 pub mod evacuation;
 pub mod health;

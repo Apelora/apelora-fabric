@@ -52,6 +52,10 @@ pub struct AppState {
     /// Accept legacy platform-wide `apl_…` API tokens (default). Turn off to require OIDC
     /// sign-in or automation service identities, and to put every caller under approvals.
     legacy_tokens: bool,
+    /// Limits and policy for terminal and PowerShell sessions.
+    console: Arc<sessions::ConsoleSettings>,
+    /// Tickets and running interactive sessions (in this process's memory).
+    sessions: Arc<sessions::Sessions>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -68,7 +72,14 @@ impl AppState {
             service_range: None,
             oidc: None,
             legacy_tokens: true,
+            console: Arc::new(sessions::ConsoleSettings::default()),
+            sessions: Arc::new(sessions::Sessions::default()),
         }
+    }
+
+    pub fn with_console(mut self, settings: sessions::ConsoleSettings) -> Self {
+        self.console = Arc::new(settings);
+        self
     }
 
     pub fn with_oidc(mut self, verifier: Option<Arc<apelora_identity::Verifier>>) -> Self {
@@ -159,6 +170,13 @@ pub fn router(state: AppState) -> Router {
             get(manage::operation),
         )
         .route("/api/v1/applications/{name}/events", get(manage::events))
+        .route("/api/v1/applications/{name}/access", get(sessions::access))
+        .route(
+            "/api/v1/applications/{name}/instances/{instance}/sessions",
+            post(sessions::open),
+        )
+        .route("/api/v1/sessions", get(sessions::list))
+        .route("/api/v1/sessions/{id}", delete(sessions::terminate))
         .route(
             "/api/v1/applications/{name}/plan",
             post(applications::preview),
@@ -324,6 +342,9 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/openapi.json", get(openapi))
+        // Authenticated by its single-use ticket instead of a bearer token (browsers cannot set
+        // headers on a websocket); see `sessions`.
+        .route(sessions::CONNECT_PATH, get(sessions::connect))
         .merge(protected)
         .with_state(state)
 }
@@ -1074,10 +1095,11 @@ impl Modify for BearerAuth {
         identity::emergency_access, identity::service_identities, identity::create_service_identity,
         identity::disable_service, identity::enable_service, identity::policies, identity::save_policy,
         identity::delete_policy, identity::audit_history, identity::approvals, identity::request_approval,
-        identity::approve_request, identity::reject_request, identity::cancel_request),
+        identity::approve_request, identity::reject_request, identity::cancel_request,
+        sessions::access, sessions::open, sessions::list, sessions::terminate),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"))
 )]
 pub struct ApiDoc;
 
@@ -1105,10 +1127,13 @@ mod document;
 mod identity;
 mod machines;
 mod manage;
+pub mod sessions;
 
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
 mod manage_tests;
+#[cfg(test)]
+mod sessions_tests;
 #[cfg(test)]
 mod tests;

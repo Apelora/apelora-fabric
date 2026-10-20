@@ -101,4 +101,5 @@ Path-aware GitHub Actions: Rust fmt/clippy/test with `--locked`, npm typecheck/l
 
 - **Applications view and server-side drafts** (extends 05 and 06): [design](../design/applications-view.md).
 - **Persistent volumes, snapshots, backups** (finishes 06, feeds 08 M3): [storage](../architecture/STORAGE.md).
+- **Interactive access to appliances** (extends 05 and 06): terminal sessions built (MOCK and CONTRACT VERIFIED, not yet REAL INCUS TESTED), PowerShell built but off by default, RDP not built. [Contract](../../.agents/skills/secure-remote-access/SKILL.md), [details](../architecture/IDENTITY-AND-AUTHORIZATION.md#7-interactive-access-to-appliances-terminal-powershell).
 - **Project scoping, role bindings, viewer role, OIDC** (extends 03 and 05): [access and roles](../architecture/ACCESS-AND-ROLES.md), [ADR 0005](../adr/0005-access-model.md).

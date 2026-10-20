@@ -550,6 +550,26 @@ pub async fn groups_of(
     Ok(rows.into_iter().map(|r| r.get("id")).collect())
 }
 
+/// Groups the person belongs to by membership recorded in Apelora (not by identity-provider claim).
+pub async fn member_groups(pool: &PgPool, user_id: Uuid) -> Result<BTreeSet<Uuid>> {
+    let rows = sqlx::query("SELECT group_id FROM group_members WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|r| r.get("group_id")).collect())
+}
+
+/// Of these groups, those that mirror an identity-provider group (they have an external name).
+pub async fn external_groups(pool: &PgPool, ids: &BTreeSet<Uuid>) -> Result<BTreeSet<Uuid>> {
+    let ids: Vec<Uuid> = ids.iter().copied().collect();
+    let rows =
+        sqlx::query("SELECT id FROM groups WHERE id = ANY($1) AND external_name IS NOT NULL")
+            .bind(ids)
+            .fetch_all(pool)
+            .await?;
+    Ok(rows.into_iter().map(|r| r.get("id")).collect())
+}
+
 // ---- roles and assignments ------------------------------------------------------------------
 
 pub async fn create_custom_role(
@@ -1132,6 +1152,27 @@ pub async fn request_approval(
         .bind(a.expires_at as f64)
         .fetch_one(pool)
         .await?)
+}
+
+/// How many requests this person has waiting for a decision.
+pub async fn count_open_approvals(pool: &PgPool, requester: &str) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM approvals WHERE requester = $1 AND state = 'pending' AND expires_at > now()",
+    )
+    .bind(requester)
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Open requests for any of these actions, newest first (at most 500), whoever asked.
+pub async fn list_open_approvals_for(pool: &PgPool, actions: &[&str]) -> Result<Vec<ApprovalRow>> {
+    let actions: Vec<String> = actions.iter().map(|a| (*a).to_owned()).collect();
+    Ok(sqlx::query_as(&format!(
+        "SELECT {APPROVAL_COLS} FROM approvals WHERE action = ANY($1) AND state = 'pending' AND expires_at > now() ORDER BY created_at DESC LIMIT 500"
+    ))
+    .bind(actions)
+    .fetch_all(pool)
+    .await?)
 }
 
 pub async fn approval(pool: &PgPool, id: Uuid) -> Result<Option<ApprovalRow>> {

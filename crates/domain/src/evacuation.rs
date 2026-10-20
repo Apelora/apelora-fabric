@@ -272,6 +272,7 @@ mod tests {
             replicas: 2,
             availability,
             internet: Default::default(),
+            guest_os: Default::default(),
         }
     }
 

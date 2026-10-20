@@ -189,7 +189,7 @@ async fn observe(state: &AppState) -> Observation {
     }
 }
 
-fn resource_of(r: &db::ApplicationRow) -> Resource {
+pub(super) fn resource_of(r: &db::ApplicationRow) -> Resource {
     Resource::application(
         r.organization_id,
         r.project_id,
@@ -198,12 +198,12 @@ fn resource_of(r: &db::ApplicationRow) -> Resource {
     )
 }
 
-fn desired_of(rec: &apelora_persistence::DeploymentRecord) -> Vec<DesiredAppliance> {
+pub(super) fn desired_of(rec: &apelora_persistence::DeploymentRecord) -> Vec<DesiredAppliance> {
     serde_json::from_value(rec.desired.clone()).unwrap_or_default()
 }
 
 /// The deployment that belongs to the application's environment (or the only one).
-fn pick_deployment(
+pub(super) fn pick_deployment(
     row: &db::ApplicationRow,
     all: &[apelora_persistence::DeploymentRecord],
 ) -> Option<apelora_persistence::DeploymentRecord> {
@@ -463,7 +463,11 @@ async fn build_info(
 }
 
 /// A row the caller may view, with the resource it stands for. Unknown or invisible: 404.
-async fn load(state: &AppState, p: &Principal, name: &str) -> Res<(db::ApplicationRow, Resource)> {
+pub(super) async fn load(
+    state: &AppState,
+    p: &Principal,
+    name: &str,
+) -> Res<(db::ApplicationRow, Resource)> {
     if !is_valid_name(name) {
         return Err(bad_request(format!("invalid application name {name:?}")));
     }

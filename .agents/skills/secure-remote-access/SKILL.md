@@ -1,11 +1,12 @@
 ---
 name: secure-remote-access
-description: Design guardrails for giving people a terminal, SSH, PowerShell or RDP session into a running appliance from Apelora. Use before building or reviewing any interactive access to instances (right-click "Open terminal", "Connect via RDP", exec/console endpoints). This feature is NOT built yet; this is the contract it must meet.
+description: Guardrails for giving people a terminal, PowerShell or RDP session into a running appliance from Apelora. Use before changing or reviewing any interactive access to instances (right-click "Open terminal", exec/console endpoints, session tickets). Terminal (Linux) and PowerShell (Windows, unverified) are built; RDP is not.
 ---
 
-# Secure remote access to appliances (design contract — not yet implemented)
+# Secure remote access to appliances
 
-No interactive access exists today. The canvas right-click menu only edits the design. Anything below must be built to this contract and tested before it ships.
+**Built (MOCK VERIFIED and CONTRACT VERIFIED, never run on a real Incus):** brokered terminal and PowerShell sessions, `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, tickets, limits, audit, Studio right-click and Monitoring entries. Code: `services/control-plane/src/api/sessions.rs`, `crates/incus-adapter/src/shell.rs`, `crates/domain/src/access.rs`, `apps/studio/src/components/sessions/`. Reference: `docs/architecture/IDENTITY-AND-AUTHORIZATION.md` section 7.
+**Not built:** the RDP gateway (the API reports it unavailable and says why), SSH daemons (deliberately never), session recording, a session list in the Console. Anything below must keep meeting this contract.
 
 ## Architecture
 

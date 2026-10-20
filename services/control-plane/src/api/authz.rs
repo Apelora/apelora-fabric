@@ -225,7 +225,7 @@ pub(super) fn filter_for(p: &Principal, permission: &str) -> apelora_auth::Acces
 }
 
 /// Does the caller hold the permission at any scope (ignoring conditions)? The route gate's test.
-fn holds_anywhere(p: &Principal, permission: &str) -> bool {
+pub(super) fn holds_anywhere(p: &Principal, permission: &str) -> bool {
     match (&p.caller, p.role) {
         (Some(c), _) => c.engine.holds_anywhere(&c.subject, permission, now()),
         (None, Some(role)) => legacy_requirement(permission).is_some_and(|need| role.allows(need)),
@@ -239,6 +239,35 @@ fn holds_anywhere(p: &Principal, permission: &str) -> bool {
 /// refused.** Legacy tokens are checked by their handlers as before.
 pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/whoami", &[]),
+    (
+        "GET",
+        "/api/v1/applications/{name}/access",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/instances/{instance}/sessions",
+        &["instance.console", "instance.desktop"],
+    ),
+    // The handlers show a person their own sessions, and those of applications they operate.
+    (
+        "GET",
+        "/api/v1/sessions",
+        &[
+            "instance.console",
+            "instance.desktop",
+            "application.operate",
+        ],
+    ),
+    (
+        "DELETE",
+        "/api/v1/sessions/{id}",
+        &[
+            "instance.console",
+            "instance.desktop",
+            "application.operate",
+        ],
+    ),
     ("GET", "/api/v1/cluster", &["cluster.view"]),
     ("GET", "/api/v1/instances", &["cluster.view"]),
     ("POST", "/api/v1/instances", &["instance.manage"]),
@@ -662,6 +691,25 @@ pub(super) async fn audit_scoped(
 
 pub(super) const APPROVAL_HEADER: &str = "apelora-approval";
 
+/// [`guard`] for a permission whose approval rule depends on the resource (interactive access
+/// in a production environment).
+pub(super) async fn guard_on(
+    state: &AppState,
+    p: &Principal,
+    headers: &HeaderMap,
+    permission: &str,
+    target: &str,
+    res: &Resource,
+) -> Result<Option<Uuid>, ApiError> {
+    let Some(caller) = &p.caller else {
+        return Ok(None);
+    };
+    if !caller.engine.needs_approval_on(permission, res) {
+        return Ok(None);
+    }
+    guard_required(state, p, headers, permission, target).await
+}
+
 /// The approval gate for risky actions. When the action needs approval, the caller must present
 /// an approval of exactly this action and target that someone else granted; it is spent here.
 /// Legacy tokens are not subject to approvals (they are platform-wide credentials; disable them
@@ -679,6 +727,17 @@ pub(super) async fn guard(
     if !caller.engine.needs_approval(permission) {
         return Ok(None);
     }
+    guard_required(state, p, headers, permission, target).await
+}
+
+/// Spends the approval the caller presented for exactly this action and target.
+async fn guard_required(
+    state: &AppState,
+    p: &Principal,
+    headers: &HeaderMap,
+    permission: &str,
+    target: &str,
+) -> Result<Option<Uuid>, ApiError> {
     let pool = super::deploy::store(state)?;
     let Some(raw) = headers.get(APPROVAL_HEADER).and_then(|v| v.to_str().ok()) else {
         return Err(ApiError::new(

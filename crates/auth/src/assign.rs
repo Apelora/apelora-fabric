@@ -413,6 +413,18 @@ mod tests {
             ),
             "past"
         );
+        r.expires_at = Some(NOW + MAX_EMERGENCY_SECS);
+        assert_eq!(
+            check_assignment(&e, &user(1), &r, NOW),
+            Ok(()),
+            "exactly four hours is allowed"
+        );
+        assert_eq!(MAX_EMERGENCY_SECS, 4 * 3600);
+        r.expires_at = Some(NOW);
+        assert!(
+            check_assignment(&e, &user(1), &r, NOW).is_err(),
+            "expiring this very second is already past"
+        );
         r.expires_at = Some(NOW + 3600);
         assert_eq!(check_assignment(&e, &user(1), &r, NOW), Ok(()));
         assert!(

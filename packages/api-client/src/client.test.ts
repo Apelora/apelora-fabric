@@ -15,6 +15,19 @@ describe("api client", () => {
     expect(headers[1]?.authorization).toBeUndefined();
   });
 
+  it("sends an approval and an idempotency key only when given", async () => {
+    const fetch = vi.fn(async () => json(201, {}));
+    const api = createClient({ token: () => "t", fetch });
+    const opts = { params: { name: "shop", instance: "shop-web-01" }, body: { kind: "terminal" as const } };
+    await api.request("open_session", opts);
+    await api.request("open_session", { ...opts, approvalId: "a-1", idempotencyKey: "k-1" });
+    const h = fetch.mock.calls.map((c) => (c as unknown as [string, RequestInit])[1].headers as Record<string, string>);
+    expect(h[0]?.["apelora-approval"]).toBeUndefined();
+    expect(h[0]?.["idempotency-key"]).toBeUndefined();
+    expect(h[1]?.["apelora-approval"]).toBe("a-1");
+    expect(h[1]?.["idempotency-key"]).toBe("k-1");
+  });
+
   it("turns error bodies into typed errors with the stable code", async () => {
     const api = createClient({ fetch: async () => json(401, { error: { code: "unauthenticated", message: "token required" } }) });
     const err = await api.get("cluster").catch((e: unknown) => e);
@@ -102,9 +115,11 @@ describe("api client", () => {
       "DELETE /api/v1/instances/{project}/{name}",
       "DELETE /api/v1/machines/{name}",
       "DELETE /api/v1/machines/{name}/approval",
+      "DELETE /api/v1/sessions/{id}",
       "DELETE /api/v1/tokens/{id}",
       "GET /api/v1/applications",
       "GET /api/v1/applications/{name}",
+      "GET /api/v1/applications/{name}/access",
       "GET /api/v1/applications/{name}/draft",
       "GET /api/v1/applications/{name}/events",
       "GET /api/v1/applications/{name}/operations",
@@ -139,6 +154,7 @@ describe("api client", () => {
       "GET /api/v1/networks",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
+      "GET /api/v1/sessions",
       "GET /api/v1/storage-pools",
       "GET /api/v1/system",
       "GET /api/v1/tokens",
@@ -147,6 +163,7 @@ describe("api client", () => {
       "POST /api/v1/applications",
       "POST /api/v1/applications/{name}/archive",
       "POST /api/v1/applications/{name}/deployments",
+      "POST /api/v1/applications/{name}/instances/{instance}/sessions",
       "POST /api/v1/applications/{name}/operations",
       "POST /api/v1/applications/{name}/plan",
       "POST /api/v1/applications/{name}/restore",
