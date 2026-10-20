@@ -23,3 +23,7 @@ Browser (Studio / Fabric Console) -> Apelora API -> deployment worker -> Incus a
 ## Output
 
 List findings by severity with file/line, exploit scenario, and a concrete fix. Report vulnerabilities privately per `SECURITY.md`, not in public issues.
+
+## Automated secret check
+
+`bash scripts/security/scan-secrets.sh` (also in CI) fails on private keys, Apelora API tokens (`apl_` + 64 hex) and Incus join tokens in tracked files, printing only file and line. If it fires on a pushed commit: rotate the secret first, then remove it from history.

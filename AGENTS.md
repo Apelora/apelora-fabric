@@ -8,12 +8,12 @@ Apelora composes applications from appliances in a visual designer and runs them
 
 ## What exists now
 
-- `apps/studio` — working designer: Vite + React + TypeScript + React Flow (`@xyflow/react`) + Tailwind CSS 4 + daisyUI 5. Designing needs no backend; "Deploy…" sends the design to the control plane (proxied at `/api`) and overlays live state per appliance.
-- `apps/fabric-console` — administrator console: status, members, instances with deploy/start/stop/delete (followed to completion through jobs), operations (job queue), preflight, networks and storage, membership (join tokens), administration (API tokens, versions), audit log. Talks only to the Apelora API.
+- `apps/studio` — the designer: Vite + React + TypeScript + React Flow (`@xyflow/react`) + Tailwind CSS 4 + daisyUI 5; deploys designs through the API and overlays live state.
+- `apps/fabric-console` — administrator console: inventory, instances, operations, preflight, membership (join tokens, evacuation), audit, tokens.
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
-- `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema.
-- `packages/appliance-catalog` — original appliance class manifests, bundled logos (with attribution), sample assembly, and Incus runtimes (`src/runtimes.ts`) for the classes whose images have run on the test cluster.
-- `services/control-plane` (Axum API: inventory, preflight, instance lifecycle, jobs, tokens), `services/deployment-worker` (durable jobs that converge instances through Incus), `crates/domain`, `crates/incus-adapter` (mTLS Incus client + labelled mock), `crates/persistence` (PostgreSQL). Tested against a real one-member Incus cluster ([test cluster](docs/development/TEST-CLUSTER.md)); the only Incus tests may change is that disposable cluster.
+- `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, network intent compiler, (de)serialisation, generated JSON Schema.
+- `packages/appliance-catalog` — original appliance class manifests, runtimes (NGINX, Debian), bundled logos (with attribution), sample assembly.
+- `services/control-plane` (Axum API), `services/deployment-worker` (job queue, network sync, replica supervisor), `crates/domain`, `crates/persistence` (PostgreSQL), `crates/incus-adapter` (Incus REST + mock). **REAL INCUS TESTED** on a three-member disposable cluster; see `docs/architecture/current-state.md` for what is verified and the known limitations.
 - Product name in UI/code is **Apelora**. Change it in one place if branding changes (`PRODUCT_NAME`, `API_VERSION`).
 
 ## Non-negotiables
@@ -45,6 +45,7 @@ cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && ca
 SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 npm run schema           # regenerate JSON Schemas
 cargo deny check && node scripts/licenses/check-npm.mjs   # dependency licences, advisories, sources
+bash scripts/security/scan-secrets.sh   # no private keys or tokens in tracked files
 bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/development/UPSTREAM-INCUS.md)
 bash scripts/test-cluster/up.sh && source ~/.config/apelora/test-cluster/env   # disposable Incus in a Lima VM (docs/development/TEST-CLUSTER.md)
 DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1   # REAL INCUS TESTED lifecycle

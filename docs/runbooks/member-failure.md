@@ -1,8 +1,9 @@
 # A server fails
 
 **Evidence:** REAL INCUS TESTED, 2026-10-20 — a member's VM was force-stopped three times on the
-two-member test cluster (recovery delay 30 s): stateless replicas were substituted and later
-retired automatically. Removing a member that never returns is NOT YET VERIFIED.
+two-member test cluster and three times on the three-member cluster (`demo.sh`, recovery delay
+30 s): stateless replicas were substituted and later retired automatically; the service was whole
+again 84–206 s after the failure. Removing a member that never returns is NOT YET VERIFIED.
 
 ## What happens on its own
 
@@ -14,7 +15,9 @@ retired automatically. Removing a member that never returns is NOT YET VERIFIED.
 3. After `APELORA_RECOVER_AFTER_SECS` (default 120 s) the replica supervisor creates a substitute
    (`<replica>-s<n>`) on another member for every stateless replica stranded there, and the next
    network sync replaces the dead backend in the load balancer. Audited as
-   `application.replica.substitute`.
+   `application.replica.substitute`. Incus sometimes refuses load balancer updates for the
+   whole outage (`peer node … is down`); the sync is retried, and in the one run where it never
+   got through the service still became whole after about 3.5 minutes.
 4. Singletons and stateful appliances are **not** recovered automatically. The supervisor logs
    them; decide yourself (step 2 below).
 

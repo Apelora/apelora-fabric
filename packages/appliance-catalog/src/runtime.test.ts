@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
+import { ApplianceClassSchema, applicationName, deploymentAppliances, instanceRequestFor, runtimeProblems, setInternet, setReplicas, type ApplianceClass } from "@apelora/assembly-model";
 import { APPLIANCE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ApplianceClass => {
@@ -89,6 +89,15 @@ describe("runtimes", () => {
     // 1 is stored as absent; the count is clamped to 1–9.
     expect(setReplicas(doc, nginx.id, 1).spec.appliances.find((a) => a.id === nginx.id)).not.toHaveProperty("replicas");
     expect(setReplicas(doc, nginx.id, 40).spec.appliances.find((a) => a.id === nginx.id)?.replicas).toBe(9);
+  });
+
+  it("carries each appliance's internet access, none unless chosen", () => {
+    const sample = sampleCommerceStack();
+    const doc = setInternet(sample, "nginx-01", "web");
+    const { deployable } = deploymentAppliances(doc, lookupClass, "apelora");
+    expect(deployable.find((d) => d.appliance === "nginx-01")?.internet).toBe("web");
+    expect(deployable.find((d) => d.appliance === "nginx-02")?.internet).toBe("none");
+    expect(setInternet(doc, "nginx-01", "none").spec.appliances.find((a) => a.id === "nginx-01")).not.toHaveProperty("internet");
   });
 
   it("derives a valid application name from any design name", () => {

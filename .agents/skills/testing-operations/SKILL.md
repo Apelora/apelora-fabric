@@ -35,6 +35,7 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 - CI gates in place: `.github/workflows/ci.yml` (frontend, rust, e2e, dependencies: `cargo deny` + npm licences/audit) and `.github/workflows/upstream-check.yml` (weekly Incus pin verification and update PRs). Dependabot covers GitHub Actions, npm and Cargo weekly.
 - Generated files (JSON Schemas, `docs/architecture/CATALOG.md`) are checked for drift in CI; regenerate with `npm run schema` / `npm run catalog:doc`.
 - Real-Incus integration tests run only against the designated disposable cluster (three Lima VMs, docs/development/TEST-CLUSTER.md), outside pull-request CI: `cargo test -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1`. End-to-end runs through the real control plane and worker use a short-lived token, and the token and the run's database rows are deleted afterwards.
+- End-to-end demonstration: `bash scripts/test-cluster/demo.sh` (three members; PASS/FAIL per check, log in a temp dir, cleans up even on failure). Run it after changes to the worker, supervisor or networking.
 - Failure drills on the lab: `limactl stop -f apelora-incus-2` simulates a member crash (the cluster keeps quorum with three members); `limactl start` brings it back. Feed scripts to `bash -s` with `</dev/null` on `incus launch`.
 - Runbooks live in `docs/runbooks/`; every step says REAL INCUS TESTED (with date and cluster size) or NOT YET VERIFIED. Update the label when a step is exercised; never upgrade it without doing the step.
 

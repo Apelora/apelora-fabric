@@ -41,10 +41,12 @@ jobs:
             || { echo "::error::Generated files are stale. Run 'npm run schema', 'npm run catalog:doc' and 'npm run api:generate' and commit the result."; exit 1; }
 
   dependencies:
-    name: Dependencies (licences, advisories, sources)
+    name: Dependencies and secrets (licences, advisories, sources, committed secrets)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: No secrets in tracked files (private keys, API and join tokens)
+        run: bash scripts/security/scan-secrets.sh
       - name: Rust licences, advisories, bans and sources (deny.toml)
         uses: EmbarkStudios/cargo-deny-action@v2
         with:

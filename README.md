@@ -12,18 +12,20 @@
 
 | Module | Location | State |
 |---|---|---|
-| **Apelora Studio** — visual application designer (React, React Flow) | `apps/studio` | Working, browser-only |
-| **Apelora Fabric Console** — cluster administration UI | `apps/fabric-console` | Placeholder |
-| **Control plane** — Rust (Axum) API, graphs, plans, RBAC, audit | `services/control-plane` | Skeleton |
-| **Deployment worker** — Rust reconciler, health, recovery | `services/deployment-worker` | Skeleton |
-| **Incus adapter** and shared Rust domain | `crates/` | Skeleton |
+| **Apelora Studio** — visual application designer (React, React Flow) | `apps/studio` | Working; deploys through the control plane |
+| **Apelora Fabric Console** — cluster administration UI | `apps/fabric-console` | Working |
+| **Control plane** — Rust (Axum) API, plans, deployments, RBAC, audit | `services/control-plane` | Working; tested on a disposable Incus cluster |
+| **Deployment worker** — Rust jobs, network enforcement, replica supervision and recovery | `services/deployment-worker` | Working; tested on a disposable Incus cluster |
+| **Incus adapter** and shared Rust domain | `crates/` | Working |
 | **Catalog and model** — appliance definitions, ports, schema | `packages/` | Working |
+
+What is verified, and the known limitations: [docs/architecture/current-state.md](docs/architecture/current-state.md). Operating procedures: [docs/runbooks/](docs/runbooks/README.md).
 
 Architecture: [docs/architecture/PLATFORM-ARCHITECTURE.md](docs/architecture/PLATFORM-ARCHITECTURE.md) · decisions: [docs/adr/](docs/adr/) · plan: [docs/development/IMPLEMENTATION-PHASES.md](docs/development/IMPLEMENTATION-PHASES.md).
 
-## Apelora Studio (browser-only preview)
+## Apelora Studio
 
-The visual designer runs entirely in the browser with mock data; nothing is deployed.
+The visual designer runs in the browser. On its own it works with mock data and deploys nothing; with the control plane running (see `docs/development/TEST-CLUSTER.md` for a disposable Incus cluster) it deploys designs and shows their live state.
 
 ```
 npm install

@@ -83,13 +83,20 @@ impl Supervisor {
             .map(|m| m.name.clone())
             .collect();
         let now = Instant::now();
-        self.offline_since.retain(|name, _| {
-            members
+        self.offline_since.retain(|name, since| {
+            let still = members
                 .iter()
-                .any(|m| &m.name == name && m.status == "Offline")
+                .any(|m| &m.name == name && m.status == "Offline");
+            if !still {
+                tracing::info!(member = %name, offline_secs = since.elapsed().as_secs(), "supervisor: member is no longer offline");
+            }
+            still
         });
         for m in members.iter().filter(|m| m.status == "Offline") {
-            self.offline_since.entry(m.name.clone()).or_insert(now);
+            self.offline_since.entry(m.name.clone()).or_insert_with(|| {
+                tracing::warn!(member = %m.name, message = %m.message, "supervisor: member is offline");
+                now
+            });
         }
         let failed: Vec<String> = self
             .offline_since
@@ -196,6 +203,26 @@ impl Supervisor {
                     } else if slot.len() > 1
                         && slot.iter().all(|i| !unavailable.contains(&i.location))
                     {
+                        // Decide once: a retirement already under way is never reversed.
+                        let mut retiring = false;
+                        for i in &slot {
+                            retiring |= apelora_persistence::job_in_flight(
+                                pool,
+                                "instance.delete",
+                                &d.project,
+                                &i.name,
+                            )
+                            .await?;
+                        }
+                        if retiring {
+                            handled.extend(slot.iter().map(|i| i.name.clone()));
+                            continue;
+                        }
+                        // Decide only when every instance runs (a returning member's instances
+                        // may still be starting; the restart below may start them).
+                        if slot.iter().any(|i| i.status != "Running") {
+                            continue;
+                        }
                         handled.extend(slot.iter().map(|i| i.name.clone()));
                         let Some(keep) = keeper(&slot, &observed) else {
                             continue;
@@ -849,5 +876,54 @@ mod tests {
             .filter(|j| j.kind == "network.sync")
             .count();
         assert_eq!(syncs, 2, "not while the retry is waiting");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn retirement_waits_for_a_running_slot_and_never_decides_twice(pool: Pool) {
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        set_member(&mock, "mock-member-01", "Offline");
+        let mut supervisor = Supervisor::new(Duration::ZERO);
+        supervisor.pass(&pool, &provider).await.expect("pass");
+        drain(&pool, &provider).await;
+
+        // The member returns, but its instances are still starting: nothing is retired yet.
+        set_member(&mock, "mock-member-01", "Online");
+        for name in ["shop-web-01", "shop-web-01-r2"] {
+            provider
+                .change_state(PROJECT, name, apelora_domain::InstanceAction::Stop, true)
+                .await
+                .expect("booting");
+        }
+        let queued = supervisor.pass(&pool, &provider).await.expect("pass");
+        assert!(
+            !queued.iter().any(|n| n.ends_with("-s1")),
+            "no retirement while a slot is not all running: {queued:?}"
+        );
+        drain(&pool, &provider).await; // the originals are started again
+
+        // Now one decision per slot, and the next pass does not reverse it.
+        let first = supervisor.pass(&pool, &provider).await.expect("pass");
+        assert_eq!(first.len(), 2, "{first:?}");
+        let second = supervisor.pass(&pool, &provider).await.expect("pass");
+        assert!(
+            second.is_empty(),
+            "a slot with a retirement in flight is left alone: {second:?}"
+        );
+        drain(&pool, &provider).await;
+        let names: Vec<String> = provider
+            .instances()
+            .await
+            .expect("list")
+            .into_iter()
+            .filter(|i| i.name.starts_with("shop-web-01"))
+            .map(|i| i.name)
+            .collect();
+        assert_eq!(
+            names.len(),
+            2,
+            "one instance per replica, none lost: {names:?}"
+        );
     }
 }

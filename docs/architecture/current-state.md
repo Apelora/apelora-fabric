@@ -1,19 +1,22 @@
-# Current state audit (Phase 01)
+# Current state
 
-Date: 2026-10-20 · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md)
+Updated: 2026-10-20 (after Phase 08 slice 4, Phase 07 slice 4, Phase 10 slice 2) · Repository: `github.com/Apelora/apelora-fabric`, branch `main` · Related: [ADR 0001](../adr/0001-incus-first.md), [implementation phases](../development/IMPLEMENTATION-PHASES.md), [runbooks](../runbooks/README.md). The Phase 01 audit this file started as is summarised under *Earlier Xen-based assumptions* below.
+
+Evidence labels: **REAL INCUS TESTED** (on the disposable test cluster, docs/development/TEST-CLUSTER.md), **MOCK VERIFIED** (against the mock provider), **CONTRACT VERIFIED** (against recorded Incus responses).
 
 ## What exists and works
 
 | Area | Location | State |
 |---|---|---|
-| Apelora Studio (designer) | `apps/studio` | Working, browser-only. React 19, TypeScript 6, Vite 8, React Flow 12, Tailwind 4 + daisyUI 5, Zustand. Catalog, canvas with typed terminals, cables and link tags, properties window, configuration forms, appliance designer, components (group/ungroup), zones and shapes, undo/redo, JSON import/export, validation panel, light/winter/night themes. Shows "Mock · Design only". |
-| Domain model | `packages/assembly-model` | Zod schemas for appliance classes and application assemblies (`fabric.apelora/v1alpha1`), geometry, validation, pure edit operations, (de)serialisation, generated JSON Schema (`schema/*.json`). Domain data (`spec`) is separate from editor layout (`editor`). |
-| Appliance catalog | `packages/appliance-catalog` | 83 original appliance classes with typed ports and settings, bundled logos with attribution, sample "commerce stack". |
-| Tests | `packages/*/src/*.test.ts`, `tests/e2e` | 46 unit tests and 5 Rust tests pass. Playwright: 55 pass (52 Studio, 3 Fabric Console), 10 fail, 2 skipped — the 10 failures (multi-select, group into component, zones) also fail on the previous commit and are pre-existing. |
-| CI | `.github/workflows/dependency-review.yml` | Dependency review only; no build/test workflow yet. |
-| Agent tooling | `CLAUDE.md`, `.claude/agents`, `.agents/skills` (+ `.claude/skills` symlinks), `.mcp.json` | Skills are shared by Claude Code and Codex (Phase 01 change). MCP: Playwright and Context7, local only, no secrets. |
-
-There is **no backend**: no Rust code, no database, no API, no Incus or other runtime integration. Nothing has been deployed anywhere.
+| Apelora Studio (designer) | `apps/studio` | Catalog, canvas with typed terminals, cables and link tags, properties (resources, availability and replicas, internet access, configuration, ports), components, zones, undo/redo, import/export, validation; deploy dialog (plan preview, network rules, published ports, jobs) and a live overlay of every replica and service address. |
+| Fabric Console | `apps/fabric-console` | Overview, instances (deploy, stop, delete), operations, preflight, networks and storage, membership (members with evacuate/restore and dry run, join tokens), audit log, administration (API tokens, versions). |
+| Control plane | `services/control-plane` | Axum API (OpenAPI 3 document, generated TypeScript client), API tokens and roles, inventory, preflight, instances, applications (plan, deploy, revisions, status with services), cluster administration (join tokens, evacuation) through a separate admin identity, audit log. |
+| Deployment worker | `services/deployment-worker` | Job queue with leases and fencing; instance lifecycle; `network.sync` (OVN networks, ACLs, address sets, load balancers with health-check repair, publishing, internet access); replica supervisor (recreate, restart, substitute on failed members, retire, sync retry). |
+| Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0007, Incus REST client with TLS pinning and a mock provider. |
+| Catalog and model | `packages/` | 83 original appliance classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
+| Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 109 Rust tests, 74 unit tests, 85 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the three-member test cluster. |
+| CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright, dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check. |
+| Test cluster and drills | `scripts/test-cluster/` | Three Lima VMs with Incus 7.0.1 (all database voters), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration. |
 
 ## Earlier Xen-based assumptions
 
@@ -45,7 +48,7 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
 | Instance lifecycle (create/start/stop/delete), ownership marker, project allow-list | Done; REAL INCUS TESTED for LXC, OCI and VM (one member) | 04 |
 | Read-only preflight (`/api/v1/preflight`) | Done; REAL INCUS TESTED; clock and latency not measurable via the API | 04 |
-| Disposable test cluster (`scripts/test-cluster`, Lima VM) | Done; one member, see `docs/development/TEST-CLUSTER.md` | 04 |
+| Disposable test cluster (`scripts/test-cluster`, Lima VMs) | Done; three members, OVN, placement scriptlet, see `docs/development/TEST-CLUSTER.md` | 04 |
 | Image pinning (fingerprint / OCI digest) and architecture checks | Done; REAL INCUS TESTED on one member (mixed-architecture and offline-member paths unit-tested only) | 04 |
 | Catalog runtime fields (`runtime`, `instanceRequestFor`); NGINX and Debian deployable | Done; REAL INCUS TESTED | 04 |
 | Cluster join tokens with approval (ADR 0003), second test member | Done; REAL INCUS TESTED (two members) | 04 |
@@ -68,7 +71,21 @@ The previous plan (Rust controller + Rust node agent driving Xen, a VM per appli
 | Bare-metal provisioning and enrolment | Missing; ADR 0002 proposed | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
-| Release artefacts, remaining runbooks, end-to-end demonstration with status matrix | Missing | 10 |
+| Secret scanning in CI; release workflow (draft releases, not exercised yet); end-to-end demonstration (`demo.sh`); certificate rotation | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
+| Staged upgrades with rollback, remaining runbooks | Missing | 10 |
+
+## Known limitations
+
+- **Incus 7.0.2** is pinned but not yet tested: the package repository still ships 7.0.1, which all evidence was produced with.
+- **One architecture** (aarch64) on the test cluster: no mixed-architecture evidence.
+- **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful appliances are not recovered automatically.
+- **Publishing** needs the network outside to route service addresses to the application network's router; the OVN router does not answer ARP for them.
+- **Service names (DNS)** are not provided yet; consumers use service addresses or instance names.
+- **Health** is Incus status plus the load balancer's port check; no application-level readiness or hysteresis beyond the recovery delay.
+- **Load balancer quirks (Incus 7.0.1):** updates may be refused while a member is down — in one drill for the whole outage (retried; the substitute joins once they succeed) — and may drop the OVN health check (detected through the state endpoint and re-applied).
+- **Offline detection:** in one drill Incus briefly reported a member that was not stopped as Offline; keep the recovery delay well above that (default 120 s).
+- **Bare-metal provisioning** (Phase 09) waits for a decision on ADR 0002.
+- **Releases:** no release artefacts or staged upgrade procedure yet.
 
 ## Deviations from the incoming specification (deliberate)
 

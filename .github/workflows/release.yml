@@ -1,0 +1,85 @@
+name: Release
+
+# Builds independent artefacts for each service and app when a version tag (v*) is pushed, and
+# attaches them with SHA-256 checksums to a *draft* GitHub release that a maintainer reviews and
+# publishes. No secrets beyond the workflow's own token; nothing is deployed anywhere.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  services:
+    name: Services (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Build the control plane and the worker
+        run: cargo build --locked --release -p apelora-control-plane -p apelora-deployment-worker
+      - name: Package each service on its own
+        run: |
+          mkdir -p dist
+          for svc in control-plane deployment-worker; do
+            dir="apelora-$svc-${GITHUB_REF_NAME}-linux-${{ matrix.arch }}"
+            mkdir -p "$dir"
+            cp "target/release/apelora-$svc" LICENSE README.md "$dir/"
+            tar -czf "dist/$dir.tar.gz" "$dir"
+          done
+          (cd dist && sha256sum *.tar.gz > "SHA256SUMS-services-${{ matrix.arch }}")
+      - uses: actions/upload-artifact@v7
+        with:
+          name: services-${{ matrix.arch }}
+          path: dist/
+
+  apps:
+    name: Studio and Fabric Console
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Package each app on its own
+        run: |
+          mkdir -p dist
+          for app in studio fabric-console; do
+            tar -czf "dist/apelora-$app-${GITHUB_REF_NAME}.tar.gz" -C "apps/$app/dist" .
+          done
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS-apps)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: apps
+          path: dist/
+
+  draft-release:
+    name: Draft release
+    needs: [services, apps]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create a draft release with the artefacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft \
+            --title "Apelora $GITHUB_REF_NAME" \
+            --notes "Draft: review the artefacts and checksums, and docs/architecture/current-state.md for what this version has been verified against, before publishing."

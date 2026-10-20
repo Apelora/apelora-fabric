@@ -19,3 +19,4 @@ evacuation and migration are Incus operations that Apelora requests, previews an
 | The deploy identity cannot see its project | [deploy-identity.md](deploy-identity.md) |
 | Revoke access (people, automation, servers) | [access-revocation.md](access-revocation.md) |
 | The control plane or worker is down | [api-outage.md](api-outage.md) |
+| Rotate Apelora's Incus certificates | [certificates.md](certificates.md) |
