@@ -1,6 +1,6 @@
 # Applications view: create an application, open its canvas
 
-Status: **built** (control plane API and Studio; MOCK VERIFIED and stubbed-API tests, not yet REAL INCUS TESTED for Start/Stop/Restart). Routes are `/studio/applications[/:name[/:tab]]` and the Assembly Library stays at `/` · Date: 2026-10-20 · Extends [application deployment](application-deployment.md) · Roles: [access and roles](../architecture/ACCESS-AND-ROLES.md) · Storage: [storage](../architecture/STORAGE.md)
+Status: **built** (control plane API and Studio; MOCK VERIFIED and stubbed-API tests, Shut down, Stop and Migrate REAL INCUS TESTED at the worker on 2026-10-21, ADR 0015; Start/Restart not yet). Routes are `/studio/applications[/:name[/:tab]]` and the Assembly Library stays at `/` · Date: 2026-10-20 · Extends [application deployment](application-deployment.md) · Roles: [access and roles](../architecture/ACCESS-AND-ROLES.md) · Storage: [storage](../architecture/STORAGE.md)
 
 ## 1. Problem
 

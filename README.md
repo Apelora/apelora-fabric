@@ -145,11 +145,7 @@ If you use Apelora Fabric in research or a publication, please cite it. GitHub's
 
 **Marks:** Code licensing does not grant a right to use Apelora names or logos to imply official endorsement. See [TRADEMARKS.md](TRADEMARKS.md).
 
-**Important:** Before releasing source code, replace the LICENSE placeholder with the *complete, unmodified* official AGPLv3 text (instructions below). Review upstream licences (Incus is Apache-2.0) and any contributor rights needed to support dual licensing.
-
-### Preparing the license before publication
-
-Run `bash scripts/install-agpl-license.sh`, inspect `LICENSE`, and commit the resulting full text. Do not publish a release until this step is complete.
+**Note:** [`LICENSE`](LICENSE) holds the complete, unmodified GNU AGPLv3 text (installed 2026-10-21 with `scripts/install-agpl-license.sh`, which fetches it from the GNU project and checks it). Upstream licences (Incus is Apache-2.0) and the contributor rights needed to support dual licensing still need review before a release.
 
 ## Contributing
 

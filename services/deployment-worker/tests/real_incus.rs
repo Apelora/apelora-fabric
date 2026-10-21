@@ -1173,3 +1173,179 @@ async fn a_cluster_setting_is_changed_by_the_admin_identity_and_restored() {
             .is_err()
     );
 }
+
+/// Application operations on the real cluster (ADR 0015): a graceful shutdown, an immediate stop
+/// (its instance jobs carry `force`) and a migration of every instance to another member, each
+/// confirmed against what Incus reports. Needs a second online member and member targeting
+/// allowed on the project, like the move test above.
+#[ignore = "needs a disposable Incus with two members and member targeting allowed: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_application_is_shut_down_stopped_at_once_and_migrated(pool: Pool) {
+    use apelora_persistence::lifecycle::{NewOperation, create_operation, get_operation};
+    let provider = real_incus();
+    let project = project();
+    let app = apelora_persistence::ensure_application(&pool, "apl-op-test")
+        .await
+        .expect("application");
+    let names = [unique("apl-op-web"), unique("apl-op-db")];
+    for (module, name) in ["web", "db"].iter().zip(&names) {
+        converge(&pool, &provider, "instance.create", &json!({ "project": project, "name": name, "kind": "container", "start": true,
+            "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+            "owner": { "application": "apl-op-test", "module": module, "replica": 1 } })).await;
+    }
+    let step = |module: &str, name: &str, payload: Option<Value>| {
+        let mut s =
+            json!({ "project": project, "name": name, "module": module, "state": "pending" });
+        if let Some(p) = payload {
+            s["payload"] = p;
+        }
+        s
+    };
+    let run = |kind: &'static str, phases: Value| {
+        let (pool, provider, project, app_id) =
+            (pool.clone(), provider.clone(), project.clone(), app.id);
+        async move {
+            let (op, _) = create_operation(
+                &pool,
+                &NewOperation {
+                    application_id: app_id,
+                    project: &project,
+                    kind,
+                    phases: &phases,
+                    requested_by: "real-incus-test",
+                    confirmed: true,
+                    key: None,
+                    request_id: None,
+                },
+            )
+            .await
+            .expect("operation");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+            loop {
+                while run_once(&pool, &provider, "real-incus-test")
+                    .await
+                    .expect("run")
+                {}
+                let now = get_operation(&pool, op.id)
+                    .await
+                    .expect("read")
+                    .expect("row");
+                if matches!(now.state.as_str(), "succeeded" | "failed" | "cancelled") {
+                    return now;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "{kind} still {} after ten minutes",
+                    now.state
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        }
+    };
+    let both = |action: &str| {
+        json!([
+            { "action": action, "state": "pending", "steps": [step("web", &names[0], None)] },
+            { "action": action, "state": "pending", "steps": [step("db", &names[1], None)] },
+        ])
+    };
+    let statuses = || async {
+        let mut v = Vec::new();
+        for n in &names {
+            v.push(status(&provider, &project, n).await.expect("exists").status);
+        }
+        v
+    };
+
+    // Shut down: graceful, in order.
+    let done = run("shutdown", both("stop")).await;
+    assert_eq!(done.state, "succeeded", "{:?}", done.error);
+    assert_eq!(statuses().await, ["Stopped", "Stopped"]);
+    for n in &names {
+        converge(
+            &pool,
+            &provider,
+            "instance.start",
+            &json!({ "project": project, "name": n }),
+        )
+        .await;
+    }
+
+    // Stop at once: the instance jobs say `force`, and Incus agrees they are stopped.
+    let done = run("stop", both("poweroff")).await;
+    assert_eq!(done.state, "succeeded", "{:?}", done.error);
+    assert_eq!(statuses().await, ["Stopped", "Stopped"]);
+    let forced: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs WHERE kind = 'instance.stop' AND payload->>'force' = 'true'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count");
+    assert_eq!(forced, 2);
+    for n in &names {
+        converge(
+            &pool,
+            &provider,
+            "instance.start",
+            &json!({ "project": project, "name": n }),
+        )
+        .await;
+    }
+
+    // Migrate both to a member that runs neither, confirmed on the new member and running again.
+    let members: Vec<String> = provider
+        .cluster_members()
+        .await
+        .expect("members")
+        .into_iter()
+        .filter(|m| m.status == "Online")
+        .map(|m| m.name)
+        .collect();
+    let mut at = Vec::new();
+    for n in &names {
+        at.push(
+            status(&provider, &project, n)
+                .await
+                .expect("exists")
+                .location,
+        );
+    }
+    let target = members
+        .iter()
+        .find(|m| !at.contains(m))
+        .or_else(|| members.iter().find(|m| **m != at[0]))
+        .expect("a target member")
+        .clone();
+    let steps: Vec<Value> = names
+        .iter()
+        .zip(["web", "db"])
+        .zip(&at)
+        .filter(|((_, _), from)| **from != target)
+        .map(|((n, module), from)| {
+            step(module, n, Some(json!({ "project": project, "name": n, "application": "apl-op-test", "from": from, "target": target, "live": false, "startAfter": true, "volumes": [] })))
+        })
+        .collect();
+    assert!(!steps.is_empty(), "something has to move");
+    let done = run(
+        "migrate",
+        json!([{ "action": "migrate", "state": "pending", "steps": steps }]),
+    )
+    .await;
+    assert_eq!(done.state, "succeeded", "{:?}", done.error);
+    for n in &names {
+        let now = status(&provider, &project, n).await.expect("exists");
+        assert_eq!(
+            (now.location.as_str(), now.status.as_str()),
+            (target.as_str(), "Running"),
+            "{n}"
+        );
+    }
+    for n in &names {
+        converge(
+            &pool,
+            &provider,
+            "instance.delete",
+            &json!({ "project": project, "name": n }),
+        )
+        .await;
+    }
+}

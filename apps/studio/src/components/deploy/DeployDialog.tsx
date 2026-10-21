@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck, type WhoAmI } from "@apelora/api-client";
+import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
-import { applicationName, compileNetwork, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
+import { compileNetwork, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -26,7 +26,7 @@ const ACTION: Record<PlanAction, { label: string; tone: string }> = {
 };
 const NAME = /^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
-/** Deploying one published version of a named application into the environment's Incus project. */
+/** Deploying one published version of a named application into the environment's project: the only way to deploy, started from the Applications list. */
 export interface DeployTarget {
   application: string;
   version: number;
@@ -35,11 +35,10 @@ export interface DeployTarget {
   assembly: ApplicationAssembly;
 }
 
-export function DeployDialog({ open, onClose, target, onDone }: { open: boolean; onClose: () => void; target?: DeployTarget; onDone?: () => void }) {
+export function DeployDialog({ open, onClose, target, onDone }: { open: boolean; onClose: () => void; target: DeployTarget; onDone?: () => void }) {
   const api = useStudioApi();
   const ref = useRef<HTMLDialogElement>(null);
   const [step, setStep] = useState<Step>({ kind: "connecting" });
-  const [me, setMe] = useState<WhoAmI | null>(null);
   const [token, setToken] = useState("");
   const [appName, setAppName] = useState("");
   const [project, setProject] = useState("");
@@ -48,7 +47,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   const [error, setError] = useState<string | null>(null);
   const live = useLive();
 
-  const current = () => target?.assembly ?? api.getState().assembly;
+  const current = () => target.assembly;
   const assembly = open ? current() : null;
   const split = useMemo(() => (assembly ? deploymentModules(assembly, lookupClass, project || "apelora") : { deployable: [], designOnly: [] }), [assembly, project]);
 
@@ -62,23 +61,9 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
       return;
     }
     try {
-      const who = await client.get("whoami");
-      setMe(who);
-      if (target) {
-        // The server decides who may deploy this application; people and services have no platform-wide "deploy".
-        setProject(target.project);
-        setStep({ kind: "configure" });
-        return;
-      }
-      if (!who.permissions.includes("deploy")) {
-        setStep({ kind: "not-allowed", message: `Signed in as ${who.name} (${who.role}); deploying needs the operator or fabric-admin role.` });
-        return;
-      }
-      if (!who.deployProjects.length) {
-        setStep({ kind: "not-allowed", message: "The control plane has no deploy project configured (APELORA_DEPLOY_PROJECTS)." });
-        return;
-      }
-      setProject((p) => (who.deployProjects.includes(p) ? p : who.deployProjects[0]!));
+      await client.get("whoami");
+      // The server decides who may deploy this application; people and services have no platform-wide "deploy".
+      setProject(target.project);
       setStep({ kind: "configure" });
     } catch (e) {
       if (e instanceof ApiRequestError && e.unauthenticated) setStep({ kind: "sign-in", message: e.message });
@@ -91,7 +76,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     if (!d) return;
     if (open && !d.open) {
       d.showModal();
-      setAppName((n) => target?.application ?? (n || applicationName(api.getState().assembly.metadata.name)));
+      setAppName(target.application);
       setRemoveMissing(false);
       void connect();
     }
@@ -136,7 +121,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, modules: desired(), connections: connections(), published: published(), removeMissing, ...(target ? { version: target.version } : {}) },
+        body: { project, document, modules: desired(), connections: connections(), published: published(), removeMissing, version: target.version },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
@@ -150,7 +135,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
         ),
       );
       await live.refresh();
-      api.getState().toast("success", `Deployed ${target ? "version" : "revision"} ${res.revision} of ${appName}`);
+      api.getState().toast("success", `Deployed version ${target.version} of ${appName}`);
       onDone?.();
     } catch (e) {
       setError(messageOf(e));
@@ -168,7 +153,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   return (
     <dialog ref={ref} className="modal" aria-labelledby="deploy-title" onCancel={(e) => { e.preventDefault(); onClose(); }} data-testid="deploy-dialog">
       <div className="modal-box flex max-w-2xl flex-col gap-4">
-        <h3 id="deploy-title" className="font-semibold">{target ? `Deploy version ${target.version} of ${target.application}` : "Deploy to the cluster"}</h3>
+        <h3 id="deploy-title" className="font-semibold">Deploy version {target.version} of {target.application}</h3>
 
         {step.kind === "connecting" && <p className="text-sm text-base-content/70">Connecting to the control plane…</p>}
 
@@ -209,13 +194,13 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
             <div className="flex flex-wrap gap-3">
               <label className="flex flex-col gap-1">
                 <span>Application name</span>
-                <input className="input input-sm w-60 font-mono" value={appName} readOnly={!!target} onChange={(e) => setAppName(e.target.value)} aria-invalid={!!nameError} aria-describedby="deploy-app-hint" data-testid="deploy-app" />
+                <input className="input input-sm w-60 font-mono" value={appName} readOnly aria-invalid={!!nameError} aria-describedby="deploy-app-hint" data-testid="deploy-app" />
                 <span id="deploy-app-hint" className={`text-xs ${nameError ? "text-error" : "text-base-content/60"}`}>{nameError ?? "Instances are named <application>-<module>."}</span>
               </label>
               <label className="flex flex-col gap-1">
                 <span>Project</span>
-                <select className="select select-sm w-40" value={project} disabled={!!target} onChange={(e) => setProject(e.target.value)} data-testid="deploy-project">
-                  {(target ? [target.project] : me?.deployProjects ?? []).map((p) => <option key={p} value={p}>{p}</option>)}
+                <select className="select select-sm w-40" value={project} disabled data-testid="deploy-project">
+                  <option value={target.project}>{target.project}</option>
                 </select>
               </label>
             </div>
