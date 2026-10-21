@@ -1442,6 +1442,51 @@ mod tests {
     }
 
     #[test]
+    fn a_ticket_stops_counting_the_moment_it_expires() {
+        let store = Sessions::default();
+        let cfg = ConsoleSettings {
+            max_per_user: 1,
+            ..ConsoleSettings::default()
+        };
+        let t0 = Instant::now();
+        let ticket = |expires: Instant| Ticket {
+            id: Uuid::new_v4(),
+            principal: Principal {
+                name: "a".into(),
+                role: None,
+                caller: None,
+                session: None,
+                personal_token: None,
+            },
+            actor: "user:1".into(),
+            resource: Resource::default(),
+            application: "shop".into(),
+            project: "p".into(),
+            instance: "web".into(),
+            module: "web".into(),
+            kind: SessionKind::Terminal,
+            cols: 80,
+            rows: 24,
+            origin: None,
+            approval: None,
+            expires,
+        };
+        let ttl = Duration::from_secs(60);
+        assert!(store.issue_at([1; 32], ticket(t0 + ttl), &cfg, t0).is_ok());
+        let second = |at: Duration| store.issue_at([2; 32], ticket(t0 + at + ttl), &cfg, t0 + at);
+        assert_eq!(
+            second(ttl - Duration::from_secs(1)),
+            Err("cap"),
+            "still valid, still counted"
+        );
+        assert_eq!(
+            second(ttl),
+            Ok(()),
+            "expired at that very moment, so it no longer counts"
+        );
+    }
+
+    #[test]
     fn ten_tickets_a_minute_and_the_minute_is_exactly_sixty_seconds() {
         let store = Sessions::default();
         let cfg = ConsoleSettings {
