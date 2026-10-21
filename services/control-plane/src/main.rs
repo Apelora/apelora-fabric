@@ -301,17 +301,6 @@ fn sign_in_from_env(
     }))
 }
 
-/// Hands a secret to the person at the terminal, once, and nowhere else: not a log line, not the
-/// audit trail. It is written straight to standard output (the only place the command's caller
-/// reads it from) and is never formatted into a message or an error.
-fn show_once(secret: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut out = std::io::stdout().lock();
-    out.write_all(secret.as_bytes())?;
-    out.write_all(b"\n")?;
-    out.flush()
-}
-
 /// OIDC settings from the environment. Absent `APELORA_OIDC_ISSUER`, sign-in by identity provider is off.
 fn oidc_from_env(
     get: impl Fn(&str) -> Option<String>,
@@ -427,8 +416,9 @@ async fn token_command(
             let (secret, rec) = apelora_persistence::create_token(&mut *tx, &name, &role, Some(expires)).await?;
             apelora_persistence::audit(&mut *tx, "cli", "token.create", &rec.name, &json!({ "id": rec.id, "role": rec.role, "expiresInDays": days })).await?;
             apelora_persistence::commit(tx).await?;
-            println!("Created token {} ({}, role {}, expires in {days} days). It is shown only once:", rec.id, rec.name, rec.role);
-            show_once(&secret)?;
+            // The command exists to hand the new token to the person at the terminal, once. It is
+            // never logged and never in the audit row (which holds only the token's id).
+            println!("Created token {} ({}, role {}, expires in {days} days). It is shown only once:\n{secret}", rec.id, rec.name, rec.role);
         }
         Some("list") => {
             for t in apelora_persistence::list_tokens(pool).await? {
