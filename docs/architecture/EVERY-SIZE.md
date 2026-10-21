@@ -182,10 +182,10 @@ Configuration changes take effect without a restart wherever possible, and are a
 | What | Small | Large | Status |
 |---|---|---|---|
 | Application volumes | tier 0 snapshots on the member, tier 1 backups on another member's pool | tiers 2–3 in other sites and regions, inside the jurisdiction | tiers 0–1 built |
-| **Apelora's own database** | a scheduled dump and continuous archiving to storage **outside the cluster it manages**; a restore drill that proves it | per region; global plane separately | **missing (P0)** |
+| **Apelora's own database** | a scheduled dump and continuous archiving to storage **outside the cluster it manages**; a restore drill that proves it | per region; global plane separately | dump with checksum, retention and optional encryption, and a restore drill into a scratch database: built, tested against a real PostgreSQL 18 (`scripts/ops/`, [runbook](../runbooks/apelora-database-backup.md)); continuous archiving: documented, not scripted |
 | Incus cluster state | Incus recovers its own database from the members; instance definitions can be re-imported from the pools | per sector | Incus |
 | Designs | versions in the database, export to files | same | built |
-| Restore drills | a monthly scripted restore into a scratch database, with the result in the Console | per region, results rolled up | planned |
+| Restore drills | a scheduled scripted restore into a scratch database, with the result in the Console | per region, results rolled up | script built (writes `restore-drill-last-verified.json`); Console view planned (wave 4) |
 
 A backup that has never been restored is not counted as a backup. The Console shows the age of the last **verified** restore, not the last copy.
 
@@ -204,7 +204,7 @@ Each item is small enough to review on its own. **(N)** marks items needed now, 
 
 1. **(N)** Audit in the same transaction, `TRUNCATE` blocked, a test that every state-changing route audits (S4). Then the outbox table and relay, so the next items reuse it.
 2. **(N)** Correlation: `request_id` on jobs, carried into the job's span, the Incus operation id recorded beside it, both on the audit row.
-3. **(N)** Backup and restore of Apelora's own database: a script, a restore drill, a runbook, and the age of the last verified restore in the Console.
+3. **(N)** Backup and restore of Apelora's own database: a script, a restore drill, a runbook (built: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, [runbook](../runbooks/apelora-database-backup.md)), and the age of the last verified restore in the Console (not yet).
 4. **(N)** Supervisor leadership through a lease in PostgreSQL, so two workers can run (the first item before HA of the plane itself).
 5. `LISTEN/NOTIFY`:
    - job wake-up;

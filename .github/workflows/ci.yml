@@ -113,6 +113,15 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
+      - name: Backup and restore drill of Apelora's own database (scripts/ops)
+        # The control plane's `token list` applies the migrations to the service database; the
+        # test only reads it, writes backups to a temporary directory and drills into scratch
+        # databases. The client tools run from the same image as the service.
+        env:
+          APELORA_PG_CLIENT_IMAGE: postgres:18-alpine
+        run: |
+          cargo run -q --locked -p apelora-control-plane -- token list >/dev/null
+          bash scripts/ops/test-db-backup.sh
 
   e2e:
     name: End-to-end (Playwright)

@@ -33,7 +33,7 @@ Priorities:
 | Audit | search by action and outcome, paged | filters by actor, target and time (P0); export (P1); retention and archive (P1) |
 | Debugging | request ids; preflight | log lookup by request id (P1); support bundle (P1) |
 | Security | certificate expiry | TLS on the API (P0); security headers (P0); rate limits on public routes (P0); a security-posture page (P1) |
-| Administration | API tokens; versions | upgrade (P0); backup of Apelora's own database (P0); effective settings (P1); licence notices (P1) |
+| Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`); effective settings (P1); licence notices (P1) |
 | Terminal | Studio sessions (MOCK and CONTRACT VERIFIED) | open from the Console and a sessions page (P1); run against real Incus (P0); recording, opt-in (P2) |
 | Disconnected (ADR 0010) | image mirrors, mirrors-only mode | preflight for mirrors; mirrors page; release bundle (P1) |
 

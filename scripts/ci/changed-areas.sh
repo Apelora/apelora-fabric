@@ -24,8 +24,9 @@ fi
 if grep -qE '^(\.github/workflows/|scripts/ci/)' <<<"$files"; then all; fi
 
 rust=false frontend=false
-# The Rust side also checks that the committed OpenAPI document is current.
-grep -qE '^(crates/|services/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|deny\.toml$|\.cargo/|packages/api-client/openapi\.json$)' <<<"$files" && rust=true
+# The Rust side also checks that the committed OpenAPI document is current, and runs the
+# database backup and restore drill test (scripts/ops) against its PostgreSQL service.
+grep -qE '^(crates/|services/|scripts/ops/|Cargo\.(toml|lock)$|rust-toolchain\.toml$|deny\.toml$|\.cargo/|packages/api-client/openapi\.json$)' <<<"$files" && rust=true
 # Apps, packages, end-to-end tests, npm and TypeScript tooling, and generated references.
 grep -qE '^(apps/|packages/|tests/|package(-lock)?\.json$|tsconfig[^/]*\.json$|eslint\.config\.[a-z]+$|playwright\.config\.[a-z]+$|docs/architecture/CATALOG\.md$)' <<<"$files" && frontend=true
 printf 'frontend=%s\nrust=%s\n' "$frontend" "$rust"

@@ -27,3 +27,4 @@ previews and audits.
 | The control plane or worker is down | [api-outage.md](api-outage.md) |
 | Find out why something failed (logs, request ids, audit) | [troubleshooting.md](troubleshooting.md) |
 | Rotate Apelora's Incus certificates | [certificates.md](certificates.md) |
+| Back up Apelora's own database, drill a restore, restore the plane onto a new host | [apelora-database-backup.md](apelora-database-backup.md) |

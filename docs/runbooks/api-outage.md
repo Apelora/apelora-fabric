@@ -18,4 +18,5 @@ VERIFIED.
   (a job whose lease expired is taken over, fenced by its generation, and waits for any Incus
   operation an earlier attempt started).
 - **PostgreSQL down:** both services fail requests that need the database; Incus keeps running
-  everything. Restore the database from backup if needed; job and revision history live there.
+  everything. Restore the database from backup if needed; job and revision history live there
+  ([apelora-database-backup.md](apelora-database-backup.md)).

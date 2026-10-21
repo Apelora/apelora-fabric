@@ -20,6 +20,7 @@ Use for Incus storage pools, persistent volumes, backups, disaster recovery and 
 - Snapshots are not backups; test data consistency and restores, including upgrade rollback.
 - Present a capability/eligibility error instead of silently choosing a non-HA pool.
 - Test loss of one storage node, stale mount, network split and restart ownership.
+- **Apelora's own database** (ADR 0011 decision 6; runbook `docs/runbooks/apelora-database-backup.md`): `scripts/ops/db-backup.sh` dumps it (`pg_dump --format=custom`) to a directory **outside the managed cluster** (refuses missing, relative and checkout paths), with a `.sha256`, a `.json` manifest (migrations fingerprint, row counts, audit trigger), retention and optional `age`/`openssl cms` encryption to public material only. `scripts/ops/db-restore-drill.sh` restores into a new scratch database (never the live one), verifies it (checksum, migrations, row counts, audit trigger refuses UPDATE/DELETE), drops it and writes `restore-drill-last.json` / `restore-drill-last-verified.json`. After changing either, or a migration that touches `audit_events` or `_sqlx_migrations`, run `scripts/ops/test-db-backup.sh` (CI runs it in the Rust job; locally set `APELORA_PG_CLIENT_IMAGE=postgres:18-alpine` when the client tools are not installed). Continuous archiving is documented, not scripted; the Console view of the last verified restore is not built.
 
 ## Evidence required before calling a feature complete
 
