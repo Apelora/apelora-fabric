@@ -174,7 +174,14 @@ pub struct EnvironmentRow {
     pub incus_project: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
+    /// `pending`, `created` or `adopted` (migration 0027; ADR 0012).
+    pub incus_state: String,
+    /// Why the Incus project is still pending, or what the last check found.
+    pub incus_detail: String,
 }
+
+/// The columns of [`EnvironmentRow`], for a query over `environments e`.
+pub const ENV_COLS: &str = "e.id, e.project_id, e.slug, e.name, e.kind, e.incus_project, e.created_at, e.incus_state, e.incus_detail";
 
 pub async fn create_environment(
     db: impl sqlx::PgExecutor<'_>,
@@ -184,7 +191,7 @@ pub async fn create_environment(
     kind: EnvKind,
     incus_project: Option<&str>,
 ) -> Result<EnvironmentRow> {
-    sqlx::query_as("INSERT INTO environments (id, project_id, slug, name, kind, incus_project) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, project_id, slug, name, kind, incus_project, created_at")
+    sqlx::query_as("INSERT INTO environments AS e (id, project_id, slug, name, kind, incus_project) VALUES ($1,$2,$3,$4,$5,$6) RETURNING e.id, e.project_id, e.slug, e.name, e.kind, e.incus_project, e.created_at, e.incus_state, e.incus_detail")
         .bind(Uuid::new_v4())
         .bind(project_id)
         .bind(slug)
@@ -197,10 +204,14 @@ pub async fn create_environment(
 }
 
 pub async fn list_environments(pool: &PgPool, project_id: Uuid) -> Result<Vec<EnvironmentRow>> {
-    Ok(sqlx::query_as("SELECT id, project_id, slug, name, kind, incus_project, created_at FROM environments WHERE project_id = $1 ORDER BY slug").bind(project_id).fetch_all(pool).await?)
+    Ok(sqlx::query_as(&format!(
+        "SELECT {ENV_COLS} FROM environments e WHERE e.project_id = $1 ORDER BY e.slug"
+    ))
+    .bind(project_id)
+    .fetch_all(pool)
+    .await?)
 }
 
-/// The environment that owns an Incus project, with the ancestry needed to authorise against it.
 /// The Incus projects environments map to, sorted.
 pub async fn environment_incus_projects(pool: &PgPool) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
@@ -210,46 +221,38 @@ pub async fn environment_incus_projects(pool: &PgPool) -> Result<Vec<String>> {
     .await?)
 }
 
+fn env_with_org(r: &sqlx::postgres::PgRow) -> (EnvironmentRow, Uuid) {
+    (
+        EnvironmentRow {
+            id: r.get("id"),
+            project_id: r.get("project_id"),
+            slug: r.get("slug"),
+            name: r.get("name"),
+            kind: r.get("kind"),
+            incus_project: r.get("incus_project"),
+            created_at: r.get("created_at"),
+            incus_state: r.get("incus_state"),
+            incus_detail: r.get("incus_detail"),
+        },
+        r.get("organization_id"),
+    )
+}
+
+/// The environment that owns an Incus project, with the ancestry needed to authorise against it.
 pub async fn environment_by_incus_project(
     pool: &PgPool,
     incus_project: &str,
 ) -> Result<Option<(EnvironmentRow, Uuid)>> {
-    let row = sqlx::query("SELECT e.id, e.project_id, e.slug, e.name, e.kind, e.incus_project, e.created_at, p.organization_id FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.incus_project = $1")
+    let row = sqlx::query(&format!("SELECT {ENV_COLS}, p.organization_id FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.incus_project = $1"))
         .bind(incus_project)
         .fetch_optional(pool)
         .await?;
-    Ok(row.map(|r| {
-        (
-            EnvironmentRow {
-                id: r.get("id"),
-                project_id: r.get("project_id"),
-                slug: r.get("slug"),
-                name: r.get("name"),
-                kind: r.get("kind"),
-                incus_project: r.get("incus_project"),
-                created_at: r.get("created_at"),
-            },
-            r.get("organization_id"),
-        )
-    }))
+    Ok(row.as_ref().map(env_with_org))
 }
 
 pub async fn environment_by_id(pool: &PgPool, id: Uuid) -> Result<Option<(EnvironmentRow, Uuid)>> {
-    let row = sqlx::query("SELECT e.id, e.project_id, e.slug, e.name, e.kind, e.incus_project, e.created_at, p.organization_id FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.id = $1").bind(id).fetch_optional(pool).await?;
-    Ok(row.map(|r| {
-        (
-            EnvironmentRow {
-                id: r.get("id"),
-                project_id: r.get("project_id"),
-                slug: r.get("slug"),
-                name: r.get("name"),
-                kind: r.get("kind"),
-                incus_project: r.get("incus_project"),
-                created_at: r.get("created_at"),
-            },
-            r.get("organization_id"),
-        )
-    }))
+    let row = sqlx::query(&format!("SELECT {ENV_COLS}, p.organization_id FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.id = $1")).bind(id).fetch_optional(pool).await?;
+    Ok(row.as_ref().map(env_with_org))
 }
 
 /// Everything needed to authorise a request about an application, resolved from the database.

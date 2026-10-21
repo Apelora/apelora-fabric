@@ -21,7 +21,7 @@ test.describe("navigation", () => {
     await stub(page, { ...base(whoami(["audit.read", "user.view", "organization.view"], { platform: [] })), "GET /api/v1/cluster": cluster });
     await page.goto("/");
     const group = page.getByRole("navigation", { name: "Console" }).getByRole("group", { name: "Identity & Access" });
-    await expect(group.getByRole("link")).toHaveText(["Users", "Groups", "Organizations", "Project memberships", "Roles & permissions", "Access policies", "Audit history"]);
+    await expect(group.getByRole("link")).toHaveText(["Users", "Groups", "Organizations", "Tenancy & quotas", "Project memberships", "Roles & permissions", "Access policies", "Audit history"]);
     await expect(group.getByRole("link", { name: "Service identities" })).toHaveCount(0);
   });
 
@@ -396,7 +396,7 @@ test.describe("groups", () => {
 
 test.describe("organizations", () => {
   const envs = { json: { items: [PROD] } };
-  test("drills from an organization to its projects and environments and says plainly that the Incus project is not created yet", async ({ page }) => {
+  test("drills from an organization to its projects and environments and says plainly that the Incus project is not prepared yet", async ({ page }) => {
     const calls = await stub(page, {
       ...base(),
       "GET /api/v1/identity/projects": (c) => items(c.query.get("organization") === ACME.id ? [SHOP, BILLING] : []),
@@ -412,7 +412,8 @@ test.describe("organizations", () => {
     const env = page.getByTestId("environment");
     await expect(env).toContainText("Production");
     await expect(env.getByTestId("env-incus-project")).toHaveText("acme-shop-prod");
-    await expect(env.getByTestId("env-not-provisioned")).toHaveText("Incus project not created by Apelora yet — an administrator creates it with these settings.");
+    await expect(env.getByTestId("env-not-provisioned")).toContainText("Incus project not prepared yet");
+    await expect(env.getByTestId("env-not-provisioned")).toContainText("Apelora prepares it at the first deployment, or now with Prepare Incus project on Tenancy & quotas.");
     const config = env.getByTestId("env-config");
     await expect(config.locator("pre")).toBeHidden();
     await config.locator("summary").click();
@@ -432,7 +433,7 @@ test.describe("organizations", () => {
       "GET /api/v1/identity/projects": () => items(projects),
       [`POST /api/v1/identity/organizations/${uid(12)}/projects`]: (c) => { const p = { id: uid(22), organizationId: uid(12), organizationSlug: "initech", createdAt: NOW, ...(c.body as object) }; projects.push(p); return { status: 201, json: p }; },
       [`GET /api/v1/identity/projects/${uid(22)}/environments`]: items([]),
-      [`POST /api/v1/identity/projects/${uid(22)}/environments`]: (c) => ({ status: 201, json: { ...PROD, id: uid(31), projectId: uid(22), ...(c.body as object), incusProject: "initech-site-staging" } }),
+      [`POST /api/v1/identity/projects/${uid(22)}/environments`]: (c) => ({ status: 201, json: { ...PROD, id: uid(31), projectId: uid(22), ...(c.body as object), incusProject: "initech-site-staging", incusProvisioned: true, incusState: "created", incusDetail: "Incus project initech-site-staging created by Apelora with the baseline restrictions" } }),
     });
     await page.goto("/#/identity/organizations");
     await page.getByTestId("org-open").click();
@@ -457,7 +458,7 @@ test.describe("organizations", () => {
     await ed.getByTestId("env-dialog-slug").fill("staging");
     await ed.getByTestId("env-kind").selectOption("staging");
     await ed.getByTestId("env-dialog-submit").click();
-    await expect(page.getByTestId("env-notice")).toContainText("Environment Staging created. The Incus project initech-site-staging still has to be created by an administrator.");
+    await expect(page.getByTestId("env-notice")).toContainText("Environment Staging created, with the restricted Incus project initech-site-staging.");
     expect(bodyOf(calls, "POST /api/v1/identity/organizations")).toEqual([{ name: "Initech", slug: "initech" }]);
     expect(bodyOf(calls, `POST /api/v1/identity/organizations/${uid(12)}/projects`)).toEqual([{ name: "Site", slug: "site" }]);
     expect(bodyOf(calls, `POST /api/v1/identity/projects/${uid(22)}/environments`)).toEqual([{ name: "Staging", slug: "staging", kind: "staging", incusProject: null }]);

@@ -24,6 +24,7 @@ previews and audits.
 | A replica fails its health check | [replica-unhealthy.md](replica-unhealthy.md) |
 | A volume is kept, missing or to be deleted | [volumes.md](volumes.md) |
 | The deploy identity cannot see its project | [deploy-identity.md](deploy-identity.md) |
+| Raise a quota; an environment's Incus project is not prepared | [tenancy-quotas.md](tenancy-quotas.md) |
 | Revoke access (people, automation, servers) | [access-revocation.md](access-revocation.md) |
 | The control plane or worker is down | [api-outage.md](api-outage.md) |
 | Find out why something failed (logs, request ids, audit) | [troubleshooting.md](troubleshooting.md) |

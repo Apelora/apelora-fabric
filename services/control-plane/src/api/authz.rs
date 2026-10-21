@@ -134,6 +134,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "support.bundle"
         | "alert.respond"
         | "alert.configure"
+        | "quota.manage"
         | "hardware.commission"
         | "hardware.deploy"
         | "hardware.power"
@@ -769,6 +770,28 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     (
         "POST",
         "/api/v1/identity/projects/{project}/environments",
+        &["environment.manage"],
+    ),
+    // Tenancy and quotas (ADR 0012): the handlers check the exact scope; setting a quota is
+    // `quota.manage`, or a tenant dividing its own (`organization.update`, `project.update`).
+    (
+        "GET",
+        "/api/v1/identity/tenancy",
+        &["organization.view", "project.view", "quota.manage"],
+    ),
+    (
+        "GET",
+        "/api/v1/identity/quotas/{scope}/{id}",
+        &["organization.view", "project.view", "quota.manage"],
+    ),
+    (
+        "PUT",
+        "/api/v1/identity/quotas/{scope}/{id}",
+        &["quota.manage", "organization.update", "project.update"],
+    ),
+    (
+        "POST",
+        "/api/v1/identity/environments/{id}/incus-project",
         &["environment.manage"],
     ),
     (

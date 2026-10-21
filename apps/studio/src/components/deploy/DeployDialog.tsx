@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type WhoAmI } from "@apelora/api-client";
+import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck, type WhoAmI } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
 import { applicationName, compileNetwork, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
@@ -161,6 +161,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
 
   const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || (i.action === "remove" && removeMissing)).length;
   const conflicts = (plan: Plan) => plan.items.some((i) => i.action === "conflict");
+  const overQuota = (plan: Plan) => plan.quota?.allowed === false;
   const nameError = appName && !NAME.test(appName) ? "Lowercase letters, digits and hyphens, starting with a letter (at most 40)." : null;
 
   return (
@@ -253,11 +254,12 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
                 <span>Also delete the instances no longer in the design</span>
               </label>
             )}
+            {step.plan.quota && <QuotaReview quota={step.plan.quota} />}
             {conflicts(step.plan) && <p role="alert" className="text-error" data-testid="deploy-conflicts">Resolve the conflicts first: rename the module or the application. Nothing is deployed while any remain.</p>}
             {error && <p role="alert" className="text-error" data-testid="deploy-error">{error}</p>}
             <div className="modal-action mt-0">
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setStep({ kind: "configure" })}>Back</button>
-              <button type="button" className="btn btn-sm btn-primary" disabled={busy || conflicts(step.plan)} onClick={() => void apply(step.plan)} data-testid="deploy-apply">
+              <button type="button" className="btn btn-sm btn-primary" disabled={busy || conflicts(step.plan) || overQuota(step.plan)} onClick={() => void apply(step.plan)} data-testid="deploy-apply">
                 {busy ? "Deploying…" : changes(step.plan) ? `Deploy ${changes(step.plan)} change${changes(step.plan) === 1 ? "" : "s"}` : "Save revision (no changes)"}
               </button>
             </div>
@@ -334,6 +336,28 @@ function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+const GIB = 1024 ** 3;
+const DIMENSION: Record<string, string> = { instances: "Instances", cpu: "CPUs", memory: "Memory", disk: "Disk" };
+const amount = (dimension: string, v: number) => (dimension === "memory" || dimension === "disk" ? `${Math.round((v / GIB) * 10) / 10} GiB` : String(v));
+
+/** The deployment against the quotas above its environment, as the server checked it. */
+function QuotaReview({ quota }: { quota: QuotaCheck }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-box border border-base-300 px-3 py-2" data-testid="deploy-quota">
+      <p className="font-medium">Quota use after this deployment</p>
+      <ul className="flex flex-col gap-1">
+        {quota.scopes.flatMap((s) => s.dimensions.map((d) => (
+          <li key={`${s.kind}:${s.id}:${d.dimension}`} className="flex flex-wrap items-baseline justify-between gap-x-3" data-testid="deploy-quota-row" data-exceeded={d.exceeded}>
+            <span>{DIMENSION[d.dimension] ?? d.dimension} <span className="text-base-content/60">of {s.kind} {s.name}</span></span>
+            <span className={`tabular-nums ${d.exceeded ? "text-error" : "text-base-content/70"}`}>{amount(d.dimension, d.used + d.adding)} of {amount(d.dimension, d.limit)}{d.exceeded ? " (over quota)" : ""}</span>
+          </li>
+        )))}
+      </ul>
+      {!quota.allowed && <p role="alert" className="text-error" data-testid="deploy-over-quota">Over quota: nothing is deployed. Remove modules, or ask for a larger quota.</p>}
     </div>
   );
 }

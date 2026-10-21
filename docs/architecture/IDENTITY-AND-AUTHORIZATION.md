@@ -1,6 +1,6 @@
 # Identity and authorization
 
-Status: **built and tested against stubs and a mock provider; browser sign-in tested in a real browser against a local development identity provider; not yet verified against an enterprise provider in production, MAAS or a real restricted Incus project.** Design rationale: [access and roles](ACCESS-AND-ROLES.md) and [ADR 0005](../adr/0005-access-model.md). Working checklist for contributors: the `identity-authorization` skill.
+Status: **built and tested against stubs and a mock provider; browser sign-in tested in a real browser against a local development identity provider; not yet verified against an enterprise provider in production or MAAS. Environments' restricted Incus projects and their limits are REAL INCUS TESTED on the lab (§4).** Design rationale: [access and roles](ACCESS-AND-ROLES.md) and [ADR 0005](../adr/0005-access-model.md). Working checklist for contributors: the `identity-authorization` skill.
 
 Evidence labels: **BUILT** (in the repository, covered by tests), **NOT VERIFIED** (written from documentation, exercised only by stubs).
 
@@ -113,12 +113,23 @@ Apelora never connects people to Incus. It maps its decisions onto each backend'
 
 | Backend | Mapping | State |
 |---|---|---|
-| Incus | One restricted project per environment; Apelora's service certificate is the only client. | NOT VERIFIED for restricted-project enforcement beyond the existing REAL INCUS TESTED deployments |
+| Incus | One restricted project per environment, created or adopted by the control plane with the admin identity and added to the deploy identity's project list; quotas mirrored as project limits (ADR 0012, below). Apelora's service certificates are the only clients. | REAL INCUS TESTED (2026-10-21, four-member lab): creation with the baseline restrictions, the grant, read-back by the deploy identity, limits refused by Incus for instances and CPUs, the restricted certificate refused project creation |
 | MAAS | Entitlements are mapped only for MAAS 3.8+ and only view/deploy. | NOT VERIFIED |
+
+### Tenancy isolation and quotas
+
+Built 2026-10-21 ([design](../design/tenancy-isolation.md), [ADR 0012](../adr/0012-tenancy-on-incus-projects.md), migration 0027, `services/control-plane/src/api/tenancy.rs`, `crates/domain/src/tenancy.rs`, `crates/incus-adapter/src/tenancy.rs`, [runbook](../runbooks/tenancy-quotas.md)).
+
+- **The environment's Incus project.** Created when the environment is created (or on `POST /api/v1/identity/environments/{id}/incus-project`, `environment.manage` on its project, or at its first deployment) with a fixed baseline of `restricted.*` keys, its own default profile, and the project added to the deploy identity's list under a cluster-wide lock, then read back with the deploy identity. An existing project is adopted only when restricted, and keeps its own restrictions (differences shown as findings). Projects in `APELORA_DEPLOY_PROJECTS` are adopted only on request. Audited `environment.incus_project.prepare` (success or failed) after Incus answered, with the new state in the same transaction.
+- **Quotas** (`tenancy_quotas`): instances, CPUs, memory and disk on organisations, projects and environments. `GET|PUT /api/v1/identity/quotas/{scope}/{id}`; `GET /api/v1/identity/tenancy` for the page.
+  - Setting one needs **`quota.manage`** (new; infrastructure, platform, held by Fabric Administrator and Platform Super Admin; legacy `fabric-admin` tokens through `manage-infrastructure`); or, below the organisation, `organization.update` on the organisation (projects, environments) or `project.update` on the project (environments). Tenants may never exceed a quota above them (`400 quota_above_parent`); nobody but `quota.manage` sets an organisation's quota.
+  - Seeing one needs `organization.view` (organisation) or `project.view` (project, environment). An organisation's use is shown only to those who see the whole organisation.
+  - `quota.set` is audited in the change's transaction with before and after; mirroring to Incus runs after the commit (`environment.incus_limits.apply`, success or failed).
+- **Enforcement.** Plans (`POST /applications/{name}/plan`) carry `quota` (use, what the deployment adds, limit, per scope and dimension); deployments and `POST /instances` over a quota are refused with `409 quota_exceeded` before anything is saved or queued, and with `503 quota_unverifiable` when a scope with a quota cannot be read from Incus (fail closed). Each environment's Incus project gets the tightest of its own, its project's and its organisation's quota as `limits.*`, so Incus refuses what Apelora would.
 
 ## 5. User interfaces
 
-- **Fabric Console → Identity & Access**: Users, Groups, Organizations (→ projects → environments), Project memberships, Roles & permissions, Service identities, Access policies (+ Approvals), Audit history. The assignment dialog asks the server for a preview and shows effective permissions with their origin before anything is saved; emergency access has its own warning dialog; service tokens appear once in a copy-once dialog and leave the DOM when closed. Pages appear only if `whoami.capabilities` holds a matching permission.
+- **Fabric Console → Identity & Access**: Users, Groups, Organizations (→ projects → environments), Tenancy & quotas (each environment's Incus project, restrictions and limit use; quotas and their use; *Set quota…*, *Prepare Incus project*), Project memberships, Roles & permissions, Service identities, Access policies (+ Approvals), Audit history. The assignment dialog asks the server for a preview and shows effective permissions with their origin before anything is saved; emergency access has its own warning dialog; service tokens appear once in a copy-once dialog and leave the DOM when closed. Pages appear only if `whoami.capabilities` holds a matching permission.
 - **Studio → Applications**: every action is enabled from the `actions` the API returns for that caller and application, with the reason when disabled.
 
 ## 6. Known gaps
@@ -129,7 +140,7 @@ Apelora never connects people to Incus. It maps its decisions onto each backend'
 4. No endpoint previews a custom role's assignable levels before creating it.
 5. Remote desktop (RDP) is **not built**: there is no gateway, so the API reports it as unavailable with that reason. PowerShell into Windows modules is wired through the same exec channel but has never run against a Windows guest (**NOT VERIFIED**).
 6. Terminal sessions have only run against a labelled mock shell and an Incus-shaped contract fixture, never a real Incus (see section 7).
-7. Real Keycloak, MAAS 3.8 and Incus restricted-project behaviour must be verified before these are called production-ready.
+7. Real Keycloak and MAAS 3.8 behaviour must be verified before these are called production-ready. Incus restricted projects, their grant and their limits are REAL INCUS TESTED on the lab (ADR 0012); a deployment of real instances into an Apelora-created project has not run there yet.
 8. The Console's token dialog cannot send an approval, so a person creates a `fabric-admin` token through the API (with `Apelora-Approval`) or with the command line on the server. The dialog still offers every role and shows the server's refusal (which roles a token may have is not in any response the Console reads).
 9. Legacy `apl_` tokens remain exempt from approvals and multi-factor rules for everything except creating `fabric-admin` tokens; turning them off is the only way to apply those rules to everyone.
 
@@ -186,7 +197,7 @@ Both need `audit.read`; below platform level a reader sees only the events of th
 
 **Exceptions to the one-transaction rule:**
 - *Changes made in Incus*, written with `audit_alone` right after Incus accepted them (if the row cannot be written the request fails, but the Incus change stands): join tokens (create, revoke), evacuating, restoring and removing members, and volume snapshots (take, restore, delete).
-- *Incus first, then the record and its row in one transaction* (the Incus step is not undone): growing and deleting an application's volume; approving, withdrawing, admitting and removing a machine.
+- *Incus first, then the record and its row in one transaction* (the Incus step is not undone): growing and deleting an application's volume; approving, withdrawing, admitting and removing a machine; preparing an environment's Incus project and mirroring quotas as its limits (a refused mirror is written on its own).
 - *In memory*: opening a terminal session (its ticket is discarded when its row cannot be written) and ending one (written before it takes effect).
 - *Approvals* presented with `Apelora-Approval` are spent before the change, outside its transaction: a change that then fails leaves the approval spent. That errs on the safe side.
 - *Reads that are audited*: an audit export (`audit.exported`) and a support bundle download (`support.bundle.downloaded`) are written on their own before the first byte is sent; one that cannot be audited is not sent.

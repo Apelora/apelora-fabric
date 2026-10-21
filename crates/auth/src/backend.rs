@@ -4,10 +4,9 @@
 //! Nothing here talks to a server. These are the *intended* mappings, written down as code so
 //! they can be tested and reviewed. **They have not been validated against an installed Incus
 //! or MAAS** (see the architecture document for what remains to be verified).
-
-use std::collections::BTreeMap;
-
-use crate::scope::EnvKind;
+//!
+//! What an environment's Incus project contains (restrictions, limits, its default profile)
+//! is decided in `apelora_domain::tenancy` (ADR 0012); only its name is derived here.
 
 /// Name of the Incus project that holds one environment: `<organisation>-<project>-<environment>`
 /// in lowercase, restricted to what Incus accepts in a project name (letters, digits, `-`), at
@@ -31,59 +30,6 @@ pub fn incus_project_name(org: &str, project: &str, environment: &str) -> Option
     let name = parts.join("-");
     (name.len() <= 63 && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
         .then_some(name)
-}
-
-/// Quotas for one environment's Incus project.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Limits {
-    pub instances: Option<u32>,
-    pub cpu: Option<u32>,
-    pub memory_gib: Option<u32>,
-    pub disk_gib: Option<u32>,
-}
-
-/// Configuration keys for a restricted Incus project: tenants may not nest, run privileged
-/// containers, choose cluster members, or attach host devices and paths; their networks and
-/// storage devices must be the managed ones. Production gets the same restrictions as every
-/// other environment (isolation does not depend on the environment's kind).
-pub fn incus_project_config(_kind: EnvKind, limits: &Limits) -> BTreeMap<String, String> {
-    let mut c: BTreeMap<String, String> = [
-        ("restricted", "true"),
-        ("restricted.containers.nesting", "block"),
-        ("restricted.containers.privilege", "unprivileged"),
-        ("restricted.containers.lowlevel", "block"),
-        ("restricted.virtual-machines.lowlevel", "block"),
-        ("restricted.cluster.target", "block"),
-        ("restricted.devices.disk", "managed"),
-        ("restricted.devices.nic", "managed"),
-        ("restricted.devices.gpu", "block"),
-        ("restricted.devices.pci", "block"),
-        ("restricted.devices.usb", "block"),
-        ("restricted.devices.unix-char", "block"),
-        ("restricted.devices.unix-block", "block"),
-        ("restricted.devices.unix-hotplug", "block"),
-        ("restricted.devices.infiniband", "block"),
-        ("restricted.devices.proxy", "block"),
-        ("features.images", "true"),
-        ("features.profiles", "true"),
-        ("features.storage.volumes", "true"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-    .collect();
-    if let Some(n) = limits.instances {
-        c.insert("limits.instances".into(), n.to_string());
-    }
-    if let Some(n) = limits.cpu {
-        c.insert("limits.cpu".into(), n.to_string());
-    }
-    if let Some(n) = limits.memory_gib {
-        c.insert("limits.memory".into(), format!("{n}GiB"));
-    }
-    if let Some(n) = limits.disk_gib {
-        c.insert("limits.disk".into(), format!("{n}GiB"));
-    }
-    c
 }
 
 /// Evidence level of the mappings in this module.
@@ -160,38 +106,6 @@ mod tests {
             incus_project_name(&"a".repeat(41), &"b".repeat(20), "e"),
             None,
             "63 characters at most"
-        );
-    }
-
-    #[test]
-    fn restricted_project_blocks_privilege_host_devices_and_member_choice() {
-        let c = incus_project_config(
-            EnvKind::Production,
-            &Limits {
-                instances: Some(20),
-                cpu: Some(16),
-                memory_gib: Some(64),
-                disk_gib: Some(500),
-            },
-        );
-        assert_eq!(c["restricted"], "true");
-        assert_eq!(c["restricted.containers.privilege"], "unprivileged");
-        assert_eq!(c["restricted.containers.nesting"], "block");
-        assert_eq!(c["restricted.cluster.target"], "block");
-        assert_eq!(c["restricted.devices.disk"], "managed");
-        assert_eq!(c["limits.memory"], "64GiB");
-        assert_eq!(c["limits.instances"], "20");
-        for (k, v) in &c {
-            if k.starts_with("restricted.devices.")
-                && k != "restricted.devices.disk"
-                && k != "restricted.devices.nic"
-            {
-                assert_eq!(v, "block", "{k}");
-            }
-        }
-        assert!(
-            !incus_project_config(EnvKind::Development, &Limits::default())
-                .contains_key("limits.cpu")
         );
     }
 

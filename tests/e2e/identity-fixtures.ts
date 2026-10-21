@@ -16,7 +16,8 @@ export const GLOBEX = { id: uid(11), slug: "globex", name: "Globex", createdAt: 
 export const SHOP = { id: uid(20), organizationId: ACME.id, organizationSlug: "acme", slug: "shop", name: "Shop", createdAt: NOW };
 export const BILLING = { id: uid(21), organizationId: ACME.id, organizationSlug: "acme", slug: "billing", name: "Billing", createdAt: NOW };
 export const PROD = {
-  id: uid(30), projectId: SHOP.id, slug: "prod", name: "Production", kind: "production", incusProject: "acme-shop-prod", incusProvisioned: false,
+  id: uid(30), projectId: SHOP.id, slug: "prod", name: "Production", kind: "production", incusProject: "acme-shop-prod", incusProvisioned: false, incusState: "pending",
+  incusDetail: "Apelora prepares it at the first deployment, or now with Prepare Incus project on Tenancy & quotas",
   incusProjectConfig: { restricted: "true", "restricted.containers.privilege": "unprivileged", "restricted.devices.disk": "managed" },
 };
 

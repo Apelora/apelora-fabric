@@ -183,7 +183,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "terminal sessions run as root inside instances (APELORA_CONSOLE_UID=0); prefer an unprivileged user"
         );
     }
+    // The deploy identity's fingerprint, as Incus names it in its trust store: environments'
+    // Incus projects are added to its project list (ADR 0012).
+    let deploy_fingerprint = match (mode, std::env::var("APELORA_INCUS_CLIENT_CERT")) {
+        (apelora_domain::ProviderMode::Incus, Ok(path)) => {
+            let pem =
+                std::fs::read(&path).map_err(|e| format!("APELORA_INCUS_CLIENT_CERT: {e}"))?;
+            Some(
+                api::tenancy::certificate_fingerprint(&pem)
+                    .map_err(|e| format!("APELORA_INCUS_CLIENT_CERT: {e}"))?,
+            )
+        }
+        _ => None,
+    };
     let state = api::AppState::new(provider, auth)
+        .with_deploy_fingerprint(deploy_fingerprint)
         .with_console(console)
         .with_oidc(oidc)
         .with_sign_in(sign_in)

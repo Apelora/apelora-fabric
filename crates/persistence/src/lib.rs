@@ -25,6 +25,7 @@ pub mod monitoring;
 pub mod outbox;
 pub mod personal_tokens;
 pub mod status;
+pub mod tenancy;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
 pub mod user_sessions;

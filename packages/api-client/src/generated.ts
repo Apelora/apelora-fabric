@@ -956,11 +956,15 @@ export type EnvKind = "production" | "staging" | "development" | "other";
 
 export type EnvironmentDto = {
   id: string;
+  /** Why it is still pending, or what preparing it found. */
+  incusDetail: string;
   /** The restricted Incus project this environment deploys into. */
   incusProject?: string | null;
-  /** The settings that project needs (restricted, unprivileged, no host devices). Apelora does not create or verify the Incus project yet: an administrator does, with these settings. */
+  /** The restrictions and features of a project Apelora creates (ADR 0012); an adopted project keeps its own (see the Tenancy page for what Incus has). */
   incusProjectConfig: Record<string, unknown>;
+  /** Apelora created or adopted the Incus project (`incusState` is not `pending`). */
   incusProvisioned: boolean;
+  incusState: TenancyIncusState;
   kind: EnvKind;
   name: string;
   projectId: string;
@@ -1314,6 +1318,16 @@ export type ImageSource = {
   protocol: ImageProtocol;
   /** Image server URL, e.g. a simplestreams server or an OCI registry. */
   server: string;
+};
+
+/** The result of preparing an environment's Incus project. */
+export type IncusProjectPrepared = {
+  detail: string;
+  environmentId: string;
+  findings: TenancyFinding[];
+  incusProject?: string | null;
+  limits?: null | TenancyLimitOutcome;
+  state: TenancyIncusState;
 };
 
 /** What the control plane knows about its Incus connection. */
@@ -2271,6 +2285,7 @@ export type PhaseDto = {
 
 export type Plan = {
   items: PlanItem[];
+  quota?: null | QuotaCheck;
   /** Facts the designer should know before applying, e.g. single points of failure. */
   warnings: string[];
 };
@@ -2440,6 +2455,78 @@ export type QueuedChange = {
   instance: string;
   jobId: string;
   module: string;
+};
+
+/** The result of changing a quota. */
+export type QuotaChange = {
+  /** Each environment beneath the scope: what mirroring the change to Incus did. */
+  environments: TenancyLimitOutcome[];
+  quota?: null | QuotaLimits;
+};
+
+/** A deployment against the quotas above its environment. */
+export type QuotaCheck = {
+  /** What it adds (instances to create; removals are not credited before they happen). */
+  adding: QuotaUsage;
+  /** False when any limited dimension would be exceeded: the deployment is refused. */
+  allowed: boolean;
+  scopes: QuotaScopeCheck[];
+};
+
+/** One quota dimension. */
+export type QuotaDimension = "instances" | "cpu" | "memory" | "disk";
+
+export type QuotaDimensionCheck = {
+  /** What the deployment adds. */
+  adding: number;
+  dimension: QuotaDimension;
+  exceeded: boolean;
+  limit: number;
+  /** In use now (instances, CPUs or bytes). */
+  used: number;
+};
+
+/** A quota: one limit per dimension, `None` meaning no limit. */
+export type QuotaLimits = {
+  cpu?: number | null;
+  diskGib?: number | null;
+  instances?: number | null;
+  memoryGib?: number | null;
+};
+
+export type QuotaScopeCheck = {
+  /** Only the dimensions this scope limits. */
+  dimensions: QuotaDimensionCheck[];
+  id: string;
+  kind: QuotaScopeKind;
+  name: string;
+};
+
+/** Which level of the tenancy tree a quota belongs to. */
+export type QuotaScopeKind = "organization" | "project" | "environment";
+
+/** Resources in use or asked for, in Incus's units. */
+export type QuotaUsage = {
+  cpu: number;
+  diskBytes: number;
+  instances: number;
+  memoryBytes: number;
+};
+
+/** A scope's quota, its use and the quotas above it. */
+export type QuotaView = {
+  /** The tightest quota of the scopes above (a tenant may not set more). */
+  bound: QuotaLimits;
+  /** The caller may change it. */
+  canSet: boolean;
+  id: string;
+  kind: QuotaScopeKind;
+  name: string;
+  quota?: null | QuotaLimits;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  usage?: null | QuotaUsage;
+  usageError?: string | null;
 };
 
 export type RegisterMachine = {
@@ -2855,6 +2942,108 @@ export type SystemInfo = {
   version: string;
 };
 
+export type TenancyEnvironment = {
+  /** The limit keys Apelora last wrote to the Incus project. */
+  apeloraLimits: Record<string, unknown>;
+  /** The caller may create or adopt the Incus project now. */
+  canPrepare: boolean;
+  canSetQuota: boolean;
+  checkedAt?: string | null;
+  /** The tightest of its own, its project's and its organisation's quota: what Incus gets. */
+  effective: QuotaLimits;
+  findings: TenancyFinding[];
+  id: string;
+  incus?: null | TenancyIncusView;
+  incusDetail: string;
+  incusError?: string | null;
+  incusProject?: string | null;
+  incusState: TenancyIncusState;
+  kind: EnvKind;
+  name: string;
+  quota?: null | QuotaLimits;
+  slug: string;
+};
+
+/** Something about an environment's Incus project worth knowing. */
+export type TenancyFinding = {
+  /** The configuration key it is about, if any. */
+  key?: string | null;
+  message: string;
+  severity: TenancyFindingSeverity;
+};
+
+export type TenancyFindingSeverity = "info" | "warning" | "error";
+
+/** What Apelora knows about an environment's Incus project. */
+export type TenancyIncusState = "pending" | "created" | "adopted";
+
+/** What Incus reports for an environment's project. */
+export type TenancyIncusView = {
+  /** `limits.*` keys as set. */
+  limits: Record<string, unknown>;
+  /** `restricted*` and `features.*` keys as set. */
+  restrictions: Record<string, unknown>;
+  usage: TenancyProjectUse;
+};
+
+/** What mirroring the quotas did to one environment's Incus project. */
+export type TenancyLimitOutcome = {
+  detail: string;
+  environment: string;
+  environmentId: string;
+  incusProject?: string | null;
+  /** The limit keys asked for (`limits.cpu` = `8`, …). */
+  limits: Record<string, unknown>;
+  result: TenancyLimitResult;
+};
+
+export type TenancyLimitResult = "applied" | "unchanged" | "skipped" | "failed";
+
+export type TenancyOrganization = {
+  canSetQuota: boolean;
+  id: string;
+  name: string;
+  projects: TenancyProject[];
+  quota?: null | QuotaLimits;
+  slug: string;
+  usage?: null | QuotaUsage;
+};
+
+export type TenancyOverview = {
+  /** An admin identity is configured: Apelora can prepare Incus projects and set limits. */
+  adminConfigured: boolean;
+  /** The configuration of a project Apelora would create now (restrictions and features). */
+  baseline: Record<string, unknown>;
+  organizations: TenancyOrganization[];
+  source: Source;
+};
+
+export type TenancyProject = {
+  canSetQuota: boolean;
+  environments: TenancyEnvironment[];
+  id: string;
+  name: string;
+  quota?: null | QuotaLimits;
+  slug: string;
+  usage?: null | QuotaUsage;
+};
+
+/** An Incus project's use and limits (Incus's own aggregate of instance limits, root disk sizes and volume sizes). */
+export type TenancyProjectUse = {
+  cpu: TenancyResource;
+  disk: TenancyResource;
+  instances: TenancyResource;
+  memory: TenancyResource;
+};
+
+/** One resource of an Incus project as `GET /1.0/projects/<name>/state` reports it. */
+export type TenancyResource = {
+  /** `None` when the project has no limit for it. */
+  limit?: number | null;
+  /** Instances, CPUs or bytes. */
+  used: number;
+};
+
 export type TokenCreated = {
   info: TokenInfo;
   /** The token itself, shown only in this response. */
@@ -3082,6 +3271,7 @@ export const operations = {
   revoke_assignment: { method: "DELETE", path: "/api/v1/identity/assignments/{assignment}", params: ["assignment"], public: false },
   identity_audit: { method: "GET", path: "/api/v1/identity/audit", params: [], public: false },
   grant_emergency_access: { method: "POST", path: "/api/v1/identity/emergency-access", params: [], public: false },
+  prepare_incus_project: { method: "POST", path: "/api/v1/identity/environments/{id}/incus-project", params: ["id"], public: false },
   groups: { method: "GET", path: "/api/v1/identity/groups", params: [], public: false },
   create_group: { method: "POST", path: "/api/v1/identity/groups", params: [], public: false },
   group_members: { method: "GET", path: "/api/v1/identity/groups/{group}/members", params: ["group"], public: false },
@@ -3101,6 +3291,8 @@ export const operations = {
   projects_list: { method: "GET", path: "/api/v1/identity/projects", params: [], public: false },
   environments: { method: "GET", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
   create_environment: { method: "POST", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
+  quota: { method: "GET", path: "/api/v1/identity/quotas/{scope}/{id}", params: ["scope","id"], public: false },
+  set_quota: { method: "PUT", path: "/api/v1/identity/quotas/{scope}/{id}", params: ["scope","id"], public: false },
   roles: { method: "GET", path: "/api/v1/identity/roles", params: [], public: false },
   create_role: { method: "POST", path: "/api/v1/identity/roles", params: [], public: false },
   delete_role: { method: "DELETE", path: "/api/v1/identity/roles/{role}", params: ["role"], public: false },
@@ -3122,6 +3314,7 @@ export const operations = {
   delete_identity_provider: { method: "DELETE", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
   sign_ins: { method: "GET", path: "/api/v1/identity/sign-ins", params: [], public: false },
   end_sign_in: { method: "DELETE", path: "/api/v1/identity/sign-ins/{id}", params: ["id"], public: false },
+  tenancy: { method: "GET", path: "/api/v1/identity/tenancy", params: [], public: false },
   users: { method: "GET", path: "/api/v1/identity/users", params: [], public: false },
   lookup_user: { method: "GET", path: "/api/v1/identity/users/lookup", params: [], public: false },
   disable_user: { method: "POST", path: "/api/v1/identity/users/{user}/disable", params: ["user"], public: false },
@@ -3330,6 +3523,8 @@ export type Responses = {
   identity_audit: AuditList;
   /** Grants a person a platform role for a short time, with a recorded reason (break-glass). You cannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`. */
   grant_emergency_access: AssignmentDto;
+  /** Creates or adopts the environment's Incus project now (idempotent): the restricted project with its default profile, granted to the deploy identity, then the quotas mirrored. Needs `environment.manage` on the environment's project; 503 without an admin identity. */
+  prepare_incus_project: IncusProjectPrepared;
   /** Groups the caller may see. Needs `user.view`. */
   groups: GroupList;
   /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to an identity-provider group name is platform-only. */
@@ -3368,6 +3563,10 @@ export type Responses = {
   environments: EnvironmentList;
   /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators may map an existing one. Needs `environment.manage`. */
   create_environment: EnvironmentDto;
+  /** A scope's quota and use. Needs `organization.view` (organisation) or `project.view` (project, environment) on it, or `quota.manage`. */
+  quota: QuotaView;
+  /** Sets a scope's quota (all limits empty removes it), then mirrors the tightest applicable quota onto every environment beneath it. Needs `quota.manage`; or, below the organisation, `organization.update` on the organisation (projects, environments) or `project.update` on the project (environments), and then never more than a quota above allows. */
+  set_quota: QuotaChange;
   /** The predefined and custom roles with their permissions. */
   roles: RoleList;
   /** Defines a custom role from explicit permissions. Needs `role.manage` (platform), and you may only include permissions you hold yourself. */
@@ -3410,6 +3609,8 @@ export type Responses = {
   sign_ins: ActiveSignInList;
   /** Ends anyone's session. Needs `user.manage` on the platform. */
   end_sign_in: null;
+  /** Organisations, projects and environments the caller can see, with quotas, use and each environment's Incus project as Incus reports it. Needs `organization.view` or `project.view` somewhere (or `quota.manage`). */
+  tenancy: TenancyOverview;
   /** People who have signed in, as far as the caller may see them: everyone for a platform administrator, otherwise those with a role in the caller's scopes. Needs `user.view`. */
   users: UserList;
   /** Finds one person by exact user name or e-mail so a role can be given to them. Someone who has never signed in does not exist yet. Needs `role.assign` or `group.manage`. */
@@ -3603,6 +3804,7 @@ export type Bodies = {
   revoke_assignment: never;
   identity_audit: never;
   grant_emergency_access: EmergencyAccess;
+  prepare_incus_project: never;
   groups: never;
   create_group: NewGroup;
   group_members: never;
@@ -3622,6 +3824,8 @@ export type Bodies = {
   projects_list: never;
   environments: never;
   create_environment: NewEnvironment;
+  quota: never;
+  set_quota: QuotaLimits;
   roles: never;
   create_role: NewRole;
   delete_role: never;
@@ -3643,6 +3847,7 @@ export type Bodies = {
   delete_identity_provider: ConfirmProvider;
   sign_ins: never;
   end_sign_in: never;
+  tenancy: never;
   users: never;
   lookup_user: never;
   disable_user: never;

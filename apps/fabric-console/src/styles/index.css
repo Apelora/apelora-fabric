@@ -31,6 +31,8 @@ html, body, #root { height: 100%; }
 /* Touch screens: controls keep the compact desktop look but get a 44px hit area. */
 @media (pointer: coarse) {
   .btn, .menu :where(li > a), .tabs > .tab, .input, .select { min-height: 2.75rem; }
+  /* Disclosures keep their marker (list-item) and get the same 44 px through padding. */
+  details > summary { padding-block: 0.75rem; }
 }
 
 /* Text in the error colour must reach 4.5:1 on white (WCAG AA); the theme's error colour is too light for text. */

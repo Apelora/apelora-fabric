@@ -5389,6 +5389,69 @@
         }
       }
     },
+    "/api/v1/identity/environments/{id}/incus-project": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates or adopts the environment's Incus project now (idempotent): the restricted project\nwith its default profile, granted to the deploy identity, then the quotas mirrored. Needs\n`environment.manage` on the environment's project; 503 without an admin identity.",
+        "operationId": "prepare_incus_project",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Environment id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncusProjectPrepared"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/groups": {
       "get": {
         "tags": [
@@ -6412,6 +6475,158 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/quotas/{scope}/{id}": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "A scope's quota and use. Needs `organization.view` (organisation) or `project.view` (project,\nenvironment) on it, or `quota.manage`.",
+        "operationId": "quota",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "description": "organization, project or environment",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Its id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Sets a scope's quota (all limits empty removes it), then mirrors the tightest applicable quota\nonto every environment beneath it. Needs `quota.manage`; or, below the organisation,\n`organization.update` on the organisation (projects, environments) or `project.update` on the\nproject (environments), and then never more than a quota above allows.",
+        "operationId": "set_quota",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "path",
+            "description": "organization, project or environment",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Its id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuotaLimits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotaChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
@@ -7609,6 +7824,47 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/tenancy": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Organisations, projects and environments the caller can see, with quotas, use and each\nenvironment's Incus project as Incus reports it. Needs `organization.view` or `project.view`\nsomewhere (or `quota.manage`).",
+        "operationId": "tenancy",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenancyOverview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -14629,12 +14885,18 @@
           "name",
           "kind",
           "incusProjectConfig",
-          "incusProvisioned"
+          "incusProvisioned",
+          "incusState",
+          "incusDetail"
         ],
         "properties": {
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "incusDetail": {
+            "type": "string",
+            "description": "Why it is still pending, or what preparing it found."
           },
           "incusProject": {
             "type": [
@@ -14645,7 +14907,7 @@
           },
           "incusProjectConfig": {
             "type": "object",
-            "description": "The settings that project needs (restricted, unprivileged, no host devices). Apelora does\nnot create or verify the Incus project yet: an administrator does, with these settings.",
+            "description": "The restrictions and features of a project Apelora creates (ADR 0012); an adopted\nproject keeps its own (see the Tenancy page for what Incus has).",
             "additionalProperties": {
               "type": "string"
             },
@@ -14654,7 +14916,11 @@
             }
           },
           "incusProvisioned": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Apelora created or adopted the Incus project (`incusState` is not `pending`)."
+          },
+          "incusState": {
+            "$ref": "#/components/schemas/TenancyIncusState"
           },
           "kind": {
             "$ref": "#/components/schemas/EnvKind"
@@ -15876,6 +16142,51 @@
           "server": {
             "type": "string",
             "description": "Image server URL, e.g. a simplestreams server or an OCI registry."
+          }
+        }
+      },
+      "IncusProjectPrepared": {
+        "type": "object",
+        "description": "The result of preparing an environment's Incus project.",
+        "required": [
+          "environmentId",
+          "state",
+          "detail",
+          "findings"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyFinding"
+            }
+          },
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limits": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TenancyLimitOutcome",
+                "description": "The quotas mirrored right after (absent when the project is not ready)."
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/TenancyIncusState"
           }
         }
       },
@@ -19058,6 +19369,17 @@
               "$ref": "#/components/schemas/PlanItem"
             }
           },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaCheck",
+                "description": "The deployment against the quotas above its environment (ADR 0012); absent when no\nquota applies. `allowed: false` means applying is refused."
+              }
+            ]
+          },
           "warnings": {
             "type": "array",
             "items": {
@@ -19677,6 +19999,268 @@
           },
           "module": {
             "type": "string"
+          }
+        }
+      },
+      "QuotaChange": {
+        "type": "object",
+        "description": "The result of changing a quota.",
+        "required": [
+          "environments"
+        ],
+        "properties": {
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyLimitOutcome"
+            },
+            "description": "Each environment beneath the scope: what mirroring the change to Incus did."
+          },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaLimits"
+              }
+            ]
+          }
+        }
+      },
+      "QuotaCheck": {
+        "type": "object",
+        "description": "A deployment against the quotas above its environment.",
+        "required": [
+          "allowed",
+          "adding",
+          "scopes"
+        ],
+        "properties": {
+          "adding": {
+            "$ref": "#/components/schemas/QuotaUsage",
+            "description": "What it adds (instances to create; removals are not credited before they happen)."
+          },
+          "allowed": {
+            "type": "boolean",
+            "description": "False when any limited dimension would be exceeded: the deployment is refused."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaScopeCheck"
+            }
+          }
+        }
+      },
+      "QuotaDimension": {
+        "type": "string",
+        "description": "One quota dimension.",
+        "enum": [
+          "instances",
+          "cpu",
+          "memory",
+          "disk"
+        ]
+      },
+      "QuotaDimensionCheck": {
+        "type": "object",
+        "required": [
+          "dimension",
+          "used",
+          "adding",
+          "limit",
+          "exceeded"
+        ],
+        "properties": {
+          "adding": {
+            "type": "integer",
+            "format": "int64",
+            "description": "What the deployment adds."
+          },
+          "dimension": {
+            "$ref": "#/components/schemas/QuotaDimension"
+          },
+          "exceeded": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "used": {
+            "type": "integer",
+            "format": "int64",
+            "description": "In use now (instances, CPUs or bytes)."
+          }
+        }
+      },
+      "QuotaLimits": {
+        "type": "object",
+        "description": "A quota: one limit per dimension, `None` meaning no limit.",
+        "properties": {
+          "cpu": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "diskGib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "instances": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "memoryGib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "QuotaScopeCheck": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "dimensions"
+        ],
+        "properties": {
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuotaDimensionCheck"
+            },
+            "description": "Only the dimensions this scope limits."
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/QuotaScopeKind"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "QuotaScopeKind": {
+        "type": "string",
+        "description": "Which level of the tenancy tree a quota belongs to.",
+        "enum": [
+          "organization",
+          "project",
+          "environment"
+        ]
+      },
+      "QuotaUsage": {
+        "type": "object",
+        "description": "Resources in use or asked for, in Incus's units.",
+        "required": [
+          "instances",
+          "cpu",
+          "memoryBytes",
+          "diskBytes"
+        ],
+        "properties": {
+          "cpu": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "diskBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "instances": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "memoryBytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "QuotaView": {
+        "type": "object",
+        "description": "A scope's quota, its use and the quotas above it.",
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "bound",
+          "canSet"
+        ],
+        "properties": {
+          "bound": {
+            "$ref": "#/components/schemas/QuotaLimits",
+            "description": "The tightest quota of the scopes above (a tenant may not set more)."
+          },
+          "canSet": {
+            "type": "boolean",
+            "description": "The caller may change it."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/QuotaScopeKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaLimits",
+                "description": "`None`: this scope has no quota of its own."
+              }
+            ]
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaUsage",
+                "description": "Use beneath this scope as Incus reports it; `None` with `usageError` when it could not be read."
+              }
+            ]
+          },
+          "usageError": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -21122,6 +21706,419 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "TenancyEnvironment": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "kind",
+          "incusState",
+          "incusDetail",
+          "effective",
+          "apeloraLimits",
+          "findings",
+          "canSetQuota",
+          "canPrepare"
+        ],
+        "properties": {
+          "apeloraLimits": {
+            "type": "object",
+            "description": "The limit keys Apelora last wrote to the Incus project.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "canPrepare": {
+            "type": "boolean",
+            "description": "The caller may create or adopt the Incus project now."
+          },
+          "canSetQuota": {
+            "type": "boolean"
+          },
+          "checkedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "effective": {
+            "$ref": "#/components/schemas/QuotaLimits",
+            "description": "The tightest of its own, its project's and its organisation's quota: what Incus gets."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyFinding"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incus": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TenancyIncusView",
+                "description": "As Incus reports it; `None` when the project does not exist or could not be read."
+              }
+            ]
+          },
+          "incusDetail": {
+            "type": "string"
+          },
+          "incusError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incusState": {
+            "$ref": "#/components/schemas/TenancyIncusState"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EnvKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaLimits",
+                "description": "This environment's own quota."
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          }
+        }
+      },
+      "TenancyFinding": {
+        "type": "object",
+        "description": "Something about an environment's Incus project worth knowing.",
+        "required": [
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The configuration key it is about, if any."
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/TenancyFindingSeverity"
+          }
+        }
+      },
+      "TenancyFindingSeverity": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "error"
+        ]
+      },
+      "TenancyIncusState": {
+        "type": "string",
+        "description": "What Apelora knows about an environment's Incus project.",
+        "enum": [
+          "pending",
+          "created",
+          "adopted"
+        ]
+      },
+      "TenancyIncusView": {
+        "type": "object",
+        "description": "What Incus reports for an environment's project.",
+        "required": [
+          "restrictions",
+          "limits",
+          "usage"
+        ],
+        "properties": {
+          "limits": {
+            "type": "object",
+            "description": "`limits.*` keys as set.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "restrictions": {
+            "type": "object",
+            "description": "`restricted*` and `features.*` keys as set.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "usage": {
+            "$ref": "#/components/schemas/TenancyProjectUse"
+          }
+        }
+      },
+      "TenancyLimitOutcome": {
+        "type": "object",
+        "description": "What mirroring the quotas did to one environment's Incus project.",
+        "required": [
+          "environmentId",
+          "environment",
+          "result",
+          "limits",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "environmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incusProject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limits": {
+            "type": "object",
+            "description": "The limit keys asked for (`limits.cpu` = `8`, …).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "result": {
+            "$ref": "#/components/schemas/TenancyLimitResult"
+          }
+        }
+      },
+      "TenancyLimitResult": {
+        "type": "string",
+        "enum": [
+          "applied",
+          "unchanged",
+          "skipped",
+          "failed"
+        ]
+      },
+      "TenancyOrganization": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "canSetQuota",
+          "projects"
+        ],
+        "properties": {
+          "canSetQuota": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyProject"
+            }
+          },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaLimits"
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaUsage",
+                "description": "Use of all its environments; only for callers who see the whole organisation."
+              }
+            ]
+          }
+        }
+      },
+      "TenancyOverview": {
+        "type": "object",
+        "required": [
+          "source",
+          "adminConfigured",
+          "baseline",
+          "organizations"
+        ],
+        "properties": {
+          "adminConfigured": {
+            "type": "boolean",
+            "description": "An admin identity is configured: Apelora can prepare Incus projects and set limits."
+          },
+          "baseline": {
+            "type": "object",
+            "description": "The configuration of a project Apelora would create now (restrictions and features).",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "organizations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyOrganization"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "TenancyProject": {
+        "type": "object",
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "canSetQuota",
+          "environments"
+        ],
+        "properties": {
+          "canSetQuota": {
+            "type": "boolean"
+          },
+          "environments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenancyEnvironment"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quota": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaLimits"
+              }
+            ]
+          },
+          "slug": {
+            "type": "string"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotaUsage",
+                "description": "Use of its environments; `None` when one could not be read."
+              }
+            ]
+          }
+        }
+      },
+      "TenancyProjectUse": {
+        "type": "object",
+        "description": "An Incus project's use and limits (Incus's own aggregate of instance limits, root disk\nsizes and volume sizes).",
+        "required": [
+          "instances",
+          "cpu",
+          "memory",
+          "disk"
+        ],
+        "properties": {
+          "cpu": {
+            "$ref": "#/components/schemas/TenancyResource"
+          },
+          "disk": {
+            "$ref": "#/components/schemas/TenancyResource"
+          },
+          "instances": {
+            "$ref": "#/components/schemas/TenancyResource"
+          },
+          "memory": {
+            "$ref": "#/components/schemas/TenancyResource"
+          }
+        }
+      },
+      "TenancyResource": {
+        "type": "object",
+        "description": "One resource of an Incus project as `GET /1.0/projects/<name>/state` reports it.",
+        "required": [
+          "used"
+        ],
+        "properties": {
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`None` when the project has no limit for it."
+          },
+          "used": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Instances, CPUs or bytes."
           }
         }
       },

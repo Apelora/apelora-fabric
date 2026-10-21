@@ -19,6 +19,7 @@ pub mod plan;
 pub mod preflight;
 pub mod removal;
 pub mod storage;
+pub mod tenancy;
 
 /// Version segment of the Apelora REST API (`/api/v1`).
 pub const API_VERSION: &str = "v1";

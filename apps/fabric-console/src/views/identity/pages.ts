@@ -7,6 +7,8 @@ export const IDENTITY_PAGES = [
   { id: "identity/users", label: "Users", any: ["user.view", "user.manage"] },
   { id: "identity/groups", label: "Groups", any: ["user.view", "group.manage"] },
   { id: "identity/organizations", label: "Organizations", any: ["organization.view"] },
+  // Each environment's Incus project, its restrictions and limit use, and quotas (views/identity/Tenancy.tsx).
+  { id: "identity/tenancy", label: "Tenancy & quotas", any: ["organization.view", "project.view", "quota.manage"] },
   { id: "identity/memberships", label: "Project memberships", any: ["user.view", "role.assign"] },
   { id: "identity/roles", label: "Roles & permissions", any: ["role.assign", "role.manage", "user.view"] },
   { id: "identity/services", label: "Service identities", any: ["service_identity.manage"] },

@@ -468,7 +468,28 @@ pub(super) async fn preview(
         req.connections.as_deref(),
         &req.published,
     );
+    if let Some(env) = target.environment_id {
+        p.quota =
+            super::tenancy::check_deployment(&state, env, &creating(&p, &req.modules)).await?;
+        if let Some(q) = p.quota.as_ref().and_then(|q| q.refusal()) {
+            p.warnings
+                .push(format!("over quota, applying would be refused: {q}"));
+        }
+    }
     Ok(Json(p))
+}
+
+/// What the plan creates, per instance: its config and volume sizes (quota accounting).
+fn creating<'a>(plan: &Plan, modules: &'a [DesiredModule]) -> Vec<super::tenancy::Adding<'a>> {
+    plan.items
+        .iter()
+        .filter(|i| i.action == PlanAction::Create)
+        .filter_map(|i| modules.iter().find(|d| d.module == i.module))
+        .map(|d| super::tenancy::Adding {
+            config: &d.spec.config,
+            volume_mib: d.spec.volumes.iter().map(|v| i64::from(v.size_mib)).sum(),
+        })
+        .collect()
 }
 
 /// Deploys the design: saves it as a new revision and queues the planned changes. Refuses
@@ -535,6 +556,17 @@ pub(super) async fn deploy(
             "plan_conflict",
             format!("nothing was deployed; {}", conflicts.join("; ")),
         ));
+    }
+    // The environment's Incus project is prepared on first use, and the quotas above it are
+    // checked before anything is saved or queued (ADR 0012).
+    if let Some(env) = target.environment_id {
+        super::tenancy::ensure_ready(&state, &p, env).await?;
+        applied.quota =
+            super::tenancy::check_deployment(&state, env, &creating(&applied, &req.modules))
+                .await?;
+        if let Some(q) = applied.quota.as_ref().filter(|q| !q.allowed) {
+            return Err(super::tenancy::refuse(q));
+        }
     }
 
     // A pinned version must be a published one of an application that already exists: a draft

@@ -1218,7 +1218,8 @@ async fn nobody_can_grant_more_than_they_hold_and_an_organisation_owner_never_re
     // An organisation owner cannot map an environment to an arbitrary Incus project.
     let (s, b) = l.req("POST", &format!("/api/v1/identity/projects/{}/environments", w.acme_prod), &ta, Some(json!({ "slug": "sneaky", "name": "S", "kind": "other", "incusProject": "default" }))).await;
     assert_eq!(s, StatusCode::FORBIDDEN, "{b}");
-    // …but she can create an environment, whose Incus project is derived from the names.
+    // …but she can create an environment, whose Incus project is derived from the names and
+    // created by Apelora with the baseline restrictions (ADR 0012).
     let (s, env) = l
         .req(
             "POST",
@@ -1233,9 +1234,10 @@ async fn nobody_can_grant_more_than_they_hold_and_an_organisation_owner_never_re
             env["incusProject"].as_str(),
             env["incusProvisioned"].as_bool()
         ),
-        (StatusCode::CREATED, Some("acme-prod-staging"), Some(false)),
+        (StatusCode::CREATED, Some("acme-prod-staging"), Some(true)),
         "{env}"
     );
+    assert_eq!(env["incusState"], "created");
     assert_eq!(env["incusProjectConfig"]["restricted"], "true");
     // The evidence: the refusals are in the audit trail.
     let refused: i64 = sqlx::query_scalar(

@@ -30,6 +30,7 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 | Audit read side: filtered list (`GET /api/v1/audit`, `/api/v1/identity/audit`) and export (`GET /api/v1/audit/export`, CSV or JSON lines, audited as `audit.exported`) | `services/control-plane/src/api/audit.rs`, `identity::audit_history` (migration 0022 indexes) |
 | Every state-changing route audits, in the same transaction (story + `EXEMPT`) | `services/control-plane/src/api/audit_coverage_tests.rs` |
 | Personal tokens (`apt_`, migration 0026), a person's sign-ins, `REFUSED_TO_PERSONAL_TOKENS`, `Principal::credential` | `services/control-plane/src/api/account.rs` (+ `account_tests.rs`), `crates/persistence/src/personal_tokens.rs`, `user_sessions::live_sessions`; Console `views/credentials/`, `views/identity/Credentials.tsx` |
+| Tenancy: environments' Incus projects, quotas (`quota.manage`, tenants dividing within the quota above), plan-time checks (ADR 0012) | `services/control-plane/src/api/tenancy.rs` (+ `tenancy_tests.rs`, ignored `tenancy_real_tests.rs`), `crates/domain/src/tenancy.rs`, `crates/persistence/src/tenancy.rs` (migration 0027); Console `views/identity/Tenancy.tsx` |
 | Outbox (one message per audit row) and its relay | `crates/persistence/src/outbox.rs`, `services/deployment-worker/src/outbox.rs` |
 
 ## Rules

@@ -124,6 +124,34 @@ test.describe("deploying from the Studio", () => {
     expect(deployCalls).toBe(0);
   });
 
+  test("the review shows quota use, and a deployment over quota cannot be applied", async ({ page }) => {
+    let deployCalls = 0;
+    const GIB = 1024 ** 3;
+    const quota = { allowed: false, adding: { instances: 2, cpu: 2, memoryBytes: GIB, diskBytes: 0 }, scopes: [
+      { kind: "project", id: "p", name: "Shop", dimensions: [
+        { dimension: "instances", used: 9, adding: 2, limit: 10, exceeded: true },
+        { dimension: "memory", used: 4 * GIB, adding: GIB, limit: 8 * GIB, exceeded: false },
+      ] },
+    ] };
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [item("nginx-01", "create"), item("nginx-02", "create")], warnings: ["over quota, applying would be refused: project Shop: 9 instances in use, this adds 2, quota 10"], quota } }),
+      "POST /api/v1/applications/commerce-stack/deployments": () => { deployCalls += 1; return { status: 409, json: { error: { code: "quota_exceeded", message: "nothing was deployed" } } }; },
+    });
+    await open(page);
+    await page.getByTestId("deploy-open").click();
+    await page.getByTestId("deploy-preview").click();
+    const rows = page.getByTestId("deploy-quota-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText("Instances of project Shop");
+    await expect(rows.nth(0)).toContainText("11 of 10 (over quota)");
+    await expect(rows.nth(1)).toContainText("5 GiB of 8 GiB");
+    await expect(page.getByTestId("deploy-over-quota")).toContainText("Over quota: nothing is deployed.");
+    await expect(page.getByTestId("deploy-apply")).toBeDisabled();
+    expect(deployCalls).toBe(0);
+  });
+
   test("asks for a token when the control plane requires one, and keeps it for the tab only", async ({ page }) => {
     const good = "apl_" + "c".repeat(64);
     await stub(page, {

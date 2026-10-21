@@ -319,6 +319,28 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         )
         .await;
     let (env, incus_project) = (id(&env, "id"), id(&env, "incusProject"));
+    // Preparing the environment's Incus project again (Incus first, then its state and row).
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/identity/environments/{id}/incus-project",
+        &format!("/api/v1/identity/environments/{env}/incus-project"),
+        r,
+        Value::Null,
+        "environment.incus_project.prepare",
+    )
+    .await;
+    // A generous quota: the deployments further down are checked against it.
+    s.step(
+        Atomic,
+        "PUT",
+        "/api/v1/identity/quotas/{scope}/{id}",
+        &format!("/api/v1/identity/quotas/project/{project}"),
+        r,
+        json!({ "instances": 100, "cpu": 400, "memoryGib": 1000, "diskGib": 10000 }),
+        "quota.set",
+    )
+    .await;
 
     // ---- people, groups, roles, assignments, emergency access ----
     let bob = s.l.user("sub-bob", "bob").await;

@@ -201,10 +201,14 @@ pub struct EnvironmentDto {
     pub kind: EnvKind,
     /// The restricted Incus project this environment deploys into.
     pub incus_project: Option<String>,
-    /// The settings that project needs (restricted, unprivileged, no host devices). Apelora does
-    /// not create or verify the Incus project yet: an administrator does, with these settings.
+    /// The restrictions and features of a project Apelora creates (ADR 0012); an adopted
+    /// project keeps its own (see the Tenancy page for what Incus has).
     pub incus_project_config: BTreeMap<String, String>,
+    /// Apelora created or adopted the Incus project (`incusState` is not `pending`).
     pub incus_provisioned: bool,
+    pub incus_state: apelora_domain::tenancy::TenancyIncusState,
+    /// Why it is still pending, or what preparing it found.
+    pub incus_detail: String,
 }
 #[derive(Serialize, ToSchema)]
 pub struct EnvironmentList {
@@ -719,20 +723,26 @@ fn hide_missing(p: &Principal, e: ApiError, perm: &str, res: &Resource) -> ApiEr
     e
 }
 
-fn env_dto(e: db::EnvironmentRow) -> EnvironmentDto {
+fn env_dto(state: &AppState, e: db::EnvironmentRow) -> EnvironmentDto {
+    use apelora_domain::tenancy::{TenancyIncusState, baseline_config, restrictions};
     let kind = EnvKind::parse(&e.kind).unwrap_or(EnvKind::Other);
+    let incus_state =
+        TenancyIncusState::parse(&e.incus_state).unwrap_or(TenancyIncusState::Pending);
+    let incus_detail = super::tenancy::detail_of(state, &e);
     EnvironmentDto {
+        incus_project_config: restrictions(&baseline_config(
+            &e.id.to_string(),
+            &super::tenancy::settings(state),
+        )),
         id: e.id,
         project_id: e.project_id,
         slug: e.slug,
         name: e.name,
         kind,
-        incus_project_config: apelora_auth::backend::incus_project_config(
-            kind,
-            &apelora_auth::backend::Limits::default(),
-        ),
         incus_project: e.incus_project,
-        incus_provisioned: false,
+        incus_provisioned: incus_state != TenancyIncusState::Pending,
+        incus_state,
+        incus_detail,
     }
 }
 
@@ -764,7 +774,7 @@ pub(super) async fn environments(
         items: db::list_environments(pool, project)
             .await?
             .into_iter()
-            .map(env_dto)
+            .map(|e| env_dto(&state, e))
             .collect(),
     }))
 }
@@ -831,7 +841,19 @@ pub(super) async fn create_environment(
     .await?;
     audit_scoped(&mut tx, &p, "environment.create", &env.slug, "success", Some(&res), &json!({ "id": env.id, "kind": req.kind.as_str(), "incusProject": incus, "chosenByPlatformAdmin": req.incus_project.is_some() })).await?;
     commit(tx).await?;
-    Ok((StatusCode::CREATED, Json(env_dto(env))))
+    // With the admin identity, the environment's Incus project is created (or adopted) now; a
+    // failure leaves it pending with the reason, and the environment exists either way.
+    let env = if state.admin.is_some()
+        && let Some(chain) = apelora_persistence::tenancy::environment_chain(pool, env.id).await?
+    {
+        super::tenancy::prepare(&state, &p, &chain).await?;
+        db::environment_by_id(pool, env.id)
+            .await?
+            .map_or(env, |(e, _)| e)
+    } else {
+        env
+    };
+    Ok((StatusCode::CREATED, Json(env_dto(&state, env))))
 }
 
 // ---- users and groups -------------------------------------------------------------------------

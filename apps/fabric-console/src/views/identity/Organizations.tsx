@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 
 import type { EnvKind, EnvironmentDto, OrganizationDto, ProjectDto, WhoAmI } from "@apelora/api-client";
 
-import { Badge, ErrorPanel, FormDialog, Notice, Section, SectionHeader } from "../../components/ui";
+import { Badge, ErrorPanel, FormDialog, Notice, Section, SectionHeader, sentence } from "../../components/ui";
 import { client, useLoad } from "../../lib/api";
 import { ENV_KINDS, ENV_LABEL, SLUG_HINT, fmtDate, holds, holdsPlatform, useRun, validSlug } from "../../lib/identity";
 
@@ -82,7 +82,7 @@ function CreateEnvironment({ project, me, open, onAuth, onClose, onCreated }: { 
         </select>
         <span className="text-xs text-base-content/60">Policies such as “production needs multi-factor sign-in” refer to the kind.</span>
       </div>
-      <p className="text-xs text-base-content/60">The server derives the Incus project name from the organization, project and environment identifiers. Apelora does not create that Incus project yet; an administrator does, with the settings shown after creation.</p>
+      <p className="text-xs text-base-content/60">The Incus project name comes from the organization, project and environment identifiers. Apelora creates that restricted Incus project with the environment.</p>
       {platform && (
         <div className="flex flex-col gap-1 text-sm">
           <label htmlFor={existingId}>Existing Incus project (platform administrators, optional)</label>
@@ -115,13 +115,13 @@ function Environment({ env }: { env: EnvironmentDto }) {
         <Badge tone="neutral">{ENV_LABEL[env.kind]}</Badge>
         <span className="text-sm">Incus project <span className="font-mono text-xs" data-testid="env-incus-project">{env.incusProject ?? "not set"}</span></span>
       </div>
-      {env.incusProvisioned ? (
-        <p className="text-sm text-base-content/70">Incus project created.</p>
-      ) : (
-        <Notice tone="warn" testId="env-not-provisioned">Incus project not created by Apelora yet — an administrator creates it with these settings.</Notice>
+      {env.incusState === "created" && <p className="text-sm text-base-content/70" data-testid="env-provisioned">Incus project created by Apelora with the settings below.</p>}
+      {env.incusState === "adopted" && <p className="text-sm text-base-content/70" data-testid="env-provisioned">An existing restricted Incus project, used as it is. Tenancy &amp; quotas shows its settings.</p>}
+      {env.incusState === "pending" && (
+        <Notice tone="warn" testId="env-not-provisioned" title="Incus project not prepared yet">{env.incusDetail ? `${sentence(env.incusDetail)}.` : "Tenancy & quotas can prepare it."}</Notice>
       )}
       <details className="text-sm" data-testid="env-config">
-        <summary className="cursor-pointer text-base-content/80">Incus project settings ({config.length})</summary>
+        <summary className="cursor-pointer text-base-content/80">Settings of an Incus project Apelora creates ({config.length})</summary>
         <pre tabIndex={0} aria-label={`Incus project settings for ${env.name}`} className="mt-2 overflow-x-auto rounded-box border border-base-300 bg-base-200 p-3 font-mono text-xs">
           {config.map(([k, v]) => `${k}=${String(v)}`).join("\n")}
         </pre>
@@ -148,7 +148,7 @@ function Environments({ project, me, onAuth }: { project: ProjectDto; me: WhoAmI
           </>
         )}
       </Section>
-      <CreateEnvironment project={project} me={me} open={creating} onAuth={onAuth} onClose={() => setCreating(false)} onCreated={(e) => { setCreating(false); setNotice(`Environment ${e.name} created. The Incus project ${e.incusProject ?? ""} still has to be created by an administrator.`); reload(); }} />
+      <CreateEnvironment project={project} me={me} open={creating} onAuth={onAuth} onClose={() => setCreating(false)} onCreated={(e) => { setCreating(false); setNotice(e.incusState === "pending" ? `Environment ${e.name} created. Its Incus project ${e.incusProject ?? ""} is not prepared yet: ${e.incusDetail}.` : `Environment ${e.name} created, with the restricted Incus project ${e.incusProject ?? ""}.`); reload(); }} />
     </div>
   );
 }

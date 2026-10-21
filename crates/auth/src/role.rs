@@ -149,6 +149,7 @@ impl Builtin {
                 "support.bundle",
                 "alert.respond",
                 "alert.configure",
+                "quota.manage",
                 "hardware.view",
                 "organization.view",
                 "project.view",

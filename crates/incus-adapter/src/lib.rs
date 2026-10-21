@@ -13,10 +13,12 @@
 mod client;
 pub mod config;
 mod shell;
+pub mod tenancy;
 mod wire;
 
 pub use client::{CertificateExpiry, IncusClient, IncusConfig, certificate_not_after};
 pub use shell::{MAX_CHUNK, MockShell, ShellInput, ShellRequest, ShellSession};
+pub use tenancy::{IncusProfile, MOCK_DEPLOY_FINGERPRINT, MockTenancy};
 pub use wire::Operation;
 
 use std::sync::{Arc, Mutex, RwLock};
@@ -1857,6 +1859,9 @@ pub struct MockIncus {
     /// Incus release per member name (tests); a member without one reports the server's
     /// (unknown for the mock).
     pub member_versions: Arc<Mutex<std::collections::BTreeMap<String, String>>>,
+    /// Projects Apelora created or changed, profiles, the trust store and project use
+    /// (`tenancy.rs`, ADR 0012).
+    pub tenancy: Arc<Mutex<tenancy::MockTenancy>>,
     next_op: Arc<Mutex<u64>>,
 }
 
@@ -2107,6 +2112,12 @@ impl MockIncus {
                 message: "Instance already exists".into(),
             });
         }
+        let in_project = self
+            .lock()
+            .iter()
+            .filter(|i| i.instance.project == spec.project)
+            .count();
+        self.tenancy_admit(spec, in_project)?;
         let uuid = self.op();
         // Like Incus, never place on a member that is not Online.
         let location = self
@@ -2266,6 +2277,7 @@ impl MockIncus {
             v.used_by.retain(|u| *u != used);
         }
         drop(gone);
+        self.tenancy_release(project, name);
         Ok(self.op())
     }
 
@@ -2492,6 +2504,7 @@ impl Default for MockIncus {
                     .collect(),
             )),
             member_versions: Arc::default(),
+            tenancy: Arc::new(Mutex::new(tenancy::MockTenancy::seeded())),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
             storage: Arc::default(),

@@ -41,6 +41,9 @@ pub struct AppState {
     deploy_projects: Arc<Vec<String>>,
     /// Unrestricted identity for cluster administration; `None` when not configured.
     admin: Option<Arc<Provider>>,
+    /// SHA-256 fingerprint of the deploy identity's certificate (`APELORA_INCUS_CLIENT_CERT`):
+    /// environments' Incus projects are added to its project list (ADR 0012). The mock has its own.
+    deploy_fingerprint: Option<Arc<str>>,
     /// Uplink for application OVN networks (`APELORA_NETWORK_UPLINK`); `None`: connections
     /// are not enforced.
     network_uplink: Option<Arc<str>>,
@@ -98,6 +101,7 @@ impl AppState {
             auth,
             deploy_projects: Arc::new(vec![DEFAULT_DEPLOY_PROJECT.to_owned()]),
             admin: None,
+            deploy_fingerprint: None,
             network_uplink: None,
             service_range: None,
             volume_pool: None,
@@ -189,6 +193,11 @@ impl AppState {
 
     pub fn with_admin(mut self, admin: Option<Provider>) -> Self {
         self.admin = admin.map(Arc::new);
+        self
+    }
+
+    pub fn with_deploy_fingerprint(mut self, fingerprint: Option<String>) -> Self {
+        self.deploy_fingerprint = fingerprint.map(Arc::from);
         self
     }
 
@@ -469,6 +478,15 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/identity/projects/{project}/environments",
             get(identity::environments).post(identity::create_environment),
+        )
+        .route("/api/v1/identity/tenancy", get(tenancy::overview))
+        .route(
+            "/api/v1/identity/quotas/{scope}/{id}",
+            get(tenancy::quota).put(tenancy::set_quota),
+        )
+        .route(
+            "/api/v1/identity/environments/{id}/incus-project",
+            post(tenancy::prepare_project),
         )
         .route("/api/v1/identity/users", get(identity::users))
         .route("/api/v1/identity/users/lookup", get(identity::lookup_user))
@@ -1547,6 +1565,7 @@ impl Modify for BearerAuth {
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
         identity::environments, identity::create_environment, identity::users, identity::lookup_user,
+        tenancy::overview, tenancy::quota, tenancy::set_quota, tenancy::prepare_project,
         identity::disable_user, identity::enable_user, identity::groups, identity::create_group,
         identity::group_members, identity::add_member, identity::remove_member, identity::roles,
         identity::create_role, identity::delete_role, identity::permissions, identity::assignments,
@@ -1619,6 +1638,7 @@ pub mod sessions_auth;
 pub mod settings;
 mod storage;
 mod support;
+pub mod tenancy;
 mod volumes;
 
 #[cfg(test)]
@@ -1649,5 +1669,9 @@ mod sessions_tests;
 mod storage_tests;
 #[cfg(test)]
 mod surface_tests;
+#[cfg(test)]
+mod tenancy_real_tests;
+#[cfg(test)]
+mod tenancy_tests;
 #[cfg(test)]
 mod tests;

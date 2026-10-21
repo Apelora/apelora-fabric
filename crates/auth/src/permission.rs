@@ -262,6 +262,12 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         false,
         "Change alert rules (on or off, thresholds, durations, severities) and notification channels (webhooks)",
     ),
+    i(
+        "quota.manage",
+        Plat,
+        false,
+        "Set resource quotas on organisations, projects and environments (mirrored to Incus project limits)",
+    ),
     // --- platform security (platform scope only)
     s("organization.create", "Create organisations"),
     s("role.manage", "Define custom roles"),

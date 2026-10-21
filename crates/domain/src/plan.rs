@@ -169,6 +169,10 @@ pub struct Plan {
     pub items: Vec<PlanItem>,
     /// Facts the designer should know before applying, e.g. single points of failure.
     pub warnings: Vec<String>,
+    /// The deployment against the quotas above its environment (ADR 0012); absent when no
+    /// quota applies. `allowed: false` means applying is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota: Option<crate::tenancy::QuotaCheck>,
 }
 
 impl Plan {
@@ -321,7 +325,11 @@ pub fn plan(
             if single.len() == 1 { "s" } else { "" }
         ));
     }
-    Plan { items, warnings }
+    Plan {
+        items,
+        warnings,
+        quota: None,
+    }
 }
 
 #[cfg(test)]

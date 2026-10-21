@@ -289,6 +289,31 @@ pub(super) async fn create_instance(
         ));
     }
     ensure_project_allowed(&state, &spec.project).await?;
+    // In an environment's project: prepared on first use, and its quotas checked before the
+    // job is queued (ADR 0012). A repeated request for an instance that exists adds nothing.
+    if let Auth::Tokens(pool) = &state.auth
+        && let Some((env, _)) =
+            apelora_persistence::identity::environment_by_incus_project(pool, &spec.project).await?
+    {
+        super::tenancy::ensure_ready(&state, &p, env.id).await?;
+        let exists = state
+            .provider
+            .instance(&spec.project, &spec.name)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+        let adding = [super::tenancy::Adding {
+            config: &spec.config,
+            volume_mib: 0,
+        }];
+        let adding: &[super::tenancy::Adding<'_>] = if exists { &[] } else { &adding };
+        if let Some(q) = super::tenancy::check_deployment(&state, env.id, adding).await?
+            && !q.allowed
+        {
+            return Err(super::tenancy::refuse(&q));
+        }
+    }
     let target = format!("{}/{}", spec.project, spec.name);
     let payload = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;
     queue(&state, &p, &headers, "instance.create", &target, payload).await

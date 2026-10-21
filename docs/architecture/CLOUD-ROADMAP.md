@@ -56,7 +56,7 @@ Status: ✅ built · 🟡 partly · ⬜ planned.
 | | Terminal and PowerShell sessions into modules | ✅ Studio; ⬜ Console |
 | | Support bundles and request tracing across planes | 🟡 request ids built |
 | **Tenancy and business** | Organisations, projects, environments | ✅ |
-| | Quotas per organisation and project | ⬜ |
+| | Quotas per organisation, project and environment; a restricted Incus project per environment (ADR 0012) | ✅ |
 | | Metering of usage (CPU, memory, storage, network) | ⬜ |
 | | Pricing, showback and chargeback; invoices | ⬜ |
 | | Self-service sign-up for tenants (for service providers) | ⬜ |
