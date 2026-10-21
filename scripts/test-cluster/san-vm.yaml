@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Lima VM that plays the SAN for the disposable test cluster: one iSCSI disk shared by every
+# member (scripts/test-cluster/shared-storage.sh, docs/design/mobility-and-ha.md slice B).
+# Throwaway only: the target has no authentication and listens on the lab's member network.
+minimumLimaVersion: 2.0.0
+base:
+  - template:_images/debian-13
+vmType: vz
+cpus: 2
+memory: 2GiB
+disk: 40GiB
+mounts: []
+containerd:
+  system: false
+  user: false
+# eth0 (user-v2): the network the members reach each other on.
+networks:
+  - lima: user-v2
