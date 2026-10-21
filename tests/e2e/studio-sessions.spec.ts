@@ -104,7 +104,7 @@ async function install(page: Page, rig: Rig) {
 const rig = (over: Partial<Rig> = {}): Rig => ({ access: {}, posted: [], approvals: [], sockets: [], ...over });
 
 test.describe("sessions on the Monitoring page", () => {
-  test("each instance offers what the person may open, and says why not", async ({ page }) => {
+  test("each instance offers what the person may open, and says why not", { tag: "@smoke" }, async ({ page }) => {
     const r = rig({ access: { [INSTANCES[0]!]: { allowed: true }, [INSTANCES[1]!]: { allowed: false, reason: "the instance is stopped; start the application first" } } });
     await install(page, r);
     await page.goto("/studio/applications/shop/monitoring");

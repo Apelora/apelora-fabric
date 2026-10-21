@@ -34,7 +34,7 @@ async function controlPlane(page: Page, opts: { apiTokens: boolean; accept: bool
   return () => tokenRequests;
 }
 
-test("the Studio signs in with the identity provider and comes back to the page it started from", async ({ page }) => {
+test("the Studio signs in with the identity provider and comes back to the page it started from", { tag: "@smoke" }, async ({ page }) => {
   const exchanges = await controlPlane(page, { apiTokens: true, accept: true });
   await page.goto("/studio/applications");
   await expect(page.getByTestId("source-chip")).toHaveAttribute("data-source", "local");

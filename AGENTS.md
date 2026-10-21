@@ -42,6 +42,7 @@ DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --
 npm run api:generate   # after API changes: OpenAPI document + TypeScript client (packages/api-client)
 npm run typecheck && npm run lint && npm test && npm run build
 npm run test:e2e         # Playwright (needs: npx playwright install chromium)
+npx playwright test --grep @smoke   # the browser tests CI runs on every change (docs/development/CI.md)
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 npm run schema           # regenerate JSON Schemas
@@ -80,6 +81,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 | Networking | `fabric-networking`, `incus-networking` |
 | HA, storage, recovery | `reconciliation-ha`, `storage-recovery`, `storage-volumes` |
 | Tests and evidence | `testing-operations`, `quality-assurance`, `playwright-qa` |
+| CI, workflows, Dependabot, code scanning | `ci-pipeline`, `testing-operations` |
 | Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
 | Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
 | Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |

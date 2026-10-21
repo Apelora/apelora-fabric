@@ -45,7 +45,7 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
 });
 
-test("the navigation is grouped and old addresses lead to their new place", async ({ page }) => {
+test("the navigation is grouped and old addresses lead to their new place", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, { ...base(), "/api/v1/machines": { json: { source: { provider: "incus", observedAt: NOW }, items: [] } }, "/api/v1/cluster/join-tokens": { json: { source: { provider: "incus", observedAt: NOW }, items: [] } } });
   await page.goto("/#/membership");
   await expect(page).toHaveURL(/#\/servers\/machines$/);

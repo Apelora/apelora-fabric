@@ -22,7 +22,7 @@ use std::time::Duration;
 use apelora_persistence::alerts::{self as db, ALERT_TOPIC, SECRET_REF_PREFIX};
 use apelora_persistence::outbox::Message;
 use apelora_persistence::{Pool, StoreError};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::Value;
 use sha2::Sha256;
 use uuid::Uuid;
@@ -39,7 +39,7 @@ pub type SecretSource = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 /// `v1=<hex>`: HMAC-SHA256 with `secret` over `<timestamp>.<body>`.
 pub fn signature(secret: &[u8], timestamp: i64, body: &[u8]) -> String {
     let mut mac =
-        <Hmac<Sha256> as Mac>::new_from_slice(secret).expect("HMAC takes keys of any length");
+        <Hmac<Sha256> as KeyInit>::new_from_slice(secret).expect("HMAC takes keys of any length");
     mac.update(timestamp.to_string().as_bytes());
     mac.update(b".");
     mac.update(body);
@@ -245,7 +245,7 @@ mod tests {
     #[test]
     fn the_signature_is_hmac_sha256_over_timestamp_and_body() {
         // The primitive: RFC 4231 test case 2 (key "Jefe", data "what do ya want for nothing?").
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(b"Jefe").expect("key");
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(b"Jefe").expect("key");
         mac.update(b"what do ya want for nothing?");
         let hex: String = mac
             .finalize()
@@ -259,7 +259,7 @@ mod tests {
         );
         // Our format: the same primitive over "<timestamp>.<body>".
         let s = signature(b"Jefe", 1_700_000_000, b"{}");
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(b"Jefe").expect("key");
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(b"Jefe").expect("key");
         mac.update(b"1700000000.{}");
         let want: String = mac
             .finalize()

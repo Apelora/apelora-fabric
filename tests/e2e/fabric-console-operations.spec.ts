@@ -51,7 +51,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "apl_test"));
 });
 
-test("operations: retry and cancel where the server allows them, each row opens its job", async ({ page }) => {
+test("operations: retry and cancel where the server allows them, each row opens its job", { tag: "@smoke" }, async ({ page }) => {
   let retried = false;
   let cancelled = false;
   const sent: { path: string; key?: string }[] = [];

@@ -95,7 +95,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "apl_test"));
 });
 
-test("storage shows pool use per server, volumes with their protection, and volumes no application uses", async ({ page }) => {
+test("storage shows pool use per server, volumes with their protection, and volumes no application uses", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, storageRoutes(ADMIN));
   await page.goto("/#/storage");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Storage");

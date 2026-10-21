@@ -58,7 +58,7 @@ async function rig(page: Page, me: unknown, extra: Record<string, Handler | Resu
 const ME = whoami(["cluster.view"], { platform: ["cluster.view"] });
 
 test.describe("Your tokens", () => {
-  test("is in the user menu; a token is created, shown once, replaced and revoked", async ({ page }) => {
+  test("is in the user menu; a token is created, shown once, replaced and revoked", { tag: "@smoke" }, async ({ page }) => {
     let list: unknown[] = [];
     const calls = await rig(page, ME, {
       "GET /api/v1/me/tokens": () => tokens(list),

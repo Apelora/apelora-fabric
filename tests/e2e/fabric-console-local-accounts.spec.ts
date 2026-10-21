@@ -39,7 +39,7 @@ async function signedOut(page: Page, opts: { providers?: unknown[] } = {}) {
 }
 
 test.describe("password sign-in", () => {
-  test("with no provider the username and password come first; a wrong password says so; the right one signs in", async ({ page }) => {
+  test("with no provider the username and password come first; a wrong password says so; the right one signs in", { tag: "@smoke" }, async ({ page }) => {
     const calls = await signedOut(page);
     await page.goto("/");
     const card = page.getByTestId("sign-in-page");

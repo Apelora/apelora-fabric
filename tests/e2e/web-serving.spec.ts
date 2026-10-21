@@ -110,7 +110,7 @@ async function watch(page: Page, origin: string) {
 }
 
 test.describe("built applications under the serving policy", () => {
-  test("both applications serve the licence notices at /licenses without a violation or an outside request", async ({ page, request }) => {
+  test("both applications serve the licence notices at /licenses without a violation or an outside request", { tag: "@smoke" }, async ({ page, request }) => {
     for (const app of ["console", "studio"] as const) {
       const { origin } = built[app];
       const w = await watch(page, origin);
@@ -133,7 +133,7 @@ test.describe("built applications under the serving policy", () => {
     }
   });
 
-  test("the Console works on every page without a violation or an outside request", async ({ page }) => {
+  test("the Console works on every page without a violation or an outside request", { tag: "@smoke" }, async ({ page }) => {
     const { origin } = built.console;
     const w = await watch(page, origin);
     await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "eyJhbGciOiJFUzI1NiJ9.e30.stub"));

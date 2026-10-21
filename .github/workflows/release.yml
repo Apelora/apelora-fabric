@@ -17,12 +17,12 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build the control plane and the worker
@@ -36,18 +36,18 @@ jobs:
             cp "target/release/apelora-$svc" LICENSE README.md "$dir/"
             tar -czf "dist/$dir.tar.gz" "$dir"
           done
-          (cd dist && sha256sum *.tar.gz > "SHA256SUMS-services-${{ matrix.arch }}")
-      - uses: actions/upload-artifact@v7
+          (cd dist && sha256sum -- *.tar.gz > "SHA256SUMS-services-${{ matrix.arch }}")
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: services-${{ matrix.arch }}
           path: dist/
 
   apps:
     name: Studio and Fabric Console
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -59,8 +59,8 @@ jobs:
           for app in studio fabric-console; do
             tar -czf "dist/apelora-$app-${GITHUB_REF_NAME}.tar.gz" -C "apps/$app/dist" .
           done
-          (cd dist && sha256sum *.tar.gz > SHA256SUMS-apps)
-      - uses: actions/upload-artifact@v7
+          (cd dist && sha256sum -- *.tar.gz > SHA256SUMS-apps)
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: apps
           path: dist/
@@ -68,11 +68,11 @@ jobs:
   draft-release:
     name: Draft release
     needs: [services, apps]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true

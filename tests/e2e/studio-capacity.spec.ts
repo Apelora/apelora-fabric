@@ -40,7 +40,7 @@ test("not connected: capacity is unknown in this browser and nothing is asked of
   await expect(chip(page)).toBeFocused();
 });
 
-test("connected: the design fits on one server; servers are numbered, numbers come from the API", async ({ page }) => {
+test("connected: the design fits on one server; servers are numbered, numbers come from the API", { tag: "@smoke" }, async ({ page }) => {
   await signedIn(page);
   await stub(page, { "/api/v1/health": { json: health }, "/api/v1/whoami": { json: designer }, "/api/v1/capacity": { json: capacity() } });
   await open(page);

@@ -17,7 +17,7 @@ const confirmDialog = (page: Page) => page.locator("dialog[open]").getByTestId("
 const confirm = (page: Page) => page.locator("dialog[open]").getByTestId("confirm-action").click();
 
 test.describe("navigation", () => {
-  test("offers only the pages whose permissions the caller holds somewhere", async ({ page }) => {
+  test("offers only the pages whose permissions the caller holds somewhere", { tag: "@smoke" }, async ({ page }) => {
     await stub(page, { ...base(whoami(["audit.read", "user.view", "organization.view"], { platform: [] })), "GET /api/v1/cluster": cluster });
     await page.goto("/");
     const group = page.getByRole("navigation", { name: "Console" }).getByRole("group", { name: "Identity & Access" });

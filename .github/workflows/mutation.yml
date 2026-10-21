@@ -26,11 +26,11 @@ concurrency:
 jobs:
   rust-rules:
     name: Rust authorisation and lifecycle rules (every mutant must be caught)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/cache@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -42,7 +42,7 @@ jobs:
         run: cargo mutants -p apelora-auth --no-shuffle -j 2
       - name: Interactive access and lifecycle rules
         run: cargo mutants -p apelora-domain --no-shuffle -j 2 -f crates/domain/src/access.rs -f crates/domain/src/lifecycle.rs
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: mutants-rust
@@ -53,17 +53,17 @@ jobs:
     name: TypeScript model rules (score reported)
     # Only the weekly and manual runs: the score is a trend, not a gate.
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npx stryker run --reporters clear-text,json
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: mutants-typescript

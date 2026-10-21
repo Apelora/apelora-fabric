@@ -1,0 +1,16 @@
+name: Apelora CodeQL configuration
+# Scans the code that ships. Test code is left out by its file name: Rust unit tests live in
+# `<module>/tests.rs` or `*_tests.rs`, integration tests in `tests/`, browser tests in tests/e2e,
+# TypeScript tests in `*.test.ts(x)`. Tests use fixed passwords and print values in assertion
+# messages on purpose, which the secret-handling queries would report as findings.
+# An inline `mod tests { … }` is scanned with the module around it: when one of its fixtures is
+# reported, move the module to `<module>/tests.rs` (`#[cfg(test)] mod tests;`).
+paths-ignore:
+  - "**/tests.rs"
+  - "**/*_tests.rs"
+  - "**/tests/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/node_modules/**"
+  - "**/dist/**"
+  - "target/**"

@@ -1,10 +1,11 @@
 name: CI
 
-# Regression gate for every push and pull request: frontend checks, Rust checks, generated-file
-# drift, dependency licences and advisories, and the Playwright end-to-end suite (Studio and
-# Fabric Console). Pull requests run only the areas they change (scripts/ci/changed-areas.sh);
-# pushes to main and manual runs run everything. No secrets and no Incus credentials are
-# available here; nothing touches real infrastructure.
+# Fast gate for every push and pull request (docs/development/CI.md): frontend checks, Rust lint
+# and tests, generated-file drift, dependency licences and advisories, and the @smoke browser
+# tests. Only the areas a change touches run (scripts/ci/changed-areas.sh, against the pull
+# request's base or the previous commit on main). The full browser suite runs nightly and on
+# demand (e2e-full.yml). No secrets and no Incus credentials are available here; nothing touches
+# real infrastructure. Actions are pinned to commit SHAs; Dependabot moves them.
 on:
   push:
     branches: [main]
@@ -16,36 +17,48 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A new push to a pull request replaces its run; every commit on main keeps its own result.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # CI builds once from a cache: incremental artefacts and debug info only cost time and cache.
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
   changes:
     name: Changed areas
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     outputs:
       frontend: ${{ steps.areas.outputs.frontend }}
       rust: ${{ steps.areas.outputs.rust }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: areas
         env:
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          # A pull request compares with its base; a push with the commit before it (all zeros for
+          # a new branch, which runs everything); a manual run has no base and runs everything.
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
         run: bash scripts/ci/changed-areas.sh "$BASE" | tee -a "$GITHUB_OUTPUT"
 
   frontend:
     name: Frontend (typecheck, lint, unit, build, generated files)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -60,30 +73,49 @@ jobs:
 
   dependencies:
     name: Dependencies and secrets (licences, advisories, sources, committed secrets)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: No secrets in tracked files (private keys, API and join tokens)
         run: bash scripts/security/scan-secrets.sh
       - name: Rust licences, advisories, bans and sources (deny.toml)
-        uses: EmbarkStudios/cargo-deny-action@v2
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
       - name: Licences of the npm packages the apps ship
         run: node scripts/licenses/check-npm.mjs
       - name: Known vulnerabilities in the npm packages the apps ship
         run: npm audit --omit=dev --audit-level=high
 
-  rust:
-    name: Rust (fmt, clippy, test)
+  rust-lint:
+    name: Rust (fmt, clippy)
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          # Pull requests read main's cache and never write their own (the cache budget is shared).
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+
+  rust-test:
+    name: Rust (test, database backup drill)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     # Persistence and worker tests run against a real PostgreSQL (fresh database per test).
     services:
       postgres:
@@ -99,19 +131,12 @@ jobs:
     env:
       DATABASE_URL: postgres://apelora:apelora-ci-only@127.0.0.1:5432/apelora
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - uses: actions/cache@v6
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: cargo-${{ runner.os }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
-          restore-keys: cargo-${{ runner.os }}-
-      - run: cargo fmt --all --check
-      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --locked --workspace
       - name: Backup and restore drill of Apelora's own database (scripts/ops)
         # The control plane's `token list` applies the migrations to the service database; the
@@ -123,29 +148,46 @@ jobs:
           cargo run -q --locked -p apelora-control-plane -- token list >/dev/null
           bash scripts/ops/test-db-backup.sh
 
-  e2e:
-    name: End-to-end (Playwright)
+  e2e-smoke:
+    name: End-to-end smoke (Playwright, @smoke)
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - name: Install Chromium for Playwright
-        run: npx playwright install --with-deps chromium
-      - name: Run Studio and Fabric Console end-to-end tests
-        run: npm run test:e2e
+      - run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright (cached per Playwright version)
+        uses: ./.github/actions/playwright-browsers
+      - name: Run the @smoke tests of the Studio and the Fabric Console
+        run: npx playwright test --grep @smoke
         env:
           CI: "true"
       - name: Upload traces and screenshots on failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-results
+          name: playwright-smoke-results
           path: test-results/
           retention-days: 7
+
+  # One stable check for branch protection: passes when every job above passed or was skipped
+  # because its area did not change.
+  ci-ok:
+    name: CI passed
+    if: always()
+    needs: [changes, frontend, dependencies, rust-lint, rust-test, e2e-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error::a required job ended as $r"; exit 1;; esac
+          done

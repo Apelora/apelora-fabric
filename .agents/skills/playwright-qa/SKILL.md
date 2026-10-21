@@ -26,9 +26,9 @@ Playwright MCP is configured for Chromium in `.mcp.json` (restart Claude Code af
 7. **Prove a regression test.** Before keeping an app fix, show the new test fails without it (e.g. `git stash` the fix, rerun). If the test passes without the fix, the fix is unproven: revert it and keep the test as coverage only.
 8. Fabric Console specs live in `tests/e2e/fabric-console.spec.ts` (project `console-1440`, base URL `:5174`); mock the API with `page.route("**/api/v1/…")` so tests never depend on a running backend.
 
-## CI (`.github/workflows/ci.yml`)
+## CI (`docs/development/CI.md`, skill `ci-pipeline`)
 
-Every push and pull request runs three jobs: **frontend** (npm ci, typecheck, lint, unit tests, build, and a check that `npm run schema` / `npm run catalog:doc` leave no diff), **rust** (fmt, clippy `-D warnings`, test, all `--locked`, toolchain from `rust-toolchain.toml`) and **e2e** (Playwright Chromium, both projects; traces uploaded as an artifact on failure). `forbidOnly` is on in CI. No secrets or Incus credentials exist in CI; never add live-infrastructure tests there.
+Every push and pull request runs only the **`@smoke`** tests (`ci.yml`, about 35 s); the whole suite runs nightly, by hand and on pull requests labelled `full-e2e` (`e2e-full.yml`, four shards split by test). Tag one or two tests per new area with `{ tag: "@smoke" }` (details argument, not the title), and run the whole suite locally (`npm run test:e2e`) before pushing UI work. Tests must not depend on another test in the same file having run first: shards split files. `forbidOnly` is on in CI. No secrets or Incus credentials exist in CI; never add live-infrastructure tests there.
 
 ## Required coverage (see `docs/architecture/STUDIO-MVP.md`)
 

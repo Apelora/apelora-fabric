@@ -35,7 +35,7 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
 });
 
-test("healthy: every component in words, servers with used-of-total bars, instances on demand", async ({ page }) => {
+test("healthy: every component in words, servers with used-of-total bars, instances on demand", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, { ...base(), "/api/v1/health/components": { json: healthy() }, "/api/v1/health/servers": { json: servers() } });
   await page.goto("/#/health");
   const nav = page.getByRole("navigation", { name: "Console" });

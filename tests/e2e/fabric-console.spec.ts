@@ -28,7 +28,7 @@ test.describe("fabric console", () => {
   // (Routes registered later take precedence over this one.)
   test.beforeEach(async ({ page }) => { await page.route("**/api/**", (route) => route.abort()); });
 
-  test("control plane down: says so, shows how to start it, retries into mock data that is labelled", async ({ page }) => {
+  test("control plane down: says so, shows how to start it, retries into mock data that is labelled", { tag: "@smoke" }, async ({ page }) => {
     let up = false;
     await page.route("**/api/v1/health", (route) => (up ? route.fulfill({ json: health("mock", false) }) : route.abort()));
     await api(page, { "/api/v1/cluster": { json: cluster("mock", ["mock-member-01", "mock-member-02", "mock-member-03"]) }, "/api/v1/instances": { json: instances("mock") } });
@@ -52,7 +52,7 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("source-note")).toHaveText("Mock data · not a real cluster");
   });
 
-  test("Incus connected: real data is attributed to Incus, no mock badge or empty state", async ({ page }) => {
+  test("Incus connected: real data is attributed to Incus, no mock badge or empty state", { tag: "@smoke" }, async ({ page }) => {
     await api(page, { "/api/v1/health": { json: health("incus", true) }, "/api/v1/cluster": { json: cluster("incus", ["node-1", "node-2"]) }, "/api/v1/instances": { json: instances("incus") } });
     await page.goto("/");
     await expect(page.getByTestId("status")).toContainText("Connected · Incus 7.0.2");

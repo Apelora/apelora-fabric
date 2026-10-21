@@ -1,0 +1,53 @@
+name: Dependabot auto-merge
+
+# Merges a Dependabot pull request once CI has passed on its exact head commit, when every
+# dependency in it moves by a patch or minor version (security updates included). Major versions
+# stay open for review. The decision reads Dependabot's own commit metadata through the API; no
+# code from the pull request is checked out or run here. A merge made with this workflow's token
+# starts no workflows by itself, so CI is started on main afterwards. See docs/development/CI.md.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge a passing patch or minor update
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write # start CI on main after the merge
+      contents: write # merge
+      pull-requests: write # merge
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          pr=$(gh pr list -R "$REPO" --head "$HEAD_BRANCH" --state open --json number,headRefOid,author \
+            --jq ".[] | select(.headRefOid == \"$HEAD_SHA\" and .author.login == \"app/dependabot\") | .number")
+          if [ -z "$pr" ]; then echo "No open Dependabot pull request at $HEAD_SHA (updated or closed since)."; exit 0; fi
+          # Dependabot lists each dependency it moves, with `update-type: version-update:semver-…`.
+          types=$(gh api "repos/$REPO/commits/$HEAD_SHA" --jq .commit.message \
+            | grep -oE 'update-type: version-update:semver-[a-z]+' | sed 's/.*semver-//' | sort -u)
+          echo "pull request #$pr, update types: ${types:-none}"
+          if [ -z "$types" ] || grep -qvE '^(patch|minor)$' <<<"$types"; then
+            echo "Left for review: not every dependency moves by a patch or minor version."
+            exit 0
+          fi
+          gh pr merge "$pr" -R "$REPO" --squash --delete-branch --match-head-commit "$HEAD_SHA"
+          gh workflow run ci.yml -R "$REPO" --ref main

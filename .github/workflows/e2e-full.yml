@@ -1,0 +1,50 @@
+name: End-to-end (full)
+
+# The whole Playwright suite (Studio and Fabric Console), split over four runners. It runs every
+# night on main, by hand (Actions > End-to-end (full) > Run workflow), and on a pull request that
+# carries the `full-e2e` label. The fast gate on every change is the @smoke set in ci.yml
+# (docs/development/CI.md). No secrets; nothing touches real infrastructure.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  pull_request:
+    types: [labeled, opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-full-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: End-to-end (shard ${{ matrix.shard }}/4)
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-e2e')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install Chromium for Playwright (cached per Playwright version)
+        uses: ./.github/actions/playwright-browsers
+      - name: Run shard ${{ matrix.shard }} of the Studio and Fabric Console tests
+        run: npx playwright test --fully-parallel --shard=${{ matrix.shard }}/4
+        env:
+          CI: "true"
+      - name: Upload traces and screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-results-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7

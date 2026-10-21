@@ -1,9 +1,15 @@
 version: 2
+# Patch, minor and security updates whose CI passes are merged automatically
+# (dependabot-auto-merge.yml); major versions arrive as their own pull requests and are adopted
+# deliberately. A cooldown lets a fresh release settle for a few days before a version update
+# is proposed (security updates are not delayed). See docs/development/CI.md.
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       actions:
         patterns: ["*"]
@@ -11,6 +17,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     # Minor and patch updates are grouped; every major version arrives as its own pull request
     # and is adopted deliberately (CI must pass; peers such as typescript-eslint may lag).
     groups:
@@ -24,6 +32,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
+      # The hash and MAC crates share the `digest` traits and only build together (sha2 0.11
+      # needs hmac 0.13), so they move in one pull request whatever the version step.
+      rustcrypto:
+        patterns: ["sha1", "sha2", "hmac", "digest"]
       cargo:
         update-types: ["minor", "patch"]
+    ignore:
+      # Kept at the version axum uses, so one WebSocket stack is built; moved by hand with axum.
+      - dependency-name: "tokio-tungstenite"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

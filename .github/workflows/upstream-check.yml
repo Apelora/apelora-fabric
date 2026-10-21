@@ -17,12 +17,12 @@ concurrency:
 
 jobs:
   incus:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify the current pin against upstream
         run: bash scripts/upstream/verify.sh
@@ -71,7 +71,7 @@ jobs:
     # Keeps Apelora/incus main in step with lxc/incus main. Needs a token with write access to the
     # fork (secret APELORA_FORK_TOKEN); skipped when the secret is absent. Patch branches are rebased
     # by a human because conflicts need judgement.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Sync fork main from upstream
         env:

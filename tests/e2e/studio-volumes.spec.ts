@@ -17,7 +17,7 @@ async function stub(page: Page, routes: Record<string, (req: Request) => { statu
   });
 }
 
-test("a singleton module keeps volumes that are checked, reviewed and sent with the plan", async ({ page }) => {
+test("a singleton module keeps volumes that are checked, reviewed and sent with the plan", { tag: "@smoke" }, async ({ page }) => {
   let planBody: { modules: { module: string; spec: { volumes?: unknown } }[] } | null = null;
   await stub(page, {
     "GET /api/v1/health": () => ({ json: health }),

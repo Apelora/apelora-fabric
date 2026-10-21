@@ -29,7 +29,7 @@ async function stubExport(page: Page, answer: (q: URLSearchParams) => { status: 
 }
 
 test.describe("audit log", () => {
-  test("filters go to the API, stay in the address and come back from it", async ({ page }) => {
+  test("filters go to the API, stay in the address and come back from it", { tag: "@smoke" }, async ({ page }) => {
     const calls = await stub(page, { ...base(reader), "GET /api/v1/audit": (c) => (c.query.get("target") === "Operators" ? items([rows[1]]) : items(rows)) });
     await page.goto("/#/audit?actor=ada&outcome=denied");
     await expect(page.getByTestId("audit-row")).toHaveCount(3);

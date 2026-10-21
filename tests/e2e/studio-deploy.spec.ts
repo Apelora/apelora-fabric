@@ -29,7 +29,7 @@ test.describe("deploying from the Studio", () => {
     await expect(page.getByTestId("mock-badge")).toHaveText("Mock · Design only");
   });
 
-  test("plan, approve, follow the jobs and see live state per module", async ({ page }) => {
+  test("plan, approve, follow the jobs and see live state per module", { tag: "@smoke" }, async ({ page }) => {
     let deployed: { body: Record<string, unknown>; key: string | undefined } | null = null;
     let planBody: unknown = null;
     let done = false;

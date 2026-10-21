@@ -50,8 +50,8 @@ uuid = "1.26.1"
 base64 = "0.22.1"
 futures-util = { version = "0.3.32", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
-jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs", "use_pem"] }
-rcgen = "0.14.7"
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs", "use_pem"] }
+rcgen = "0.14.10"
 apelora-deployment-worker = { path = "../deployment-worker" }
 apelora-incus-adapter = { path = "../../crates/incus-adapter", features = ["test-util"] }
 http-body-util = "0.1.5"

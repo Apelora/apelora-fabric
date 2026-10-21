@@ -23,7 +23,7 @@ const OLD = { ...LAB, id: uid(302), name: "Old forest", url: "ldaps://old.exampl
 const settings = (directories: unknown[]) => ({ json: { providers: [], apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: { enabled: false, ready: 0, pending: 0 }, directories } });
 const CHECK_OK = { json: { ok: true, problem: null, message: "signed in as ada and read the entry with 2 groups", entry: { dn: "uid=ada,ou=people,dc=example,dc=org", subject: "0b6a7c1e-1111-4c1a-9f00-000000000001", username: "ada", email: "ada@example.org", displayName: "Ada Admin", groups: ["dev-admins", "dev-operators"], mappedGroups: ["Platform admins"] } }, delayMs: 300 };
 
-test("lists directories with their status in words", async ({ page }) => {
+test("lists directories with their status in words", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, { ...base(), "GET /api/v1/identity/sign-in": settings([LAB, DOWN, OLD]) });
   await page.goto("/#/identity/sign-in");
   const rows = page.getByTestId("directory-row");

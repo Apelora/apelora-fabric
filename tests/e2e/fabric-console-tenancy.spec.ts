@@ -58,7 +58,7 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
 });
 
-test("shows each environment's Incus project, its state, limit use and restrictions, and quota use per scope", async ({ page }) => {
+test("shows each environment's Incus project, its state, limit use and restrictions, and quota use per scope", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, { ...base(), "GET /api/v1/identity/tenancy": { json: overview(), delayMs: 300 } });
   await page.goto("/#/identity/tenancy");
   await expect(page.getByTestId("tenancy-loading")).toBeVisible();

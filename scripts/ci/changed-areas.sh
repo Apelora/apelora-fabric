@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Decides which CI areas a change touches, so a pull request runs only the jobs it needs
 # (Phase 10). Prints `frontend=true|false` and `rust=true|false` (append to $GITHUB_OUTPUT).
-# Everything runs for pushes to main and manual runs, when the base is unknown, and when CI
-# itself changes; a skipped job still satisfies a required check.
+# The base is a pull request's base, or for a push to main the commit before it. Everything runs
+# for manual runs, when the base is unknown (a new branch, a force push), and when CI itself
+# changes; a skipped job still satisfies the `CI passed` check.
 #   bash scripts/ci/changed-areas.sh                 # all areas (no base given)
 #   bash scripts/ci/changed-areas.sh <base-sha>      # areas changed since <base-sha>
 #   git diff --name-only … | bash scripts/ci/changed-areas.sh -   # paths on standard input
@@ -21,7 +22,7 @@ else
 fi
 
 # CI itself (workflows, this script) or the shared toolchain files: run everything.
-if grep -qE '^(\.github/workflows/|scripts/ci/)' <<<"$files"; then all; fi
+if grep -qE '^(\.github/(workflows|actions)/|scripts/ci/)' <<<"$files"; then all; fi
 
 rust=false frontend=false
 # The Rust side also checks that the committed OpenAPI document is current, and runs the

@@ -40,5 +40,5 @@ x509-parser = { version = "0.18.1", default-features = false }
 
 [dev-dependencies]
 axum = "0.8.9"
-rcgen = "0.14.7"
+rcgen = "0.14.10"
 tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "net"] }

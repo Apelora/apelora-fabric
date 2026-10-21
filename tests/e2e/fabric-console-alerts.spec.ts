@@ -66,7 +66,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "apl_test"));
 });
 
-test("alerts: what needs attention comes first; acknowledge and silence send what the person chose", async ({ page }) => {
+test("alerts: what needs attention comes first; acknowledge and silence send what the person chose", { tag: "@smoke" }, async ({ page }) => {
   const sent: { what: string; body: unknown }[] = [];
   let acked = false;
   let silenced = false;

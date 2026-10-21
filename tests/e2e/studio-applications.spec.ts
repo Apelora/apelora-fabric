@@ -27,7 +27,7 @@ const create = async (page: Page, name: string, opts: { icon?: string; from?: "t
 test.describe("applications in this browser (no control plane)", () => {
   test.beforeEach(async ({ page }) => { await offline(page); });
 
-  test("the existing commerce stack is migrated into an application with its nodes, connections and layout", async ({ page }) => {
+  test("the existing commerce stack is migrated into an application with its nodes, connections and layout", { tag: "@smoke" }, async ({ page }) => {
     await page.goto("/studio/applications");
     const card = page.locator("[data-testid=app-card][data-app=commerce-stack]");
     await expect(card).toBeVisible();

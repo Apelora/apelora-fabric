@@ -84,7 +84,7 @@ test.describe("terminal from the Console", () => {
     await expect(page.getByTestId("terminal-open")).toHaveCount(0);
   });
 
-  test("opening a session: the facts first, then a live terminal; typing reaches it; ending it says so", async ({ page }) => {
+  test("opening a session: the facts first, then a live terminal; typing reaches it; ending it says so", { tag: "@smoke" }, async ({ page }) => {
     const r = await rig(page, whoami(["cluster.view", "instance.console", "application.view"], { platform: [] }));
     await page.goto("/#/instances");
     await page.getByTestId("terminal-open").click();

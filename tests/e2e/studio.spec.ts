@@ -6,7 +6,7 @@ import { openProps, addPorts, assemblyState, cablePoint, center, dragHandle, edg
 const rgb = (page: import("@playwright/test").Page, sel: string, prop = "backgroundColor") => (prop === "backgroundColor" ? resolvedColor(page, sel) : page.locator(sel).first().evaluate((el, p) => getComputedStyle(el)[p as "color"], prop));
 
 test.describe("visual contract", () => {
-  test("white catalog and properties window around a distinct light-gray framed canvas; no always-on inspector", async ({ page }) => {
+  test("white catalog and properties window around a distinct light-gray framed canvas; no always-on inspector", { tag: "@smoke" }, async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("inspector")).toHaveCount(0); // properties are opened on demand
     expect(await rgb(page, "[data-testid=catalog]")).toBe("rgb(255, 255, 255)");
@@ -28,7 +28,7 @@ test.describe("visual contract", () => {
     await expect(page.getByTestId("mock-badge")).toContainText("Design only");
   });
 
-  test("compact nodes are 128×96 with a 24px header, a centered 30px logo and soft shadow", async ({ page }) => {
+  test("compact nodes are 128×96 with a 24px header, a centered 30px logo and soft shadow", { tag: "@smoke" }, async ({ page }) => {
     await open(page);
     const { zoom } = await viewport(page);
     const n = node(page, "nginx-01");
@@ -1390,7 +1390,7 @@ test.describe("drag and drop placement", () => {
 });
 
 test.describe("editing", () => {
-  test("moving, resizing and density changes keep edges anchored", async ({ page }) => {
+  test("moving, resizing and density changes keep edges anchored", { tag: "@smoke" }, async ({ page }) => {
     await open(page);
     const before = await center(node(page, "nginx-01"));
     await page.mouse.move(before.x, before.y - 20);

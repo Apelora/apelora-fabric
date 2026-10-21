@@ -12,7 +12,7 @@ async function dropFirst(page: Page, cls: string, fx = 0.3, fy = 0.4) {
 }
 
 test.describe("templates and imports", () => {
-  test("template gallery: nine valid starters; choosing one replaces the diagram and undo restores it", async ({ page }) => {
+  test("template gallery: nine valid starters; choosing one replaces the diagram and undo restores it", { tag: "@smoke" }, async ({ page }) => {
     await open(page);
     await page.getByTestId("new-menu").click();
     await page.getByTestId("new-template").click();
