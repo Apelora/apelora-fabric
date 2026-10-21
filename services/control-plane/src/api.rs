@@ -412,6 +412,8 @@ pub fn router(state: AppState) -> Router {
         .route(sessions::CONNECT_PATH, get(sessions::connect))
         .merge(protected)
         .with_state(state)
+        // Outermost: every request (including refusals and unknown routes) gets a request id.
+        .layer(middleware::from_fn(requests::trace))
 }
 
 /// API errors with a stable machine code and a readable message.
@@ -438,15 +440,26 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        if self.status.is_server_error() || self.status == StatusCode::BAD_GATEWAY {
-            tracing::warn!(code = self.code, error = %self.message, "request failed");
+        // Logged inside the request span (request id, method, path); never the request body.
+        let (code, error) = (self.code, &self.message);
+        match self.status {
+            StatusCode::INTERNAL_SERVER_ERROR => tracing::error!(code, %error, "request failed"),
+            s if s.is_server_error() => tracing::warn!(code, %error, "request failed"),
+            StatusCode::FORBIDDEN => tracing::warn!(code, %error, "request denied"),
+            StatusCode::CONFLICT if code == "approval_required" => {
+                tracing::info!(code, %error, "request waits for an approval")
+            }
+            StatusCode::CONFLICT if code.starts_with("approval_") => {
+                tracing::warn!(code, %error, "approval refused")
+            }
+            _ => tracing::debug!(code, %error, status = self.status.as_u16(), "request refused"),
         }
         let mut res = (
             self.status,
             Json(ErrorBody {
                 error: ErrorDetail {
                     code: self.code.into(),
-                    message: self.message,
+                    message: self.message.clone(),
                 },
             }),
         )
@@ -455,6 +468,10 @@ impl IntoResponse for ApiError {
             res.headers_mut()
                 .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Bearer"));
         }
+        res.extensions_mut().insert(requests::ErrorCode {
+            code,
+            message: self.message,
+        });
         res
     }
 }
@@ -484,12 +501,31 @@ impl From<AdapterError> for ApiError {
 impl From<apelora_persistence::StoreError> for ApiError {
     fn from(e: apelora_persistence::StoreError) -> Self {
         use apelora_persistence::StoreError as E;
-        let (status, code) = match &e {
-            E::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            E::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
-            _ => (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable"),
-        };
-        ApiError::new(status, code, e.to_string())
+        match &e {
+            E::NotFound(_) => ApiError::new(StatusCode::NOT_FOUND, "not_found", e.to_string()),
+            E::Conflict(_) => ApiError::new(StatusCode::CONFLICT, "conflict", e.to_string()),
+            // The database's own text stays in the server log; the client gets a next step.
+            _ if e.is_unavailable() => {
+                tracing::warn!(error = %e, "store: the database is not reachable");
+                ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "store_unavailable",
+                    "the database is not reachable; check DATABASE_URL and that PostgreSQL is running",
+                )
+            }
+            _ => {
+                tracing::error!(error = %e, "store: database error");
+                let id = requests::current();
+                ApiError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "store_error",
+                    format!(
+                        "the database refused the request; the server log has the details (request id {})",
+                        id.as_deref().unwrap_or("-")
+                    ),
+                )
+            }
+        }
     }
 }
 
@@ -561,19 +597,24 @@ async fn resolve_principal(
         .await
         .map_err(|e| fail(e.into()))?;
         if user.disabled_at.is_some() {
-            let _ = apelora_persistence::identity::audit_event(
-                pool,
-                &apelora_persistence::identity::AuditEntry {
-                    actor: &format!("user:{}", user.id),
-                    actor_type: "user",
-                    action: "auth.refused",
-                    target: "disabled account",
-                    outcome: "denied",
-                    scope: None,
-                    detail: &serde_json::json!({}),
-                },
-            )
-            .await;
+            let mut detail = serde_json::json!({});
+            requests::tag(&mut detail);
+            authz::audit_failed(
+                "auth.refused",
+                apelora_persistence::identity::audit_event(
+                    pool,
+                    &apelora_persistence::identity::AuditEntry {
+                        actor: &format!("user:{}", user.id),
+                        actor_type: "user",
+                        action: "auth.refused",
+                        target: "disabled account",
+                        outcome: "denied",
+                        scope: None,
+                        detail: &detail,
+                    },
+                )
+                .await,
+            );
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "account_disabled",
@@ -671,7 +712,8 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
                 .map(str::trim)
                 .filter(|t| !t.is_empty());
             let Some(token) = presented else {
-                tracing::debug!(method = %req.method(), path = req.uri().path(), "request without a bearer token");
+                // Method, path and request id come from the request span.
+                tracing::debug!("request without a bearer token");
                 return unauthenticated(
                     "a bearer token is required (Authorization: Bearer <token>)",
                 )
@@ -688,8 +730,6 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
                             .then(|| apelora_identity::unverified_issuer(token))
                             .flatten();
                         tracing::warn!(
-                            method = %req.method(),
-                            path = req.uri().path(),
                             credential = credential_kind(token),
                             issuer = issuer.as_deref().unwrap_or("-"),
                             code = e.code,
@@ -706,14 +746,17 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
         && let Auth::Tokens(pool) = &state.auth
     {
         // Everything done while holding emergency access is on the record.
-        let _ = authz::audit_as(
-            pool,
-            &principal,
+        authz::audit_failed(
             "emergency_access.request",
-            &format!("{} {}", req.method(), req.uri().path()),
-            &serde_json::json!({}),
-        )
-        .await;
+            authz::audit_as(
+                pool,
+                &principal,
+                "emergency_access.request",
+                &format!("{} {}", req.method(), req.uri().path()),
+                &serde_json::json!({}),
+            )
+            .await,
+        );
     }
     req.extensions_mut().insert(principal);
     next.run(req).await
@@ -1265,6 +1308,7 @@ mod identity;
 mod machines;
 mod manage;
 mod mobility;
+pub mod requests;
 pub mod sessions;
 mod volumes;
 

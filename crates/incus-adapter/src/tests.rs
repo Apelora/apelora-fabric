@@ -247,21 +247,77 @@ async fn error_envelopes_become_typed_errors() {
     ])
     .await;
     let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    // Errors name the request and the status, so a log line says what was refused.
     assert_eq!(
         p.server_info().await,
-        Err(AdapterError::Authentication("not authorized".into()))
+        Err(AdapterError::Authentication(
+            "GET /1.0: HTTP 403: not authorized".into()
+        ))
     );
     assert_eq!(
         p.projects().await,
         Err(AdapterError::Api {
             status: 500,
-            message: "database is locked".into()
+            message: "GET /1.0/projects?recursion=1: database is locked".into()
         })
     );
     assert!(matches!(
         p.storage_pools().await,
         Err(AdapterError::NotFound(_))
     ));
+}
+
+#[tokio::test]
+async fn a_reply_that_is_not_json_keeps_its_http_status() {
+    // A proxy in front of Incus answering with its own error page.
+    let app = Router::new()
+        .route(
+            "/1.0",
+            axum::routing::get(|| async { (StatusCode::BAD_GATEWAY, "<html>bad gateway</html>") }),
+        )
+        .route(
+            "/1.0/projects",
+            axum::routing::get(|| async { (StatusCode::UNAUTHORIZED, "<html>sign in</html>") }),
+        )
+        .route(
+            "/1.0/networks",
+            axum::routing::get(|| async { (StatusCode::OK, "<html>portal</html>") }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    let c = IncusClient::plain_for_tests(&format!("http://{addr}"));
+    match c.server_info().await {
+        Err(AdapterError::Api { status, message }) => {
+            assert_eq!(status, 502);
+            assert!(message.starts_with("GET /1.0: HTTP 502"), "{message}");
+        }
+        other => panic!("expected an API error, got {other:?}"),
+    }
+    assert!(
+        matches!(c.projects().await, Err(AdapterError::Authentication(m)) if m.contains("HTTP 401")),
+        "a refusal by a proxy is still an authentication problem"
+    );
+    assert!(
+        matches!(c.networks().await, Err(AdapterError::Decode(m)) if m.contains("HTTP 200")),
+        "a success status with a body that is not JSON is a bad response"
+    );
+}
+
+#[test]
+fn request_paths_in_messages_keep_only_naming_parameters() {
+    assert_eq!(
+        client::loggable("/1.0/instances/web?project=apelora&target=m1"),
+        "/1.0/instances/web?project=apelora&target=m1"
+    );
+    assert_eq!(
+        client::loggable("/1.0/x?project=p&secret=abc&token"),
+        "/1.0/x?project=p"
+    );
+    assert_eq!(client::loggable("/1.0/x?secret=abc"), "/1.0/x");
+    assert_eq!(client::loggable("/1.0"), "/1.0");
 }
 
 #[tokio::test]

@@ -79,18 +79,25 @@ pub enum TokenError {
     Malformed,
     #[error("the token uses a signature algorithm Apelora does not accept")]
     UnsupportedAlgorithm,
-    #[error("the token was signed with a key the identity provider does not publish")]
-    UnknownKey,
+    /// Names the token's key id (a public identifier, not key material).
+    #[error("the token was signed with a key the identity provider does not publish (key id {})", .0.as_deref().unwrap_or("none"))]
+    UnknownKey(Option<String>),
     #[error("the token signature is not valid")]
     BadSignature,
     #[error("the token has expired")]
     Expired,
     #[error("the token is not valid yet")]
     NotYetValid,
-    #[error("the token was issued by a different identity provider")]
-    WrongIssuer,
-    #[error("the token is not meant for this API")]
-    WrongAudience,
+    /// Issuer and audience values are public identifiers: naming them shows a misconfiguration
+    /// (e.g. a trailing slash, or the client id where the API's identifier was expected).
+    #[error(
+        "the token was issued by a different identity provider ({received}; expected {expected})"
+    )]
+    WrongIssuer { expected: String, received: String },
+    #[error(
+        "the token is not meant for this API (audience {received}; expected one of {expected})"
+    )]
+    WrongAudience { expected: String, received: String },
     #[error("the token was issued to a client that is not allowed")]
     UnauthorizedParty,
     #[error("the token lives longer than Apelora accepts")]
@@ -99,6 +106,16 @@ pub enum TokenError {
     MissingClaim(&'static str),
     #[error("the identity provider's keys cannot be read: {0}")]
     KeysUnavailable(String),
+}
+
+/// A value taken from an unverified token, made safe to show in a message or a log line:
+/// control characters dropped, at most 120 characters.
+fn shown(v: &str) -> String {
+    let mut out: String = v.chars().filter(|c| !c.is_control()).take(120).collect();
+    if v.chars().count() > 120 {
+        out.push('…');
+    }
+    out
 }
 
 enum Keys {
@@ -203,14 +220,14 @@ impl Verifier {
                 }
             }
         };
-        let jwk = jwk.ok_or(TokenError::UnknownKey)?;
+        let jwk = jwk.ok_or_else(|| TokenError::UnknownKey(kid.map(shown)))?;
         // The key must be meant for signatures and for this algorithm family.
         if let Some(a) = jwk.common.key_algorithm
             && format!("{a:?}") != format!("{alg:?}")
         {
             return Err(TokenError::UnsupportedAlgorithm);
         }
-        DecodingKey::from_jwk(&jwk).map_err(|_| TokenError::UnknownKey)
+        DecodingKey::from_jwk(&jwk).map_err(|_| TokenError::UnknownKey(kid.map(shown)))
     }
 
     /// Validates the token at time `now` (seconds since the epoch) and returns who it is for.
@@ -246,7 +263,10 @@ impl Verifier {
             .and_then(Value::as_str)
             .ok_or(TokenError::MissingClaim("iss"))?;
         if issuer != self.cfg.issuer {
-            return Err(TokenError::WrongIssuer);
+            return Err(TokenError::WrongIssuer {
+                expected: self.cfg.issuer.clone(),
+                received: shown(issuer),
+            });
         }
         let aud_ok = match c.get("aud") {
             Some(Value::String(a)) => self.cfg.audiences.iter().any(|x| x == a),
@@ -257,7 +277,19 @@ impl Verifier {
             _ => return Err(TokenError::MissingClaim("aud")),
         };
         if !aud_ok {
-            return Err(TokenError::WrongAudience);
+            let received = match c.get("aud") {
+                Some(Value::Array(list)) => list
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Some(v) => v.as_str().unwrap_or_default().to_owned(),
+                None => String::new(),
+            };
+            return Err(TokenError::WrongAudience {
+                expected: self.cfg.audiences.join(", "),
+                received: shown(&received),
+            });
         }
         let exp = c
             .get("exp")

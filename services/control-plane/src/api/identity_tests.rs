@@ -1965,6 +1965,20 @@ async fn risky_actions_need_another_persons_approval_that_is_exact_and_single_us
         (StatusCode::CONFLICT, Some("approval_invalid")),
         "another machine: {b}"
     );
+    // Presenting an approval that does not fit is a refusal on the record.
+    let refused: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT target, detail->>'approval', detail ? 'requestId' FROM audit_events
+         WHERE action = 'access.denied' AND outcome = 'denied' AND detail->>'code' = 'approval_invalid'",
+    )
+    .fetch_all(&l.pool)
+    .await
+    .expect("audit");
+    assert!(
+        refused
+            .iter()
+            .any(|(t, a, rid)| t.contains("rack1-08") && a.as_deref() == Some(id.as_str()) && *rid),
+        "{refused:?}"
+    );
     let (s, _) = hdr(&tfa, "rack1-07", &id).await;
     assert_eq!(
         s,
@@ -2371,16 +2385,20 @@ async fn the_audit_trail_records_refusals_and_is_scoped_to_what_the_reader_may_s
         .0,
         StatusCode::FORBIDDEN
     );
-    let denied: Vec<(String, String)> =
-        sqlx::query_as("SELECT actor, outcome FROM audit_events WHERE action = 'access.denied'")
-            .fetch_all(&l.pool)
-            .await
-            .expect("audit");
+    let denied: Vec<(String, String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT actor, outcome, detail->>'code', detail ? 'requestId' FROM audit_events WHERE action = 'access.denied'",
+    )
+    .fetch_all(&l.pool)
+    .await
+    .expect("audit");
     assert!(
         denied
             .iter()
-            .any(|(a, o)| a == &format!("user:{bob}") && o == "denied"),
-        "{denied:?}"
+            .any(|(a, o, code, rid)| a == &format!("user:{bob}")
+                && o == "denied"
+                && code.as_deref() == Some("forbidden")
+                && *rid),
+        "the refusal says why and which request: {denied:?}"
     );
     // Alice reads only her organisation's events; Bob only his; the auditor everything; a designer nothing.
     let events = |v: serde_json::Value| v["items"].as_array().expect("items").clone();

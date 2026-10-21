@@ -9,7 +9,18 @@ A component is not done until you can tell, from outside, whether it is healthy 
 
 **Inputs:** the component and its failure modes. **Outputs:** instrumentation in code, dashboards or documented queries, alerts, and runbooks.
 
-## Logging
+## Logging in Apelora today (conventions; the runbook is `docs/runbooks/troubleshooting.md`)
+
+- Both binaries share one setup (`init_logging` in each `main.rs`): `RUST_LOG` filters (default `info`), `APELORA_LOG_FORMAT=json` for JSON lines. Libraries use `tracing` only and never install a subscriber.
+- **Fields**, always structured, never formatted into the message: `job`, `operation` (Incus or application operation id), `instance` as `project/name`, `application`, `module`, `member`, `volume`, `provider`, `issuer`, `code` (the API error code), `error = %e`. Messages are lowercase plain language with a subsystem prefix: `supervisor: …`, `move: …`, `job: …`, `incus: …`, `operation: …`, `network: …`, `audit: …`, `store: …`, `sign-in: …`.
+- **Levels:** `error` = a loop-level failure, data at risk, or an audit write that failed; `warn` = degraded but continuing (a failed attempt that will be retried, a refusal by permission, an unreachable dependency); `info` = lifecycle (job claimed/succeeded, phase started, provider accepted); `debug` = one line per decision with its identifiers (plans, lifecycle steps, supervisor skips, each Incus request with status and latency, each successful API request).
+- **Spans:** the control plane's outermost layer (`api/requests.rs`) gives each request an `x-request-id` (a safe caller value or a UUID), a `request` span (`request_id`, `method`, `path`, never the query) and one access line; audit events written during the request get `requestId` in their detail through `audit_scoped`. The worker runs each job in a `job` span (`job`, `kind`, `target`). Spans are error-level so their fields survive `RUST_LOG=warn`.
+- A condition that lasts across passes (a missing stateful instance, an unreadable member list) is logged when it starts or changes, then at most every 10 minutes (`Supervisor::should_report`).
+- **Logged vs audited:** the audit trail records decisions about people's actions (changes, 403 refusals with their `code`, spent/mismatched approvals as `access.denied`); logs explain why. 401s and `approval_required` are logged, not audited (anyone could flood the trail; an approval request is normal flow). An audit write that must not fail the request goes through `authz::audit_failed`, never `let _ =`.
+- Errors that reach clients name a next step and never carry raw database text (`store_error` names the request id; the log line has the detail). Incus adapter errors name the request (`GET /1.0/…`, query limited to naming parameters by `client::loggable`) and the HTTP status.
+- **Never log** tokens of any kind, join secrets, certificates or keys, passwords, the `Authorization` header or request bodies; log the credential *kind*. Values from an unverified token are passed through `apelora_identity`'s `shown` (no control characters, bounded).
+
+## Logging (target practice)
 
 - **Structured JSON**, one event per line. Required fields: `ts`, `level`, `component`, `msg`, `request_id`; add `resource_id`, `node_id`, `job_id`, `tenant_id`, `actor` where relevant.
 - Log **state transitions and decisions** (job started/finished, reconcile chose action X because Y, node connected/disconnected, auth failure), not every function call.

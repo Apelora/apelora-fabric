@@ -1399,10 +1399,15 @@ pub(super) async fn operate(
     }
 
     // Phases: dependency order from the recorded connections.
+    // Unreadable connections leave every module in one phase: noticeable, so logged.
     let connections: Vec<apelora_domain::network::Connection> = dep
         .connections
         .clone()
-        .and_then(|c| serde_json::from_value(c).ok())
+        .and_then(|c| {
+            serde_json::from_value(c)
+                .map_err(|e| tracing::warn!(application = %name, error = %e, "operation: the deployment's connections are unreadable; phases ignore dependency order"))
+                .ok()
+        })
         .unwrap_or_default();
     let modules: Vec<String> = desired.iter().map(|d| d.module.clone()).collect();
     let phase = |action: &str,

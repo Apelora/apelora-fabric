@@ -537,11 +537,13 @@ async fn save(
         .providers
         .iter()
         .find(|x| x.record.id == id)
+        // Only a concurrent removal (another administrator, another control plane) gets here.
         .ok_or_else(|| {
+            tracing::warn!(provider = %fields.name, issuer = %fields.issuer, "sign-in: a saved provider was gone when the settings were reloaded");
             ApiError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "saved provider not found",
+                StatusCode::CONFLICT,
+                "conflict",
+                "the provider was saved, but another change removed it before it could be shown; reload the sign-in settings and check the list",
             )
         })?;
     audit_as(pool, p, "identity.provider.saved", &fields.issuer,

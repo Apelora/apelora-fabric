@@ -103,15 +103,29 @@ async fn wrong_issuer_or_audience_is_refused_including_other_applications_tokens
     let v = verifier(&s);
     let mut c = claims();
     c["iss"] = json!("https://evil.example.test/realms/apelora");
+    let refused = v.verify(&sign(&s, &c), NOW).await;
     assert_eq!(
-        v.verify(&sign(&s, &c), NOW).await,
-        Err(TokenError::WrongIssuer)
+        refused,
+        Err(TokenError::WrongIssuer {
+            expected: ISS.into(),
+            received: "https://evil.example.test/realms/apelora".into()
+        })
+    );
+    assert!(
+        refused
+            .expect_err("refused")
+            .to_string()
+            .contains("expected https://id.example.test/realms/apelora"),
+        "the message names what was expected"
     );
     let mut c = claims();
     c["aud"] = json!("portal.example.com");
     assert_eq!(
         v.verify(&sign(&s, &c), NOW).await,
-        Err(TokenError::WrongAudience),
+        Err(TokenError::WrongAudience {
+            expected: AUD.into(),
+            received: "portal.example.com".into()
+        }),
         "an application end-user token is not an Apelora token"
     );
     let mut c = claims();
@@ -161,7 +175,7 @@ async fn forged_tampered_and_foreign_keys_are_refused() {
     let foreign = signer("unpublished");
     assert_eq!(
         v.verify(&sign(&foreign, &claims()), NOW).await,
-        Err(TokenError::UnknownKey)
+        Err(TokenError::UnknownKey(Some("unpublished".into())))
     );
     // Tamper with the payload: change the subject, keep the signature.
     let good = sign(&s, &claims());
@@ -252,7 +266,7 @@ async fn a_single_unlabelled_key_is_accepted_but_ambiguity_is_not() {
     let mut both = s.jwks.clone();
     both.keys.extend(b.jwks.keys.clone());
     let v = Verifier::with_keys(OidcConfig::new(ISS, AUD), both);
-    assert_eq!(v.verify(&t, NOW).await, Err(TokenError::UnknownKey));
+    assert_eq!(v.verify(&t, NOW).await, Err(TokenError::UnknownKey(None)));
 }
 
 #[test]
@@ -313,4 +327,14 @@ fn only_secure_or_local_urls_are_accepted() {
     assert!(super::secure_url("http://127.0.0.1:5556/dex"));
     assert!(!super::secure_url("http://id.example.test"));
     assert!(!super::secure_url("ftp://x"));
+}
+
+#[test]
+fn values_from_a_token_are_shown_without_control_characters_and_bounded() {
+    assert_eq!(
+        shown("https://id.example.test\n[forged] line"),
+        "https://id.example.test[forged] line"
+    );
+    let long = "a".repeat(500);
+    assert_eq!(shown(&long).chars().count(), 121);
 }

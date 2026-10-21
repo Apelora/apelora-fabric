@@ -589,7 +589,15 @@ async fn a_ticket_opens_the_labelled_mock_shell_once_and_the_session_is_audited_
     assert_eq!(closed_reason(&mut ws).await, "exited");
 
     let open = r.audit("session.open").await;
-    let close = r.audit("session.close").await;
+    // The close is recorded just after the browser is told: give it a moment under load.
+    let mut close = r.audit("session.close").await;
+    for _ in 0..50 {
+        if !close.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        close = r.audit("session.close").await;
+    }
     assert_eq!((open.len(), close.len()), (1, 1), "{open:?} {close:?}");
     assert_eq!(open[0]["kind"], json!("terminal"));
     assert_eq!(open[0]["runsAs"], json!(1000), "not root");

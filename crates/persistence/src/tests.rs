@@ -10,6 +10,24 @@ use serde_json::json;
 use super::*;
 
 #[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn an_unreachable_database_is_told_apart_from_a_refused_statement(pool: PgPool) {
+    let refused: StoreError = sqlx::query("SELECT no_such_column FROM jobs")
+        .execute(&pool)
+        .await
+        .expect_err("unknown column")
+        .into();
+    assert!(!refused.is_unavailable(), "{refused}");
+    assert!(!StoreError::NotFound("x".into()).is_unavailable());
+    pool.close().await;
+    let down: StoreError = sqlx::query("SELECT 1")
+        .execute(&pool)
+        .await
+        .expect_err("closed pool")
+        .into();
+    assert!(down.is_unavailable(), "{down}");
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
 async fn revisions_are_numbered_and_concurrent_saves_never_collide(pool: PgPool) {
     let app = create_application(&pool, "shop").await.expect("app");
     let r1 = add_revision(&pool, app.id, &json!({ "v": 1 }), "tester")

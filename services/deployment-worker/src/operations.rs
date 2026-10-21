@@ -64,6 +64,7 @@ pub async fn run(
         return Ok(Outcome::Succeeded);
     }
     let Ok(mut phases) = serde_json::from_value::<Vec<Phase>>(op.phases.clone()) else {
+        tracing::error!(operation = %op_id, "operation: its plan is unreadable; marked failed");
         update_operation(
             pool,
             op_id,
@@ -117,6 +118,7 @@ pub async fn run(
         }
         phases[at].state = "running".into();
         save("running", &phases, None).await?;
+        tracing::info!(operation = %op_id, phase = at, action = %phases[at].action, instances = phases[at].steps.len(), "operation: phase started; instance jobs queued");
         return Ok(Outcome::Waiting(POLL_SECS));
     }
 
@@ -142,7 +144,10 @@ pub async fn run(
                         s.error = Some("the instance no longer exists in Incus".into());
                     }
                     // Cannot confirm yet: look again on the next pass rather than assume.
-                    Err(_) => continue,
+                    Err(e) => {
+                        tracing::warn!(operation = %op_id, instance = %format!("{}/{}", s.project, s.name), error = %e, "operation: cannot read the instance from Incus to confirm its state; looking again");
+                        continue;
+                    }
                 }
                 changed = true;
             }
@@ -156,6 +161,7 @@ pub async fn run(
     }
     if let Some(bad) = phases[at].steps.iter().find(|s| s.state == "failed") {
         let message = format!("{}: {}", bad.name, bad.error.clone().unwrap_or_default());
+        let instance = format!("{}/{}", bad.project, bad.name);
         phases[at].state = "failed".into();
         for later in phases.iter_mut().skip(at + 1) {
             later.state = "skipped".into();
@@ -164,12 +170,15 @@ pub async fn run(
             }
         }
         save("failed", &phases, Some(&message)).await?;
+        // The coordinating job did its work: the operation (not the job) records the failure.
+        tracing::warn!(operation = %op_id, phase = at, action = %phases[at].action, %instance, reason = %message, "operation: phase failed; later phases skipped");
         return Ok(Outcome::Succeeded);
     }
     if phases[at].steps.iter().all(|s| s.state == "succeeded") {
         phases[at].state = "succeeded".into();
         let done = phases.iter().all(|p| p.state == "succeeded");
         save(if done { "succeeded" } else { "running" }, &phases, None).await?;
+        tracing::info!(operation = %op_id, phase = at, action = %phases[at].action, done, "operation: phase succeeded");
         return Ok(if done {
             Outcome::Succeeded
         } else {

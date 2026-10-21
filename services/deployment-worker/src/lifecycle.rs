@@ -266,7 +266,9 @@ async fn converge(
     let (project, name) = goal.target();
     for _ in 0..MAX_STEPS {
         let now = provider.instance(project, name).await?;
-        let op = match next_step(goal, now.as_ref()) {
+        let step = next_step(goal, now.as_ref());
+        tracing::debug!(instance = %format!("{project}/{name}"), observed = now.as_ref().map_or("absent", |s| s.status.as_str()), ?step, "lifecycle: next step");
+        let op = match step {
             Step::Done => return Ok(Outcome::Succeeded),
             Step::Reject(msg) => return Ok(Outcome::Rejected(msg)),
             Step::Create => {

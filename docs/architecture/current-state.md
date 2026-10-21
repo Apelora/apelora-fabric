@@ -19,6 +19,7 @@ The parts of an application are called **modules** (formerly *appliances*; [ADR 
 | Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 131 Rust tests, 76 unit tests, 88 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
 | Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
+| Logs and troubleshooting | both services | `RUST_LOG` levels per crate, `APELORA_LOG_FORMAT=json`, an `x-request-id` on every API response that is on every log line of the request and in its audit detail, a `job` span on every worker line, refusals (403, spent approvals) audited with their code, audit write failures logged as errors (MOCK VERIFIED). [Troubleshooting runbook](../runbooks/troubleshooting.md). |
 
 ## Identity and application management (2026-10-20)
 

@@ -1250,12 +1250,27 @@ impl Provider {
         };
         let started = Instant::now();
         loop {
-            let op = c.wait_operation(id, WAIT_STEP_SECS).await?;
+            let op = c.wait_operation(id, WAIT_STEP_SECS).await.inspect_err(
+                |e| tracing::warn!(operation = id, error = %e, "incus: cannot read the operation"),
+            )?;
+            let secs = started.elapsed().as_secs();
             match op.status.as_str() {
-                "Success" => return Ok(OperationOutcome::Succeeded),
-                "Failure" => return Ok(OperationOutcome::Failed(op.err)),
-                "Cancelled" => return Ok(OperationOutcome::Failed("cancelled".into())),
-                _ if started.elapsed() >= budget => return Ok(OperationOutcome::StillRunning),
+                "Success" => {
+                    tracing::debug!(operation = id, description = %op.description, secs, "incus: operation succeeded");
+                    return Ok(OperationOutcome::Succeeded);
+                }
+                "Failure" => {
+                    tracing::warn!(operation = id, description = %op.description, error = %op.err, secs, "incus: operation failed");
+                    return Ok(OperationOutcome::Failed(op.err));
+                }
+                "Cancelled" => {
+                    tracing::warn!(operation = id, description = %op.description, secs, "incus: operation was cancelled");
+                    return Ok(OperationOutcome::Failed("cancelled".into()));
+                }
+                _ if started.elapsed() >= budget => {
+                    tracing::warn!(operation = id, description = %op.description, status = %op.status, secs, "incus: operation still running when the wait ended");
+                    return Ok(OperationOutcome::StillRunning);
+                }
                 _ => {}
             }
         }

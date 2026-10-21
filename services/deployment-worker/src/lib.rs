@@ -17,6 +17,7 @@ use apelora_incus_adapter::Provider;
 use apelora_persistence::{
     ClaimedJob, Outcome, Pool, StoreError, claim_job, complete_job, renew_lease,
 };
+use tracing::Instrument;
 
 /// Lease length; renewed at a third of this while a handler runs.
 pub const LEASE_SECS: i64 = 30;
@@ -57,19 +58,53 @@ async fn handle(
     }
 }
 
+/// What a job works on, for logs: `project/name` for instance jobs, the application otherwise.
+pub fn target_of(job: &ClaimedJob) -> String {
+    let field = |k: &str| job.payload.get(k).and_then(serde_json::Value::as_str);
+    match (field("project"), field("name"), field("application")) {
+        (Some(p), Some(n), _) => format!("{p}/{n}"),
+        (_, _, Some(a)) => a.to_owned(),
+        _ => job
+            .application_id
+            .map_or_else(|| "-".to_owned(), |id| id.to_string()),
+    }
+}
+
 /// Claims and runs at most one job. Returns `Ok(false)` when nothing was runnable.
 pub async fn run_once(pool: &Pool, provider: &Provider, worker: &str) -> Result<bool, StoreError> {
     let Some(job) = claim_job(pool, worker, LEASE_SECS).await? else {
         return Ok(false);
     };
-    tracing::info!(job = %job.id, kind = %job.kind, generation = job.generation, attempt = job.attempts, "claimed job");
+    // Every line logged while the job runs (lifecycle, moves, storage, networks) carries it.
+    let span =
+        tracing::error_span!("job", job = %job.id, kind = %job.kind, target = %target_of(&job));
+    let id = job.id;
+    run_claimed(pool, provider, worker, job)
+        .instrument(span)
+        .await
+        // A database error here loses the job's context otherwise: name the job.
+        .inspect_err(|e| tracing::error!(job = %id, error = %e, "job: database error while running the job; it is retried once its lease expires"))
+}
+
+async fn run_claimed(
+    pool: &Pool,
+    provider: &Provider,
+    worker: &str,
+    job: ClaimedJob,
+) -> Result<bool, StoreError> {
+    tracing::info!(
+        generation = job.generation,
+        attempt = job.attempts,
+        max_attempts = job.max_attempts,
+        "job: claimed"
+    );
     let renew = {
         let (pool, job, worker) = (pool.clone(), job.clone(), worker.to_owned());
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs((LEASE_SECS / 3) as u64)).await;
                 if let Err(e) = renew_lease(&pool, &job, &worker, LEASE_SECS).await {
-                    tracing::warn!(job = %job.id, error = %e, "lost the lease; stopping renewals");
+                    tracing::warn!(job = %job.id, error = %e, "job: lost the lease; stopping renewals");
                     return;
                 }
             }
@@ -81,20 +116,40 @@ pub async fn run_once(pool: &Pool, provider: &Provider, worker: &str) -> Result<
         Ok(o) => o,
         // Lost the job to another worker mid-way: its attempt owns the result now.
         Err(StoreError::Conflict(msg)) => {
-            tracing::warn!(job = %job.id, %msg, "stopped working on the job (fenced)");
+            tracing::warn!(%msg, "job: stopped working on it (another worker holds it now)");
             return Ok(true);
         }
         Err(e) => return Err(e),
     };
     match complete_job(pool, &job, worker, &outcome).await {
-        Ok(()) => tracing::info!(job = %job.id, ?outcome, "job finished"),
+        Ok(()) => log_outcome(&job, &outcome),
         // Another worker took over after our lease expired; its result wins.
         Err(StoreError::Conflict(msg)) => {
-            tracing::warn!(job = %job.id, %msg, "result discarded (fenced)")
+            tracing::warn!(%msg, "job: result discarded (another worker holds it now)")
         }
         Err(e) => return Err(e),
     }
     Ok(true)
+}
+
+/// One line per finished attempt: info when it succeeded or waits, warn when it failed and will
+/// be retried (with the back-off `complete_job` applies), error when it will not run again.
+fn log_outcome(job: &ClaimedJob, outcome: &Outcome) {
+    let (attempt, max_attempts) = (job.attempts, job.max_attempts);
+    match outcome {
+        Outcome::Succeeded => tracing::info!(attempt, "job: succeeded"),
+        Outcome::Waiting(secs) => tracing::debug!(after_secs = secs, "job: waiting; runs again"),
+        Outcome::Failed(error) if attempt < max_attempts => {
+            let retry_in_secs = 2u32.saturating_pow(attempt.max(0).unsigned_abs()).min(300);
+            tracing::warn!(attempt, max_attempts, retry_in_secs, %error, "job: attempt failed; will be retried")
+        }
+        Outcome::Failed(error) => {
+            tracing::error!(attempt, max_attempts, %error, "job: failed; no attempts left")
+        }
+        Outcome::Rejected(error) => {
+            tracing::error!(attempt, %error, "job: rejected; retrying cannot help")
+        }
+    }
 }
 
 /// Processes jobs until `shutdown` resolves, polling every `idle` when there is no work.
@@ -110,7 +165,7 @@ pub async fn run(
         let worked = match run_once(&pool, &provider, &worker).await {
             Ok(w) => w,
             Err(e) => {
-                tracing::error!(error = %e, "job loop error; backing off");
+                tracing::error!(error = %e, idle_secs = idle.as_secs_f64(), "job loop error; backing off");
                 false
             }
         };
@@ -133,6 +188,29 @@ mod tests {
 
     fn mock() -> Provider {
         Provider::Mock(MockIncus::default())
+    }
+
+    #[test]
+    fn a_job_names_its_target_for_logs() {
+        let job = |payload: serde_json::Value| ClaimedJob {
+            id: uuid::Uuid::nil(),
+            kind: "x".into(),
+            application_id: None,
+            payload,
+            attempts: 1,
+            max_attempts: 5,
+            generation: 1,
+            external_operation: None,
+        };
+        assert_eq!(
+            target_of(&job(json!({ "project": "apelora", "name": "web-01" }))),
+            "apelora/web-01"
+        );
+        assert_eq!(
+            target_of(&job(json!({ "application": "shop", "project": "apelora" }))),
+            "shop"
+        );
+        assert_eq!(target_of(&job(json!({}))), "-");
     }
 
     async fn drain(pool: &Pool, provider: &Provider) {

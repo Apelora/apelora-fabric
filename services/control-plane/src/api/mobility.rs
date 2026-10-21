@@ -100,6 +100,7 @@ async fn plan(
         &members,
         allow_stop,
     );
+    tracing::debug!(instance = %format!("{project}/{name}"), application = %application, from = %plan.from, to = %plan.to, live = plan.live, stops = plan.stops, copy_mib = plan.copy_mib, blocked = ?plan.blocked, "move: plan");
     Ok((plan, application))
 }
 

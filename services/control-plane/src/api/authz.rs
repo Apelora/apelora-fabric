@@ -699,7 +699,9 @@ pub(super) async fn route_gate(matched: Option<MatchedPath>, req: Request, next:
     next.run(req).await
 }
 
-/// Records every refused request in the audit trail (who, what, and that it was denied).
+/// Records every refused request (403) in the audit trail: who, what, that it was denied, and
+/// why (`code`: `forbidden`, `mfa_required`, `route_not_authorizable`, `account_disabled`, ...).
+/// Unauthenticated requests (401) are logged, not audited: anyone could fill the trail with them.
 pub(super) async fn audit_denials(
     State(state): State<AppState>,
     req: Request,
@@ -712,21 +714,39 @@ pub(super) async fn audit_denials(
     if res.status() == StatusCode::FORBIDDEN
         && let (Some(p), Auth::Tokens(pool)) = (who, &state.auth)
     {
-        let _ = apelora_persistence::identity::audit_event(
-            pool,
-            &apelora_persistence::identity::AuditEntry {
-                actor: &p.actor_ref(),
-                actor_type: p.actor_type(),
-                action: "access.denied",
-                target: &format!("{method} {path}"),
-                outcome: "denied",
-                scope: None,
-                detail: &json!({ "name": p.name }),
-            },
-        )
-        .await;
+        let refusal = res.extensions().get::<super::requests::ErrorCode>();
+        let mut detail = json!({
+            "name": p.name,
+            "code": refusal.map_or("forbidden", |r| r.code),
+            "reason": refusal.map(|r| r.message.as_str()),
+        });
+        super::requests::tag(&mut detail);
+        audit_failed(
+            "access.denied",
+            apelora_persistence::identity::audit_event(
+                pool,
+                &apelora_persistence::identity::AuditEntry {
+                    actor: &p.actor_ref(),
+                    actor_type: p.actor_type(),
+                    action: "access.denied",
+                    target: &format!("{method} {path}"),
+                    outcome: "denied",
+                    scope: None,
+                    detail: &detail,
+                },
+            )
+            .await,
+        );
     }
     res
+}
+
+/// For audit writes that must not fail the caller's request: a failure is still never silent
+/// (a broken audit table has to be noticed).
+pub(super) fn audit_failed(action: &str, result: apelora_persistence::Result<()>) {
+    if let Err(e) = result {
+        tracing::error!(action, error = %e, "audit: could not record {action}");
+    }
 }
 
 /// Writes an audit event for the caller: who (stable id and kind), what, on what.
@@ -759,6 +779,7 @@ pub(super) async fn audit_scoped(
             o.insert("emergencyAccess".into(), json!(true));
         }
     }
+    super::requests::tag(&mut detail);
     apelora_persistence::identity::audit_event(
         pool,
         &apelora_persistence::identity::AuditEntry {
@@ -840,7 +861,7 @@ async fn guard_required(
             "the approval header must be an approval id",
         )
     })?;
-    match apelora_persistence::identity::consume_approval(
+    let reason = match apelora_persistence::identity::consume_approval(
         pool,
         id,
         permission,
@@ -849,17 +870,31 @@ async fn guard_required(
     )
     .await
     {
-        Ok(Ok(_)) => Ok(Some(id)),
-        Ok(Err(e)) => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "approval_invalid",
-            e.to_string(),
-        )),
-        Err(apelora_persistence::StoreError::NotFound(_)) => Err(ApiError::new(
-            StatusCode::CONFLICT,
-            "approval_invalid",
-            "no such approval",
-        )),
-        Err(e) => Err(e.into()),
-    }
+        Ok(Ok(_)) => {
+            tracing::info!(approval = %id, permission, target, "approval spent");
+            return Ok(Some(id));
+        }
+        Ok(Err(e)) => e.to_string(),
+        Err(apelora_persistence::StoreError::NotFound(_)) => "no such approval".to_owned(),
+        Err(e) => return Err(e.into()),
+    };
+    // A spent, someone else's or mismatched approval is a refusal: on the record.
+    audit_failed(
+        "access.denied",
+        audit_scoped(
+            pool,
+            p,
+            "access.denied",
+            target,
+            "denied",
+            None,
+            &json!({ "code": "approval_invalid", "approval": id, "permission": permission, "reason": reason }),
+        )
+        .await,
+    );
+    Err(ApiError::new(
+        StatusCode::CONFLICT,
+        "approval_invalid",
+        reason,
+    ))
 }

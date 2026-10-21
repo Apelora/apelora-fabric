@@ -109,6 +109,87 @@ async fn audit_needs_a_database_in_development_mode() {
     assert_eq!(body["error"]["code"], "store_unavailable");
 }
 
+/// Sends a GET with an optional `x-request-id`; returns the status and the echoed id.
+async fn with_request_id(state: AppState, path: &str, id: Option<&str>) -> (StatusCode, String) {
+    let mut req = Request::get(path);
+    if let Some(id) = id {
+        req = req.header(requests::REQUEST_ID_HEADER, id);
+    }
+    let res = router(state)
+        .oneshot(req.body(Body::empty()).expect("request"))
+        .await
+        .expect("response");
+    let echoed = res
+        .headers()
+        .get(requests::REQUEST_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    (res.status(), echoed)
+}
+
+#[tokio::test]
+async fn every_response_carries_a_request_id_and_only_a_safe_one_is_repeated() {
+    let state = dev(Provider::Mock(MockIncus::default()));
+    assert_eq!(
+        with_request_id(state.clone(), "/api/v1/health", Some("trace-42.a_b")).await,
+        (StatusCode::OK, "trace-42.a_b".to_owned())
+    );
+    // Unknown routes and refusals get one too.
+    let (status, id) = with_request_id(state.clone(), "/api/v1/nope", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(uuid::Uuid::parse_str(&id).is_ok(), "generated: {id}");
+    for unsafe_id in ["has space", "a\"quote", &"x".repeat(65), ""] {
+        let (_, id) = with_request_id(state.clone(), "/api/v1/health", Some(unsafe_id)).await;
+        assert!(
+            uuid::Uuid::parse_str(&id).is_ok(),
+            "{unsafe_id:?} is replaced, got {id}"
+        );
+    }
+    assert!(requests::acceptable(&"x".repeat(64)));
+}
+
+#[tokio::test]
+async fn database_errors_name_the_next_step_without_the_database_text() {
+    let refused = ApiError::from(apelora_persistence::StoreError::Database(
+        sqlx::Error::Protocol("relation \"secret_table\" does not exist".into()),
+    ));
+    assert_eq!(
+        (refused.status, refused.code),
+        (StatusCode::INTERNAL_SERVER_ERROR, "store_error")
+    );
+    assert!(
+        !refused.message.contains("secret_table") && refused.message.contains("request id"),
+        "{}",
+        refused.message
+    );
+    let down = ApiError::from(apelora_persistence::StoreError::Database(
+        sqlx::Error::PoolTimedOut,
+    ));
+    assert_eq!(
+        (down.status, down.code),
+        (StatusCode::SERVICE_UNAVAILABLE, "store_unavailable")
+    );
+    assert!(down.message.contains("DATABASE_URL"), "{}", down.message);
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_unreachable_database_is_a_503(pool: Pool) {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    pool.close().await;
+    // Well-formed, so it is looked up in the database.
+    let token = format!("apl_{}", "0".repeat(64));
+    let (status, body, _) = call(state, "/api/v1/instances", Some(&token)).await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (StatusCode::SERVICE_UNAVAILABLE, Some("store_unavailable")),
+        "{body}"
+    );
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn tokens_are_required_and_roles_are_enforced(pool: Pool) {
     let state = AppState::new(

@@ -48,6 +48,29 @@ pub enum StoreError {
     Conflict(String),
 }
 
+impl StoreError {
+    /// The database cannot be reached or has no connection to spare (it is down, restarting,
+    /// refusing connections, or the pool timed out), as opposed to refusing one statement.
+    pub fn is_unavailable(&self) -> bool {
+        match self {
+            StoreError::Database(e) => match e {
+                sqlx::Error::Io(_)
+                | sqlx::Error::Tls(_)
+                | sqlx::Error::PoolTimedOut
+                | sqlx::Error::PoolClosed
+                | sqlx::Error::WorkerCrashed => true,
+                // SQLSTATE class 08 (connection exception), 57P01-57P03 (shutting down or
+                // starting up), 53300 (too many connections).
+                sqlx::Error::Database(db) => db.code().is_some_and(|c| {
+                    c.starts_with("08") || matches!(&*c, "57P01" | "57P02" | "57P03" | "53300")
+                }),
+                _ => false,
+            },
+            StoreError::Migration(_) | StoreError::NotFound(_) | StoreError::Conflict(_) => false,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, StoreError>;
 
 /// Connects and applies pending migrations.

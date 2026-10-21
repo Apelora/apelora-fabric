@@ -30,7 +30,13 @@ pub fn from_payload(payload: &serde_json::Value) -> Result<NetworkSync, String> 
 pub async fn sync(pool: &Pool, provider: &Provider, s: &NetworkSync) -> Outcome {
     match apply(pool, provider, s).await {
         Ok(missing) if missing.is_empty() => Outcome::Succeeded,
-        Ok(missing) => Outcome::Failed(format!("waiting for {}", missing.join(", "))),
+        // Normal while instances start: reported as a failed attempt so the retry limit still
+        // ends a sync that can never complete (an instance that never gets an address).
+        Ok(missing) => {
+            let waiting = missing.join(", ");
+            tracing::info!(application = %s.application, %waiting, "network: not everything has an address yet; the sync is retried");
+            Outcome::Failed(format!("waiting for {waiting}"))
+        }
         Err(SyncError::Incus(e)) => Outcome::Failed(e.to_string()),
         Err(SyncError::Store(e)) => Outcome::Failed(format!("database: {e}")),
     }
@@ -170,10 +176,14 @@ async fn services(
                             .and_then(|a| a.parse::<Ipv4Addr>().ok())
                     });
                 let Some(address) = ipv4 else { continue };
+                // Only describes the backend: a missing UUID is logged, not fatal.
                 let uuid = provider
                     .instance_uuid(p, &instance)
                     .await?
-                    .unwrap_or_default();
+                    .unwrap_or_else(|| {
+                        tracing::warn!(instance = %format!("{p}/{instance}"), "network: Incus reports no UUID for the instance; its service backend is described without one");
+                        String::new()
+                    });
                 backends.push(Backend {
                     // `r2`, or `r2-s1` for a substitute of replica 2.
                     name: format!("r{replica}{}", instance.strip_prefix(&base).unwrap_or("")),

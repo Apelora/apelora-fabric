@@ -121,6 +121,7 @@ pub async fn run(
                 r.name
             )));
         }
+        tracing::debug!(instance = %format!("{}/{}", r.project, r.name), member = %now.location, status = %now.status, from = %r.from, to = %r.target, live = r.live, "move: deciding the next step");
         if now.location == r.target {
             if r.start_after && now.status != "Running" {
                 if let Err(e) = change(provider, &r, InstanceAction::Start).await {
@@ -145,6 +146,7 @@ pub async fn run(
                     }
                 }
             }
+            tracing::info!(instance = %format!("{}/{}", r.project, r.name), from = %r.from, to = %r.target, live = r.live, volumes = r.volumes.len(), "move: finished");
             audit(pool, "worker", "instance.moved", &format!("{}/{}", r.project, r.name),
                 &json!({ "application": r.application, "from": r.from, "to": r.target, "live": r.live, "volumes": r.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>() }))
                 .await?;
@@ -182,6 +184,7 @@ pub async fn run(
             {
                 tracing::warn!(instance = %r.name, error = %start, "move failed and the instance did not start again where it was");
             }
+            tracing::warn!(instance = %format!("{}/{}", r.project, r.name), from = %r.from, to = %r.target, error = %e, "move: relocation failed; the instance stays where it was");
             return Ok(Outcome::Failed(format!(
                 "moving {} to {} failed: {e}; it stays on {}",
                 r.name, r.target, r.from

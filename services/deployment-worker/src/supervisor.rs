@@ -41,6 +41,10 @@ const BACKOFF_SECS: i64 = 300;
 /// A failed network sync is queued again after this many seconds.
 const SYNC_RETRY_SECS: f64 = 60.0;
 
+/// A condition that persists across passes (a missing stateful instance) is logged again at
+/// most this often, and at once when it changes.
+const REPEAT_LOG_AFTER: Duration = Duration::from_secs(600);
+
 /// Remembers since when each member has been offline, so a short outage (a reboot, a network
 /// blip) does not trigger recovery: hysteresis across passes.
 #[derive(Debug)]
@@ -48,6 +52,11 @@ pub struct Supervisor {
     recover_after: Duration,
     offline_since: HashMap<String, Instant>,
     health: HealthWatch,
+    /// What was last reported per instance (`project/name`) and when, so a lasting condition
+    /// is not logged on every pass.
+    reported: HashMap<String, (String, Instant)>,
+    /// The member list could not be read on the previous pass.
+    members_unreadable: bool,
 }
 
 /// One supervision pass with no memory: offline members count as failed at once, and one
@@ -65,6 +74,22 @@ impl Supervisor {
             recover_after,
             offline_since: HashMap::new(),
             health: HealthWatch::new(HealthPolicy::default()),
+            reported: HashMap::new(),
+            members_unreadable: false,
+        }
+    }
+
+    /// Whether `condition` of `instance` should be logged now: it is new, it changed, or it was
+    /// last logged longer than [`REPEAT_LOG_AFTER`] ago.
+    fn should_report(&mut self, instance: &str, condition: &str) -> bool {
+        let now = Instant::now();
+        match self.reported.get(instance) {
+            Some((c, at)) if c == condition && now.duration_since(*at) < REPEAT_LOG_AFTER => false,
+            _ => {
+                self.reported
+                    .insert(instance.to_owned(), (condition.to_owned(), now));
+                true
+            }
         }
     }
 
@@ -93,14 +118,35 @@ impl Supervisor {
         };
         // Instances on a member that is not Online (evacuated, being evacuated, offline) are
         // Incus's to handle: restarting them would fight a maintenance evacuation.
-        let members = provider.cluster_members().await.unwrap_or_default();
+        let members = match provider.cluster_members().await {
+            Ok(m) => {
+                if std::mem::take(&mut self.members_unreadable) {
+                    tracing::info!("supervisor: the cluster member list is readable again");
+                }
+                Some(m)
+            }
+            Err(e) => {
+                if !std::mem::replace(&mut self.members_unreadable, true) {
+                    tracing::warn!(error = %e, "supervisor: cannot read the cluster members; offline detection and substitutes are skipped until they can be read");
+                } else {
+                    tracing::debug!(error = %e, "supervisor: cluster members still unreadable");
+                }
+                None
+            }
+        };
+        let members_known = members.is_some();
+        let members = members.unwrap_or_default();
         let unavailable: Vec<String> = members
             .iter()
             .filter(|m| m.status != "Online")
             .map(|m| m.name.clone())
             .collect();
         let now = Instant::now();
+        // Without the member list nothing is known about members: keep what was known.
         self.offline_since.retain(|name, since| {
+            if !members_known {
+                return true;
+            }
             let still = members
                 .iter()
                 .any(|m| &m.name == name && m.status == "Offline");
@@ -118,6 +164,7 @@ impl Supervisor {
         let failed: Vec<String> = self
             .offline_since
             .iter()
+            .filter(|_| members_known)
             .filter(|(_, since)| now.duration_since(**since) >= self.recover_after)
             .map(|(name, _)| name.clone())
             .collect();
@@ -187,6 +234,7 @@ impl Supervisor {
                             )
                             .await?
                         {
+                            tracing::debug!(application = %d.application, instance = %format!("{}/{name}", d.project), "supervisor: substitute already queued or failed recently; not queued again");
                             continue;
                         }
                         let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
@@ -241,12 +289,14 @@ impl Supervisor {
                             .await?;
                         }
                         if retiring {
+                            tracing::debug!(application = %d.application, module = %da.module, replica, "supervisor: a duplicate is already being retired");
                             handled.extend(slot.iter().map(|i| i.name.clone()));
                             continue;
                         }
                         // Decide only when every instance runs (a returning member's instances
                         // may still be starting; the restart below may start them).
                         if slot.iter().any(|i| i.status != "Running") {
+                            tracing::debug!(application = %d.application, module = %da.module, replica, "supervisor: duplicate replicas, not all running yet; deciding later");
                             continue;
                         }
                         handled.extend(slot.iter().map(|i| i.name.clone()));
@@ -311,11 +361,14 @@ impl Supervisor {
                 };
                 if da.availability != Availability::Stateless {
                     // Still being created or started by a job: nothing is lost yet.
+                    let instance = format!("{}/{}", d.project, item.instance);
                     if !apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
                         .await?
+                        && self
+                            .should_report(&instance, if stopped { "stopped" } else { "missing" })
                     {
-                        tracing::warn!(application = %d.application, instance = %item.instance, availability = ?da.availability,
-                        "supervisor: instance is missing or stopped; only stateless replicas are restored automatically");
+                        tracing::warn!(application = %d.application, %instance, availability = ?da.availability, state = if stopped { "stopped" } else { "missing" },
+                        "supervisor: instance is missing or stopped; only stateless replicas are restored automatically (repeated at most every 10 minutes)");
                     }
                     continue;
                 }
@@ -326,6 +379,7 @@ impl Supervisor {
                         == Some("instance.stop")
                 {
                     // Stopped on purpose (through Apelora): respected until someone starts it.
+                    tracing::debug!(application = %d.application, instance = %format!("{}/{}", d.project, item.instance), "supervisor: stopped on purpose through Apelora; left stopped");
                     continue;
                 }
                 if apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
@@ -339,6 +393,7 @@ impl Supervisor {
                     )
                     .await?
                 {
+                    tracing::debug!(application = %d.application, instance = %format!("{}/{}", d.project, item.instance), kind, backoff_secs = BACKOFF_SECS, "supervisor: a job for the instance is in flight or failed recently; not queued again");
                     continue;
                 }
                 let payload = if stopped {
@@ -486,6 +541,21 @@ mod tests {
     use apelora_persistence::{enqueue_job, recent_audit, recent_jobs};
 
     const PROJECT: &str = "apelora";
+
+    #[test]
+    fn a_lasting_condition_is_reported_once_until_it_changes() {
+        let mut s = Supervisor::new(Duration::ZERO);
+        assert!(s.should_report("apelora/db-01", "missing"));
+        assert!(
+            !s.should_report("apelora/db-01", "missing"),
+            "not every pass"
+        );
+        assert!(s.should_report("apelora/db-01", "stopped"), "a change is");
+        assert!(
+            s.should_report("apelora/cache-01", "missing"),
+            "per instance"
+        );
+    }
 
     fn desired(module: &str, replicas: u8, availability: Availability) -> DesiredModule {
         DesiredModule {

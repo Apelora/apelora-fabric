@@ -166,6 +166,29 @@ pub(crate) fn is_operation_id(id: &str) -> bool {
     !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-')
 }
 
+/// A request path for messages and logs: the query keeps only the parameters Apelora sends that
+/// name things (`project`, `target`, `recursion`, `all-projects`, `timeout`), so a parameter
+/// that could ever carry a secret is not repeated.
+pub(crate) fn loggable(path: &str) -> String {
+    let Some((base, query)) = path.split_once('?') else {
+        return path.to_owned();
+    };
+    let kept: Vec<&str> = query
+        .split('&')
+        .filter(|kv| {
+            matches!(
+                kv.split_once('=').map_or(*kv, |(k, _)| k),
+                "project" | "target" | "recursion" | "all-projects" | "timeout"
+            )
+        })
+        .collect();
+    if kept.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base}?{}", kept.join("&"))
+    }
+}
+
 /// An error with its causes, e.g. "builder error: no crypto provider".
 fn chain(e: &dyn std::error::Error) -> String {
     let mut out = e.to_string();
@@ -291,26 +314,55 @@ impl IncusClient {
     }
 
     /// Sends a request and checks the Incus envelope. 404s become [`AdapterError::NotFound`].
+    /// Errors name the request (`GET /1.0/...`) and the HTTP status; a reply that is not JSON
+    /// (e.g. a proxy's error page) keeps its status. Request bodies are never logged: they can
+    /// carry join secrets or certificates.
     pub(crate) async fn call<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
         body: Option<&Value>,
     ) -> Result<Envelope<T>, AdapterError> {
+        let what = format!("{method} {}", loggable(path));
+        let started = std::time::Instant::now();
         let mut req = self.http.request(method, format!("{}{}", self.base, path));
         if let Some(b) = body {
             req = req.json(b);
         }
-        let res = req
-            .send()
-            .await
-            // Keep the cause chain: it says whether TLS verification, the network or a timeout failed.
-            .map_err(|e| AdapterError::Connectivity(chain(&e)))?;
+        let res = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                // Keep the cause chain: it says whether TLS verification, the network or a timeout failed.
+                let e = chain(&e);
+                tracing::debug!(request = %what, error = %e, "incus: request not sent or not answered");
+                return Err(AdapterError::Connectivity(format!("{what}: {e}")));
+            }
+        };
         let status = res.status().as_u16();
-        let env: Envelope<T> = res
-            .json()
-            .await
-            .map_err(|e| AdapterError::Decode(format!("{path}: {e}")))?;
+        let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        tracing::debug!(request = %what, status, latency_ms = ms, "incus: response");
+        let bytes = res.bytes().await.map_err(|e| {
+            AdapterError::Connectivity(format!(
+                "{what}: HTTP {status}, reading the reply: {}",
+                chain(&e)
+            ))
+        })?;
+        let env: Envelope<T> = match serde_json::from_slice(&bytes) {
+            Ok(env) => env,
+            Err(e) if status >= 400 => {
+                let message = format!(
+                    "{what}: HTTP {status} with a reply that is not from the Incus API (a proxy or load balancer in between?)"
+                );
+                return Err(match status {
+                    401 | 403 => AdapterError::Authentication(message),
+                    _ => {
+                        tracing::debug!(request = %what, status, error = %e, "incus: unreadable error reply");
+                        AdapterError::Api { status, message }
+                    }
+                });
+            }
+            Err(e) => return Err(AdapterError::Decode(format!("{what}: HTTP {status}: {e}"))),
+        };
         if env.kind == "error" || status >= 400 {
             let code = if env.error_code != 0 {
                 env.error_code
@@ -318,11 +370,13 @@ impl IncusClient {
                 status
             };
             return Err(match code {
-                401 | 403 => AdapterError::Authentication(env.error),
+                401 | 403 => {
+                    AdapterError::Authentication(format!("{what}: HTTP {code}: {}", env.error))
+                }
                 404 => AdapterError::NotFound(path.to_owned()),
                 _ => AdapterError::Api {
                     status: code,
-                    message: env.error,
+                    message: format!("{what}: {}", env.error),
                 },
             });
         }

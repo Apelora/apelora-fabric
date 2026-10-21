@@ -1,0 +1,146 @@
+# Troubleshooting with logs and the audit trail
+
+**Evidence:** the log lines and request ids below were produced by the control plane with the
+mock provider (2026-10-21); the worker and Incus lines are covered by unit and contract tests
+(MOCK VERIFIED / CONTRACT VERIFIED). They have not yet been read off a real cluster incident.
+
+Both services, `apelora-control-plane` and `apelora-deployment-worker`, write one line per event
+to standard output. The audit trail (`GET /api/v1/audit`, Fabric Console → Audit) is a
+separate, append-only record of who did what. Use the logs to find out **why** something
+happened; use the audit trail to find out **who** asked for it and what was decided.
+
+## Choosing what is logged
+
+`RUST_LOG` selects what is written; without it both services log at `info`. Directives are
+comma-separated `target=level` pairs, the most specific one wins:
+
+| Goal | `RUST_LOG` |
+|---|---|
+| Normal operation | unset, or `info` |
+| Every API request with status and latency | `info,apelora_control_plane::api::requests=debug` |
+| Why the API refused something (code and message of every 4xx) | `info,apelora_control_plane=debug` |
+| Every Incus request (method, path, status, latency) | `info,apelora_incus_adapter=debug` |
+| Worker decisions (lifecycle steps, moves, supervisor skips) | `info,apelora_deployment_worker=debug` |
+| Only problems | `warn` |
+| Database driver detail | add `sqlx=debug` (verbose: every statement) |
+
+An invalid `RUST_LOG` is reported on standard error and the service logs at `info`.
+
+`APELORA_LOG_FORMAT=json` writes one JSON object per line (`timestamp`, `level`, `target`,
+`fields` with `message` and the structured fields, and `span` with the request or job the line
+belongs to). The default, `text`, is meant for a terminal. Ship JSON to a log store.
+
+## The request id
+
+Every API response has an `x-request-id` header. A caller may send its own (at most 64
+characters of letters, digits, `.`, `_`, `-`); anything else is replaced by a new UUID. The id:
+
+- is on every log line written while the request is handled, in the `request` span together
+  with the method and the path (never the query string);
+- is added as `requestId` to the detail of every audit event recorded during the request;
+- is named in the message of a `500 store_error`, so a person reporting a failure can quote it.
+
+To follow one request: take the id from the browser's network panel (or the error message) and
+search the logs for it, e.g. `grep 'request_id=3f2a…'`, or `jq 'select(.span.request_id=="3f2a…")'`
+for JSON logs. Then look for the same id in the audit detail.
+
+Worker lines carry a `job` span instead: `job` (id), `kind` and `target` (`project/name` or the
+application). `GET /api/v1/jobs/{id}` shows the same job's status and last error.
+
+## Logged or audited
+
+| Event | Log | Audit |
+|---|---|---|
+| A request completes | debug (2xx/3xx), info (4xx), warn (5xx), with status, latency and error `code` | — |
+| No or unknown credential (401) | debug (no token) / warn `credential refused` with the credential kind and, for provider tokens, the issuer | not audited: anyone could fill the trail with them |
+| Refused by permission (403: `forbidden`, `mfa_required`, `route_not_authorizable`, `account_disabled`) | warn `request denied` | `access.denied` with `code` and `reason` |
+| Action that needs an approval, none presented (`approval_required`) | info | not audited: it is the normal first step of the approval flow |
+| Approval presented that is spent, someone else's or for another action (`approval_invalid`) | warn `approval refused` | `access.denied` with `code: approval_invalid`, the approval id and permission |
+| Every change made through the API | info where useful | always, with actor, target and outcome |
+| The audit write itself fails | error `audit: could not record <action>` | — (that is the failure) |
+
+Never in logs, audit detail or error messages: bearer tokens, API and service tokens, Incus join
+tokens, certificates and keys, passwords, the `Authorization` header, request bodies. Only the
+**kind** of a refused credential is logged. Values read from an unverified token (issuer,
+audience, key id) are public identifiers; they are shown without control characters and
+shortened to 120 characters.
+
+## Common problems and the lines to look for
+
+### Cannot sign in
+
+- `WARN credential refused credential="identity-provider token" issuer=… code="invalid_token" reason=…`
+  The reason says what did not match, for example
+  `the token was issued by a different identity provider (https://id.example/realms/x; expected https://id.example/realms/main)`
+  (a trailing slash or another realm), `the token is not meant for this API (audience apelora-console; expected one of apelora-api)`
+  (the provider puts the client id, not the API's identifier, in the audience), or
+  `signed with a key the identity provider does not publish (key id …)` (keys rotated; they are re-read at most once a minute).
+- `credential="API token" … the API token is unknown, revoked or expired`, or `legacy API tokens are disabled`.
+- `request denied code="account_disabled"`: the person's account is turned off (also audited as `auth.refused`).
+
+### The identity provider is not reachable
+
+- At start and after a change: `WARN identity provider not reachable: its tokens are refused until it answers (retried every minute) provider=… issuer=… error=…`.
+- When it answers again: `INFO identity provider accepted for sign-in`.
+
+### Incus is unreachable or refuses Apelora
+
+- API answers `502 incus_unreachable` / `incus_authentication` / `incus_api_error`; the access log
+  line is `WARN request failed code="incus_unreachable"` and the message names the Incus request,
+  e.g. `cannot reach the Incus server: GET /1.0/instances?recursion=1&all-projects=true: … Connection refused`.
+- `HTTP 401`/`403` in the message: the client certificate is not trusted or not allowed in the
+  project (see [deploy-identity.md](deploy-identity.md), [certificates.md](certificates.md)).
+- `HTTP 502 with a reply that is not from the Incus API`: something between Apelora and Incus
+  (a proxy or load balancer) answered instead of Incus.
+- With `RUST_LOG=info,apelora_incus_adapter=debug`: `DEBUG incus: response request="GET /1.0/…" status=200 latency_ms=12`
+  for every call, and `incus: request not sent or not answered` with the cause chain (TLS
+  verification, DNS, timeout).
+
+### A job fails or keeps being retried
+
+- `INFO job: claimed attempt=2 max_attempts=5` in the `job{job=… kind=… target=…}` span.
+- `WARN job: attempt failed; will be retried attempt=2 max_attempts=5 retry_in_secs=4 error=…`:
+  retried with exponential back-off (at most 300 s).
+- `ERROR job: failed; no attempts left` or `ERROR job: rejected; retrying cannot help` (for
+  example the instance is not Apelora's): the job is `failed` and `last_error` holds the reason.
+- `WARN incus: operation failed operation=… error=…` or `incus: operation still running when the wait ended`
+  just before: Incus itself reported the failure, or the operation is slower than the wait; the
+  next attempt waits on the same operation.
+- `INFO network: not everything has an address yet; the sync is retried`: normal while
+  instances start; a `network.sync` job that ends `failed` with `waiting for …` means an
+  instance never got an address.
+- `ERROR job: database error while running the job`: PostgreSQL was unavailable; the job is
+  taken over once its 30 s lease expires.
+- `WARN job: stopped working on it (another worker holds it now)`: the lease was lost (a pause
+  longer than the lease); the other worker's result counts.
+
+### An operation (start, stop, restart) reports a failed phase
+
+- `WARN operation: phase failed; later phases skipped operation=… phase=0 action=start instance=apelora/shop-db-01-r1 reason=…`.
+  The coordinating job still ends `succeeded`: the operation, not the job, records the failure
+  (`GET /api/v1/applications/{name}/operations/{id}`).
+- `WARN operation: cannot read the instance from Incus to confirm its state; looking again`:
+  the phase waits instead of guessing.
+
+### The supervisor does not restore something
+
+- `WARN supervisor: instance is missing or stopped; only stateless replicas are restored automatically`
+  (logged again when the state changes, at most every 10 minutes otherwise).
+- `WARN supervisor: cannot read the cluster members; offline detection and substitutes are skipped until they can be read`.
+- With `apelora_deployment_worker=debug`: why a replica was skipped (`a job for the instance is in flight or failed recently`,
+  `stopped on purpose through Apelora`).
+
+### The database
+
+- `503 store_unavailable` and `WARN store: the database is not reachable`: PostgreSQL is down,
+  refusing connections or out of connections; check `DATABASE_URL` and the server.
+- `500 store_error` (the message names the request id) and `ERROR store: database error error=…`
+  in the log line with that id: the database refused one statement; the log has its text.
+
+### The audit trail is not being written
+
+- `ERROR audit: could not record access.denied error=…` (or another action). API changes
+  answer with an error when their audit event cannot be written (the change itself may already
+  be stored: look before repeating it), and terminal sessions are not opened. Refusals and
+  session ends are still carried out and only logged. Check the database and the
+  `audit_events` table.

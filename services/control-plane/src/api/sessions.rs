@@ -45,7 +45,7 @@ use tokio::sync::oneshot;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::authz::{Caller, allow, audit_scoped, guard_on};
+use super::authz::{Caller, allow, audit_failed, audit_scoped, guard_on};
 use super::deploy::{bad_request, store};
 use super::manage::{desired_of, load, pick_deployment, resource_of};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal};
@@ -642,16 +642,19 @@ pub(super) async fn open(
         let (pool, p, res, target) = (pool.clone(), p.clone(), res.clone(), target.clone());
         let reason = outcome_reason.to_owned();
         async move {
-            let _ = audit_scoped(
-                &pool,
-                &p,
+            audit_failed(
                 "session.denied",
-                &target,
-                "denied",
-                Some(&res),
-                &json!({ "reason": reason, "kind": req.kind.as_str() }),
-            )
-            .await;
+                audit_scoped(
+                    &pool,
+                    &p,
+                    "session.denied",
+                    &target,
+                    "denied",
+                    Some(&res),
+                    &json!({ "reason": reason, "kind": req.kind.as_str() }),
+                )
+                .await,
+            );
         }
     };
 
@@ -929,16 +932,19 @@ pub(super) async fn connect(
     if ticket.origin != origin {
         // Spent above, so a stolen ticket cannot be retried from the right place either.
         if let Auth::Tokens(pool) = &state.auth {
-            let _ = audit_scoped(
-                pool,
-                &ticket.principal,
+            audit_failed(
                 "session.denied",
-                &approval_target(&ticket.application, &ticket.instance),
-                "denied",
-                Some(&ticket.resource),
-                &json!({ "reason": "origin differs from the one the ticket was issued to" }),
-            )
-            .await;
+                audit_scoped(
+                    pool,
+                    &ticket.principal,
+                    "session.denied",
+                    &approval_target(&ticket.application, &ticket.instance),
+                    "denied",
+                    Some(&ticket.resource),
+                    &json!({ "reason": "origin differs from the one the ticket was issued to" }),
+                )
+                .await,
+            );
         }
         return refuse(
             StatusCode::FORBIDDEN,
@@ -990,22 +996,34 @@ async fn still_allowed(state: &AppState, t: &Ticket) -> Option<bool> {
         return Some(false);
     };
     let c: &Caller = t.principal.caller.as_deref()?;
+    // `None` (cannot tell) is logged: repeated, it ends the session as `access-unverifiable`.
+    let unverifiable = |what: &str, e: &dyn std::fmt::Display| {
+        tracing::warn!(session = %t.id, error = %e, "session: cannot re-check access ({what})");
+    };
     match apelora_persistence::identity::user(pool, c.id).await {
         Ok(Some(u)) if u.disabled_at.is_none() => {}
         Ok(_) => return Some(false),
-        Err(_) => return None,
+        Err(e) => {
+            unverifiable("account", &e);
+            return None;
+        }
     }
     let mut groups: BTreeSet<Uuid> = apelora_persistence::identity::member_groups(pool, c.id)
         .await
+        .map_err(|e| unverifiable("groups", &e))
         .ok()?;
     groups.extend(
         apelora_persistence::identity::external_groups(pool, &c.subject.groups)
             .await
+            .map_err(|e| unverifiable("identity-provider groups", &e))
             .ok()?,
     );
     match super::caller_for(pool, c.kind, c.id, groups, c.subject.mfa).await {
         Ok(fresh) => Some(fresh.check(t.kind.permission(), &t.resource).allowed),
-        Err(_) => None,
+        Err(e) => {
+            unverifiable("role assignments", &e.message);
+            None
+        }
     }
 }
 
@@ -1040,16 +1058,19 @@ async fn run(
             } else {
                 "access-unverifiable"
             };
-            let _ = audit_scoped(
-                &pool,
-                &ticket.principal,
+            audit_failed(
                 "session.open",
-                &target,
-                "denied",
-                Some(&ticket.resource),
-                &json!({ "session": ticket.id, "reason": reason, "source": source }),
-            )
-            .await;
+                audit_scoped(
+                    &pool,
+                    &ticket.principal,
+                    "session.open",
+                    &target,
+                    "denied",
+                    Some(&ticket.resource),
+                    &json!({ "session": ticket.id, "reason": reason, "source": source }),
+                )
+                .await,
+            );
             send_close(&mut socket, reason).await;
             return;
         }
@@ -1085,16 +1106,19 @@ async fn run(
                 _ => "the control plane could not reach the instance",
             };
             tracing::warn!(session = %ticket.id, error = %e, "session could not be opened");
-            let _ = audit_scoped(
-                &pool,
-                &ticket.principal,
+            audit_failed(
                 "session.open",
-                &target,
-                "failure",
-                Some(&ticket.resource),
-                &json!({ "session": ticket.id, "kind": ticket.kind.as_str(), "reason": why, "source": source }),
-            )
-            .await;
+                audit_scoped(
+                    &pool,
+                    &ticket.principal,
+                    "session.open",
+                    &target,
+                    "failure",
+                    Some(&ticket.resource),
+                    &json!({ "session": ticket.id, "kind": ticket.kind.as_str(), "reason": why, "source": source }),
+                )
+            .await,
+            );
             let _ = ws_send(
                 &mut socket,
                 Message::Text(
@@ -1123,6 +1147,7 @@ async fn run(
         }),
     )
     .await
+    .map_err(|e| tracing::error!(session = %ticket.id, error = %e, "audit: could not record session.open; the session is refused"))
     .is_err()
     {
         drop(shell);
@@ -1211,19 +1236,22 @@ async fn run(
     // on a peer that may have stopped reading.
     drop(shell);
     send_close(&mut socket, reason).await;
-    let _ = audit_scoped(
-        &pool,
-        &ticket.principal,
+    audit_failed(
         "session.close",
-        &target,
-        "success",
-        Some(&ticket.resource),
-        &json!({
-            "session": ticket.id, "reason": reason,
-            "seconds": started.elapsed().as_secs(), "bytesIn": bytes_in, "bytesOut": bytes_out,
-        }),
-    )
-    .await;
+        audit_scoped(
+            &pool,
+            &ticket.principal,
+            "session.close",
+            &target,
+            "success",
+            Some(&ticket.resource),
+            &json!({
+                "session": ticket.id, "reason": reason,
+                "seconds": started.elapsed().as_secs(), "bytesIn": bytes_in, "bytesOut": bytes_out,
+            }),
+        )
+        .await,
+    );
 }
 
 #[cfg(test)]

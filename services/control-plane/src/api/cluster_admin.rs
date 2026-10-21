@@ -250,11 +250,10 @@ async fn evacuation_plan(
     let desired: Vec<(String, String, Vec<DesiredModule>)> = records
         .into_iter()
         .filter_map(|r| {
-            Some((
-                r.application,
-                r.project,
-                serde_json::from_value(r.desired).ok()?,
-            ))
+            let desired = serde_json::from_value(r.desired)
+                .map_err(|e| tracing::warn!(application = %r.application, error = %e, "evacuation: the deployment record is unreadable; its application is not considered"))
+                .ok()?;
+            Some((r.application, r.project, desired))
         })
         .collect();
     let deployed: Vec<Deployed<'_>> = desired
@@ -272,6 +271,7 @@ async fn evacuation_plan(
             "only the deploy projects are visible (no admin identity): instances of other projects are not listed".into(),
         );
     }
+    tracing::debug!(member, targets = ?plan.targets, instances = plan.items.len(), blocked = ?plan.blocked, warnings = plan.warnings.len(), "evacuation: plan");
     Ok((plan, provider.mode()))
 }
 
@@ -450,6 +450,7 @@ async fn removal_plan(
             "cluster administration needs the admin identity: instances of other projects cannot be checked".into(),
         );
     }
+    tracing::debug!(member, status = %plan.status, instances = ?plan.instances, volumes = ?plan.volumes, blocked = ?plan.blocked, "removal: plan");
     Ok((plan, provider.mode()))
 }
 

@@ -352,7 +352,11 @@ async fn current_plan(
     modules: &[DesiredModule],
 ) -> Result<Plan, ApiError> {
     let observed = state.provider.instances().await?;
-    Ok(plan(name, project, modules, &observed))
+    let p = plan(name, project, modules, &observed);
+    for i in &p.items {
+        tracing::debug!(application = name, instance = %format!("{project}/{}", i.instance), module = %i.module, replica = i.replica, action = ?i.action, reason = %i.reason, "plan: decision");
+    }
+    Ok(p)
 }
 
 /// Where an application operation lands, resolved from the database (never from client claims
