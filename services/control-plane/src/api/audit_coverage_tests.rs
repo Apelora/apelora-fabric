@@ -1188,6 +1188,96 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
     )
     .await;
 
+    // ---- alerts (alerts.rs): every change is Apelora's own state ----
+    super::alerts_tests::fire_an_alert(&s.l.pool).await;
+    let alert = s.setup("GET", "/api/v1/alerts", r, Value::Null).await["alerts"][0]["id"]
+        .as_i64()
+        .expect("a firing alert");
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/alerts/{id}/acknowledge",
+        &format!("/api/v1/alerts/{alert}/acknowledge"),
+        r,
+        json!({ "note": "on it" }),
+        "alert.acknowledge",
+    )
+    .await;
+    let silence = s
+        .step(
+            Atomic,
+            "POST",
+            "/api/v1/alerts/silences",
+            "/api/v1/alerts/silences",
+            r,
+            json!({ "rule": "job-failures", "minutes": 30, "note": "maintenance" }),
+            "alert.silence.create",
+        )
+        .await;
+    let silence = id(&silence, "id");
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/alerts/silences/{id}",
+        &format!("/api/v1/alerts/silences/{silence}"),
+        r,
+        Value::Null,
+        "alert.silence.end",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "PUT",
+        "/api/v1/alerts/rules/{rule}",
+        "/api/v1/alerts/rules/job-queue-wait",
+        r,
+        json!({ "enabled": true, "threshold": 600, "forSecs": 120, "severity": "critical" }),
+        "alert.rule.update",
+    )
+    .await;
+    let channel = s
+        .step(
+            Atomic,
+            "POST",
+            "/api/v1/alerts/channels",
+            "/api/v1/alerts/channels",
+            r,
+            json!({ "name": "ops", "url": "https://hooks.example/apelora", "secretRef": "APELORA_ALERT_SECRET_OPS" }),
+            "alert.channel.create",
+        )
+        .await;
+    let channel = id(&channel, "id");
+    s.step(
+        Atomic,
+        "PUT",
+        "/api/v1/alerts/channels/{id}",
+        &format!("/api/v1/alerts/channels/{channel}"),
+        r,
+        json!({ "name": "ops", "url": "https://hooks.example/apelora-2", "secretRef": "APELORA_ALERT_SECRET_OPS", "minSeverity": "critical" }),
+        "alert.channel.update",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/alerts/channels/{id}/test",
+        &format!("/api/v1/alerts/channels/{channel}/test"),
+        r,
+        Value::Null,
+        "alert.channel.test",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/alerts/channels/{id}",
+        &format!("/api/v1/alerts/channels/{channel}"),
+        r,
+        Value::Null,
+        "alert.channel.delete",
+    )
+    .await;
+
     // ---- every route is either exercised above or exempt, with a reason ----
     let exempt: BTreeSet<(String, String)> = EXEMPT
         .iter()

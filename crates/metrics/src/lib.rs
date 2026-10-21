@@ -295,6 +295,20 @@ pub fn topic_label(topic: &str) -> &str {
     job_kind_label(topic)
 }
 
+// ---- alerts -----------------------------------------------------------------------------------
+
+pub static ALERTS_FIRING: Gauge = Gauge::new(
+    "apelora_alerts_firing",
+    "Open firing alerts by severity (critical, warning, info), silenced ones included. Set each pass by the worker holding the alert-evaluator lease; the others report none.",
+    &["severity"],
+);
+pub static ALERT_EVALUATION: Histogram = Histogram::new(
+    "apelora_alert_evaluation_duration_seconds",
+    "Time one alert evaluation pass took, by result (ok, error).",
+    &["result"],
+    LONG_BUCKETS,
+);
+
 pub static LAST_BACKUP: Gauge = Gauge::new(
     "apelora_volume_last_backup_timestamp_seconds",
     "When the newest volume backup in each backup pool was made (Unix seconds; read from PostgreSQL).",
@@ -422,6 +436,8 @@ pub static FAMILIES: &[&dyn Family] = &[
     &OUTBOX_OLDEST_PENDING_AGE,
     &OUTBOX_FAILING,
     &OUTBOX_DELIVERIES,
+    &ALERTS_FIRING,
+    &ALERT_EVALUATION,
     &INCUS_REQUESTS,
     &INCUS_DURATION,
     &INCUS_OPERATION_WAIT,
@@ -517,6 +533,8 @@ mod tests {
             "mode",
             // Outbox topics are names from code, few (`topic_label`).
             "topic",
+            // Alert severities: critical, warning, info.
+            "severity",
         ];
         for f in FAMILIES {
             for l in f.label_names() {

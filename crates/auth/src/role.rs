@@ -147,6 +147,8 @@ impl Builtin {
                 "machine.enrol",
                 "fabric.metrics.read",
                 "support.bundle",
+                "alert.respond",
+                "alert.configure",
                 "hardware.view",
                 "organization.view",
                 "project.view",

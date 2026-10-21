@@ -49,7 +49,7 @@ test("the navigation is grouped and old addresses lead to their new place", asyn
   await page.goto("/#/membership");
   await expect(page).toHaveURL(/#\/servers\/machines$/);
   const nav = page.getByRole("navigation", { name: "Console" });
-  await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Servers", "Applications", "Instances", "Operations", "Networks", "Storage", "Audit", "Administration"]);
+  await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Servers", "Applications", "Instances", "Operations", "Networks", "Storage", "Alerts", "Audit", "Administration"]);
   await expect(nav.getByRole("group", { name: "Workloads" }).getByRole("link")).toHaveText(["Applications", "Instances", "Operations"]);
   await expect(nav.getByRole("link", { name: "Servers" })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Servers");

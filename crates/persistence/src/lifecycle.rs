@@ -544,3 +544,74 @@ pub async fn resolve(pool: &PgPool, name: &str) -> Result<Option<AppContext>> {
 pub fn env_kind(s: &Option<String>) -> Option<EnvKind> {
     s.as_deref().and_then(EnvKind::parse)
 }
+
+// ---- derived status -----------------------------------------------------------------------------
+
+/// The derived status of every application that is not archived, by name: the same derivation
+/// as the Applications page (`apelora_domain::lifecycle::derive_status` over the recorded
+/// desired state, the instances Incus reports, the supervisor's health verdicts and the latest
+/// operation). `instances` is `None` when Incus could not be read: every deployed application is
+/// then `Unknown`. Used by the control plane's metrics and the worker's alert evaluator.
+pub async fn derived_statuses(
+    pool: &PgPool,
+    instances: Option<&[apelora_domain::Instance]>,
+) -> Result<Vec<(String, apelora_domain::lifecycle::DeploymentStatus)>> {
+    use apelora_domain::lifecycle::{
+        Activity, OperationKind, OperationState, StatusInput, derive_status, observed_for,
+        replicas_of,
+    };
+    use apelora_domain::plan::DesiredModule;
+    let rows = list_application_rows(pool, &AccessFilter::All, false).await?;
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let ops: std::collections::BTreeMap<Uuid, OperationRow> =
+        latest_operations_by_application(pool, &ids)
+            .await?
+            .into_iter()
+            .map(|o| (o.application_id, o))
+            .collect();
+    let deployments = crate::list_deployments(pool).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mine: Vec<&crate::DeploymentRecord> = deployments
+            .iter()
+            .filter(|d| d.application_id == row.id)
+            .collect();
+        // The deployment that belongs to the application's environment (or the only one).
+        let dep = mine
+            .iter()
+            .find(|d| row.incus_project.as_deref() == Some(d.project.as_str()))
+            .or_else(|| mine.first())
+            .copied();
+        let desired: Vec<DesiredModule> = dep
+            .and_then(|d| serde_json::from_value(d.desired.clone()).ok())
+            .unwrap_or_default();
+        let health = if dep.is_some() {
+            crate::application_health(pool, &row.name).await?
+        } else {
+            Vec::new()
+        };
+        let unhealthy = |instance: &str| {
+            health
+                .iter()
+                .any(|h| h.instance == instance && h.health == "unhealthy")
+        };
+        let observed = match (instances, dep) {
+            (Some(all), Some(d)) => Some(observed_for(&row.name, &d.project, all, &unhealthy)),
+            (Some(_), None) => Some(Vec::new()),
+            (None, _) => None,
+        };
+        let latest = ops.get(&row.id).and_then(|op| {
+            Some(Activity {
+                kind: OperationKind::parse(&op.kind)?,
+                state: OperationState::parse(&op.state)?,
+            })
+        });
+        let status = derive_status(&StatusInput {
+            desired: &replicas_of(&desired),
+            observed: observed.as_deref(),
+            latest_operation: latest,
+        });
+        out.push((row.name, status));
+    }
+    Ok(out)
+}

@@ -3,6 +3,7 @@
 //! outcome fenced by the claim's generation. Instance lifecycle jobs change Incus through the
 //! [`Provider`]; see [`lifecycle`].
 
+pub mod alerts;
 pub mod health;
 pub mod lifecycle;
 pub mod metrics;
@@ -13,6 +14,7 @@ pub mod outbox;
 pub mod storage;
 pub mod supervisor;
 pub mod wake;
+pub mod webhook;
 
 use std::time::Duration;
 

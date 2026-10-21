@@ -428,6 +428,18 @@ pub const SETTINGS: &[Setting] = &[
         "Where audit messages are relayed",
     ),
     s(
+        "APELORA_ALERT_EVALUATE_SECS",
+        Worker,
+        Some("30"),
+        "How often built-in alert rules are evaluated (0: off)",
+    ),
+    s(
+        "APELORA_RESTORE_DRILL_RECORD",
+        Worker,
+        None,
+        "The restore drill's result file the restore-age alert reads",
+    ),
+    s(
         "APELORA_API_URL",
         DevServer,
         Some("http://127.0.0.1:8080"),

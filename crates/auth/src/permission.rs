@@ -250,6 +250,18 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         false,
         "Register machines and approve them to join the cluster",
     ),
+    i(
+        "alert.respond",
+        Plat,
+        false,
+        "Acknowledge alerts and silence them for a time window",
+    ),
+    i(
+        "alert.configure",
+        Plat,
+        false,
+        "Change alert rules (on or off, thresholds, durations, severities) and notification channels (webhooks)",
+    ),
     // --- platform security (platform scope only)
     s("organization.create", "Create organisations"),
     s("role.manage", "Define custom roles"),

@@ -174,6 +174,43 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
     DeploymentStatus::Degraded
 }
 
+/// Instances each module of a deployment should have, as [`StatusInput::desired`] takes them.
+pub fn replicas_of(desired: &[DesiredModule]) -> Vec<(String, u8)> {
+    desired
+        .iter()
+        .map(|d| (d.module.clone(), d.replicas))
+        .collect()
+}
+
+/// The instances Incus reports for the application `name` in `project` (managed, labelled for
+/// it), with the supervisor's verdict from `unhealthy(instance name)`.
+pub fn observed_for(
+    name: &str,
+    project: &str,
+    instances: &[crate::Instance],
+    unhealthy: &dyn Fn(&str) -> bool,
+) -> Vec<Observed> {
+    instances
+        .iter()
+        .filter(|i| {
+            i.managed
+                && i.project == project
+                && i.owner.as_ref().is_some_and(|o| o.application == name)
+        })
+        .map(|i| Observed {
+            module: i
+                .owner
+                .as_ref()
+                .map(|o| o.module.clone())
+                .unwrap_or_default(),
+            instance: i.name.clone(),
+            status: i.status.clone(),
+            unhealthy: unhealthy(&i.name),
+            unreachable: i.unreachable,
+        })
+        .collect()
+}
+
 /// Layers of modules for an operation, in the order to act on them. `providers_first`
 /// (starting) puts what others depend on first; stopping reverses it. A connection `from → to`
 /// means `from` depends on `to`. Modules in a cycle, and unconnected ones, are placed so

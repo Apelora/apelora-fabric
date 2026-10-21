@@ -10,6 +10,893 @@
     "version": "v1"
   },
   "paths": {
+    "/api/v1/alerts": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Firing alerts (most severe and oldest first) with acknowledgement and silence, the silences\nin force, counts by severity and whether the evaluator runs. Needs `cluster.view`.",
+        "operationId": "alerts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/channels": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Webhook channels with their delivery state. The full URL only for callers who may configure\nchannels. Needs `cluster.view`.",
+        "operationId": "alert_channels",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertChannelList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Adds a webhook channel. HTTPS only; the signing secret is named, never sent. Needs\n`alert.configure`; audited as `alert.channel.create` (host only, not the URL).",
+        "operationId": "create_alert_channel",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertChannel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/channels/{id}": {
+      "put": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Changes a webhook channel. Needs `alert.configure`; audited as `alert.channel.update`.",
+        "operationId": "update_alert_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertChannel"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Deletes a webhook channel; messages still waiting for it are dropped by the relay. Needs\n`alert.configure`; audited as `alert.channel.delete`.",
+        "operationId": "delete_alert_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/channels/{id}/test": {
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Queues a test notification for one channel through the same outbox path as real alerts; the\nchannel's delivery state shows the outcome within seconds. Needs `alert.configure`; audited as\n`alert.channel.test` in the same transaction as the message.",
+        "operationId": "test_alert_channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Channel id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertChannelTest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/history": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Resolved alerts, newest first, paged by `before`. Kept 90 days. Needs `cluster.view`.",
+        "operationId": "alert_history",
+        "parameters": [
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only alerts with a smaller id (the last one of the previous page).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 200 (default 50).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertHistory"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/rules": {
+      "get": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "The built-in rules with their parameters in force, their defaults and what the evaluator's\nlast pass said about each source. Needs `cluster.view`.",
+        "operationId": "alert_rules",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRuleList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/rules/{rule}": {
+      "put": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Changes a rule's parameters (on or off, threshold within the rule's bounds, duration up to a\nday, severity). Takes effect on the evaluator's next pass. Needs `alert.configure`; audited\nas `alert.rule.update` with the parameters before and after.",
+        "operationId": "update_alert_rule",
+        "parameters": [
+          {
+            "name": "rule",
+            "in": "path",
+            "description": "Rule id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRuleParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRuleItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/silences": {
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Silences a rule (every subject, or one) for `minutes` from now: no notification is sent for\nits alerts that fire or resolve meanwhile. Evaluation and history go on. Needs\n`alert.respond`; audited as `alert.silence.create`.",
+        "operationId": "create_alert_silence",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertSilenceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSilence"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/silences/{id}": {
+      "delete": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Ends a silence now. Needs `alert.respond`; audited as `alert.silence.end`. 404 when it is\nnot in force (ended or run out).",
+        "operationId": "end_alert_silence",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Silence id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{id}/acknowledge": {
+      "post": {
+        "tags": [
+          "alerts"
+        ],
+        "summary": "Acknowledges a firing alert: who, when and an optional note. It keeps firing until its\ncondition clears; acknowledging tells others someone is on it. Refused (409) when it is not\nfiring (`not_firing`) or was acknowledged already (`already_acknowledged`). Needs\n`alert.respond`; audited as `alert.acknowledge`.",
+        "operationId": "acknowledge_alert",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Alert id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertAcknowledgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/applications": {
       "get": {
         "tags": [
@@ -10726,6 +11613,720 @@
           }
         }
       },
+      "AlertAcknowledgeRequest": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What is being done about it (at most 500 characters)."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AlertAcknowledgement": {
+        "type": "object",
+        "description": "Who acknowledged an alert.",
+        "required": [
+          "by",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "by": {
+            "type": "string",
+            "description": "`user:<id>`, `service:<id>` or `token:<name>`."
+          },
+          "byName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AlertActions": {
+        "type": "object",
+        "description": "What the caller may do here.",
+        "required": [
+          "respond",
+          "configure"
+        ],
+        "properties": {
+          "configure": {
+            "$ref": "#/components/schemas/ActionState",
+            "description": "Change rules and channels (`alert.configure`)."
+          },
+          "respond": {
+            "$ref": "#/components/schemas/ActionState",
+            "description": "Acknowledge and silence (`alert.respond`)."
+          }
+        }
+      },
+      "AlertChannel": {
+        "type": "object",
+        "description": "A webhook channel.",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "host",
+          "secretRef",
+          "enabled",
+          "minSeverity",
+          "delivery",
+          "createdAt",
+          "createdBy",
+          "updatedAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/AlertChannelDelivery"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string",
+            "description": "The host it posts to."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "description": "`webhook`."
+          },
+          "minSeverity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "name": {
+            "type": "string"
+          },
+          "secretRef": {
+            "type": "string",
+            "description": "The name of the environment variable on the worker that holds the signing secret."
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The full URL, only for callers who may configure channels (it may carry a token)."
+          }
+        }
+      },
+      "AlertChannelDelivery": {
+        "type": "object",
+        "description": "A channel's deliveries, from its outbox messages (kept a week after delivery).",
+        "required": [
+          "pending",
+          "failing"
+        ],
+        "properties": {
+          "failing": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lastDeliveredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339."
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the newest still-failing message failed."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AlertChannelList": {
+        "type": "object",
+        "required": [
+          "channels",
+          "secretPrefix",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/AlertActions"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertChannel"
+            }
+          },
+          "secretPrefix": {
+            "type": "string",
+            "description": "What a secret reference must start with."
+          }
+        }
+      },
+      "AlertChannelRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "url",
+          "secretRef"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "minSeverity": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlertSeverity",
+                "description": "Alerts of this severity and above are sent (default `warning`)."
+              }
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 80 characters, unique."
+          },
+          "secretRef": {
+            "type": "string",
+            "description": "The name of the environment variable on the worker holding the signing secret, e.g.\n`APELORA_ALERT_SECRET_OPS`. Never the secret itself."
+          },
+          "url": {
+            "type": "string",
+            "description": "`https://…` only, without a user name or password."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AlertChannelTest": {
+        "type": "object",
+        "description": "A channel test was queued.",
+        "required": [
+          "messageId"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The outbox message (`Apelora-Event-Id` at the receiver)."
+          }
+        }
+      },
+      "AlertComparison": {
+        "type": "string",
+        "description": "How a rule compares its value with the threshold.",
+        "enum": [
+          "at-least",
+          "at-most"
+        ]
+      },
+      "AlertCounts": {
+        "type": "object",
+        "description": "Firing alerts by severity, and those nobody has acknowledged or silenced.",
+        "required": [
+          "critical",
+          "warning",
+          "info",
+          "needsAttention"
+        ],
+        "properties": {
+          "critical": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "info": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "needsAttention": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Firing, not acknowledged and not silenced: what needs attention.",
+            "minimum": 0
+          },
+          "warning": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AlertEvaluator": {
+        "type": "object",
+        "description": "Whether the worker's evaluator is running.",
+        "required": [
+          "stale",
+          "message"
+        ],
+        "properties": {
+          "durationSecs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "everySecs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "lastPassAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339; `None` when no worker has evaluated alerts yet."
+          },
+          "message": {
+            "type": "string",
+            "description": "What the state means, in a sentence."
+          },
+          "stale": {
+            "type": "boolean",
+            "description": "No pass for more than three intervals (or none ever): alerts may be out of date."
+          },
+          "worker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AlertHistory": {
+        "type": "object",
+        "description": "Resolved alerts, newest first.",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertItem"
+            }
+          }
+        }
+      },
+      "AlertItem": {
+        "type": "object",
+        "description": "One alert, firing or resolved.",
+        "required": [
+          "id",
+          "rule",
+          "title",
+          "subject",
+          "severity",
+          "state",
+          "summary",
+          "value",
+          "threshold",
+          "comparison",
+          "unit",
+          "startedAt",
+          "lastSeenAt",
+          "runbook"
+        ],
+        "properties": {
+          "acknowledged": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlertAcknowledgement"
+              }
+            ]
+          },
+          "clearingSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Firing, but the condition has been clear since this time (it resolves once it stays\nclear for the rule's duration)."
+          },
+          "comparison": {
+            "$ref": "#/components/schemas/AlertComparison"
+          },
+          "firedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lastSeenAt": {
+            "type": "string"
+          },
+          "resolvedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string"
+          },
+          "runbook": {
+            "type": "string",
+            "description": "The runbook section, relative to `docs/runbooks/`."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "silencedBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AlertSilencedBy"
+              }
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "RFC 3339: when the condition was first seen, when it fired, last seen holding, resolved."
+          },
+          "state": {
+            "type": "string",
+            "description": "`firing` or `resolved`."
+          },
+          "subject": {
+            "type": "string",
+            "description": "What it is about: a job kind, a worker, a member, `project/instance`, …"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AlertList": {
+        "type": "object",
+        "description": "Open alerts (firing; pending ones are not shown), silences in force, counts and the\nevaluator's state.",
+        "required": [
+          "alerts",
+          "silences",
+          "counts",
+          "evaluator",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/AlertActions"
+          },
+          "alerts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertItem"
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AlertCounts"
+          },
+          "evaluator": {
+            "$ref": "#/components/schemas/AlertEvaluator"
+          },
+          "silences": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertSilence"
+            }
+          }
+        }
+      },
+      "AlertRuleItem": {
+        "type": "object",
+        "description": "A built-in rule with its parameters in force.",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "unit",
+          "comparison",
+          "thresholdEditable",
+          "thresholdMin",
+          "thresholdMax",
+          "params",
+          "defaults",
+          "source",
+          "sourceState",
+          "firing",
+          "runbook"
+        ],
+        "properties": {
+          "comparison": {
+            "$ref": "#/components/schemas/AlertComparison"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/AlertRuleParams"
+          },
+          "description": {
+            "type": "string"
+          },
+          "firing": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "params": {
+            "$ref": "#/components/schemas/AlertRuleParams"
+          },
+          "runbook": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Where its facts come from."
+          },
+          "sourceState": {
+            "type": "string",
+            "description": "What the evaluator's last pass said about that source: `ok`, `not-configured`,\n`unavailable`, `disabled`, or `unknown` before the first pass."
+          },
+          "thresholdEditable": {
+            "type": "boolean",
+            "description": "`false`: the rule fires while a state lasts; only its duration and severity are tuned."
+          },
+          "thresholdMax": {
+            "type": "number",
+            "format": "double"
+          },
+          "thresholdMin": {
+            "type": "number",
+            "format": "double"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339 and who, when an operator changed it."
+          },
+          "updatedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AlertRuleList": {
+        "type": "object",
+        "required": [
+          "rules",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/AlertActions"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertRuleItem"
+            }
+          }
+        }
+      },
+      "AlertRuleParams": {
+        "type": "object",
+        "description": "A rule's parameters.",
+        "required": [
+          "enabled",
+          "threshold",
+          "forSecs",
+          "severity"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "forSecs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Seconds the condition must hold before firing, and stay clear before resolving.",
+            "minimum": 0
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "threshold": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "AlertSeverity": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "critical"
+        ]
+      },
+      "AlertSilence": {
+        "type": "object",
+        "description": "A silence in force.",
+        "required": [
+          "id",
+          "rule",
+          "ruleTitle",
+          "startsAt",
+          "endsAt",
+          "note",
+          "createdBy"
+        ],
+        "properties": {
+          "createdBy": {
+            "type": "string"
+          },
+          "createdByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endsAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "note": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "ruleTitle": {
+            "type": "string"
+          },
+          "startsAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None`: every subject of the rule."
+          }
+        }
+      },
+      "AlertSilenceRequest": {
+        "type": "object",
+        "required": [
+          "rule",
+          "minutes"
+        ],
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "1 to 10080 (a week).",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string"
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One subject; absent: every subject of the rule."
+          }
+        },
+        "additionalProperties": false
+      },
+      "AlertSilencedBy": {
+        "type": "object",
+        "description": "The silence that holds back an alert's notifications.",
+        "required": [
+          "id",
+          "until"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "until": {
+            "type": "string",
+            "description": "RFC 3339."
+          }
+        }
+      },
       "ApiTokenSetting": {
         "type": "object",
         "required": [
@@ -20100,6 +21701,9 @@
     },
     {
       "name": "sessions"
+    },
+    {
+      "name": "alerts"
     }
   ]
 }

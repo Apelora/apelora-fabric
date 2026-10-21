@@ -5,6 +5,7 @@ import { ApiRequestError, completeOidcSignIn, type ClusterResponse, type Health,
 import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
 import { client, messageOf, readToken, useLoad, writeToken, type Load } from "./lib/api";
 import { AdministrationView } from "./views/Administration";
+import { AlertsAtAGlance, AlertsView } from "./views/Alerts";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
 import { HealthView } from "./views/Health";
@@ -35,8 +36,10 @@ const VIEWS = [
   { id: "applications", label: "Applications", group: "Workloads" },
   { id: "instances", label: "Instances", group: "Workloads" },
   { id: "operations", label: "Operations", group: "Workloads" },
-  { id: "networks", label: "Networks", needs: "read-inventory" as Permission },
-  { id: "storage", label: "Storage", needs: "read-inventory" as Permission },
+  // Networks and Storage check each section themselves: an application's viewers see its own.
+  { id: "networks", label: "Networks" },
+  { id: "storage", label: "Storage" },
+  { id: "alerts", label: "Alerts", needs: "read-inventory" as Permission },
   // Identity & Access pages come here (their own group, see navSections).
   { id: "audit", label: "Audit", needs: "read-audit" as Permission },
   { id: "administration", label: "Administration" },
@@ -44,7 +47,7 @@ const VIEWS = [
 type CoreViewId = (typeof VIEWS)[number]["id"];
 type ViewId = CoreViewId | IdentityPageId | AccountPageId;
 /** Views with one section use that section's header as their page title; Identity & Access pages carry their own. */
-const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "networks", "storage", "audit", ...IDENTITY_PAGES.map((p) => p.id), ...ACCOUNT_PAGES.map((p) => p.id)]);
+const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "alerts", "audit", ...IDENTITY_PAGES.map((p) => p.id), ...ACCOUNT_PAGES.map((p) => p.id)]);
 const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label ?? ACCOUNT_PAGES.find((p) => p.id === id)?.label;
 
 /** Addresses from before the navigation was regrouped, and where they live now. */
@@ -329,6 +332,7 @@ export function App() {
 
             {ready && (
               <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
+                {current === "overview" && me?.permissions.includes("read-inventory") && <AlertsAtAGlance onAuth={onAuth} />}
                 {current === "overview" && <Members onAuth={onAuth} onLoad={setClusterLoad} />}
                 {current === "health" && <HealthView onAuth={onAuth} />}
                 {current === "applications" && <ApplicationsView me={me} onAuth={onAuth} />}
@@ -340,6 +344,7 @@ export function App() {
                 {current === "networks" && <NetworksView me={me} onAuth={onAuth} />}
                 {current === "storage" && <StorageView me={me} onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
+                {current === "alerts" && <AlertsView onAuth={onAuth} />}
                 {current === "operations" && (() => {
                   const id = jobRoute(route.hash);
                   return id ? <JobDetailView key={id} id={id} onAuth={onAuth} /> : <OperationsView onAuth={onAuth} />;

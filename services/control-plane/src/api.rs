@@ -434,6 +434,28 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/audit", get(audit::list))
         .route("/api/v1/audit/export", get(audit::export))
         .route("/api/v1/monitoring", get(metrics::monitoring))
+        .route("/api/v1/alerts", get(alerts::list))
+        .route("/api/v1/alerts/history", get(alerts::history))
+        .route("/api/v1/alerts/{id}/acknowledge", post(alerts::acknowledge))
+        .route("/api/v1/alerts/silences", post(alerts::create_silence))
+        .route("/api/v1/alerts/silences/{id}", delete(alerts::end_silence))
+        .route("/api/v1/alerts/rules", get(alerts::rules))
+        .route(
+            "/api/v1/alerts/rules/{rule}",
+            axum::routing::put(alerts::update_rule),
+        )
+        .route(
+            "/api/v1/alerts/channels",
+            get(alerts::channels).post(alerts::create_channel),
+        )
+        .route(
+            "/api/v1/alerts/channels/{id}",
+            axum::routing::put(alerts::update_channel).delete(alerts::delete_channel),
+        )
+        .route(
+            "/api/v1/alerts/channels/{id}/test",
+            post(alerts::test_channel),
+        )
         .route("/metrics", get(metrics::metrics))
         .route(
             "/api/v1/identity/organizations",
@@ -1513,6 +1535,9 @@ impl Modify for BearerAuth {
         jobs::detail, jobs::retry, jobs::cancel,
         instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,
         admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors, metrics::metrics, metrics::monitoring,
+        alerts::list, alerts::history, alerts::acknowledge, alerts::create_silence, alerts::end_silence,
+        alerts::rules, alerts::update_rule, alerts::channels, alerts::create_channel, alerts::update_channel,
+        alerts::delete_channel, alerts::test_channel,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
@@ -1540,7 +1565,7 @@ impl Modify for BearerAuth {
         storage::set_schedules, storage::preview_restore, storage::restore),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
-    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"))
+    tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"), (name = "alerts"))
 )]
 pub struct ApiDoc;
 
@@ -1561,6 +1586,9 @@ async fn openapi() -> impl IntoResponse {
 
 mod account;
 mod admin;
+mod alerts;
+#[cfg(test)]
+mod alerts_tests;
 pub(crate) use admin::token_lifetime_days;
 mod applications;
 mod audit;

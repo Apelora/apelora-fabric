@@ -8,6 +8,9 @@ publish.workspace = true
 
 [dependencies]
 apelora-auth = { version = "0.0.0", path = "../auth" }
+# Shared domain types (no I/O): the derived application status is computed once here for the
+# control plane's metrics and the worker's alert evaluator.
+apelora-domain = { version = "0.0.0", path = "../domain" }
 getrandom = "0.4.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

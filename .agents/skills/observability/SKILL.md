@@ -76,6 +76,13 @@ Measure at three levels:
 - Propagate a trace/request id from Studio through Controller to Node (W3C `traceparent`). Use OpenTelemetry in Rust and the browser.
 - Sample sensibly (always trace errors and slow requests).
 
+## Built-in alerts in Apelora today (design `docs/design/alerts.md`, runbook `docs/runbooks/alerts.md`)
+
+- **Rules are code** (`apelora_domain::alerts::RULES`: id, title, unit, comparison, default threshold with bounds, duration, severity, source, runbook anchor); operators change only parameters (`alert_rule_settings`). A new rule needs: the rule entry, a fact query in `persistence::alerts` (or an existing read), its `Findings` in `deployment-worker/src/alerts.rs::gather`, a runbook section whose anchor matches `runbook`, and a test. Never `Observed(empty)` when the source could not be read: return `Unavailable` so open alerts are kept, or `NotConfigured` when the installation has not set the source up.
+- **Evaluator:** the worker holding the `alert-evaluator` lease, every `APELORA_ALERT_EVALUATE_SECS` (30). Facts are gathered first, then one fenced transaction writes every transition (`transition()` in the domain: pending → firing after the duration, firing → resolved after staying clear for the duration), one outbox message (topic `alert`) per enabled channel for fired/resolved outside a silence, and the evaluator row. Alert states are not audit rows (mutable observations); people's actions on them are audited.
+- **Delivery:** `webhook::Routed` sends `alert` messages to `WebhookSink` (HTTPS only, no redirects, 3/5 s timeouts, `Apelora-Signature: v1=` HMAC-SHA256 over `timestamp.body`, secret read from the `APELORA_ALERT_SECRET_*` variable the channel names), everything else to the configured sink. Errors never carry the URL (`without_url()`) or the response body. A channel's state is read from its outbox rows (`channel_deliveries`), not written by the relay.
+- **Metrics:** `apelora_alerts_firing{severity}` (leader only; `replace([])` on others), `apelora_alert_evaluation_duration_seconds{result}`; deliveries in `apelora_outbox_deliveries{topic="alert"}`.
+
 ## Health, SLOs, alerts
 
 - `/healthz` = process alive; `/readyz` = dependencies reachable and ready for traffic. Orchestrators use both.

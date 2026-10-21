@@ -8,6 +8,9 @@
 //! is unhealthy, and restarted once unhealthy for `APELORA_HEALTH_RESTART_AFTER_SECS` (60).
 //! Metrics and a liveness probe are served on `APELORA_WORKER_METRICS_ADDR` (default
 //! `127.0.0.1:9471`, `off` turns it off; no authentication, so loopback or a management network).
+//! Alerts are evaluated every `APELORA_ALERT_EVALUATE_SECS` (default 30; 0 turns it off) by the
+//! worker holding the `alert-evaluator` lease; webhook secrets are read from the
+//! `APELORA_ALERT_SECRET_*` variables the channels name (docs/design/alerts.md).
 
 use std::time::Duration;
 
@@ -107,12 +110,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     // The outbox relay (EVERY-SIZE.md §2.5): delivers what changes wrote to the outbox, while
     // this worker holds the `outbox-relay` lease. APELORA_OUTBOX_SINK=log (default) or off.
-    let relay =
-        apelora_deployment_worker::outbox::sink_from_env(|k| std::env::var(k).ok())?.map(|sink| {
-            tokio::spawn(apelora_deployment_worker::outbox::relay(
+    // Alert notifications (topic `alert`) go to webhook channels; everything else to that sink.
+    let relay = match apelora_deployment_worker::outbox::sink_from_env(|k| std::env::var(k).ok())? {
+        Some(other) => {
+            let webhooks = apelora_deployment_worker::webhook::WebhookSink::new(pool.clone())?;
+            let sink: std::sync::Arc<dyn apelora_deployment_worker::outbox::Sink> =
+                std::sync::Arc::new(apelora_deployment_worker::webhook::Routed {
+                    alerts: std::sync::Arc::new(webhooks),
+                    other,
+                });
+            Some(tokio::spawn(apelora_deployment_worker::outbox::relay(
                 pool.clone(),
                 sink,
                 Duration::from_secs(2),
+                worker.clone(),
+            )))
+        }
+        None => None,
+    };
+    // The alert evaluator (docs/design/alerts.md), under the `alert-evaluator` lease:
+    // APELORA_ALERT_EVALUATE_SECS (default 30, 0 = off), APELORA_RESTORE_DRILL_RECORD.
+    let alerts = apelora_deployment_worker::alerts::config_from_env(|k| std::env::var(k).ok())?
+        .map(|cfg| {
+            tokio::spawn(apelora_deployment_worker::alerts::evaluate(
+                pool.clone(),
+                provider.clone(),
+                std::sync::Arc::new(cfg),
                 worker.clone(),
             ))
         });
@@ -126,6 +149,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage.abort();
     if let Some(r) = relay {
         r.abort();
+    }
+    if let Some(a) = alerts {
+        a.abort();
     }
     if let Some(m) = metrics {
         m.abort();

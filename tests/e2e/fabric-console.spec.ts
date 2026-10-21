@@ -521,7 +521,7 @@ test.describe("fabric console views", () => {
     });
     await page.goto("/#/membership");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Servers", "Applications", "Instances", "Operations", "Networks", "Storage", "Administration"]);
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Servers", "Applications", "Instances", "Operations", "Networks", "Storage", "Alerts", "Administration"]);
     // The old enrolment address leads to Servers, without the machines tab.
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Servers");
     await expect(page.getByRole("navigation", { name: "Servers" }).getByRole("link", { name: "Machines and join tokens" })).toHaveCount(0);

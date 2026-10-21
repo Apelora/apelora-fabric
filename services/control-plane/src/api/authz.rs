@@ -132,6 +132,8 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "storage.manage"
         | "machine.enrol"
         | "support.bundle"
+        | "alert.respond"
+        | "alert.configure"
         | "hardware.commission"
         | "hardware.deploy"
         | "hardware.power"
@@ -711,6 +713,32 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "GET",
         "/api/v1/monitoring",
         &["fabric.metrics.read", "cluster.view"],
+    ),
+    // Alerts (alerts.rs): seen with the cluster; acknowledged and silenced with alert.respond;
+    // rules and channels changed with alert.configure. All platform-level.
+    ("GET", "/api/v1/alerts", &["cluster.view"]),
+    ("GET", "/api/v1/alerts/history", &["cluster.view"]),
+    (
+        "POST",
+        "/api/v1/alerts/{id}/acknowledge",
+        &["alert.respond"],
+    ),
+    ("POST", "/api/v1/alerts/silences", &["alert.respond"]),
+    ("DELETE", "/api/v1/alerts/silences/{id}", &["alert.respond"]),
+    ("GET", "/api/v1/alerts/rules", &["cluster.view"]),
+    ("PUT", "/api/v1/alerts/rules/{rule}", &["alert.configure"]),
+    ("GET", "/api/v1/alerts/channels", &["cluster.view"]),
+    ("POST", "/api/v1/alerts/channels", &["alert.configure"]),
+    ("PUT", "/api/v1/alerts/channels/{id}", &["alert.configure"]),
+    (
+        "DELETE",
+        "/api/v1/alerts/channels/{id}",
+        &["alert.configure"],
+    ),
+    (
+        "POST",
+        "/api/v1/alerts/channels/{id}/test",
+        &["alert.configure"],
     ),
     // Identity and access (see identity.rs)
     (

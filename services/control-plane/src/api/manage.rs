@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use apelora_auth::{EnvKind, Resource};
 use apelora_domain::lifecycle::{
     Activity, DeploymentStatus, Observed, OperationKind, OperationState, StatusInput,
-    derive_status, layers, needs_confirmation,
+    derive_status, layers, needs_confirmation, observed_for, replicas_of,
 };
 use apelora_domain::plan::{Availability, DesiredModule};
 use apelora_domain::{Instance, ProviderMode, is_valid_name};
@@ -218,40 +218,6 @@ fn activity(op: &db::OperationRow) -> Option<Activity> {
         kind: OperationKind::parse(&op.kind)?,
         state: OperationState::parse(&op.state)?,
     })
-}
-
-fn replicas_of(desired: &[DesiredModule]) -> Vec<(String, u8)> {
-    desired
-        .iter()
-        .map(|d| (d.module.clone(), d.replicas))
-        .collect()
-}
-
-fn observed_for(
-    name: &str,
-    project: &str,
-    instances: &[Instance],
-    unhealthy: &dyn Fn(&str) -> bool,
-) -> Vec<Observed> {
-    instances
-        .iter()
-        .filter(|i| {
-            i.managed
-                && i.project == project
-                && i.owner.as_ref().is_some_and(|o| o.application == name)
-        })
-        .map(|i| Observed {
-            module: i
-                .owner
-                .as_ref()
-                .map(|o| o.module.clone())
-                .unwrap_or_default(),
-            instance: i.name.clone(),
-            status: i.status.clone(),
-            unhealthy: unhealthy(&i.name),
-            unreachable: i.unreachable,
-        })
-        .collect()
 }
 
 fn design_of(r: &db::ApplicationRow) -> DesignInfo {
@@ -495,43 +461,8 @@ pub(super) async fn status_counts(
     pool: &apelora_persistence::Pool,
     instances: Option<&[Instance]>,
 ) -> Res<BTreeMap<String, u64>> {
-    let rows = db::list_application_rows(pool, &apelora_auth::AccessFilter::All, false).await?;
-    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
-    let ops: BTreeMap<Uuid, db::OperationRow> = db::latest_operations_by_application(pool, &ids)
-        .await?
-        .into_iter()
-        .map(|o| (o.application_id, o))
-        .collect();
-    let all_deployments = apelora_persistence::list_deployments(pool).await?;
     let mut counts = BTreeMap::new();
-    for row in rows {
-        let mine: Vec<apelora_persistence::DeploymentRecord> = all_deployments
-            .iter()
-            .filter(|d| d.application_id == row.id)
-            .cloned()
-            .collect();
-        let dep = pick_deployment(&row, &mine);
-        let want = replicas_of(&dep.as_ref().map(desired_of).unwrap_or_default());
-        let health = if dep.is_some() {
-            apelora_persistence::application_health(pool, &row.name).await?
-        } else {
-            Vec::new()
-        };
-        let unhealthy = |instance: &str| {
-            health
-                .iter()
-                .any(|h| h.instance == instance && h.health == "unhealthy")
-        };
-        let observed: Option<Vec<Observed>> = match (instances, &dep) {
-            (Some(all), Some(d)) => Some(observed_for(&row.name, &d.project, all, &unhealthy)),
-            (Some(_), None) => Some(Vec::new()),
-            (None, _) => None,
-        };
-        let status = derive_status(&StatusInput {
-            desired: &want,
-            observed: observed.as_deref(),
-            latest_operation: ops.get(&row.id).and_then(activity),
-        });
+    for (_, status) in db::derived_statuses(pool, instances).await? {
         let label = serde_json::to_value(status)
             .ok()
             .and_then(|v| v.as_str().map(str::to_owned))

@@ -60,6 +60,221 @@ export type Admission = {
   source: Source;
 };
 
+export type AlertAcknowledgeRequest = {
+  /** What is being done about it (at most 500 characters). */
+  note?: string | null;
+};
+
+/** Who acknowledged an alert. */
+export type AlertAcknowledgement = {
+  /** RFC 3339. */
+  at: string;
+  /** `user:<id>`, `service:<id>` or `token:<name>`. */
+  by: string;
+  byName?: string | null;
+  note?: string | null;
+};
+
+/** What the caller may do here. */
+export type AlertActions = {
+  /** Change rules and channels (`alert.configure`). */
+  configure: ActionState;
+  /** Acknowledge and silence (`alert.respond`). */
+  respond: ActionState;
+};
+
+/** A webhook channel. */
+export type AlertChannel = {
+  createdAt: string;
+  createdBy: string;
+  delivery: AlertChannelDelivery;
+  enabled: boolean;
+  /** The host it posts to. */
+  host: string;
+  id: string;
+  /** `webhook`. */
+  kind: string;
+  minSeverity: AlertSeverity;
+  name: string;
+  /** The name of the environment variable on the worker that holds the signing secret. */
+  secretRef: string;
+  updatedAt: string;
+  /** The full URL, only for callers who may configure channels (it may carry a token). */
+  url?: string | null;
+};
+
+/** A channel's deliveries, from its outbox messages (kept a week after delivery). */
+export type AlertChannelDelivery = {
+  failing: number;
+  /** RFC 3339. */
+  lastDeliveredAt?: string | null;
+  /** Why the newest still-failing message failed. */
+  lastError?: string | null;
+  pending: number;
+};
+
+export type AlertChannelList = {
+  actions: AlertActions;
+  channels: AlertChannel[];
+  /** What a secret reference must start with. */
+  secretPrefix: string;
+};
+
+export type AlertChannelRequest = {
+  enabled?: boolean;
+  minSeverity?: null | AlertSeverity;
+  /** 1 to 80 characters, unique. */
+  name: string;
+  /** The name of the environment variable on the worker holding the signing secret, e.g. `APELORA_ALERT_SECRET_OPS`. Never the secret itself. */
+  secretRef: string;
+  /** `https://…` only, without a user name or password. */
+  url: string;
+};
+
+/** A channel test was queued. */
+export type AlertChannelTest = {
+  /** The outbox message (`Apelora-Event-Id` at the receiver). */
+  messageId: number;
+};
+
+/** How a rule compares its value with the threshold. */
+export type AlertComparison = "at-least" | "at-most";
+
+/** Firing alerts by severity, and those nobody has acknowledged or silenced. */
+export type AlertCounts = {
+  critical: number;
+  info: number;
+  /** Firing, not acknowledged and not silenced: what needs attention. */
+  needsAttention: number;
+  warning: number;
+};
+
+/** Whether the worker's evaluator is running. */
+export type AlertEvaluator = {
+  durationSecs?: number | null;
+  everySecs?: number | null;
+  /** RFC 3339; `None` when no worker has evaluated alerts yet. */
+  lastPassAt?: string | null;
+  /** What the state means, in a sentence. */
+  message: string;
+  /** No pass for more than three intervals (or none ever): alerts may be out of date. */
+  stale: boolean;
+  worker?: string | null;
+};
+
+/** Resolved alerts, newest first. */
+export type AlertHistory = {
+  items: AlertItem[];
+};
+
+/** One alert, firing or resolved. */
+export type AlertItem = {
+  acknowledged?: null | AlertAcknowledgement;
+  /** Firing, but the condition has been clear since this time (it resolves once it stays clear for the rule's duration). */
+  clearingSince?: string | null;
+  comparison: AlertComparison;
+  firedAt?: string | null;
+  id: number;
+  lastSeenAt: string;
+  resolvedAt?: string | null;
+  rule: string;
+  /** The runbook section, relative to `docs/runbooks/`. */
+  runbook: string;
+  severity: AlertSeverity;
+  silencedBy?: null | AlertSilencedBy;
+  /** RFC 3339: when the condition was first seen, when it fired, last seen holding, resolved. */
+  startedAt: string;
+  /** `firing` or `resolved`. */
+  state: string;
+  /** What it is about: a job kind, a worker, a member, `project/instance`, … */
+  subject: string;
+  summary: string;
+  threshold: number;
+  title: string;
+  unit: string;
+  value: number;
+};
+
+/** Open alerts (firing; pending ones are not shown), silences in force, counts and the evaluator's state. */
+export type AlertList = {
+  actions: AlertActions;
+  alerts: AlertItem[];
+  counts: AlertCounts;
+  evaluator: AlertEvaluator;
+  silences: AlertSilence[];
+};
+
+/** A built-in rule with its parameters in force. */
+export type AlertRuleItem = {
+  comparison: AlertComparison;
+  defaults: AlertRuleParams;
+  description: string;
+  firing: number;
+  id: string;
+  params: AlertRuleParams;
+  runbook: string;
+  /** Where its facts come from. */
+  source: string;
+  /** What the evaluator's last pass said about that source: `ok`, `not-configured`, `unavailable`, `disabled`, or `unknown` before the first pass. */
+  sourceState: string;
+  /** `false`: the rule fires while a state lasts; only its duration and severity are tuned. */
+  thresholdEditable: boolean;
+  thresholdMax: number;
+  thresholdMin: number;
+  title: string;
+  unit: string;
+  /** RFC 3339 and who, when an operator changed it. */
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
+export type AlertRuleList = {
+  actions: AlertActions;
+  rules: AlertRuleItem[];
+};
+
+/** A rule's parameters. */
+export type AlertRuleParams = {
+  enabled: boolean;
+  /** Seconds the condition must hold before firing, and stay clear before resolving. */
+  forSecs: number;
+  severity: AlertSeverity;
+  threshold: number;
+};
+
+export type AlertSeverity = "info" | "warning" | "critical";
+
+/** A silence in force. */
+export type AlertSilence = {
+  createdBy: string;
+  createdByName?: string | null;
+  endsAt: string;
+  id: string;
+  note: string;
+  rule: string;
+  ruleTitle: string;
+  /** RFC 3339. */
+  startsAt: string;
+  /** `None`: every subject of the rule. */
+  subject?: string | null;
+};
+
+export type AlertSilenceRequest = {
+  /** 1 to 10080 (a week). */
+  minutes: number;
+  note?: string | null;
+  rule: string;
+  /** One subject; absent: every subject of the rule. */
+  subject?: string | null;
+};
+
+/** The silence that holds back an alert's notifications. */
+export type AlertSilencedBy = {
+  id: string;
+  /** RFC 3339. */
+  until: string;
+};
+
 export type ApiTokenSetting = {
   enabled: boolean;
   /** Turned off by `APELORA_LEGACY_TOKENS=disabled`: it cannot be turned on here. */
@@ -2794,6 +3009,18 @@ export type WhoAmI = {
 
 /** Operations by operationId: method, path template, path parameters and whether a token is needed. */
 export const operations = {
+  alerts: { method: "GET", path: "/api/v1/alerts", params: [], public: false },
+  alert_channels: { method: "GET", path: "/api/v1/alerts/channels", params: [], public: false },
+  create_alert_channel: { method: "POST", path: "/api/v1/alerts/channels", params: [], public: false },
+  update_alert_channel: { method: "PUT", path: "/api/v1/alerts/channels/{id}", params: ["id"], public: false },
+  delete_alert_channel: { method: "DELETE", path: "/api/v1/alerts/channels/{id}", params: ["id"], public: false },
+  test_alert_channel: { method: "POST", path: "/api/v1/alerts/channels/{id}/test", params: ["id"], public: false },
+  alert_history: { method: "GET", path: "/api/v1/alerts/history", params: [], public: false },
+  alert_rules: { method: "GET", path: "/api/v1/alerts/rules", params: [], public: false },
+  update_alert_rule: { method: "PUT", path: "/api/v1/alerts/rules/{rule}", params: ["rule"], public: false },
+  create_alert_silence: { method: "POST", path: "/api/v1/alerts/silences", params: [], public: false },
+  end_alert_silence: { method: "DELETE", path: "/api/v1/alerts/silences/{id}", params: ["id"], public: false },
+  acknowledge_alert: { method: "POST", path: "/api/v1/alerts/{id}/acknowledge", params: ["id"], public: false },
   applications: { method: "GET", path: "/api/v1/applications", params: [], public: false },
   create_application: { method: "POST", path: "/api/v1/applications", params: [], public: false },
   application: { method: "GET", path: "/api/v1/applications/{name}", params: ["name"], public: false },
@@ -2957,6 +3184,30 @@ export const operations = {
 
 /** Success body of each operation (`null` for 204 No Content). */
 export type Responses = {
+  /** Firing alerts (most severe and oldest first) with acknowledgement and silence, the silences in force, counts by severity and whether the evaluator runs. Needs `cluster.view`. */
+  alerts: AlertList;
+  /** Webhook channels with their delivery state. The full URL only for callers who may configure channels. Needs `cluster.view`. */
+  alert_channels: AlertChannelList;
+  /** Adds a webhook channel. HTTPS only; the signing secret is named, never sent. Needs `alert.configure`; audited as `alert.channel.create` (host only, not the URL). */
+  create_alert_channel: AlertChannel;
+  /** Changes a webhook channel. Needs `alert.configure`; audited as `alert.channel.update`. */
+  update_alert_channel: AlertChannel;
+  /** Deletes a webhook channel; messages still waiting for it are dropped by the relay. Needs `alert.configure`; audited as `alert.channel.delete`. */
+  delete_alert_channel: null;
+  /** Queues a test notification for one channel through the same outbox path as real alerts; the channel's delivery state shows the outcome within seconds. Needs `alert.configure`; audited as `alert.channel.test` in the same transaction as the message. */
+  test_alert_channel: AlertChannelTest;
+  /** Resolved alerts, newest first, paged by `before`. Kept 90 days. Needs `cluster.view`. */
+  alert_history: AlertHistory;
+  /** The built-in rules with their parameters in force, their defaults and what the evaluator's last pass said about each source. Needs `cluster.view`. */
+  alert_rules: AlertRuleList;
+  /** Changes a rule's parameters (on or off, threshold within the rule's bounds, duration up to a day, severity). Takes effect on the evaluator's next pass. Needs `alert.configure`; audited as `alert.rule.update` with the parameters before and after. */
+  update_alert_rule: AlertRuleItem;
+  /** Silences a rule (every subject, or one) for `minutes` from now: no notification is sent for its alerts that fire or resolve meanwhile. Evaluation and history go on. Needs `alert.respond`; audited as `alert.silence.create`. */
+  create_alert_silence: AlertSilence;
+  /** Ends a silence now. Needs `alert.respond`; audited as `alert.silence.end`. 404 when it is not in force (ended or run out). */
+  end_alert_silence: null;
+  /** Acknowledges a firing alert: who, when and an optional note. It keeps firing until its condition clears; acknowledging tells others someone is on it. Refused (409) when it is not firing (`not_firing`) or was acknowledged already (`already_acknowledged`). Needs `alert.respond`; audited as `alert.acknowledge`. */
+  acknowledge_alert: AlertItem;
   /** Applications the caller may see, each with design status, derived runtime status, replica health, and the actions they may take now. Needs `application.view`. */
   applications: ApplicationList;
   /** Creates an application in an environment, optionally with its first draft. Needs `application.create` on the environment's project. */
@@ -3279,6 +3530,18 @@ export type Responses = {
 
 /** Request body of each operation (`never` when it takes none). */
 export type Bodies = {
+  alerts: never;
+  alert_channels: never;
+  create_alert_channel: AlertChannelRequest;
+  update_alert_channel: AlertChannelRequest;
+  delete_alert_channel: never;
+  test_alert_channel: never;
+  alert_history: never;
+  alert_rules: never;
+  update_alert_rule: AlertRuleParams;
+  create_alert_silence: AlertSilenceRequest;
+  end_alert_silence: never;
+  acknowledge_alert: AlertAcknowledgeRequest;
   applications: never;
   create_application: CreateApplication;
   application: never;

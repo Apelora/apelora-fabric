@@ -103,6 +103,8 @@ How to read it: a role grants one access level; a higher level includes the ones
 | Create and edit application designs, preview a plan | ✓ | ✓ | ✓ | — |
 | Deploy, start, stop, delete application instances | ✓ | ✓ | — | — |
 | Members, evacuation, machine enrolment, join tokens | ✓ | — | — | — |
+| See alerts (`cluster.view`) | ✓ | ✓ | ✓ | ✓ |
+| Acknowledge and silence alerts (`alert.respond`); change alert rules and webhooks (`alert.configure`) | ✓ | — | — | — |
 | API tokens | ✓ | — | — | — |
 | Audit log | ✓ | — | — | ✓ |
 

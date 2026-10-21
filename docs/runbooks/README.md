@@ -28,6 +28,7 @@ previews and audits.
 | The control plane or worker is down | [api-outage.md](api-outage.md) |
 | Find out why something failed (logs, request ids, audit) | [troubleshooting.md](troubleshooting.md) |
 | Read the Health page (components, servers, what each state means) | [health-page.md](health-page.md) |
+| Set up and respond to alerts (webhooks, acknowledge, silence, each rule) | [alerts.md](alerts.md) |
 | Rotate Apelora's Incus certificates | [certificates.md](certificates.md) |
 | Back up Apelora's own database, drill a restore, restore the plane onto a new host | [apelora-database-backup.md](apelora-database-backup.md) |
 | Update Apelora without internet access | [offline-update.md](offline-update.md) |
