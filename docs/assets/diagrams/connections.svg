@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 950" width="1200" height="950" role="img" aria-labelledby="cn-title cn-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="cn-title">Connections between the layers</title>
+  <desc id="cn-desc">Browsers reach only the Apelora API and the identity provider. The control plane reaches PostgreSQL, the identity provider, a directory and every sector&#x27;s Incus API over mutual TLS; the deployment worker reaches PostgreSQL and the Incus API. Inside a sector, physical servers run Incus and ovn-controller, talk to each other for the cluster database and migrations, carry application traffic over a Geneve overlay, reach the OVN databases and, for the shared pool, a SAN. Clients reach applications on published addresses. Numbers match the connections table.</desc>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only -->
+  <defs>
+    <linearGradient id="g-card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F3F4F6"/></linearGradient>
+    <linearGradient id="g-teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6FAF7"/><stop offset="1" stop-color="#CDEFEA"/></linearGradient>
+    <linearGradient id="g-blue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EEF4FE"/><stop offset="1" stop-color="#DCE8FC"/></linearGradient>
+    <linearGradient id="g-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF7EB"/><stop offset="1" stop-color="#FDEBCF"/></linearGradient>
+    <linearGradient id="g-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F4F1FE"/><stop offset="1" stop-color="#E7E1FC"/></linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8C959F"/></marker>
+  </defs>
+  <style>
+    .t { fill: #1F2328; } .m { fill: #57606A; } .w { fill: #FFFFFF; }
+    .h1 { font-size: 26px; font-weight: 700; } .h2 { font-size: 15px; font-weight: 700; }
+    .b { font-size: 13px; } .s { font-size: 11.5px; }
+    .ln { stroke: #8C959F; stroke-width: 1.6; fill: none; }
+    .tl { stroke: #0F8C80; stroke-width: 2; fill: none; }
+    .bl { stroke: #2F6FD6; stroke-width: 2; fill: none; stroke-dasharray: 7 5; }
+    .al { stroke: #D98A1C; stroke-width: 2; fill: none; stroke-dasharray: 2 5; stroke-linecap: round; }
+    .dash { stroke-dasharray: 6 5; }
+  </style>
+  <rect width="1200" height="950" fill="#FFFFFF"/>
+  <text x="600.0" y="46" text-anchor="middle" class="t h1">Connections between the layers</text>
+    <rect x="60" y="90" width="200" height="64" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5" class="dash"/>
+    <text x="160.0" y="114" text-anchor="middle" class="t h2">Bare-metal provisioner</text>
+    <text x="160.0" y="134" text-anchor="middle" class="m s">planned</text>
+    <rect x="420" y="84" width="360" height="70" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="600.0" y="108" text-anchor="middle" class="t h2">Browser</text>
+    <text x="600.0" y="128" text-anchor="middle" class="m s">Fabric Console · Studio</text>
+    <rect x="900" y="84" width="240" height="64" rx="12" fill="url(#g-violet)" stroke="#B9AEF0" stroke-width="1.5"/>
+    <text x="1020.0" y="108" text-anchor="middle" class="t h2">Identity provider</text>
+    <text x="1020.0" y="128" text-anchor="middle" class="m s">OpenID Connect</text>
+    <rect x="900" y="196" width="240" height="64" rx="12" fill="url(#g-violet)" stroke="#B9AEF0" stroke-width="1.5" class="dash"/>
+    <text x="1020.0" y="220" text-anchor="middle" class="t h2">Directory</text>
+    <text x="1020.0" y="240" text-anchor="middle" class="m s">LDAP over TLS · being built</text>
+    <rect x="290" y="196" width="580" height="152" rx="14" fill="#F6F8FA" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="306" y="216" class="m s" font-weight="700">APELORA CONTROL PLANE</text>
+    <rect x="320" y="232" width="240" height="84" rx="12" fill="url(#g-teal)" stroke="#8FD6CC" stroke-width="1.5"/>
+    <text x="440.0" y="256" text-anchor="middle" class="t h2">Deployment worker</text>
+    <text x="440.0" y="276" text-anchor="middle" class="m s">jobs · supervisor · schedules</text>
+    <rect x="600" y="232" width="240" height="84" rx="12" fill="url(#g-teal)" stroke="#8FD6CC" stroke-width="1.5"/>
+    <text x="720.0" y="256" text-anchor="middle" class="t h2">Control plane API</text>
+    <text x="720.0" y="276" text-anchor="middle" class="m s">/api/v1 · sign-in · audit</text>
+    <rect x="60" y="236" width="180" height="84" rx="12" fill="url(#g-blue)" stroke="#A9C4F5" stroke-width="1.5"/>
+    <text x="150.0" y="260" text-anchor="middle" class="t h2">PostgreSQL</text>
+    <text x="150.0" y="280" text-anchor="middle" class="m s">Apelora state · jobs · audit</text>
+    <rect x="40" y="418" width="1120" height="356" rx="16" fill="#FBFBFC" stroke="#8C959F" stroke-width="1.5" class="dash"/>
+    <text x="60" y="442" class="t h2">Sector = one Incus cluster</text>
+    <text x="290" y="442" class="m s">one site (members within 10 ms) · recommended at most 50 physical servers · Incus API on every member</text>
+    <rect x="80" y="462" width="300" height="214" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="230.0" y="486" text-anchor="middle" class="t h2">Member 1 — a physical server</text>
+    <text x="230.0" y="506" text-anchor="middle" class="m s">Linux · Incus · ovn-controller</text>
+    <rect x="100" y="532" width="260" height="24" rx="7" fill="#E6FAF7" stroke="#8FD6CC"/><text x="230.0" y="548" text-anchor="middle" class="t s">system container</text>
+    <rect x="100" y="564" width="260" height="24" rx="7" fill="#EEF4FE" stroke="#A9C4F5"/><text x="230.0" y="580" text-anchor="middle" class="t s">OCI container</text>
+    <text x="230" y="660" text-anchor="middle" class="m s">pools: local · backup · shared</text>
+    <rect x="450" y="462" width="300" height="214" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="600.0" y="486" text-anchor="middle" class="t h2">Member 2 — a physical server</text>
+    <text x="600.0" y="506" text-anchor="middle" class="m s">Linux · Incus · ovn-controller</text>
+    <rect x="470" y="532" width="260" height="24" rx="7" fill="#E6FAF7" stroke="#8FD6CC"/><text x="600.0" y="548" text-anchor="middle" class="t s">system container</text>
+    <rect x="470" y="564" width="260" height="24" rx="7" fill="#EEF4FE" stroke="#A9C4F5"/><text x="600.0" y="580" text-anchor="middle" class="t s">OCI container</text>
+    <rect x="470" y="596" width="260" height="24" rx="7" fill="#FFF7EB" stroke="#F2C98A"/><text x="600.0" y="612" text-anchor="middle" class="t s">virtual machine</text>
+    <text x="600" y="660" text-anchor="middle" class="m s">pools: local · backup · shared</text>
+    <rect x="820" y="462" width="300" height="214" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="970.0" y="486" text-anchor="middle" class="t h2">Member 3 — a physical server</text>
+    <text x="970.0" y="506" text-anchor="middle" class="m s">Linux · Incus · ovn-controller</text>
+    <rect x="840" y="532" width="260" height="24" rx="7" fill="#E6FAF7" stroke="#8FD6CC"/><text x="970.0" y="548" text-anchor="middle" class="t s">system container</text>
+    <rect x="840" y="564" width="260" height="24" rx="7" fill="#FFF7EB" stroke="#F2C98A"/><text x="970.0" y="580" text-anchor="middle" class="t s">virtual machine</text>
+    <text x="970" y="660" text-anchor="middle" class="m s">pools: local · backup · shared</text>
+    <rect x="450" y="700" width="300" height="54" rx="12" fill="url(#g-blue)" stroke="#A9C4F5" stroke-width="1.5"/>
+    <text x="600.0" y="724" text-anchor="middle" class="t h2">OVN databases</text>
+    <text x="600.0" y="744" text-anchor="middle" class="m s">northbound · southbound</text>
+    <rect x="80" y="800" width="300" height="64" rx="12" fill="url(#g-amber)" stroke="#F2C98A" stroke-width="1.5"/>
+    <text x="230.0" y="824" text-anchor="middle" class="t h2">SAN</text>
+    <text x="230.0" y="844" text-anchor="middle" class="m s">iSCSI · Fibre Channel · NVMe over Fabrics</text>
+    <rect x="820" y="800" width="300" height="64" rx="12" fill="url(#g-card)" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="970.0" y="824" text-anchor="middle" class="t h2">Clients</text>
+    <text x="970.0" y="844" text-anchor="middle" class="m s">published addresses</text>
+    <path d="M600 154 L720 232" class="ln" marker-end="url(#arr)"/>
+    <path d="M780 116 L900 116" class="ln" marker-end="url(#arr)"/>
+    <path d="M840 248 L870 248 L870 150 L900 150" class="ln" marker-end="url(#arr)"/>
+    <path d="M840 290 L880 290 L880 228 L900 228" class="ln dash" marker-end="url(#arr)"/>
+    <path d="M720 316 L720 372 L150 372 L150 320" class="ln" marker-end="url(#arr)"/>
+    <path d="M320 278 L240 278" class="ln" marker-end="url(#arr)"/>
+    <path d="M800 316 L800 462" class="ln" marker-end="url(#arr)"/>
+    <path d="M440 316 L440 400 L300 400 L300 462" class="ln" marker-end="url(#arr)"/>
+    <path d="M380 570 L450 570" class="ln" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M750 570 L820 570" class="ln" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M380 620 L450 620" class="bl" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M750 620 L820 620" class="bl" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M230 676 L230 727 L450 727" class="ln" marker-end="url(#arr)"/>
+    <path d="M970 676 L970 727 L750 727" class="ln" marker-end="url(#arr)"/>
+    <path d="M230 800 L230 676" class="al" marker-end="url(#arr)"/>
+    <path d="M600 676 L600 690" class="ln" marker-end="url(#arr)"/>
+    <path d="M970 800 L970 676" class="ln" marker-end="url(#arr)"/>
+    <path d="M160 154 L160 175 L440 175 L440 232" class="ln dash" marker-end="url(#arr)"/>
+    <circle cx="600" cy="72" r="11" fill="#1F2328"/><text x="600" y="76" text-anchor="middle" class="w" font-size="11" font-weight="700">1</text>
+    <circle cx="650" cy="186" r="11" fill="#1F2328"/><text x="650" y="190" text-anchor="middle" class="w" font-size="11" font-weight="700">2</text>
+    <circle cx="840" cy="102" r="11" fill="#1F2328"/><text x="840" y="106" text-anchor="middle" class="w" font-size="11" font-weight="700">3</text>
+    <circle cx="870" cy="196" r="11" fill="#1F2328"/><text x="870" y="200" text-anchor="middle" class="w" font-size="11" font-weight="700">4</text>
+    <circle cx="880" cy="270" r="11" fill="#1F2328"/><text x="880" y="274" text-anchor="middle" class="w" font-size="11" font-weight="700">5</text>
+    <circle cx="430" cy="372" r="11" fill="#1F2328"/><text x="430" y="376" text-anchor="middle" class="w" font-size="11" font-weight="700">6</text>
+    <circle cx="280" cy="266" r="11" fill="#1F2328"/><text x="280" y="270" text-anchor="middle" class="w" font-size="11" font-weight="700">7</text>
+    <circle cx="812" cy="392" r="11" fill="#1F2328"/><text x="812" y="396" text-anchor="middle" class="w" font-size="11" font-weight="700">8</text>
+    <circle cx="372" cy="400" r="11" fill="#1F2328"/><text x="372" y="404" text-anchor="middle" class="w" font-size="11" font-weight="700">9</text>
+    <circle cx="415" cy="556" r="11" fill="#1F2328"/><text x="415" y="560" text-anchor="middle" class="w" font-size="11" font-weight="700">10</text>
+    <circle cx="785" cy="556" r="11" fill="#1F2328"/><text x="785" y="560" text-anchor="middle" class="w" font-size="11" font-weight="700">16</text>
+    <circle cx="415" cy="636" r="11" fill="#1F2328"/><text x="415" y="640" text-anchor="middle" class="w" font-size="11" font-weight="700">12</text>
+    <circle cx="340" cy="727" r="11" fill="#1F2328"/><text x="340" y="731" text-anchor="middle" class="w" font-size="11" font-weight="700">11</text>
+    <circle cx="450" cy="596" r="11" fill="#1F2328"/><text x="450" y="600" text-anchor="middle" class="w" font-size="11" font-weight="700">14</text>
+    <circle cx="244" cy="760" r="11" fill="#1F2328"/><text x="244" y="764" text-anchor="middle" class="w" font-size="11" font-weight="700">15</text>
+    <circle cx="984" cy="760" r="11" fill="#1F2328"/><text x="984" y="764" text-anchor="middle" class="w" font-size="11" font-weight="700">13</text>
+    <circle cx="300" cy="175" r="11" fill="#1F2328"/><text x="300" y="179" text-anchor="middle" class="w" font-size="11" font-weight="700">17</text>
+    <text x="600" y="902" text-anchor="middle" class="m s">Numbers match the table in CONNECTIONS-AND-SCALE.md. Browsers never reach Incus, OVN, PostgreSQL, the SAN or the directory; members never call Apelora.</text>
+    <text x="600" y="922" text-anchor="middle" class="m s">Dashed: planned or being built. Blue dashed: the Geneve overlay between members. Amber dotted: block storage.</text>
+</svg>
