@@ -1168,6 +1168,153 @@
                   "additionalProperties": false
                 }
               },
+              "metrics": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "native",
+                      "exporter",
+                      "agent",
+                      "platform",
+                      "none"
+                    ]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  },
+                  "portBy": {
+                    "type": "object",
+                    "properties": {
+                      "property": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 48
+                      },
+                      "ports": {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 65535
+                        }
+                      }
+                    },
+                    "required": [
+                      "property",
+                      "ports"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "portChosen": {
+                    "type": "boolean"
+                  },
+                  "transport": {
+                    "type": "string",
+                    "enum": [
+                      "tcp",
+                      "udp"
+                    ]
+                  },
+                  "path": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "pattern": "^\\/[^\\s]*$"
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "json",
+                      "page",
+                      "protocol",
+                      "counters",
+                      "none"
+                    ]
+                  },
+                  "onByDefault": {
+                    "type": "boolean"
+                  },
+                  "localOnly": {
+                    "type": "boolean"
+                  },
+                  "enable": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400
+                  },
+                  "auth": {
+                    "type": "string",
+                    "enum": [
+                      "none",
+                      "basic",
+                      "token",
+                      "certificate",
+                      "configurable"
+                    ]
+                  },
+                  "separateListener": {
+                    "type": "boolean"
+                  },
+                  "health": {
+                    "type": "object",
+                    "properties": {
+                      "port": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 65535
+                      },
+                      "path": {
+                        "type": "string",
+                        "maxLength": 120,
+                        "pattern": "^\\/[^\\s]*$"
+                      }
+                    },
+                    "required": [
+                      "path"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "signals": {
+                    "maxItems": 8,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 60
+                    }
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": [
+                      "checked",
+                      "partly-checked",
+                      "unverified"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "source",
+                  "format",
+                  "onByDefault",
+                  "auth",
+                  "separateListener",
+                  "signals",
+                  "confidence"
+                ],
+                "additionalProperties": false
+              },
               "composition": {
                 "type": "object",
                 "properties": {

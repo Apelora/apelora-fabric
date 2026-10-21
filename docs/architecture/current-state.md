@@ -56,6 +56,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | Disposable test cluster (`scripts/test-cluster`, Lima VMs) | Done; four members (Lima VMs standing in for physical servers) and a SAN VM, OVN, placement scriptlet, see `docs/development/TEST-CLUSTER.md` | 04 |
 | Image pinning (fingerprint / OCI digest) and architecture checks | Done; REAL INCUS TESTED on one member (mixed-architecture and offline-member paths unit-tested only) | 04 |
 | Catalog runtime fields (`runtime`, `instanceRequestFor`); NGINX and Debian deployable | Done; REAL INCUS TESTED | 04 |
+| Class metrics descriptions (`ModuleClass.metrics`, all 83 classes; `mon` only where metrics text is served on a port; a `mon` connection opens the class's own port for the collector) | Done; unit-tested (MOCK VERIFIED); facts researched from project documentation, unverified ones marked; no runtime turns metrics on yet | 07 |
 | Cluster join tokens with approval (ADR 0003), second test member | Done; REAL INCUS TESTED (two members) | 04 |
 | Auth (API tokens) and roles | Done, with OIDC sign-in configured in the Console | 03 |
 | OpenAPI document + generated TS client (`packages/api-client`) | Done; console uses it | 03 |

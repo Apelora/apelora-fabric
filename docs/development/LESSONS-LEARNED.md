@@ -93,6 +93,10 @@ Read these first. Most entries below come from one of four causes:
 - **The owner pushes from other sessions** → before every push: fetch, rebase, `npm install`, check OpenAPI name clashes, run the full checks.
 - **Commits are authored by the owner only**, with no AI attribution (AGENTS.md rule 10). This overrides any tool default.
 
+## Model and catalog
+
+- **Every `mon` cable compiled to "module may reach the collector on 9100"** (2026-10-21) → the compiler treated every output as the consumer and used one default port per protocol, but metrics are *read* (the collector connects) and almost no software serves them on 9100. → Metrics outputs reverse the direction and use the class's own port (`ModuleClass.metrics`, `metricsEndpoint`); a class offers `mon` only when a collector can read metrics text on a port (`packages/module-catalog/src/metrics.test.ts`). Check a protocol's direction and real port before adding it to `DEFAULT_PORTS`.
+
 ## Renames and compatibility
 
 - **"an module" left behind after renaming "appliance"** → the article sat before a line break. → Do renames with a regex that crosses line breaks, then grep `.env.example`, `CITATION.cff`, scripts and docs. Keep serde aliases and a migration for stored data.

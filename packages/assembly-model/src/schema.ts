@@ -210,6 +210,61 @@ export const RuntimeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes }),
 ]);
 
+/**
+ * Where a class's metrics come from (docs/architecture/MODULE-PORTS.md, "Metrics"):
+ * `native` — the software serves them itself, perhaps after a setting or with a bundled plugin;
+ * `exporter` — an add-on (a separate process, an agent inside the runtime or a plugin installed
+ * separately) turns the software's own statistics into an endpoint; `agent` — an optional
+ * operating-system agent installed in the guest; `platform` — the module runs no process and
+ * Incus reports its numbers; `none` — the software serves nothing (Incus still reports the
+ * instance's resource use).
+ */
+export const METRICS_SOURCES = ["native", "exporter", "agent", "platform", "none"] as const;
+/**
+ * What the endpoint answers: `text` — metrics text a collector reads directly; `json` or
+ * `page` — the product's own JSON or status page over HTTP; `protocol` — over the software's
+ * own protocol (SNMP, LDAP, FastCGI, MQTT, pushed metrics); `counters` — readable only
+ * inside the instance (shared memory, files, commands); `none`.
+ */
+export const METRICS_FORMATS = ["text", "json", "page", "protocol", "counters", "none"] as const;
+export const METRICS_AUTH = ["none", "basic", "token", "certificate", "configurable"] as const;
+/** How well the facts were checked against the project's own documentation. */
+export const METRICS_CONFIDENCE = ["checked", "partly-checked", "unverified"] as const;
+
+const portNumber = z.number().int().min(1).max(65535);
+const urlPath = z.string().max(120).regex(/^\/[^\s]*$/, "an absolute path such as /metrics");
+
+/**
+ * How the class's software exposes its own metrics. `port` is what a drawn `mon` connection
+ * opens (deny by default), so it is the real port, or the one the class's runtime sets when the
+ * software has no default (`portChosen`). `portBy` picks it from an enum property (a version).
+ */
+export const MetricsSchema = z.object({
+  source: z.enum(METRICS_SOURCES),
+  port: portNumber.optional(),
+  portBy: z.object({ property: z.string().min(1).max(48), ports: z.record(z.string(), portNumber) }).optional(),
+  /** The software has no default port: the class picks this one and its runtime must set it. */
+  portChosen: z.boolean().optional(),
+  /** Absent means TCP. */
+  transport: z.enum(["tcp", "udp"]).optional(),
+  path: urlPath.optional(),
+  format: z.enum(METRICS_FORMATS),
+  /** Produced at that place without any setting or added software. */
+  onByDefault: z.boolean(),
+  /** By default it answers only inside the instance (localhost): a setting must change that. */
+  localOnly: z.boolean().optional(),
+  /** How to turn it on or reach it, in a sentence or two. */
+  enable: z.string().min(1).max(400).optional(),
+  auth: z.enum(METRICS_AUTH),
+  /** Served on a listener of its own, not on the service port. */
+  separateListener: z.boolean(),
+  health: z.object({ port: portNumber.optional(), path: urlPath }).optional(),
+  /** The few numbers worth watching, in a few words each. */
+  signals: z.array(z.string().min(1).max(60)).max(8),
+  confidence: z.enum(METRICS_CONFIDENCE),
+  note: z.string().min(1).max(500).optional(),
+});
+
 export const ModuleClassSchema = z.object({
   id: entityId,
   version: z.string().min(1),
@@ -224,6 +279,8 @@ export const ModuleClassSchema = z.object({
   ports: z.array(PortSchema),
   resources: ResourcesSchema,
   properties: z.array(PropertySchema).max(40).optional(),
+  /** How the software exposes its own metrics; absent for classes nobody has described yet. */
+  metrics: MetricsSchema.optional(),
   composition: CompositionSchema.optional(),
   custom: z.boolean().optional(),
 });
@@ -260,6 +317,7 @@ export type ConfigValue = z.infer<typeof configValue>;
 export type Resources = z.infer<typeof ResourcesSchema>;
 export type ModuleClass = z.infer<typeof ModuleClassSchema>;
 export type Runtime = z.infer<typeof RuntimeSchema>;
+export type Metrics = z.infer<typeof MetricsSchema>;
 export type SystemImage = z.infer<typeof SystemImageSchema>;
 export type OciImage = z.infer<typeof OciImageSchema>;
 export type ModuleInstance = z.infer<typeof ModuleInstanceSchema>;

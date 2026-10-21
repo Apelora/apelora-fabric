@@ -7,6 +7,7 @@ import { draftFromPorts, useCustomCatalog } from "../../features/catalog/customC
 import { categoryColor } from "../../features/editor/categories";
 import { IconBox, IconTrash, IconX } from "../icons";
 import { ConfigForm } from "./ConfigForm";
+import { MetricsSection } from "./MetricsSection";
 import { NumberField, PortSection, nicStatus } from "./PropertiesInspector";
 import { ShapeProperties, Swatches } from "./ShapeProperties";
 
@@ -178,6 +179,7 @@ function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "port
           </div>
         </Section>
       )}
+      {cls && <MetricsSection cls={cls} app={app} />}
       <Section title="Health policy"><p className="text-xs text-base-content/70">Placeholder: health checks are defined in a later milestone.</p></Section>
       <div className="flex gap-2">
         <button className="btn btn-sm btn-outline flex-1" data-testid="save-as-class" title="Turn this module, with its ports, into a reusable catalog module" disabled={!!cls?.composition} onClick={() => useCustomCatalog.getState().openDesigner(draftFromPorts(app.name, app.ports, app.resources, cls?.iconAssetPath ?? "generic-box", cls?.properties, app.config))}><IconBox size={14} />Save as custom module…</button>

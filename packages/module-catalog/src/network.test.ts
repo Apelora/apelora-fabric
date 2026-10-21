@@ -109,6 +109,23 @@ describe("network intents", () => {
     ]);
   });
 
+  it("a metrics cable lets the collector read the module, on the class's port, whichever way it was drawn", () => {
+    let a = createEmptyAssembly("metrics");
+    const place = (cls: string) => { const r = addModule(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };
+    const kc = place("keycloak");
+    const prom = place("prometheus");
+    const r = connect(a, { moduleId: kc, portId: "mon" }, { moduleId: prom, portId: "scrape" });
+    if ("error" in r) throw new Error(r.error.message);
+    const plan = compileNetwork(r.assembly, "m", lookupClass);
+    expect(ids(plan)).toEqual([`${prom}.scrape->${kc}.mon tcp/9000`]);
+    expect(plan.services).toEqual([{ module: kc, name: `${kc}.m.internal`, endpoints: [{ port: "mon", protocol: "metrics", transport: "tcp", number: 9000 }] }]);
+    expect(allows(plan, prom, kc, 9000)).toBe(true);
+    expect(allows(plan, kc, prom, 9000), "the module never reaches the collector").toBe(false);
+    expect(allows(plan, prom, kc, 8080), "not the login port").toBe(false);
+    const flipped: ApplicationAssembly = { ...r.assembly, spec: { ...r.assembly.spec, connections: r.assembly.spec.connections.map((c) => ({ ...c, source: c.target, target: c.source })) } };
+    expect(compileNetwork(flipped, "m", lookupClass)).toEqual(plan);
+  });
+
   it("cables only count between an output and an input of two different modules", () => {
     let a = createEmptyAssembly("direction");
     const place = (cls: string) => { const r = addModule(a, lookupClass(cls, "1.0.0")!, { x: 0, y: 0 }); a = r.assembly; return r.id; };

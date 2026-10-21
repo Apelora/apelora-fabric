@@ -36,6 +36,10 @@ The manifest is the contract shared by Studio (TypeScript), Controller and Node 
 
 Classes may declare `properties` (typed fields: string, int, bool, enum, secret; default, required, min/max, options, group, description). Instances store only overrides in `config`. `secret` fields hold a reference name, never the secret. Property ids are stable identifiers; never derive them again from a renamed label. Validation lives in `packages/assembly-model/src/config.ts`.
 
+## Metrics
+
+A class may declare `metrics` (`MetricsSchema`): `source` (native, exporter, agent, platform, none), `port` (with `portChosen` when the class picks it, `portBy` {property, ports} when an enum setting such as the version decides it, `transport` udp when not TCP), `path`, `format` (text, json, page, protocol, counters, none), `onByDefault`, `localOnly`, `enable`, `auth` (none, basic, token, certificate, configurable), `separateListener`, `health` {port, path}, `signals` (≤ 8 short phrases), `confidence` (checked, partly-checked, unverified), `note`. Helpers in `packages/assembly-model/src/metrics.ts`: `readableMetrics` (decides whether the class offers a `mon` output), `metricsEndpoint(cls, config)` (the port the network compiler opens), `metricsProblems`. Pure data: it changes no instance request. No Rust type mirrors it (the API receives compiled connections, not class manifests).
+
 ## Volumes
 
 A class's runtime may declare default `volumes` (`{ name, sizeMiB, path }`: name lowercase, at most 16; size 64 MiB–4 TiB; absolute mount path without `.` or `..`; names and paths unique; at most four). A module's own `volumes` replace them (an empty list means none). Stateless classes cannot have volumes: `instanceRequestFor` refuses them. Designs never name a pool; the control plane maps the `data-local` class to `APELORA_VOLUME_POOL`. Design and verified Incus behaviour: `docs/architecture/STORAGE.md`.

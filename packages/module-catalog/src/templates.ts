@@ -72,7 +72,7 @@ export const TEMPLATES: readonly Template[] = [
     tags: ["Elasticsearch", "Logging", "Security"],
     build: () => blueprint("log-pipeline",
       [["v", "vault", "secrets"], ["ls", "logstash", "ingest"], ["es", "elasticsearch", "search"], ["kb", "kibana", "explore"], ["px", "traefik", "proxy"], ["gw", "gateway", "edge"], ["prom", "prometheus", "metrics"]],
-      [["v", "audit", "ls", "in"], ["ls", "out", "es", "http"], ["kb", "es", "es", "http"], ["gw", "lan", "px", "in"], ["px", "out", "kb", "ui"], ["px", "out", "v", "api"], ["es", "mon", "prom", "scrape"], ["ls", "mon", "prom", "scrape"]]),
+      [["v", "audit", "ls", "in"], ["ls", "out", "es", "http"], ["kb", "es", "es", "http"], ["gw", "lan", "px", "in"], ["px", "out", "kb", "ui"], ["px", "out", "v", "api"], ["es", "mon", "prom", "scrape"], ["v", "mon", "prom", "scrape"]]),
   },
   {
     id: "mongo-replica-set",

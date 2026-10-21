@@ -759,6 +759,45 @@ test.describe("properties window", () => {
     await expect(page.getByTestId("inspector")).toHaveCount(0);
   });
 
+  test("a module's Metrics section says where its metrics come from, the port a mon cable opens, and marks unverified facts", async ({ page }) => {
+    await open(page);
+    await openProps(page, "postgresql-01");
+    const m = page.getByTestId("metrics-section");
+    await expect(m).toBeVisible();
+    await expect(m.getByTestId("metrics-source")).toHaveAttribute("data-source", "exporter");
+    await expect(m.getByTestId("metrics-endpoint")).toContainText("port 9187 · /metrics · metrics text");
+    await expect(m.getByTestId("metrics-default")).toHaveText("Off");
+    await expect(m.getByTestId("metrics-enable")).toContainText("pg_monitor");
+    expect(await m.getByTestId("metrics-signals").locator("li").count()).toBeGreaterThanOrEqual(3);
+    await expect(m.getByTestId("metrics-confidence")).toHaveAttribute("data-confidence", "checked");
+    await expect(m.locator(".badge-warning")).toHaveCount(0);
+    // the section sits inside the window and does not overflow it horizontally
+    const body = page.getByTestId("props-body");
+    expect(await body.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    await page.keyboard.press("Escape");
+
+    // the gateway runs no process: its numbers come from Incus, and it has no port of its own
+    await openProps(page, "gateway-01");
+    await expect(m.getByTestId("metrics-source")).toHaveAttribute("data-source", "platform");
+    await expect(m.getByTestId("metrics-endpoint")).toHaveCount(0);
+    await expect(m.getByTestId("metrics-note")).toContainText("Incus");
+    await page.keyboard.press("Escape");
+
+    // an unverified description is visibly marked; a port the class picks says so
+    await page.getByTestId("catalog-search").fill("neo4j");
+    await page.locator("[data-testid=catalog-tile][data-class-id=neo4j]").click();
+    const neo = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("neo4j"))!.id;
+    await openProps(page, neo);
+    await expect(m.getByTestId("metrics-confidence")).toHaveText("Unverified");
+    await expect(m.getByTestId("metrics-confidence")).toHaveClass(/badge-warning/);
+    await expect(m.getByTestId("metrics-default")).toHaveText("Off");
+    await page.keyboard.press("Escape");
+    await page.getByTestId("catalog-search").fill("haproxy");
+    await openProps(page, "haproxy-01");
+    await expect(m.getByTestId("metrics-endpoint")).toContainText("port 8405");
+    await expect(m.getByTestId("metrics-endpoint")).toContainText("port set by the class");
+  });
+
   test("cable, tag and assembly properties windows", async ({ page }) => {
     await open(page);
     const pt = await cablePoint(page, "conn-01", 0.5);

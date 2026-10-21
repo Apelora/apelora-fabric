@@ -53,6 +53,18 @@ Distilled knowledge from upstream repositories and documents the owner has share
 
 Running a module image does not link its code into ours; record the licence in the manifest's provenance anyway.
 
+### Metrics facts that shaped the catalog (researched 2026-10)
+
+Full per-class data: `packages/module-catalog/src/metrics.ts` (with confidence). Separate exporters and agents are described generically, never by project name.
+
+- **Incus** serves per-member metrics text at `/1.0/metrics` (HTTPS, a client certificate of type `metrics`, or a metrics-only listener via `core.metrics_address`); instance values are cached about 8 s and each member reports only its own instances, so every member must be read. For VMs the values come from the agent inside the guest; without it, QEMU-level data only (memory estimated from the host, no filesystems or processes). Network state carries interface counters; load-balancer state carries backend health. **OVN** has no HTTP metrics endpoint (statistics only through its control socket and southbound database) and no counters for refused traffic.
+- **Moved or split listeners:** Keycloak 25+ serves metrics and health only on the management port 9000. Vault answers metrics only on its active node (standbys redirect; health 200/429/503 for active/standby/sealed). Etcd's client listener, Logstash's API, the OTel Collector's own telemetry, Neo4j's endpoint, Pocket ID and Vault bind to localhost by default; Nextcloud 33+ and GitLab allow only localhost until an allow-list is set.
+- **No built-in endpoint:** PostgreSQL, MySQL/MariaDB, Redis, MongoDB, Memcached, Elasticsearch, Varnish, WireGuard, OpenVPN and Windows (performance counters) need a separate exporter or are read locally; JVM software (Tomcat, Kafka, Cassandra, ActiveMQ, plain Java) exposes JMX and needs an in-JVM metrics agent whose port is chosen in its argument. NGINX and Apache httpd have status pages, not metrics text. PHP-FPM status is reachable only over FastCGI (never expose that port). Airflow pushes instead of serving.
+- **Built in, on a port of its own:** ScyllaDB 9180, CockroachDB 8080, Authentik 9300, Authelia 9959 (off by default), ClickHouse 9363 (off), RabbitMQ 15692 (plugin; on in official images only), Ceph manager 9283 (active manager only), Jaeger v2 and OTel Collector 8888, Traefik on its internal entry point 8080. On the service port: Grafana, Prometheus, Gitea (off, optional token), Pulsar, CouchDB (admin), ArangoDB, MinIO (bearer token), InfluxDB (2.7 on 8086, 3.0 on 8181 with a token), Consul (token, retention must be above 0), Solr 9.8.
+- **FreeBSD-based firewalls** (OPNsense, pfSense) run only as VMs; pfSense offers SNMP (UDP 161, community string in clear), OPNsense an optional node metrics plugin on 9100.
+- **Licensing points found on the way:** MinIO's community repository is archived; ScyllaDB recent releases and Consul/Vault use source-available licences.
+- **Endpoints without authentication** (most of them) must stay on the application network; Apelora opens a metrics port only to the collector a drawn `mon` connection names.
+
 ## Toolchain and practices adopted
 
 | Project | Licence | What we took (as practice, not code) |

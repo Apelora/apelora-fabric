@@ -11,6 +11,7 @@ export * from "./components";
 export * from "./shapes";
 export * from "./cables";
 export * from "./runtime";
+export * from "./metrics";
 export * from "./network";
 export * from "./platforms";
 export * from "./totals";

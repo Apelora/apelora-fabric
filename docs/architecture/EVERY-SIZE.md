@@ -146,6 +146,13 @@ Efficiency for the servers themselves:
 - **Grows into:** per-site collectors; regions keep aggregates by those labels; per-instance series stay in their site. The global plane sees only roll-ups (§2.6).
 - **Details:** [monitoring](MONITORING.md), with the signals, alert thresholds and runbooks for every layer.
 
+#### Application metrics
+
+- **Application metrics come from each module's own endpoint**, not from Apelora. Every catalog class says where its software serves them: port, path, format, whether they are on by default and how to turn them on, access, the signals worth watching, and how well that was checked (`ModuleClass.metrics`, [MODULE-PORTS.md](MODULE-PORTS.md#metrics-the-mon-output), the Studio inspector's Metrics section).
+- **Apelora authorises the collector's path through the drawn connection.** A cable from a module's `mon` output to a collector's `scrape` input lets that collector reach that module on the class's metrics port only (deny by default); nothing else may read it, and metrics ports are never published.
+- **Resource use comes from Incus** for every instance, whatever runs inside (CPU, memory, disk, network; for VMs through the guest agent, otherwise QEMU-level numbers). Classes that run no process (gateway, network) take their numbers from Incus network state and Incus's metrics endpoint.
+- **Same at every size.** A collector module per application at three servers; per sector or region later, with the same connections.
+
 ### Failure detection
 
 Each layer detects its own failures, and each layer has one owner of the decision.

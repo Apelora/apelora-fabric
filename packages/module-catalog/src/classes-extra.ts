@@ -1,5 +1,5 @@
 import type { ModuleClass, Port, Property } from "@apelora/assembly-model";
-import { cls, p, prop } from "./factory";
+import { MON, cls, p, prop } from "./factory";
 
 /**
  * Port placement convention (see docs/architecture/MODULE-PORTS.md)
@@ -10,7 +10,7 @@ import { cls, p, prop } from "./factory";
 type Flags = "" | "o" | "1" | "o1";
 const i = (id: string, type: Port["type"], desc: string, f: Flags = ""): Port => p(id, id, "input", type, desc, { optional: f.includes("o"), multiplicity: f.includes("1") ? "one" : "many" });
 const o = (id: string, type: Port["type"], desc: string, f: Flags = "o"): Port => p(id, id, "output", type, desc, { optional: f.includes("o"), multiplicity: f.includes("1") ? "one" : "many" });
-const mon = (): Port => o("mon", "metrics", "Metrics endpoint for Prometheus-style scraping");
+const mon = (): Port => MON();
 
 const ver = (options: string[], def: string): Property => prop("version", "Version", "enum", { options, default: def, required: true, group: "Software" });
 const sec = (id: string, label: string, def: string, group = "Access"): Property => prop(id, label, "secret", { default: def, required: true, group, description: "Name of the secret that holds it." });
@@ -47,7 +47,7 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("api", "http", "Secret API")], [o("audit", "syslog", "Audit log stream"), mon()], 1, 1024,
     [flag("tls", "Require TLS", true, "Server"), num("default-ttl-h", "Default lease TTL (h)", 768, 1, 87600, "Leases"), sec("unseal-secret", "Unseal key secret reference", "vault-unseal")]),
   a("authelia", "Authelia", "Security & Identity", "Authentication and authorization server for reverse proxies.", "authelia",
-    [i("http", "http", "Authentication requests")], [o("ldap", "ldap", "User directory", "o1"), o("cache", "redis", "Session storage", "o1")], 1, 256,
+    [i("http", "http", "Authentication requests")], [o("ldap", "ldap", "User directory", "o1"), o("cache", "redis", "Session storage", "o1"), mon()], 1, 256,
     [txt("domain", "Protected domain", "example.test", "Server"), prop("policy", "Default policy", "enum", { options: ["deny", "one_factor", "two_factor"], default: "two_factor", required: true, group: "Access" })]),
 
   a("authentik", "Authentik", "Security & Identity", "Identity provider and SSO (OIDC, SAML, LDAP, proxy outposts).", "authentik",
@@ -57,7 +57,7 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("http", "http", "OIDC and admin requests")], [o("db", "postgres", "Database (SQLite by default)", "o1"), mon()], 1, 256,
     [txt("app-url", "Public URL", "https://id.example.test", "Server"), flag("allow-signup", "Allow user sign-up", false, "Access"), sec("encryption-secret", "Encryption key secret reference", "pocketid-key")]),
   a("openldap", "OpenLDAP", "Security & Identity", "LDAP directory server.", "generic-directory",
-    [i("ldap", "ldap", "Directory clients")], [o("repl", "ldap", "Replication to other directory servers"), mon()], 1, 512,
+    [i("ldap", "ldap", "Directory clients")], [o("repl", "ldap", "Replication to other directory servers")], 1, 512,
     [txt("base-dn", "Base DN", "dc=example,dc=test", "Directory"), sec("admin-secret", "Admin password secret reference", "ldap-admin"), flag("tls", "Require TLS", true, "Directory")]),
   a("zitadel", "Zitadel", "Security & Identity", "Identity infrastructure: SSO, MFA and multi-tenant IAM.", "generic-shield",
     [i("http", "http", "Login, API and console requests")], [o("db", "postgres", "Database", "1"), mon()], 2, 1024,
@@ -71,10 +71,10 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("in", "http", "Client traffic")], [o("out", "http", "Upstream clusters"), mon()], 1, 256,
     [prop("lb-policy", "LB policy", "enum", { options: ["round_robin", "least_request", "ring_hash"], default: "round_robin", required: true, group: "Clusters" }), num("max-connections", "Max connections", 1024, 1, 1000000, "Limits")]),
   a("caddy", "Caddy", "Load Balancing", "Web server and reverse proxy with automatic HTTPS.", "caddy",
-    [i("in", "http", "Client traffic")], [o("out", "http", "Upstream servers")], 1, 128,
+    [i("in", "http", "Client traffic")], [o("out", "http", "Upstream servers"), mon()], 1, 128,
     [txt("site", "Site address", "app.example.test", "Site"), flag("auto-https", "Automatic HTTPS", true, "Site")]),
   a("varnish", "Varnish", "Load Balancing", "HTTP accelerator and caching reverse proxy.", "generic-cache",
-    [i("in", "http", "Client traffic")], [o("origin", "http", "Origin servers", "1"), mon()], 1, 1024,
+    [i("in", "http", "Client traffic")], [o("origin", "http", "Origin servers", "1")], 1, 1024,
     [num("cache-mb", "Cache size (MiB)", 512, 16, 262144, "Cache"), num("ttl-s", "Default TTL (s)", 120, 0, 86400, "Cache")]),
 
   // ---- Web & Application ----
@@ -88,19 +88,19 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("http", "http", "HTTP requests")], [o("db", "postgres", "Database connection", "o1"), o("cache", "redis", "Cache connection", "o1")], 1, 512,
     [ver(["3.11", "3.12", "3.13"], "3.12"), txt("module", "App module", "app:app", "Runtime"), num("workers", "Workers", 2, 1, 64, "Runtime")]),
   a("openjdk", "Java app", "Web & Application", "Java application on OpenJDK.", "openjdk",
-    [i("http", "http", "HTTP requests")], [o("db", "postgres", "Database connection", "o1"), o("mq", "kafka", "Message stream", "o1")], 1, 1536,
+    [i("http", "http", "HTTP requests")], [o("db", "postgres", "Database connection", "o1"), o("mq", "kafka", "Message stream", "o1"), mon()], 1, 1536,
     [ver(["17", "21", "25"], "21"), txt("jvm-opts", "JVM options", "-Xmx1g", "Runtime"), txt("jar", "Application JAR", "app.jar", "Runtime")]),
   a("wordpress", "WordPress", "Web & Application", "WordPress content management system.", "wordpress",
     [i("http", "http", "HTTP requests")], [o("db", "mysql", "Database", "1"), o("cache", "memcached", "Object cache", "o1")], 1, 1024,
     [txt("site-url", "Site URL", "https://blog.example.test", "Site"), sec("db-secret", "Database password secret reference", "wp-db-password"), flag("multisite", "Multisite", false, "Site")]),
   a("nextcloud", "Nextcloud", "Web & Application", "File sync and collaboration platform.", "nextcloud",
-    [i("http", "http", "HTTP requests")], [o("db", "postgres", "Database", "1"), o("cache", "redis", "File locking and cache", "o1"), o("store", "s3", "Object storage", "o1")], 2, 2048,
+    [i("http", "http", "HTTP requests")], [o("db", "postgres", "Database", "1"), o("cache", "redis", "File locking and cache", "o1"), o("store", "s3", "Object storage", "o1"), mon()], 2, 2048,
     [txt("trusted-domain", "Trusted domain", "files.example.test", "Site"), sec("admin-secret", "Admin password secret reference", "nc-admin"), num("upload-mb", "Max upload (MiB)", 512, 1, 20480, "Limits")]),
   a("gitea", "Gitea", "Web & Application", "Self-hosted Git service.", "gitea",
-    [i("http", "http", "Web and Git-over-HTTP requests")], [o("db", "postgres", "Database", "1")], 1, 1024,
+    [i("http", "http", "Web and Git-over-HTTP requests")], [o("db", "postgres", "Database", "1"), mon()], 1, 1024,
     [txt("root-url", "Root URL", "https://git.example.test", "Server"), flag("registration", "Open registration", false, "Server"), sec("secret-key", "Secret key secret reference", "gitea-secret")]),
   a("gitlab", "GitLab", "Web & Application", "DevOps platform: Git, CI/CD and registry.", "gitlab",
-    [i("http", "http", "Web and Git requests")], [o("db", "postgres", "Database", "1"), o("cache", "redis", "Cache and queues", "1"), o("store", "s3", "Object storage", "o1")], 4, 8192,
+    [i("http", "http", "Web and Git requests")], [o("db", "postgres", "Database", "1"), o("cache", "redis", "Cache and queues", "1"), o("store", "s3", "Object storage", "o1"), mon()], 4, 8192,
     [txt("external-url", "External URL", "https://gitlab.example.test", "Server"), sec("root-secret", "Root password secret reference", "gitlab-root"), num("puma-workers", "Puma workers", 2, 1, 32, "Limits")]),
   a("jenkins", "Jenkins", "Web & Application", "Automation server for CI/CD.", "jenkins",
     [i("http", "http", "Web UI and webhooks")], [mon()], 2, 2048,
@@ -157,7 +157,7 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("in", "nats", "Publishers")], [o("out", "nats", "Subscribers", ""), mon()], 1, 512,
     [flag("jetstream", "JetStream persistence", true, "Server"), num("max-payload-kb", "Max payload (KiB)", 1024, 1, 65536, "Limits")]),
   a("mosquitto", "Mosquitto", "Messaging & Streaming", "Eclipse Mosquitto MQTT broker.", "eclipsemosquitto",
-    [i("in", "mqtt", "Publishers")], [o("out", "mqtt", "Subscribers", ""), mon()], 1, 256,
+    [i("in", "mqtt", "Publishers")], [o("out", "mqtt", "Subscribers", "")], 1, 256,
     [flag("allow-anonymous", "Allow anonymous clients", false, "Access"), num("max-connections", "Max connections", 1000, 1, 100000, "Limits")]),
   a("activemq", "ActiveMQ", "Messaging & Streaming", "Apache ActiveMQ message broker.", "generic-mq",
     [i("in", "amqp", "Producers")], [o("out", "amqp", "Consumers", ""), mon()], 2, 2048,
@@ -177,7 +177,7 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("ui", "http", "Browser traffic")], [o("es", "http", "Elasticsearch cluster", "1")], 1, 1024,
     [txt("base-path", "Base path", "/", "Server"), sec("service-secret", "Service account secret reference", "kibana-service")]),
   a("logstash", "Logstash", "Search & Analytics", "Log ingestion and transformation pipeline.", "logstash",
-    [i("in", "syslog", "Log streams from modules")], [o("out", "http", "Elasticsearch or OpenSearch", "1"), mon()], 2, 2048,
+    [i("in", "syslog", "Log streams from modules")], [o("out", "http", "Elasticsearch or OpenSearch", "1")], 2, 2048,
     [num("workers", "Pipeline workers", 2, 1, 64, "Pipeline"), num("batch-size", "Batch size", 125, 1, 10000, "Pipeline")]),
   a("spark", "Spark", "Search & Analytics", "Apache Spark analytics engine (driver and workers).", "apachespark",
     [i("submit", "http", "Job submission and UI")], [o("store", "s3", "Data lake", "o1"), mon()], 4, 8192,
@@ -191,12 +191,12 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("s3", "s3", "S3 gateway clients")], [mon()], 4, 8192,
     [num("replicas", "Replica count", 3, 1, 9, "Pools"), num("pg-num", "Placement groups", 128, 8, 8192, "Pools")]),
   a("nfs", "NFS server", "Storage", "Network file system exports.", "generic-storage",
-    [i("nfs", "nfs", "NFS clients")], [], 1, 512,
+    [i("nfs", "nfs", "NFS clients")], [mon()], 1, 512,
     [txt("export", "Export path", "/srv/share", "Export"), prop("access", "Access", "enum", { options: ["rw", "ro"], default: "rw", required: true, group: "Export" })]),
 
   // ---- Monitoring ----
   a("jaeger", "Jaeger", "Monitoring", "Distributed tracing.", "jaeger",
-    [i("traces", "grpc", "Trace spans")], [o("store", "http", "Search backend", "o1")], 1, 1024,
+    [i("traces", "grpc", "Trace spans")], [o("store", "http", "Search backend", "o1"), mon()], 1, 1024,
     [num("sampling", "Sampling rate (%)", 10, 0, 100, "Collection"), num("ttl-h", "Trace retention (h)", 72, 1, 8760, "Storage")]),
   a("otel", "OTel Collector", "Monitoring", "OpenTelemetry Collector for traces, metrics and logs.", "opentelemetry",
     [i("otlp", "grpc", "OTLP telemetry from applications")], [o("traces", "grpc", "Trace backend", "o"), mon()], 1, 512,
@@ -235,7 +235,7 @@ export const EXTRA_CLASSES: readonly ModuleClass[] = [
     [i("smb", "smb", "SMB clients")], [mon()], 2, 2048,
     [txt("share", "Share name", "Data", "Share"), flag("encrypt", "Require SMB encryption", true, "Share"), num("quota-gb", "Quota (GiB)", 500, 1, 1048576, "Share")]),
   a("rd-gateway", "RD Gateway", "Microsoft Windows", "Remote Desktop Gateway: RDP over HTTPS.", "generic-window",
-    [i("https", "http", "Client connections over HTTPS")], [o("rdp", "rdp", "Remote desktops behind the gateway"), o("auth", "ldap", "Active Directory", "o1")], 2, 2048,
+    [i("https", "http", "Client connections over HTTPS")], [o("rdp", "rdp", "Remote desktops behind the gateway"), o("auth", "ldap", "Active Directory", "o1"), mon()], 2, 2048,
     [txt("host", "Public host name", "rdg.example.test", "Gateway"), flag("mfa", "Require multi-factor authentication", true, "Gateway")]),
   a("exchange", "Exchange", "Microsoft Windows", "Microsoft Exchange Server mail platform.", "generic-window",
     [i("smtp", "smtp", "Incoming mail"), i("owa", "http", "Web and ActiveSync clients")], [o("auth", "ldap", "Active Directory", "1"), mon()], 4, 16384,

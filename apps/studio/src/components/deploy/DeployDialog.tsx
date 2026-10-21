@@ -102,7 +102,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   /** The design's connections between modules that are deployed (rules for the server). */
   const connections = () => {
     const deployed = new Set(split.deployable.map((d) => d.module));
-    return compileNetwork(current(), appName).intents
+    return compileNetwork(current(), appName, lookupClass).intents
       .filter((i) => deployed.has(i.from) && deployed.has(i.to))
       .map((i) => ({ from: i.from, to: i.to, transport: i.transport, port: i.number }));
   };
@@ -110,7 +110,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   const published = () => {
     const a = current();
     const gateways = new Set(a.spec.modules.filter((x) => x.classRef.name === "gateway").map((x) => x.id));
-    return publishedPorts(compileNetwork(a, appName), gateways, new Set(split.deployable.map((d) => d.module)));
+    return publishedPorts(compileNetwork(a, appName, lookupClass), gateways, new Set(split.deployable.map((d) => d.module)));
   };
 
   const preview = async () => {
@@ -245,7 +245,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
           <div className="flex flex-col gap-3 text-sm">
             <p className="text-base-content/70">What deploying <strong className="font-mono">{appName}</strong> to <strong>{project}</strong> changes. Nothing has changed yet.</p>
             <PlanTable plan={step.plan} removeMissing={removeMissing} />
-            <NetworkRules plan={compileNetwork(current(), appName)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} published={published()} />
+            <NetworkRules plan={compileNetwork(current(), appName, lookupClass)} enforced={!step.plan.warnings.some((w) => w.includes("not enforced"))} published={published()} />
             {step.plan.warnings.map((w) => <p key={w} className="flex items-start gap-2" role="note"><span className="status status-warning mt-1.5 shrink-0" aria-hidden="true" />{w}</p>)}
             {step.plan.items.some((i) => i.action === "remove") && (
               <label className="flex items-center gap-2">

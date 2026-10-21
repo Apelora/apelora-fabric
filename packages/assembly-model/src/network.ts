@@ -1,4 +1,6 @@
-import type { ApplicationAssembly, Endpoint, Port, PortType } from "./schema";
+import type { ApplicationAssembly, Endpoint, ModuleInstance, Port, PortType } from "./schema";
+import { metricsEndpoint } from "./metrics";
+import type { ClassLookup } from "./validate";
 
 /**
  * Network intents: what a design's connections allow, compiled deterministically from the
@@ -6,6 +8,10 @@ import type { ApplicationAssembly, Endpoint, Port, PortType } from "./schema";
  * authorisation: the consumer (an output terminal) may reach the provider (an input terminal)
  * on that protocol, addressed by the provider's stable service name. Anything not connected
  * is denied. `network` terminals are NICs: they join L2 segments, not services.
+ *
+ * Metrics are read, not sent: a `metrics` output (`mon`) is an endpoint, so the module at the
+ * other end (a collector's `scrape` input) reaches the module that serves them, on the port its
+ * class declares (`ModuleClass.metrics`, docs/architecture/MODULE-PORTS.md).
  */
 
 /** Well-known listening port per protocol. `tcp` is generic and has no single port. */
@@ -25,6 +31,7 @@ export const DEFAULT_PORTS: Readonly<Partial<Record<PortType, { transport: "tcp"
   mqtt: { transport: "tcp", port: 1883 },
   nats: { transport: "tcp", port: 4222 },
   s3: { transport: "tcp", port: 9000 },
+  // Only for classes that declare no metrics port (custom classes): the class's own port wins.
   metrics: { transport: "tcp", port: 9100 },
   ldap: { transport: "tcp", port: 389 },
   smtp: { transport: "tcp", port: 25 },
@@ -109,20 +116,32 @@ function links(a: ApplicationAssembly): [Terminal, Terminal][] {
 
 const compare = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 
-export function compileNetwork(a: ApplicationAssembly, application: string): NetworkPlan {
+export function compileNetwork(a: ApplicationAssembly, application: string, classOf?: ClassLookup): NetworkPlan {
   const warnings = new Set<string>();
   const intents = new Map<string, NetworkIntent>();
   const nicLinks: [string, string][] = [];
+  const modules = new Map<string, ModuleInstance>(a.spec.modules.map((m) => [m.id, m]));
+  /** Where the metrics output `t` is read: its class's metrics port, else the protocol default. */
+  const metricsPort = (t: Terminal) => {
+    const m = modules.get(t.module);
+    const cls = m ? classOf?.(m.classRef.name, m.classRef.version) : undefined;
+    const own = cls && m ? metricsEndpoint(cls, m.config) : undefined;
+    if (!own) warnings.add(`${t.module}.${t.port.id} (metrics): its class declares no metrics port, so the rule uses ${DEFAULT_PORTS.metrics!.port}, the common default`);
+    return own ?? DEFAULT_PORTS.metrics;
+  };
 
   for (const [x, y] of links(a)) {
     if (x.port.type === "network" || y.port.type === "network") {
       if (x.port.type === "network" && y.port.type === "network") nicLinks.push([x.module, y.module]);
       continue;
     }
-    // The consumer is the output terminal, the provider the input terminal.
-    const [from, to] = x.port.direction === "output" ? [x, y] : [y, x];
-    if (from.port.direction !== "output" || to.port.direction !== "input" || from.module === to.module) continue;
-    const known = DEFAULT_PORTS[to.port.type];
+    const [out, inp] = x.port.direction === "output" ? [x, y] : [y, x];
+    if (out.port.direction !== "output" || inp.port.direction !== "input" || out.module === inp.module) continue;
+    // The consumer is the output terminal and the provider the input terminal, except for a
+    // metrics output: it is an endpoint, and the collector at the input end reads it.
+    const read = out.port.type === "metrics";
+    const [from, to] = read ? [inp, out] : [out, inp];
+    const known = read ? metricsPort(out) : DEFAULT_PORTS[to.port.type];
     if (!known) warnings.add(`${to.module}.${to.port.id} (${to.port.type}) has no well-known port: the rule allows any TCP port until one is set`);
     const id = `${from.module}.${from.port.id}->${to.module}.${to.port.id}`;
     intents.set(id, {
