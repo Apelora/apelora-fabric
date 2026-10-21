@@ -1242,3 +1242,88 @@ async fn guard_required(
         reason,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn legacy(name: &str, role: Role) -> Principal {
+        Principal {
+            name: name.into(),
+            role: Some(role),
+            caller: None,
+            session: None,
+            personal_token: None,
+        }
+    }
+
+    #[test]
+    fn audit_trails_name_who_acted_without_confusing_tokens_with_the_development_account() {
+        assert_eq!(
+            legacy("development", Role::FabricAdmin).actor_ref(),
+            "development"
+        );
+        // Only the real development account has that name; a token cannot borrow it.
+        for p in [
+            legacy("development", Role::Operator),
+            legacy("ci", Role::FabricAdmin),
+        ] {
+            assert_eq!(p.actor_ref(), format!("token:{}", p.name));
+        }
+        assert_eq!(legacy("ci", Role::FabricAdmin).actor_ref(), "token:ci");
+    }
+
+    #[test]
+    fn legacy_roles_keep_exactly_the_reach_they_had() {
+        let may = |role: Role, permission: &str| {
+            legacy_requirement(permission).is_some_and(|need| role.allows(need))
+        };
+        for p in ["application.design", "application.create"] {
+            assert!(may(Role::StudioDesigner, p), "{p}");
+            assert!(may(Role::Operator, p), "{p}");
+            assert!(!may(Role::Auditor, p), "{p}");
+        }
+        for p in [
+            "application.deploy",
+            "application.operate",
+            "instance.manage",
+        ] {
+            assert!(may(Role::Operator, p), "{p}");
+            assert!(!may(Role::StudioDesigner, p), "{p}");
+        }
+        assert!(may(Role::Auditor, "audit.read"));
+        assert!(!may(Role::Operator, "audit.read"));
+        assert!(!may(Role::Operator, "token.manage"));
+        // Identity administration and platform security stay with legacy administrators.
+        for p in [
+            "organization.create",
+            "organization.update",
+            "project.create",
+            "project.update",
+            "project.delete",
+            "environment.manage",
+            "group.manage",
+            "role.assign",
+            "role.manage",
+            "service_identity.manage",
+            "access_policy.manage",
+            "platform.security.manage",
+            "platform.emergency_access",
+            "user.manage",
+        ] {
+            assert!(may(Role::FabricAdmin, p), "{p}");
+            for lesser in [Role::Operator, Role::StudioDesigner, Role::Auditor] {
+                assert!(!may(lesser, p), "{lesser:?} {p}");
+            }
+        }
+        // Reading and infrastructure map as before.
+        assert!(may(Role::Auditor, "application.view") && may(Role::Auditor, "cluster.view"));
+        assert!(!may(Role::Operator, "cluster.manage") && may(Role::FabricAdmin, "cluster.manage"));
+        assert!(!may(Role::StudioDesigner, "approval.grant"));
+        // Interactive access is never reachable through a legacy token, whatever its role.
+        for p in ["instance.console", "instance.desktop"] {
+            assert!(legacy_requirement(p).is_none(), "{p}");
+            assert!(!may(Role::FabricAdmin, p), "{p}");
+        }
+    }
+}

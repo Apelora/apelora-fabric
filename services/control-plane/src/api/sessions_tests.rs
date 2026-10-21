@@ -71,10 +71,11 @@ struct Rig {
     dave: String,
     erin: String,
     mallory: String,
+    mock: apelora_incus_adapter::MockIncus,
 }
 
 async fn rig(pool: Pool) -> Rig {
-    let (l, _mock) = mock_lab(pool);
+    let (l, mock) = mock_lab(pool);
     let s = shop(&l).await;
     deployed(&l, &s).await;
     let acme_prod = s.w.acme_prod;
@@ -115,6 +116,7 @@ async fn rig(pool: Pool) -> Rig {
         dave,
         erin,
         mallory,
+        mock,
     }
 }
 
@@ -1357,4 +1359,172 @@ async fn windows_modules_offer_powershell_only_when_turned_on_and_never_a_deskto
         (StatusCode::CONFLICT, Some("session_unavailable")),
         "{b}"
     );
+}
+
+/// Everything the server says on the socket until it ends: (text frames, close reason).
+async fn texts_until_closed(ws: &mut Client) -> (Vec<Value>, String) {
+    let mut texts = Vec::new();
+    loop {
+        let m = tokio::time::timeout(Duration::from_secs(8), ws.next())
+            .await
+            .expect("the session ends in time");
+        match m {
+            Some(Ok(Message::Text(t))) => {
+                let v: Value = serde_json::from_str(&t).unwrap_or(Value::Null);
+                if v["type"] == "closed" {
+                    let reason = v["reason"].as_str().unwrap_or_default().to_owned();
+                    texts.push(v);
+                    return (texts, reason);
+                }
+                texts.push(v);
+            }
+            Some(Ok(Message::Close(_))) | None | Some(Err(_)) => {
+                return (texts, "socket-closed".into());
+            }
+            Some(Ok(_)) => {}
+        }
+    }
+}
+
+#[test]
+fn a_terminal_without_a_size_is_eighty_by_twenty_four() {
+    let n: super::sessions::NewSession = serde_json::from_str(r#"{"kind":"terminal"}"#).unwrap();
+    assert_eq!((n.cols, n.rows), (80, 24));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_instance_that_vanished_or_stopped_after_the_ticket_is_reported_as_such(pool: Pool) {
+    let r = rig(pool).await;
+    let addr = serve(r.l.state.clone()).await;
+
+    // Stopped between ticket and connection.
+    let t = r.ticket(WEB).await;
+    {
+        let mut all = r.mock.instances.lock().unwrap();
+        all.iter_mut()
+            .find(|i| i.instance.name == WEB)
+            .unwrap()
+            .instance
+            .status = "Stopped".into();
+    }
+    let mut ws = connect_ws(addr, &protocols(&t), None).await.unwrap();
+    let (texts, reason) = texts_until_closed(&mut ws).await;
+    assert_eq!(reason, "error");
+    assert_eq!(
+        texts[0]["message"],
+        json!("the instance is not running"),
+        "{texts:?}"
+    );
+
+    // Gone altogether.
+    let t = r.ticket(DB).await;
+    r.mock
+        .instances
+        .lock()
+        .unwrap()
+        .retain(|i| i.instance.name != DB);
+    let mut ws = connect_ws(addr, &protocols(&t), None).await.unwrap();
+    let (texts, reason) = texts_until_closed(&mut ws).await;
+    assert_eq!(reason, "error");
+    assert_eq!(
+        texts[0]["message"],
+        json!("the instance no longer exists"),
+        "{texts:?}"
+    );
+    let failed = r.audit("session.open").await;
+    assert_eq!(failed.len(), 2, "both failures are on record: {failed:?}");
+    assert!(failed.iter().all(|d| d["reason"].is_string()));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn disabling_an_account_ends_its_running_session(pool: Pool) {
+    let r = rig(pool).await;
+    let addr = serve(r.l.state.clone().with_console(ConsoleSettings {
+        recheck: Duration::from_millis(150),
+        ..ConsoleSettings::default()
+    }))
+    .await;
+    let mut ws = connect_ws(addr, &protocols(&r.ticket(WEB).await), None)
+        .await
+        .unwrap();
+    read_until(&mut ws, "$ ").await;
+    let (s, b) =
+        r.l.req(
+            "POST",
+            &format!("/api/v1/identity/users/{}/disable", r.bob_id),
+            &r.s.w.admin,
+            None,
+        )
+        .await;
+    assert!(s.is_success(), "{s} {b}");
+    assert_eq!(closed_reason(&mut ws).await, "access-revoked");
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn only_the_owner_or_an_operator_can_end_a_session(pool: Pool) {
+    let r = rig(pool).await;
+    // Another person who also holds Instance Access, but does not operate the application.
+    let gary_id = r.l.user("sub-gary", "gary").await;
+    let gary = r.l.token("sub-gary", "gary");
+    let (s, b) =
+        r.l.grant(
+            &r.s.w.admin,
+            gary_id,
+            "instance-access",
+            json!({ "type": "project", "id": r.s.w.acme_prod }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let addr = serve(r.l.state.clone()).await;
+    let mut ws = connect_ws(addr, &protocols(&r.ticket(WEB).await), None)
+        .await
+        .unwrap();
+    read_until(&mut ws, "$ ").await;
+    let (_, mine) = call(
+        r.l.state.clone(),
+        "GET",
+        "/api/v1/sessions",
+        &r.bob,
+        None,
+        &[],
+    )
+    .await;
+    let id = mine["items"][0]["id"].as_str().unwrap().to_owned();
+    // gary passes the route gate (he holds instance.console) but the session is not his: 404.
+    let (s, _) = call(
+        r.l.state.clone(),
+        "DELETE",
+        &format!("/api/v1/sessions/{id}"),
+        &gary,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (_, theirs) = call(
+        r.l.state.clone(),
+        "GET",
+        "/api/v1/sessions",
+        &gary,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(
+        theirs["items"].as_array().unwrap().len(),
+        0,
+        "he does not see other people's sessions"
+    );
+    // The owner may end it without operating anything.
+    let (s, _) = call(
+        r.l.state.clone(),
+        "DELETE",
+        &format!("/api/v1/sessions/{id}"),
+        &r.bob,
+        None,
+        &[],
+    )
+    .await;
+    assert_eq!(s, StatusCode::NO_CONTENT);
+    assert_eq!(closed_reason(&mut ws).await, "terminated");
 }

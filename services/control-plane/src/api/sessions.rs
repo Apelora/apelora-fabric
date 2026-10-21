@@ -249,8 +249,18 @@ impl Sessions {
 
     /// Stores a ticket unless the person is over a limit. Returns why not, if so.
     fn issue(&self, hash: [u8; 32], t: Ticket, cfg: &ConsoleSettings) -> Result<(), &'static str> {
+        self.issue_at(hash, t, cfg, Instant::now())
+    }
+
+    /// [`Sessions::issue`] at a given moment (so the one-minute window can be tested).
+    fn issue_at(
+        &self,
+        hash: [u8; 32],
+        t: Ticket,
+        cfg: &ConsoleSettings,
+        now: Instant,
+    ) -> Result<(), &'static str> {
         let mut g = self.lock();
-        let now = Instant::now();
         g.tickets.retain(|_, t| t.expires > now);
         g.issued.retain(|_, q| {
             q.back()
@@ -1141,7 +1151,7 @@ async fn run(
                     &ticket.principal,
                     "session.open",
                     &target,
-                    "failure",
+                    "failed",
                     Some(&ticket.resource),
                     &json!({ "session": ticket.id, "kind": ticket.kind.as_str(), "reason": why, "source": source }),
                 )
@@ -1399,6 +1409,82 @@ mod tests {
             .unwrap()
             .allowed_origins,
             vec!["https://a.test".to_owned(), "http://b.test:5173".to_owned()]
+        );
+    }
+
+    #[test]
+    fn tickets_are_long_random_and_never_repeat() {
+        let a = random_ticket().ok().expect("randomness");
+        let b = random_ticket().ok().expect("randomness");
+        assert_ne!(a, b);
+        for t in [&a, &b] {
+            assert_eq!(t.len(), 64, "256 bits as hex");
+            assert!(t.bytes().all(|c| c.is_ascii_hexdigit()));
+        }
+        assert_ne!(digest(&a), digest(&b));
+        assert_eq!(digest("x"), digest("x"));
+    }
+
+    #[test]
+    fn the_limits_are_what_the_documentation_says() {
+        assert_eq!(MAX_INBOUND, 16 * 1024);
+        assert_eq!(MAX_INBOUND_BYTES_PER_SEC, 256 * 1024);
+        assert_eq!(TICKETS_PER_MINUTE, 10);
+        let d = ConsoleSettings::default();
+        assert_eq!(d.idle, Duration::from_secs(15 * 60));
+        assert_eq!(d.max, Duration::from_secs(60 * 60));
+        assert_eq!(d.ticket_ttl, Duration::from_secs(60));
+        assert_eq!(d.recheck, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn ten_tickets_a_minute_and_the_minute_is_exactly_sixty_seconds() {
+        let store = Sessions::default();
+        let cfg = ConsoleSettings {
+            max_per_user: 100,
+            ..ConsoleSettings::default()
+        };
+        let t0 = Instant::now();
+        let make = |n: usize| Ticket {
+            id: Uuid::new_v4(),
+            principal: Principal {
+                name: "a".into(),
+                role: None,
+                caller: None,
+                session: None,
+                personal_token: None,
+            },
+            actor: "user:1".into(),
+            resource: Resource::default(),
+            application: "shop".into(),
+            project: "p".into(),
+            instance: "web".into(),
+            module: "web".into(),
+            kind: SessionKind::Terminal,
+            cols: 80,
+            rows: 24,
+            origin: None,
+            approval: None,
+            // Long enough that expiry never interferes with the window under test.
+            expires: t0 + Duration::from_secs(10_000 + n as u64),
+        };
+        for n in 0..TICKETS_PER_MINUTE {
+            assert!(
+                store.issue_at([n as u8; 32], make(n), &cfg, t0).is_ok(),
+                "{n}"
+            );
+        }
+        let eleventh = |at: Duration| store.issue_at([200; 32], make(99), &cfg, t0 + at);
+        assert_eq!(eleventh(Duration::from_secs(59)), Err("rate"));
+        assert_eq!(
+            eleventh(Duration::from_secs(60)),
+            Err("rate"),
+            "still inside the minute"
+        );
+        assert_eq!(
+            eleventh(Duration::from_secs(61)),
+            Ok(()),
+            "the minute has passed"
         );
     }
 
