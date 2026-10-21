@@ -29,6 +29,8 @@ type Method = (typeof METHODS)[number];
 
 /** Media types the client returns as text rather than parsing JSON. */
 const isText = (type: string) => type.startsWith("text/") || type === "application/x-ndjson";
+/** Files to save (the support bundle): the client returns them as a `Blob`. */
+const isBinary = (type: string) => ["application/x-tar", "application/zip", "application/octet-stream"].includes(type);
 
 const doc = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8")) as Doc;
 
@@ -93,8 +95,9 @@ for (const { op } of ops) {
   const ok = code && op.responses[code]?.content?.["application/json"]?.schema;
   // A text answer (the metrics exposition, the audit export as CSV or JSON lines) is a string.
   const text = code && Object.keys(op.responses[code]?.content ?? {}).some(isText);
-  if (!ok && !text && code !== "204") throw new Error(`${op.operationId}: no 2xx JSON or text response`);
-  out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ok ? ts(ok, "  ") : text ? "string" : "null"};`);
+  const binary = code && Object.keys(op.responses[code]?.content ?? {}).some(isBinary);
+  if (!ok && !text && !binary && code !== "204") throw new Error(`${op.operationId}: no 2xx JSON, text or file response`);
+  out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ok ? ts(ok, "  ") : text ? "string" : binary ? "Blob" : "null"};`);
 }
 out.push("};", "");
 

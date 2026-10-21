@@ -20,7 +20,7 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 1. New permissions in the catalogue, class **Tenant**, floor **Application**: `instance.console` (terminal/PowerShell) and `instance.desktop` (RDP). Not included in the viewer, designer or auditor roles. Granted to operator and above, or to a custom role.
 2. Production environments require **approval** (`approval: true` or a policy by environment kind) and may require recent MFA through an access policy.
 3. Check the exact instance: caller's scope on its application, the instance belongs to that application, the instance is `managed` and running. Anything else answers 404.
-4. **Service identities and legacy tokens never get interactive sessions.**
+4. **Service identities, legacy tokens and personal tokens (`apt_`) never get interactive sessions.** (Personal tokens: refused by the route gate and by the access check, `account::REFUSED_TO_PERSONAL_TOKENS`.)
 5. Deny when Incus is unobservable (stale/unknown status).
 
 ## Session controls

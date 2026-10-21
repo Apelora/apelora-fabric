@@ -29,11 +29,11 @@ Priorities:
 | Storage | pools; volumes: grow, delete, snapshots, restore | backups: list and restore from a backup (P0); schedules (P1); pool usage and quotas (IP, P1); orphaned volumes (P1); volume classes (P2) |
 | Images and catalog | catalog in the Studio | Incus images: list, pin, prune (P2) |
 | Tenancy | organisations, projects, environments | create the environment's restricted Incus project with limits (P1); quotas (P1); delete and rename (P2) |
-| Identity and access | users, groups, roles, custom roles, assignments with preview, service identities, policies, approvals, emergency access, sign-in providers | local accounts, sign-out, change password (IP); directory sign-in (IP); personal tokens bound to a person (P1); token rotation (P1); a person's active sign-ins (P1); access-review export (P2) |
+| Identity and access | users, groups, roles, custom roles, assignments with preview, service identities, policies, approvals, emergency access, sign-in providers; personal tokens bound to a person, with rotation (an overlap window), under *Your tokens* in the user menu, and everyone's under Identity & Access → Sign-ins & tokens (B, 2026-10-21, MOCK VERIFIED); a person's active sign-ins, ended by them or by an administrator (B, 2026-10-21, MOCK VERIFIED) | local accounts, sign-out, change password (IP); directory sign-in (IP); access-review export (P2) |
 | Audit | search by action and outcome, paged; filters by actor, target and time, kept in the page address; export as CSV or JSON lines, itself audited (built 2026-10-21) | retention and archive (P1) |
-| Debugging | request ids; preflight (now Servers → Preflight) | log lookup by request id (P1); support bundle (P1) |
+| Debugging | request ids; preflight (now Servers → Preflight); support bundle: versions, effective settings without secrets, health, preflight, failed jobs with attempts, metrics, a manifest; audited, nothing uploaded (B, 2026-10-21, MOCK VERIFIED; [runbook](../runbooks/troubleshooting.md#support-bundle-and-effective-settings)) | log lookup by request id (P1); the last hour of errors in the bundle needs a log store the control plane does not have (it says so) |
 | Security | certificate expiry | TLS on the API (P0); security headers (P0); rate limits on public routes (P0); a security-posture page (P1) |
-| Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`); effective settings (P1); licence notices (P1) |
+| Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)); effective settings, read-only, values by allow-list (B, 2026-10-21); licence notices: Apelora's licence with its source offer and every third-party package, made at build time and served with both apps at `/licenses` (B, 2026-10-21) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`) |
 | Terminal | Studio sessions; Console: Terminal… on Instances and Applications, production approval in the dialog, Sessions page with End session and history from the audit trail (MOCK and CONTRACT VERIFIED; [guide](../guides/terminal-sessions.md)) | run against real Incus (P0); recording, opt-in (P2) |
 | Disconnected (ADR 0010) | image mirrors, mirrors-only mode | preflight for mirrors; mirrors page; release bundle (P1) |
 
@@ -62,7 +62,7 @@ Priorities:
    - No rate limits except on terminal tickets.
 
    All P0. **Fixed (S3, built 2026-10-21):** headers on every API response (`api/headers.rs`); `/health` answers a coarse status from a cache refreshed at most every 15 s, with Incus versions and error text moved to the signed-in `/system` (`api/health_cache.rs`); per-address and per-caller token buckets with `429` and `Retry-After` (`api/rate_limit.rs`, `APELORA_RATE_LIMIT_*`, `APELORA_TRUSTED_PROXIES`); TLS of its own (`APELORA_TLS_CERT`/`KEY`) or a declared proxy (`APELORA_BEHIND_PROXY=1`) before listening on a non-loopback address (`serve.rs`); a serving configuration with a content security policy proven in a browser (`infra/serve/`, `tests/e2e/web-serving.spec.ts`).
-6. **Tokens.** Secrets are shown once and stored as hashes (good). There is no rotation (P1). A service token's lifetime outside 1–365 days is now refused with 400 instead of clamped (fixed, B).
+6. **Tokens.** Secrets are shown once and stored as hashes (good). Personal tokens rotate with an overlap window (built 2026-10-21); legacy API tokens still do not (replace them with personal tokens or service identities). A service token's lifetime outside 1–365 days is now refused with 400 instead of clamped (fixed, B).
 7. **Sessions.** Disabling takes effect on the next request (good). Terminal tickets live in one process. Identity-provider tokens cannot be revoked before they expire (at most an hour).
 8. **Clean:** no secrets in logs; no CSRF exposure (bearer tokens, no cookies); the terminal websocket checks `Origin`.
 
@@ -91,11 +91,11 @@ Packages in one wave touch different files and can be built in parallel.
 **Wave 3 — alerts, terminal, identity:**
 - Alerts: an evaluator in the worker, acknowledgement, a webhook channel holding only a secret reference.
 - Terminal from the Console, reusing the Studio's brokered sessions, with a sessions page (built, MOCK VERIFIED).
-- Personal tokens and rotation.
+- Personal tokens and rotation (built, MOCK VERIFIED); a person's active sign-ins (built).
 - Audited sign-ins (done): provider tokens once per person per hour; password and directory sign-ins were already audited, now in the session's transaction.
 
 **Wave 4 — administration and tenancy:**
-- Effective settings, licence notices, a database backup check, a support bundle.
+- Effective settings, licence notices and a support bundle (built 2026-10-21); a database backup check.
 - Restricted Incus projects per environment with limits.
 - Then sectors (ADR 0008) and HA slice B.
 

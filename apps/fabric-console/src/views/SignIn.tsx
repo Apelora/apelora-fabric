@@ -45,6 +45,8 @@ export function SignInFrame({ health, testId, children }: { health: Health | nul
           <span className={`status ${health ? (health.provider === "mock" || health.incus.connected ? "status-success" : "status-warning") : ""}`} aria-hidden="true" />
           {health ? `Apelora ${health.version}, ${health.provider === "mock" ? "showing mock data" : health.incus.connected ? "connected to Incus" : "Incus not connected"}` : "Checking the control plane…"}
         </p>
+        {/* The AGPL's network clause: everyone who uses Apelora, signed in or not, can find its source. */}
+        <p className="mt-2 text-center text-xs"><a className="link link-hover text-base-content/60" href="/licenses" data-testid="sign-in-licences">Licences and source code</a></p>
       </section>
     </main>
   );

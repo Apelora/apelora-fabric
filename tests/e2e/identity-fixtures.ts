@@ -104,9 +104,11 @@ export const LOCAL_OFF = { enabled: false, ready: 0, pending: 0 };
 export const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "mock", auth: "disabled-development", incus: { connected: false }, checkedAt: "2026-10-20T00:00:00Z" };
 
 /** `kind: "user"` callers with the given permissions; `platform` ones hold them across the platform. */
-export function whoami(capabilities: string[], opts: { platform?: string[]; kind?: string; name?: string } = {}) {
+export function whoami(capabilities: string[], opts: { platform?: string[]; kind?: string; name?: string; credential?: string } = {}) {
   const platform = opts.platform ?? capabilities;
-  return { name: opts.name ?? "alex", id: opts.kind === "legacy-token" ? null : ME, kind: opts.kind ?? "user", role: opts.kind === "legacy-token" ? "fabric-admin" : null, permissions: opts.kind === "legacy-token" ? ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"] : [], deployProjects: [], capabilities, platformPermissions: platform, roles: [] };
+  const kind = opts.kind ?? "user";
+  const credential = opts.credential ?? (kind === "legacy-token" ? "api-token" : kind === "service" ? "service-token" : "identity-provider");
+  return { name: opts.name ?? "alex", id: kind === "legacy-token" ? null : ME, kind, role: kind === "legacy-token" ? "fabric-admin" : null, permissions: kind === "legacy-token" ? ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"] : [], deployProjects: [], capabilities, platformPermissions: platform, roles: [], credential };
 }
 export const SUPER = whoami(ALL_PERMISSION_IDS);
 

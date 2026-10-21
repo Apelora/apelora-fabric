@@ -239,6 +239,12 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         "Scrape the control plane's metrics (GET /metrics) and see how monitoring is set up",
     ),
     i(
+        "support.bundle",
+        Plat,
+        false,
+        "Download a support bundle: versions, settings without secrets, health, preflight, failed jobs and metrics",
+    ),
+    i(
         "machine.enrol",
         Plat,
         false,

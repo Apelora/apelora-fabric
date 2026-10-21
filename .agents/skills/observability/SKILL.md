@@ -23,6 +23,12 @@ A component is not done until you can tell, from outside, whether it is healthy 
 - Errors that reach clients name a next step and never carry raw database text (`store_error` names the request id; the log line has the detail). Incus adapter errors name the request (`GET /1.0/…`, query limited to naming parameters by `client::loggable`) and the HTTP status.
 - **Never log** tokens of any kind, join secrets, certificates or keys, passwords, the `Authorization` header or request bodies; log the credential *kind*. Values from an unverified token are passed through `apelora_identity`'s `shown` (no control characters, bounded).
 
+## Support bundle and effective settings (built 2026-10-21)
+
+- `GET /api/v1/support-bundle` (`api/support.rs`, permission `support.bundle`): a tar written by hand (ustar, no dependency), streamed, audited as `support.bundle.downloaded` before the first byte. Parts are built from allow-listed fields and reuse the handlers (`admin::system`, `fabric_health::components`, `preflight`, `metrics::snapshot`); a part the caller may not read is listed under `omitted` in the manifest. Jobs go in without their request body. The control plane keeps no log lines in memory, so the bundle says where to find them (`logs/README.txt`); do not add a log store for it.
+- Everything written into a bundle passes `settings::scrub` (Apelora tokens, PEM blocks, bearer values, JSON web tokens, URL passwords). A new part keeps to listed fields *and* goes through `json_part`/`text_part`; the test plants secrets in every source.
+- `GET /api/v1/settings` (`api/settings.rs`, `cluster.view`): `SETTINGS` lists every setting the services read with its default and whether its value may be shown; `every_setting_the_services_read_is_listed` fails for a new `APELORA_*` name that is missing. Values come from the start-up snapshot (`AppState::with_environment`), shown only when listed `shown`, the name does not look secret (`secret_name`) and `scrub` leaves the value unchanged. Never mark a key, certificate path or URL with credentials as shown.
+
 ## Logging (target practice)
 
 - **Structured JSON**, one event per line. Required fields: `ts`, `level`, `component`, `msg`, `request_id`; add `resource_id`, `node_id`, `job_id`, `tenant_id`, `actor` where relevant.

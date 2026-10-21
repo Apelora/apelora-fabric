@@ -83,6 +83,8 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
     // Text answers (the metrics exposition, audit exports as CSV or JSON lines) are returned as they are.
     const type = res.headers.get("content-type") ?? "";
     if (res.ok && (type.startsWith("text/") || type.startsWith("application/x-ndjson"))) return (await res.text()) as Responses[K];
+    // Files to save (the support bundle) are returned as a Blob.
+    if (res.ok && /^application\/(x-tar|zip|octet-stream)\b/.test(type)) return (await res.blob()) as Responses[K];
     const body = (await res.json().catch(() => null)) as Responses[K] | ErrorBody | null;
     if (!res.ok || body === null) {
       const err = (body as ErrorBody | null)?.error;

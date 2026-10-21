@@ -696,6 +696,107 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
     )
     .await;
 
+    // ---- personal tokens and sign-ins ----
+    let mine = s
+        .step(
+            Atomic,
+            "POST",
+            "/api/v1/me/tokens",
+            "/api/v1/me/tokens",
+            r,
+            json!({ "name": "laptop", "expiresInDays": 30 }),
+            "personal_token.create",
+        )
+        .await;
+    let mine = id(&mine["info"], "id");
+    let rotated = s
+        .step(
+            Atomic,
+            "POST",
+            "/api/v1/me/tokens/{id}/rotate",
+            &format!("/api/v1/me/tokens/{mine}/rotate"),
+            r,
+            json!({ "overlapMinutes": 10 }),
+            "personal_token.rotate",
+        )
+        .await;
+    let successor = id(&rotated["info"], "id");
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/me/tokens/{id}",
+        &format!("/api/v1/me/tokens/{mine}"),
+        r,
+        Value::Null,
+        "personal_token.revoke",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/identity/personal-tokens/{id}",
+        &format!("/api/v1/identity/personal-tokens/{successor}"),
+        r,
+        Value::Null,
+        "personal_token.revoke",
+    )
+    .await;
+    let dora = s
+        .setup(
+            "POST",
+            "/api/v1/identity/local-accounts",
+            r,
+            json!({ "username": "dora" }),
+        )
+        .await;
+    s.setup(
+        "POST",
+        "/api/v1/sign-in/setup",
+        None,
+        json!({ "token": id(&dora, "setupToken"), "password": PASSWORD }),
+    )
+    .await;
+    let sign_in = json!({ "username": "dora", "password": PASSWORD });
+    let dora_here = id(
+        &s.setup("POST", "/api/v1/sign-in/password", None, sign_in.clone())
+            .await,
+        "token",
+    );
+    s.setup("POST", "/api/v1/sign-in/password", None, sign_in.clone())
+        .await;
+    s.setup("POST", "/api/v1/sign-in/password", None, sign_in)
+        .await;
+    let sessions = s
+        .setup("GET", "/api/v1/me/sign-ins", Some(&dora_here), Value::Null)
+        .await;
+    let others: Vec<String> = sessions["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| i["current"] == false)
+        .map(|i| id(i, "id"))
+        .collect();
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/me/sign-ins/{id}",
+        &format!("/api/v1/me/sign-ins/{}", others[0]),
+        Some(&dora_here),
+        Value::Null,
+        "auth.session.ended",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/identity/sign-ins/{id}",
+        &format!("/api/v1/identity/sign-ins/{}", others[1]),
+        r,
+        Value::Null,
+        "auth.session.ended",
+    )
+    .await;
+
     // ---- applications: design, deployment, operations, volumes ----
     s.step(
         Atomic,

@@ -1704,7 +1704,7 @@ async fn service_credentials_are_separated_and_cannot_be_misused(pool: Pool) {
         l.req(
             "GET",
             "/api/v1/whoami",
-            "aps_0000000000000000000000000000000000000000000000000000000000000000",
+            &format!("aps_{}", "0".repeat(64)),
             None
         )
         .await

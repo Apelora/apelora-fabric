@@ -131,6 +131,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "network.manage"
         | "storage.manage"
         | "machine.enrol"
+        | "support.bundle"
         | "hardware.commission"
         | "hardware.deploy"
         | "hardware.power"
@@ -273,6 +274,26 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     // checked by the handler).
     ("POST", "/api/v1/sign-out", &[]),
     ("PUT", "/api/v1/me/password", &[]),
+    // A person's own personal tokens and sign-ins (the handlers refuse anyone but a person).
+    ("GET", "/api/v1/me/tokens", &[]),
+    ("POST", "/api/v1/me/tokens", &[]),
+    ("POST", "/api/v1/me/tokens/{id}/rotate", &[]),
+    ("DELETE", "/api/v1/me/tokens/{id}", &[]),
+    ("GET", "/api/v1/me/sign-ins", &[]),
+    ("DELETE", "/api/v1/me/sign-ins/{id}", &[]),
+    // Everyone's: token.manage for tokens, user.manage for sign-ins (platform level, checked
+    // again by the handlers).
+    ("GET", "/api/v1/identity/personal-tokens", &["token.manage"]),
+    (
+        "DELETE",
+        "/api/v1/identity/personal-tokens/{id}",
+        &["token.manage"],
+    ),
+    ("GET", "/api/v1/identity/sign-ins", &["user.manage"]),
+    ("DELETE", "/api/v1/identity/sign-ins/{id}", &["user.manage"]),
+    // The settings this control plane runs with (secrets never shown) and the support bundle.
+    ("GET", "/api/v1/settings", &["cluster.view"]),
+    ("GET", "/api/v1/support-bundle", &["support.bundle"]),
     ("POST", "/api/v1/identity/local-accounts", &["user.manage"]),
     (
         "POST",
@@ -816,6 +837,19 @@ pub(super) async fn route_gate(matched: Option<MatchedPath>, req: Request, next:
     };
     let pattern = matched.as_ref().map(MatchedPath::as_str).unwrap_or("");
     let method = req.method().as_str();
+    if p.personal_token.is_some()
+        && super::account::REFUSED_TO_PERSONAL_TOKENS
+            .iter()
+            .any(|(m, pat)| *m == method && *pat == pattern)
+    {
+        apelora_metrics::AUTHZ_DENIALS.inc(&["other"]);
+        return ApiError::new(
+            StatusCode::FORBIDDEN,
+            "personal_token_refused",
+            "a personal token cannot do this: interactive sessions, new credentials, approvals, emergency access and password changes need you to sign in",
+        )
+        .into_response();
+    }
     match GATES
         .iter()
         .find(|(m, pat, _)| *m == method && *pat == pattern)

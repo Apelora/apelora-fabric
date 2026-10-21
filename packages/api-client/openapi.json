@@ -4608,6 +4608,135 @@
         }
       }
     },
+    "/api/v1/identity/personal-tokens": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Everyone's personal tokens (or one person's), live ones and those that ended in the last 30\ndays. Needs `token.manage` on the platform.",
+        "operationId": "personal_tokens",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "query",
+            "description": "Only this person's.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/personal-tokens/{id}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Revokes anyone's live personal token. Needs `token.manage` on the platform.",
+        "operationId": "revoke_personal_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Token id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/policies": {
       "get": {
         "tags": [
@@ -5979,6 +6108,135 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-ins": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Everyone's Apelora sessions open now (or one person's). Needs `user.manage` on the platform.",
+        "operationId": "sign_ins",
+        "parameters": [
+          {
+            "name": "user",
+            "in": "query",
+            "description": "Only this person's.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveSignInList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-ins/{id}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Ends anyone's session. Needs `user.manage` on the platform.",
+        "operationId": "end_sign_in",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "",
             "content": {
               "application/json": {
@@ -8241,6 +8499,422 @@
         }
       }
     },
+    "/api/v1/me/sign-ins": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Your Apelora sessions open now (password and directory sign-ins), most recently used first.\nSign-ins with an identity provider's token are not sessions and are not listed.",
+        "operationId": "my_sign_ins",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveSignInList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/sign-ins/{id}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Ends one of your sessions (signs that browser out). Another person's answers 404.",
+        "operationId": "end_my_sign_in",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Session id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/tokens": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Your personal tokens (live ones, and those that ended in the last 30 days), newest first.\nAny signed-in person.",
+        "operationId": "my_tokens",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalTokenList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates a personal token, shown only in this response. It acts as you with whatever you hold\nwhen it is used, and never opens terminal sessions or makes other credentials. Needs a sign-in\n(not a personal token); 1–365 days, no default; at most 20 live tokens.",
+        "operationId": "create_my_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePersonalToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalTokenCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/tokens/{id}": {
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Revokes one of your live tokens; it stops working at once. Another person's token answers 404.",
+        "operationId": "revoke_my_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Token id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/tokens/{id}/rotate": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Rotates one of your live tokens: a successor with the same name (shown only in this\nresponse), and the old token keeps working for the overlap (0–1440 minutes, 60 by default),\nthen expires. A token is rotated once; rotate its successor next time.",
+        "operationId": "rotate_my_token",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Token id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotatePersonalToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalTokenRotated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/monitoring": {
       "get": {
         "tags": [
@@ -8492,6 +9166,57 @@
         }
       }
     },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The settings this control plane runs with: every setting the control plane and the worker\nread, the value when it may be shown (never a secret, a key or a certificate path), whether\nit is the default and where it came from; sign-in settings saved in the Console; the workers\nseen recently. Needs `cluster.view` on the platform.",
+        "operationId": "effective_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sign-in": {
       "get": {
         "tags": [
@@ -8710,6 +9435,57 @@
             }
           },
           "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support-bundle": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Downloads a support bundle (a tar file, streamed): manifest, versions, effective settings\n(secrets never included), health, preflight, jobs that failed in the last 24 hours with their\nattempts, a metrics snapshot and where to find logs. Never tokens, passwords, certificates or\nkeys. Needs `support.bundle`; audited (`support.bundle.downloaded`) before it is sent.",
+        "operationId": "support_bundle",
+        "responses": {
+          "200": {
+            "description": "A tar archive",
+            "content": {
+              "application/x-tar": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
             "description": "",
             "content": {
               "application/json": {
@@ -9118,6 +9894,88 @@
           },
           "stop": {
             "$ref": "#/components/schemas/ActionState"
+          }
+        }
+      },
+      "ActiveSignIn": {
+        "type": "object",
+        "required": [
+          "id",
+          "userId",
+          "person",
+          "method",
+          "createdAt",
+          "lastUsedAt",
+          "expiresAt",
+          "endsAt",
+          "current"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The request was made with this session."
+          },
+          "endsAt": {
+            "type": "string",
+            "description": "When it ends unless it is used again (an hour without use, or the absolute limit)."
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "The absolute limit (eight hours after sign-in)."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The session id (never its token)."
+          },
+          "lastUsedAt": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string",
+            "description": "`password` (local account) or `directory`."
+          },
+          "person": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ActiveSignInList": {
+        "type": "object",
+        "required": [
+          "items",
+          "credential",
+          "idleSecs",
+          "absoluteSecs"
+        ],
+        "properties": {
+          "absoluteSecs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "A session ends this many seconds after sign-in, however busy."
+          },
+          "credential": {
+            "type": "string",
+            "description": "How this request was made (see `WhoAmI::credential`). With `identity-provider`, the\ncurrent sign-in is not in the list: the provider's token is not a session Apelora holds."
+          },
+          "idleSecs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "A session ends after this many seconds without use."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveSignIn"
+            }
           }
         }
       },
@@ -10632,6 +11490,26 @@
           }
         }
       },
+      "CreatePersonalToken": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "expiresInDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "1–365 days; required."
+          },
+          "name": {
+            "type": "string",
+            "description": "What it is for, e.g. \"laptop backup script\"."
+          }
+        }
+      },
       "CreateToken": {
         "type": "object",
         "required": [
@@ -11280,6 +12158,106 @@
           },
           "permission": {
             "type": "string"
+          }
+        }
+      },
+      "EffectiveSetting": {
+        "type": "object",
+        "required": [
+          "name",
+          "set",
+          "isDefault",
+          "source",
+          "readBy",
+          "description",
+          "known"
+        ],
+        "properties": {
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What applies when it is not set; absent when the feature is then off."
+          },
+          "description": {
+            "type": "string"
+          },
+          "hidden": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the value is not shown: `secret` (a secret or a key or certificate file),\n`looks like a credential`, `unknown setting`; absent when shown or not set."
+          },
+          "isDefault": {
+            "type": "boolean",
+            "description": "The default applies (not set, or set to the default)."
+          },
+          "known": {
+            "type": "boolean",
+            "description": "A setting this version reads; `false` for an `APELORA_*` variable it ignores (a typo?)."
+          },
+          "name": {
+            "type": "string"
+          },
+          "readBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Which processes read it: `control-plane`, `worker`, `web-dev-server`."
+          },
+          "set": {
+            "type": "boolean",
+            "description": "Set in the environment (or saved in the Console)."
+          },
+          "source": {
+            "type": "string",
+            "description": "`environment`, `default`, `not set` or `console`."
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value in use, when it may be shown (the default when not set)."
+          }
+        }
+      },
+      "EffectiveSettings": {
+        "type": "object",
+        "required": [
+          "items",
+          "saved",
+          "workers",
+          "readAt"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveSetting"
+            },
+            "description": "Environment settings of this control plane, in name order, then unknown `APELORA_*`\nvariables."
+          },
+          "readAt": {
+            "type": "string",
+            "description": "RFC 3339: when this control plane read its environment."
+          },
+          "saved": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectiveSetting"
+            },
+            "description": "Sign-in settings saved in the Console."
+          },
+          "workers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingsWorker"
+            },
+            "description": "Workers seen in the last day. They do not report their settings: the worker's values\nare those of its own environment, which Apelora cannot read."
           }
         }
       },
@@ -14996,6 +15974,143 @@
           }
         }
       },
+      "PersonalToken": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "userId",
+          "owner",
+          "state",
+          "createdAt",
+          "expiresAt",
+          "current"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "current": {
+            "type": "boolean",
+            "description": "The request was made with this token."
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revokedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who revoked it (`user:…`), or `disabled` when its person was disabled."
+          },
+          "rotatedFrom": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token this one replaced."
+          },
+          "state": {
+            "type": "string",
+            "description": "`active`, `rotating` (replaced, working until `expiresAt`), `expired` or `revoked`."
+          },
+          "successor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token that replaced this one."
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The person it acts as."
+          }
+        }
+      },
+      "PersonalTokenCreated": {
+        "type": "object",
+        "required": [
+          "token",
+          "info"
+        ],
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/PersonalToken"
+          },
+          "token": {
+            "type": "string",
+            "description": "The token itself, shown only in this response."
+          }
+        }
+      },
+      "PersonalTokenList": {
+        "type": "object",
+        "required": [
+          "items",
+          "limit"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonalToken"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Live tokens a person may have at once."
+          }
+        }
+      },
+      "PersonalTokenRotated": {
+        "type": "object",
+        "required": [
+          "token",
+          "info",
+          "previous"
+        ],
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/PersonalToken"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/PersonalToken",
+            "description": "The old token, now expiring at the end of the overlap."
+          },
+          "token": {
+            "type": "string",
+            "description": "The successor's token, shown only in this response."
+          }
+        }
+      },
       "PhaseDto": {
         "type": "object",
         "required": [
@@ -15912,6 +17027,27 @@
           }
         ]
       },
+      "RotatePersonalToken": {
+        "type": "object",
+        "properties": {
+          "expiresInDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The successor's lifetime, 1–365 days; the old token's lifetime when omitted."
+          },
+          "overlapMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "How long the old token keeps working, 0–1440 minutes; 60 when omitted."
+          }
+        }
+      },
       "SaveDraft": {
         "type": "object",
         "required": [
@@ -16359,6 +17495,30 @@
           "ticket": {
             "type": "string",
             "description": "Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket;\nnever put it in a URL."
+          }
+        }
+      },
+      "SettingsWorker": {
+        "type": "object",
+        "required": [
+          "id",
+          "host",
+          "version",
+          "lastSeen"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastSeen": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -16976,7 +18136,8 @@
           "platformPermissions",
           "roles",
           "deployProjects",
-          "localAccount"
+          "localAccount",
+          "credential"
         ],
         "properties": {
           "capabilities": {
@@ -16985,6 +18146,10 @@
               "type": "string"
             },
             "description": "Permission ids held at some scope (what the UI may offer; the server decides each request)."
+          },
+          "credential": {
+            "type": "string",
+            "description": "The credential this request was made with: `identity-provider` (an OIDC access token),\n`session` (an Apelora session after a password or directory sign-in), `personal-token`,\n`service-token`, `api-token` (legacy) or `development`."
           },
           "deployProjects": {
             "type": "array",
@@ -17051,7 +18216,7 @@
       "bearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."
+        "description": "An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), a personal token (`apt_…`), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."
       }
     }
   },

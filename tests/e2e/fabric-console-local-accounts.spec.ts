@@ -267,11 +267,11 @@ test.describe("user menu", () => {
     expect(bodyOf(calls, "PUT /api/v1/me/password").at(-1)).toEqual({ current: "old password here", new: "a brand new phrase" });
   });
 
-  test("people who sign in another way get Sign out only", async ({ page }) => {
+  test("people who sign in another way get their tokens, sign-ins and Sign out, not Change password", async ({ page }) => {
     await stub(page, { ...base(), "GET /api/v1/cluster": { json: { source: { provider: "mock", observedAt: NOW }, server: { clustered: false, serverVersion: null }, members: [] } } });
     await page.goto("/");
     await page.getByTestId("user-menu").click();
-    await expect(page.getByRole("menuitem")).toHaveText(["Sign out"]);
+    await expect(page.getByRole("menuitem")).toHaveText(["Your tokens", "Your sign-ins", "Sign out"]);
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("user-menu-list")).toHaveCount(0);
     await expect(page.getByTestId("user-menu")).toBeFocused();

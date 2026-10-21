@@ -18,7 +18,7 @@ use super::*;
 const PASSWORD: &str = "correct horse battery";
 
 /// A request with its response headers.
-async fn call(
+pub(super) async fn call(
     state: &AppState,
     method: &str,
     path: &str,
@@ -49,7 +49,7 @@ async fn call(
 
 /// A control plane with an identity provider (from the environment) and API tokens on; the
 /// address limit is raised so tests can make many attempts (one test checks the real limit).
-async fn setup_lab(pool: Pool) -> (super::identity_tests::Lab, String) {
+pub(super) async fn setup_lab(pool: Pool) -> (super::identity_tests::Lab, String) {
     let mut l = lab(pool);
     l.state.sign_in_attempts = std::sync::Arc::new(sessions_auth::Attempts::new(
         1000,
@@ -72,7 +72,7 @@ async fn setup_lab(pool: Pool) -> (super::identity_tests::Lab, String) {
     (l, admin)
 }
 
-async fn create(state: &AppState, admin: &str, username: &str) -> (Uuid, String) {
+pub(super) async fn create(state: &AppState, admin: &str, username: &str) -> (Uuid, String) {
     let (status, c, headers) = call(
         state,
         "POST",
@@ -92,7 +92,7 @@ async fn create(state: &AppState, admin: &str, username: &str) -> (Uuid, String)
     )
 }
 
-async fn set_up(state: &AppState, token: &str, password: &str) -> (StatusCode, Value) {
+pub(super) async fn set_up(state: &AppState, token: &str, password: &str) -> (StatusCode, Value) {
     let (s, v, _) = call(
         state,
         "POST",
@@ -116,7 +116,7 @@ async fn sign_in(state: &AppState, username: &str, password: &str) -> (StatusCod
     (s, v)
 }
 
-async fn session(state: &AppState, username: &str, password: &str) -> String {
+pub(super) async fn session(state: &AppState, username: &str, password: &str) -> String {
     let (status, s) = sign_in(state, username, password).await;
     assert_eq!(status, StatusCode::OK, "{s}");
     s["token"].as_str().expect("token").to_owned()

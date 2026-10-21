@@ -185,7 +185,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_rate_limits(rate_limits)
         .with_tls(listening.tls())
         .with_image_mirrors(mirrors)
-        .with_monitoring(monitoring.clone());
+        .with_monitoring(monitoring.clone())
+        .with_environment(std::env::vars());
     // Identity providers saved in the Fabric Console (on top of the environment's).
     if let Err(e) = api::auth_config::reload(&state).await {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");

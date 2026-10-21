@@ -198,7 +198,7 @@ pub static HTTP_RATE_LIMITED: Counter = Counter::new(
 );
 pub static AUTH_ATTEMPTS: Counter = Counter::new(
     "apelora_auth_attempts",
-    "Credentials checked, by method (oidc, service, api_token, none, development, unrecognised) and result (ok, refused, error).",
+    "Credentials checked, by method (oidc, personal_token, service, api_token, none, development, unrecognised) and result (ok, refused, error).",
     &["method", "result"],
 );
 pub static AUTHZ_DENIALS: Counter = Counter::new(

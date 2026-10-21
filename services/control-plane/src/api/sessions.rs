@@ -529,6 +529,11 @@ fn permission_problem(p: &Principal, kind: SessionKind, res: &Resource) -> Optio
     {
         return Some("interactive sessions are for signed-in people".into());
     }
+    if p.personal_token.is_some() {
+        return Some(
+            "interactive sessions need you to sign in; a personal token cannot open one".into(),
+        );
+    }
     allow(p, kind.permission(), res)
         .err()
         .map(|_| format!("you do not have {} on this application", kind.permission()))
@@ -1409,6 +1414,7 @@ mod tests {
             role: None,
             caller: None,
             session: None,
+            personal_token: None,
         };
         let make = |actor: &str| Ticket {
             id: Uuid::new_v4(),

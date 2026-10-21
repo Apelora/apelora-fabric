@@ -135,3 +135,62 @@ pub(crate) async fn revoke_all_in(
     .await?
     .rows_affected())
 }
+
+/// A live session as people see it in the Console (never the token).
+#[derive(Debug, Clone, PartialEq, Eq, FromRow)]
+pub struct SessionView {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    /// The person's user name, e-mail address or subject.
+    pub person: String,
+    /// `password` or `directory`.
+    pub method: String,
+    pub created_at: OffsetDateTime,
+    pub last_used_at: OffsetDateTime,
+    /// The absolute limit.
+    pub expires_at: OffsetDateTime,
+    /// When it ends if it is not used again: the idle limit or the absolute one, whichever is first.
+    pub ends_at: OffsetDateTime,
+}
+
+/// Live sessions (not revoked, before their absolute expiry, used within `idle_secs`), of one
+/// person or of everyone, most recently used first.
+pub async fn live_sessions(
+    pool: &Pool,
+    user_id: Option<Uuid>,
+    idle_secs: i64,
+) -> Result<Vec<SessionView>> {
+    Ok(sqlx::query_as::<_, SessionView>(
+        "SELECT s.id, s.user_id, coalesce(u.username, u.email, u.subject) AS person, s.method,
+                s.created_at, s.last_used_at, s.expires_at,
+                least(s.expires_at, s.last_used_at + make_interval(secs => $2)) AS ends_at
+         FROM user_sessions s JOIN users u ON u.id = s.user_id
+         WHERE ($1::uuid IS NULL OR s.user_id = $1) AND s.revoked_at IS NULL
+           AND s.expires_at > now() AND s.last_used_at > now() - make_interval(secs => $2)
+         ORDER BY s.last_used_at DESC, s.id
+         LIMIT 500",
+    )
+    .bind(user_id)
+    .bind(idle_secs as f64)
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Revokes one live session (only `user_id`'s, when given); returns its person and method, or
+/// `None` when there is no such live session.
+pub async fn revoke_session_of(
+    db: impl sqlx::PgExecutor<'_>,
+    id: Uuid,
+    user_id: Option<Uuid>,
+) -> Result<Option<(Uuid, String)>> {
+    Ok(sqlx::query_as::<_, (Uuid, String)>(
+        "UPDATE user_sessions SET revoked_at = now()
+         WHERE id = $1 AND ($2::uuid IS NULL OR user_id = $2)
+           AND revoked_at IS NULL AND expires_at > now()
+         RETURNING user_id, method",
+    )
+    .bind(id)
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?)
+}

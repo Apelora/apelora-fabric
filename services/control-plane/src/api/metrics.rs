@@ -217,6 +217,12 @@ async fn refresh(state: &AppState) {
     certificates(state);
 }
 
+/// The text exposition, refreshed (the support bundle's metrics snapshot).
+pub(super) async fn snapshot(state: &AppState) -> String {
+    refresh(state).await;
+    m::render(false)
+}
+
 /// The exposition, refreshed, in the format the collector asked for.
 async fn exposition(state: &AppState, headers: &HeaderMap) -> Response {
     refresh(state).await;

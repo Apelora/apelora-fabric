@@ -50,6 +50,17 @@ describe("api client", () => {
     expect(url).toBe("/api/v1/audit/export?format=csv&actor=ada&outcome=denied");
   });
 
+  it("returns files to save (the support bundle) as a Blob, with the token", async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([117, 115, 116, 97, 114]), { status: 200, headers: { "content-type": "application/x-tar" } }));
+    const api = createClient({ token: () => "apu_x", fetch });
+    const blob = await api.get("support_bundle");
+    expect(blob).toBeInstanceOf(Blob);
+    expect(await blob.text()).toBe("ustar");
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/v1/support-bundle");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer apu_x");
+  });
+
   it("turns error bodies into typed errors with the stable code", async () => {
     const api = createClient({ fetch: async () => json(401, { error: { code: "unauthenticated", message: "token required" } }) });
     const err = await api.get("cluster").catch((e: unknown) => e);
@@ -134,13 +145,17 @@ describe("api client", () => {
       "DELETE /api/v1/cluster/join-tokens/{member}",
       "DELETE /api/v1/identity/assignments/{assignment}",
       "DELETE /api/v1/identity/groups/{group}/members/{user}",
+      "DELETE /api/v1/identity/personal-tokens/{id}",
       "DELETE /api/v1/identity/policies/{id}",
       "DELETE /api/v1/identity/roles/{role}",
       "DELETE /api/v1/identity/sign-in/directories/{id}",
       "DELETE /api/v1/identity/sign-in/providers/{id}",
+      "DELETE /api/v1/identity/sign-ins/{id}",
       "DELETE /api/v1/instances/{project}/{name}",
       "DELETE /api/v1/machines/{name}",
       "DELETE /api/v1/machines/{name}/approval",
+      "DELETE /api/v1/me/sign-ins/{id}",
+      "DELETE /api/v1/me/tokens/{id}",
       "DELETE /api/v1/sessions/{id}",
       "DELETE /api/v1/tokens/{id}",
       "GET /api/v1/applications",
@@ -175,6 +190,7 @@ describe("api client", () => {
       "GET /api/v1/identity/groups/{group}/members",
       "GET /api/v1/identity/organizations",
       "GET /api/v1/identity/permissions",
+      "GET /api/v1/identity/personal-tokens",
       "GET /api/v1/identity/policies",
       "GET /api/v1/identity/projects",
       "GET /api/v1/identity/projects/{project}/environments",
@@ -182,6 +198,7 @@ describe("api client", () => {
       "GET /api/v1/identity/service-identities",
       "GET /api/v1/identity/sign-in",
       "GET /api/v1/identity/sign-in/directories",
+      "GET /api/v1/identity/sign-ins",
       "GET /api/v1/identity/users",
       "GET /api/v1/identity/users/lookup",
       "GET /api/v1/image-mirrors",
@@ -196,13 +213,17 @@ describe("api client", () => {
       "GET /api/v1/jobs/{id}/detail",
       "GET /api/v1/machines",
       "GET /api/v1/machines/{name}/admission",
+      "GET /api/v1/me/sign-ins",
+      "GET /api/v1/me/tokens",
       "GET /api/v1/monitoring",
       "GET /api/v1/networks",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
       "GET /api/v1/sessions",
+      "GET /api/v1/settings",
       "GET /api/v1/sign-in",
       "GET /api/v1/storage-pools",
+      "GET /api/v1/support-bundle",
       "GET /api/v1/system",
       "GET /api/v1/tokens",
       "GET /api/v1/whoami",
@@ -254,6 +275,8 @@ describe("api client", () => {
       "POST /api/v1/machines",
       "POST /api/v1/machines/{name}/admit",
       "POST /api/v1/machines/{name}/approve",
+      "POST /api/v1/me/tokens",
+      "POST /api/v1/me/tokens/{id}/rotate",
       "POST /api/v1/sign-in/password",
       "POST /api/v1/sign-in/setup",
       "POST /api/v1/sign-out",

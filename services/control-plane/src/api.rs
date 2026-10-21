@@ -80,6 +80,9 @@ pub struct AppState {
     prober: Arc<mirrors::Prober>,
     /// How metrics are exposed, and their scrape-time cache (`metrics`).
     monitoring: Arc<metrics::Monitoring>,
+    /// The settings variables this process started with (`settings::snapshot`), for the
+    /// effective-settings view and the support bundle.
+    environment: Arc<Vec<(String, String)>>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -109,7 +112,14 @@ impl AppState {
             image_mirrors: Arc::default(),
             prober: Arc::default(),
             monitoring: Arc::default(),
+            environment: Arc::default(),
         }
+    }
+
+    /// The settings variables this process started with (only what `settings::snapshot` keeps).
+    pub fn with_environment(mut self, vars: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.environment = Arc::new(settings::snapshot(vars));
+        self
     }
 
     pub fn with_rate_limits(mut self, config: rate_limit::RateLimitConfig) -> Self {
@@ -189,6 +199,9 @@ pub struct Principal {
     pub caller: Option<Arc<authz::Caller>>,
     /// The Apelora session (password or directory sign-in) the request was made with.
     pub session: Option<sessions_auth::SessionRef>,
+    /// The personal token (`apt_…`) the request was made with: the person's own permissions,
+    /// but never interactive sessions or new credentials (`account::REFUSED_TO_PERSONAL_TOKENS`).
+    pub personal_token: Option<uuid::Uuid>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -196,6 +209,32 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/whoami", get(whoami))
         .route("/api/v1/sign-out", post(sessions_auth::sign_out))
         .route("/api/v1/me/password", put(sessions_auth::change_password))
+        .route(
+            "/api/v1/me/tokens",
+            get(account::my_tokens).post(account::create_my_token),
+        )
+        .route(
+            "/api/v1/me/tokens/{id}/rotate",
+            post(account::rotate_my_token),
+        )
+        .route("/api/v1/me/tokens/{id}", delete(account::revoke_my_token))
+        .route("/api/v1/me/sign-ins", get(account::my_sign_ins))
+        .route("/api/v1/me/sign-ins/{id}", delete(account::end_my_sign_in))
+        .route(
+            "/api/v1/identity/personal-tokens",
+            get(account::personal_tokens),
+        )
+        .route(
+            "/api/v1/identity/personal-tokens/{id}",
+            delete(account::revoke_personal_token),
+        )
+        .route("/api/v1/identity/sign-ins", get(account::all_sign_ins))
+        .route(
+            "/api/v1/identity/sign-ins/{id}",
+            delete(account::end_any_sign_in),
+        )
+        .route("/api/v1/settings", get(settings::effective_settings))
+        .route("/api/v1/support-bundle", get(support::bundle))
         .route(
             "/api/v1/identity/local-accounts",
             post(sessions_auth::create_local_account),
@@ -754,10 +793,14 @@ async fn resolve_principal(
             role: None,
             caller: Some(caller),
             session: None,
+            personal_token: None,
         });
     }
     if token.starts_with(apelora_persistence::user_sessions::PREFIX) {
         return sessions_auth::principal_for_session(state, pool, token).await;
+    }
+    if token.starts_with(apelora_persistence::personal_tokens::PREFIX) {
+        return account::principal_for_personal_token(state, pool, token).await;
     }
     if token.starts_with("aps_") {
         return match apelora_persistence::identity::authenticate_service(pool, token).await {
@@ -776,6 +819,7 @@ async fn resolve_principal(
                     role: None,
                     caller: Some(caller),
                     session: None,
+                    personal_token: None,
                 })
             }
             Ok(None) => Err(unauthenticated(
@@ -796,6 +840,7 @@ async fn resolve_principal(
                 role: Some(role),
                 caller: None,
                 session: None,
+                personal_token: None,
             }),
             None => Err(ApiError::new(
                 StatusCode::FORBIDDEN,
@@ -814,6 +859,8 @@ async fn resolve_principal(
 fn auth_method(token: &str) -> &'static str {
     if apelora_identity::looks_like_jwt(token) {
         "oidc"
+    } else if token.starts_with(apelora_persistence::personal_tokens::PREFIX) {
+        "personal_token"
     } else if token.starts_with("aps_") {
         "service"
     } else if token.starts_with("apl_") {
@@ -829,6 +876,8 @@ fn credential_kind(token: &str) -> &'static str {
         "identity-provider token"
     } else if token.starts_with(apelora_persistence::user_sessions::PREFIX) {
         "Apelora session"
+    } else if token.starts_with(apelora_persistence::personal_tokens::PREFIX) {
+        "personal token"
     } else if token.starts_with("aps_") {
         "service token"
     } else if token.starts_with("apl_") {
@@ -847,6 +896,7 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
                 role: Some(Role::FabricAdmin),
                 caller: None,
                 session: None,
+                personal_token: None,
             }
         }
         Auth::Tokens(pool) => {
@@ -1044,6 +1094,10 @@ pub struct WhoAmI {
     pub deploy_projects: Vec<String>,
     /// Signed in with a local account (username and password): may change their password here.
     pub local_account: bool,
+    /// The credential this request was made with: `identity-provider` (an OIDC access token),
+    /// `session` (an Apelora session after a password or directory sign-in), `personal-token`,
+    /// `service-token`, `api-token` (legacy) or `development`.
+    pub credential: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1242,6 +1296,7 @@ async fn sign_in(State(state): State<AppState>) -> Json<SignInOptions> {
     responses((status = 200, body = WhoAmI), (status = 401, body = ErrorBody)))]
 async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal>) -> Json<WhoAmI> {
     let platform = apelora_auth::Resource::platform();
+    let credential = p.credential();
     let permissions = [
         Permission::ReadInventory,
         Permission::ReadAudit,
@@ -1315,6 +1370,7 @@ async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal
         roles,
         deploy_projects: state.deploy_projects.to_vec(),
         local_account: local,
+        credential: credential.into(),
     })
 }
 
@@ -1411,7 +1467,7 @@ impl Modify for BearerAuth {
                 SecurityScheme::Http(
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
-                        .description(Some("An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."))
+                        .description(Some("An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), a personal token (`apt_…`), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."))
                         .build(),
                 ),
             );
@@ -1423,7 +1479,10 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit::list, audit::export,
+    paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password,
+        account::my_tokens, account::create_my_token, account::rotate_my_token, account::revoke_my_token,
+        account::personal_tokens, account::revoke_personal_token, account::my_sign_ins, account::end_my_sign_in,
+        account::all_sign_ins, account::end_any_sign_in, settings::effective_settings, support::bundle, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit::list, audit::export,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         jobs::detail, jobs::retry, jobs::cancel,
         instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,
@@ -1471,6 +1530,7 @@ async fn openapi() -> impl IntoResponse {
     ([(header::CONTENT_TYPE, "application/json")], openapi_json())
 }
 
+mod account;
 mod admin;
 pub(crate) use admin::token_lifetime_days;
 mod applications;
@@ -1498,8 +1558,12 @@ pub mod rate_limit;
 pub mod requests;
 pub mod sessions;
 pub mod sessions_auth;
+pub mod settings;
+mod support;
 mod volumes;
 
+#[cfg(test)]
+mod account_tests;
 #[cfg(test)]
 mod audit_coverage_tests;
 #[cfg(test)]

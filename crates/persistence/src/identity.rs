@@ -466,6 +466,9 @@ pub async fn set_user_disabled_in(
         return Err(StoreError::NotFound(format!("user {id}")));
     }
     let revoked = if disabled {
+        // Their personal tokens would be refused anyway; revoking them means re-enabling the
+        // person does not bring old credentials back.
+        crate::personal_tokens::revoke_all_in(&mut tx, id, "disabled").await?;
         crate::user_sessions::revoke_all_in(&mut tx, id, None).await?
     } else {
         0
@@ -1684,6 +1687,8 @@ pub async fn guarded_change_in(
     }
     let revoked = match change {
         SuperAdminChange::DisableUser(id) => {
+            // Refused anyway while disabled; revoked so re-enabling brings no old credential back.
+            crate::personal_tokens::revoke_all_in(&mut tx, id, "disabled").await?;
             crate::user_sessions::revoke_all_in(&mut tx, id, None).await?
         }
         _ => 0,

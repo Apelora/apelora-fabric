@@ -146,6 +146,7 @@ impl Builtin {
                 "storage.manage",
                 "machine.enrol",
                 "fabric.metrics.read",
+                "support.bundle",
                 "hardware.view",
                 "organization.view",
                 "project.view",

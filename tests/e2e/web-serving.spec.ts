@@ -44,14 +44,15 @@ function configuredHeaders(site: string): Record<string, string> {
   return out;
 }
 
-const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon" };
+const TYPES: Record<string, string> = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".woff2": "font/woff2", ".ico": "image/x-icon", ".txt": "text/plain; charset=utf-8" };
 
-/** A static file server like the example configuration: files, else index.html (client-side routes). */
+/** A static file server like the example configuration (`try_files $uri $uri.html /index.html`): files, else the same name with .html (the /licenses page), else index.html (client-side routes). */
 async function serve(dir: string, headers: Record<string, string>): Promise<{ origin: string; server: Server }> {
   const server = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname);
+    const usable = (f: string) => f.startsWith(dir + sep) && existsSync(f) && !statSync(f).isDirectory();
     let file = normalize(join(dir, path));
-    if (!file.startsWith(dir + sep) || !existsSync(file) || statSync(file).isDirectory()) file = join(dir, "index.html");
+    if (!usable(file)) file = usable(`${file}.html`) ? `${file}.html` : join(dir, "index.html");
     res.writeHead(200, { ...headers, "content-type": TYPES[extname(file)] ?? "application/octet-stream" });
     res.end(readFileSync(file));
   });
@@ -109,6 +110,29 @@ async function watch(page: Page, origin: string) {
 }
 
 test.describe("built applications under the serving policy", () => {
+  test("both applications serve the licence notices at /licenses without a violation or an outside request", async ({ page, request }) => {
+    for (const app of ["console", "studio"] as const) {
+      const { origin } = built[app];
+      const w = await watch(page, origin);
+      await page.goto(origin + "/licenses");
+      await expect(page.getByRole("heading", { level: 1, name: "Licences" })).toBeVisible();
+      // Apelora's licence and the source offer its network clause requires.
+      await expect(page.getByText("GNU Affero General Public License, version 3 only (AGPL-3.0-only)")).toBeVisible();
+      await expect(page.getByRole("link", { name: "https://github.com/Apelora/apelora-fabric" })).toBeVisible();
+      // Third-party packages from both ecosystems, with their licences.
+      await expect(page.getByRole("row").filter({ hasText: "axum" }).first()).toContainText(/MIT/);
+      await expect(page.getByRole("row").filter({ hasText: "react-dom" }).first()).toContainText("MIT");
+      await w.check();
+      const data = await (await request.get(origin + "/licenses.json")).json() as { licence: string; problems: string[]; components: { ecosystem: string }[] };
+      expect(data.licence).toBe("AGPL-3.0-only");
+      expect(data.problems).toEqual([]);
+      expect(new Set(data.components.map((c) => c.ecosystem))).toEqual(new Set(["cargo", "npm"]));
+      const texts = await request.get(origin + "/third-party-licenses.txt");
+      expect(texts.headers()["content-type"]).toContain("text/plain");
+      expect(await texts.text()).toContain("Permission is hereby granted");
+    }
+  });
+
   test("the Console works on every page without a violation or an outside request", async ({ page }) => {
     const { origin } = built.console;
     const w = await watch(page, origin);

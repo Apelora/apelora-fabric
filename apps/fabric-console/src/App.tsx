@@ -21,6 +21,8 @@ import { holds } from "./lib/identity";
 import { detailView, instanceRoute, jobRoute } from "./lib/routes";
 import { InstanceDetailView } from "./views/InstanceDetail";
 import { JobDetailView } from "./views/JobDetail";
+import { AccountPage } from "./views/credentials";
+import { ACCOUNT_PAGES, isAccountPage, type AccountPageId } from "./views/credentials/pages";
 
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
 
@@ -39,10 +41,10 @@ const VIEWS = [
   { id: "administration", label: "Administration" },
 ] as const;
 type CoreViewId = (typeof VIEWS)[number]["id"];
-type ViewId = CoreViewId | IdentityPageId;
+type ViewId = CoreViewId | IdentityPageId | AccountPageId;
 /** Views with one section use that section's header as their page title; Identity & Access pages carry their own. */
-const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "networks", "storage", "audit", ...IDENTITY_PAGES.map((p) => p.id)]);
-const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label;
+const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "networks", "storage", "audit", ...IDENTITY_PAGES.map((p) => p.id), ...ACCOUNT_PAGES.map((p) => p.id)]);
+const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label ?? ACCOUNT_PAGES.find((p) => p.id === id)?.label;
 
 /** Addresses from before the navigation was regrouped, and where they live now. */
 const MOVED: Record<string, string> = {
@@ -69,7 +71,7 @@ const routeFromHash = (): Route => {
   // A view may keep its filters after `?` (Audit).
   path = path.replace(/\?.*$/, "");
   // Identity & Access pages carry their own slash (`identity/users`).
-  if (isIdentityPage(path)) return { view: path, tab: "members", hash };
+  if (isIdentityPage(path) || isAccountPage(path)) return { view: path, tab: "members", hash };
   const [id, sub] = path.split("/");
   const tab: ServerTab = isServerTab(sub) ? sub : "members";
   return { view: (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId, tab, hash };
@@ -235,7 +237,7 @@ export function App() {
   const views = VIEWS.filter((v) => !("needs" in v) || !me || me.permissions.includes(v.needs));
   // Identity & Access pages are offered only once we know what the caller holds.
   const identityViews = me ? IDENTITY_PAGES.filter((p) => holds(me, ...p.any)) : [];
-  const current: ViewId = views.some((v) => v.id === view) || identityViews.some((p) => p.id === view) ? view : "overview";
+  const current: ViewId = views.some((v) => v.id === view) || identityViews.some((p) => p.id === view) || (!!me && isAccountPage(view)) ? view : "overview";
 
   if (setupToken !== null) {
     return (
@@ -343,6 +345,7 @@ export function App() {
                 })()}
                 {current === "administration" && <AdministrationView me={me} onAuth={onAuth} />}
                 {me && isIdentityPage(current) && <IdentityPage id={current} me={me} onAuth={onAuth} />}
+                {me && isAccountPage(current) && <AccountPage id={current} me={me} onAuth={onAuth} />}
               </div>
             )}
           </div>

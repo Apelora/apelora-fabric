@@ -240,6 +240,19 @@ pub struct AttemptView {
     pub incus_operations: Vec<String>,
 }
 
+/// Jobs that failed (finally) in the last `hours`, newest first, at most `limit` (support bundle).
+pub async fn failed_jobs(pool: &PgPool, hours: i64, limit: i64) -> Result<Vec<JobView>> {
+    Ok(sqlx::query_as::<_, JobView>(&format!(
+        "SELECT {JOB_COLS} FROM jobs j
+         WHERE j.status = 'failed' AND j.updated_at > now() - make_interval(hours => $1)
+         ORDER BY j.updated_at DESC, j.id LIMIT $2"
+    ))
+    .bind(i32::try_from(hours).unwrap_or(i32::MAX))
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn job_attempts(pool: &PgPool, id: Uuid) -> Result<Vec<AttemptView>> {
     Ok(sqlx::query_as::<_, AttemptView>(
         "SELECT attempt, worker, started_at, ended_at, outcome, error, incus_operations

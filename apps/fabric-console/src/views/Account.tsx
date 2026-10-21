@@ -5,6 +5,7 @@ import { ApiRequestError, type WhoAmI } from "@apelora/api-client";
 import { FormDialog, Notice } from "../components/ui";
 import { client, messageOf } from "../lib/api";
 import { PASSWORD_RULE } from "./SignIn";
+import { ACCOUNT_PAGES } from "./credentials/pages";
 
 const length = (s: string) => Array.from(s).length;
 
@@ -95,8 +96,8 @@ export function ChangePasswordDialog({ open, me, onClose, onAuth }: { open: bool
 }
 
 /**
- * The person's name in the header, opening a small menu: Change password (local accounts only)
- * and Sign out.
+ * The person's name in the header, opening a small menu: Your tokens, Your sign-ins, Change
+ * password (local accounts only) and Sign out.
  */
 export function UserMenu({ me, onSignOut, onAuth }: { me: WhoAmI; onSignOut: () => void; onAuth: (m: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -127,6 +128,9 @@ export function UserMenu({ me, onSignOut, onAuth }: { me: WhoAmI; onSignOut: () 
       </button>
       {open && (
         <ul id={menuId} role="menu" aria-label="Your account" className="menu menu-sm absolute right-0 z-20 mt-1 w-52 rounded-box border border-base-300 bg-base-100 p-1 shadow-sm" data-testid="user-menu-list">
+          {ACCOUNT_PAGES.map((p) => (
+            <li role="none" key={p.id}><a role="menuitem" href={`#/${p.id}`} onClick={() => setOpen(false)} data-testid={`menu-${p.id.replace("account/", "")}`}>{p.label}</a></li>
+          ))}
           {me.localAccount && (
             <li role="none"><button type="button" role="menuitem" onClick={() => { setOpen(false); setChanging(true); }} data-testid="menu-change-password">Change password</button></li>
           )}

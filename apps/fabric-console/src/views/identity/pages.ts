@@ -11,6 +11,8 @@ export const IDENTITY_PAGES = [
   { id: "identity/roles", label: "Roles & permissions", any: ["role.assign", "role.manage", "user.view"] },
   { id: "identity/services", label: "Service identities", any: ["service_identity.manage"] },
   { id: "identity/sign-in", label: "Sign-in", any: ["platform.security.manage"] },
+  // Everyone's sign-ins and personal tokens (views/identity/Credentials.tsx).
+  { id: "identity/credentials", label: "Sign-ins & tokens", any: ["user.manage", "token.manage"] },
   { id: "identity/policies", label: "Access policies", any: ["access_policy.manage", "audit.read", "approval.request", "approval.grant"] },
   { id: "identity/audit", label: "Audit history", any: ["audit.read"] },
   // Who is inside which instance right now, and ending it (`#/sessions`; views/Sessions.tsx).

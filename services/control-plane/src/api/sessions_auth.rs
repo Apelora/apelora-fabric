@@ -153,6 +153,7 @@ pub(super) async fn principal_for_session(
         role: None,
         caller: Some(caller),
         session: Some(SessionRef { id: s.id, method }),
+        personal_token: None,
     })
 }
 

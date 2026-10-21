@@ -24,6 +24,34 @@ export type Actions = {
   stop: ActionState;
 };
 
+export type ActiveSignIn = {
+  /** RFC 3339. */
+  createdAt: string;
+  /** The request was made with this session. */
+  current: boolean;
+  /** When it ends unless it is used again (an hour without use, or the absolute limit). */
+  endsAt: string;
+  /** The absolute limit (eight hours after sign-in). */
+  expiresAt: string;
+  /** The session id (never its token). */
+  id: string;
+  lastUsedAt: string;
+  /** `password` (local account) or `directory`. */
+  method: string;
+  person: string;
+  userId: string;
+};
+
+export type ActiveSignInList = {
+  /** A session ends this many seconds after sign-in, however busy. */
+  absoluteSecs: number;
+  /** How this request was made (see `WhoAmI::credential`). With `identity-provider`, the current sign-in is not in the list: the provider's token is not a session Apelora holds. */
+  credential: string;
+  /** A session ends after this many seconds without use. */
+  idleSecs: number;
+  items: ActiveSignIn[];
+};
+
 export type Admission = {
   /** No check failed: the machine can be admitted. */
   admissible: boolean;
@@ -479,6 +507,13 @@ export type CreateJoinToken = {
   memberName: string;
 };
 
+export type CreatePersonalToken = {
+  /** 1–365 days; required. */
+  expiresInDays?: number | null;
+  /** What it is for, e.g. "laptop backup script". */
+  name: string;
+};
+
 export type CreateToken = {
   /** 1–365 days; 90 when omitted. */
   expiresInDays?: number | null;
@@ -657,6 +692,38 @@ export type EffectivePermission = {
   /** Where each part of this permission comes from. */
   grants: Grant[];
   permission: string;
+};
+
+export type EffectiveSetting = {
+  /** What applies when it is not set; absent when the feature is then off. */
+  default?: string | null;
+  description: string;
+  /** Why the value is not shown: `secret` (a secret or a key or certificate file), `looks like a credential`, `unknown setting`; absent when shown or not set. */
+  hidden?: string | null;
+  /** The default applies (not set, or set to the default). */
+  isDefault: boolean;
+  /** A setting this version reads; `false` for an `APELORA_*` variable it ignores (a typo?). */
+  known: boolean;
+  name: string;
+  /** Which processes read it: `control-plane`, `worker`, `web-dev-server`. */
+  readBy: string[];
+  /** Set in the environment (or saved in the Console). */
+  set: boolean;
+  /** `environment`, `default`, `not set` or `console`. */
+  source: string;
+  /** The value in use, when it may be shown (the default when not set). */
+  value?: string | null;
+};
+
+export type EffectiveSettings = {
+  /** Environment settings of this control plane, in name order, then unknown `APELORA_*` variables. */
+  items: EffectiveSetting[];
+  /** RFC 3339: when this control plane read its environment. */
+  readAt: string;
+  /** Sign-in settings saved in the Console. */
+  saved: EffectiveSetting[];
+  /** Workers seen in the last day. They do not report their settings: the worker's values are those of its own environment, which Apelora cannot read. */
+  workers: SettingsWorker[];
 };
 
 export type EmergencyAccess = {
@@ -1773,6 +1840,49 @@ export type PermissionList = {
   items: PermissionDto[];
 };
 
+export type PersonalToken = {
+  /** RFC 3339. */
+  createdAt: string;
+  /** The request was made with this token. */
+  current: boolean;
+  expiresAt: string;
+  id: string;
+  lastUsedAt?: string | null;
+  name: string;
+  owner: string;
+  revokedAt?: string | null;
+  /** Who revoked it (`user:…`), or `disabled` when its person was disabled. */
+  revokedBy?: string | null;
+  /** The token this one replaced. */
+  rotatedFrom?: string | null;
+  /** `active`, `rotating` (replaced, working until `expiresAt`), `expired` or `revoked`. */
+  state: string;
+  /** The token that replaced this one. */
+  successor?: string | null;
+  /** The person it acts as. */
+  userId: string;
+};
+
+export type PersonalTokenCreated = {
+  info: PersonalToken;
+  /** The token itself, shown only in this response. */
+  token: string;
+};
+
+export type PersonalTokenList = {
+  items: PersonalToken[];
+  /** Live tokens a person may have at once. */
+  limit: number;
+};
+
+export type PersonalTokenRotated = {
+  info: PersonalToken;
+  /** The old token, now expiring at the end of the overlap. */
+  previous: PersonalToken;
+  /** The successor's token, shown only in this response. */
+  token: string;
+};
+
 export type PhaseDto = {
   /** `start` or `stop`. */
   action: string;
@@ -2022,6 +2132,13 @@ export type RoleRef = {
   type: "custom";
 };
 
+export type RotatePersonalToken = {
+  /** The successor's lifetime, 1–365 days; the old token's lifetime when omitted. */
+  expiresInDays?: number | null;
+  /** How long the old token keeps working, 0–1440 minutes; 60 when omitted. */
+  overlapMinutes?: number | null;
+};
+
 export type SaveDraft = {
   /** The draft version this edit started from; omit only for the first save. */
   baseVersion?: number | null;
@@ -2142,6 +2259,14 @@ export type SessionTicket = {
   provider: ProviderMode;
   /** Shown once. Present it as the `ticket.<value>` sub-protocol when opening the websocket; never put it in a URL. */
   ticket: string;
+};
+
+export type SettingsWorker = {
+  host: string;
+  id: string;
+  /** RFC 3339. */
+  lastSeen: string;
+  version: string;
 };
 
 export type SignInOptions = {
@@ -2333,6 +2458,8 @@ export type VolumeUse = "attached" | "retained" | "missing";
 export type WhoAmI = {
   /** Permission ids held at some scope (what the UI may offer; the server decides each request). */
   capabilities: string[];
+  /** The credential this request was made with: `identity-provider` (an OIDC access token), `session` (an Apelora session after a password or directory sign-in), `personal-token`, `service-token`, `api-token` (legacy) or `development`. */
+  credential: string;
   /** Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`). */
   deployProjects: string[];
   /** The user or service identity id; absent for legacy tokens. */
@@ -2420,6 +2547,8 @@ export const operations = {
   create_organization: { method: "POST", path: "/api/v1/identity/organizations", params: [], public: false },
   create_project: { method: "POST", path: "/api/v1/identity/organizations/{org}/projects", params: ["org"], public: false },
   permissions: { method: "GET", path: "/api/v1/identity/permissions", params: [], public: false },
+  personal_tokens: { method: "GET", path: "/api/v1/identity/personal-tokens", params: [], public: false },
+  revoke_personal_token: { method: "DELETE", path: "/api/v1/identity/personal-tokens/{id}", params: ["id"], public: false },
   policies: { method: "GET", path: "/api/v1/identity/policies", params: [], public: false },
   save_policy: { method: "PUT", path: "/api/v1/identity/policies", params: [], public: false },
   delete_policy: { method: "DELETE", path: "/api/v1/identity/policies/{id}", params: ["id"], public: false },
@@ -2445,6 +2574,8 @@ export const operations = {
   create_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/providers", params: [], public: false },
   update_identity_provider: { method: "PUT", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
   delete_identity_provider: { method: "DELETE", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
+  sign_ins: { method: "GET", path: "/api/v1/identity/sign-ins", params: [], public: false },
+  end_sign_in: { method: "DELETE", path: "/api/v1/identity/sign-ins/{id}", params: ["id"], public: false },
   users: { method: "GET", path: "/api/v1/identity/users", params: [], public: false },
   lookup_user: { method: "GET", path: "/api/v1/identity/users/lookup", params: [], public: false },
   disable_user: { method: "POST", path: "/api/v1/identity/users/{user}/disable", params: ["user"], public: false },
@@ -2473,17 +2604,25 @@ export const operations = {
   withdraw_machine_approval: { method: "DELETE", path: "/api/v1/machines/{name}/approval", params: ["name"], public: false },
   approve_machine: { method: "POST", path: "/api/v1/machines/{name}/approve", params: ["name"], public: false },
   change_password: { method: "PUT", path: "/api/v1/me/password", params: [], public: false },
+  my_sign_ins: { method: "GET", path: "/api/v1/me/sign-ins", params: [], public: false },
+  end_my_sign_in: { method: "DELETE", path: "/api/v1/me/sign-ins/{id}", params: ["id"], public: false },
+  my_tokens: { method: "GET", path: "/api/v1/me/tokens", params: [], public: false },
+  create_my_token: { method: "POST", path: "/api/v1/me/tokens", params: [], public: false },
+  revoke_my_token: { method: "DELETE", path: "/api/v1/me/tokens/{id}", params: ["id"], public: false },
+  rotate_my_token: { method: "POST", path: "/api/v1/me/tokens/{id}/rotate", params: ["id"], public: false },
   monitoring: { method: "GET", path: "/api/v1/monitoring", params: [], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
+  effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
   sign_in_options: { method: "GET", path: "/api/v1/sign-in", params: [], public: true },
   sign_in_with_password: { method: "POST", path: "/api/v1/sign-in/password", params: [], public: true },
   complete_password_setup: { method: "POST", path: "/api/v1/sign-in/setup", params: [], public: true },
   sign_out: { method: "POST", path: "/api/v1/sign-out", params: [], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
+  support_bundle: { method: "GET", path: "/api/v1/support-bundle", params: [], public: false },
   system: { method: "GET", path: "/api/v1/system", params: [], public: false },
   tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
   create_token: { method: "POST", path: "/api/v1/tokens", params: [], public: false },
@@ -2628,6 +2767,10 @@ export type Responses = {
   create_project: ProjectDto;
   /** Every permission, its class and the narrowest scope at which a grant takes effect. */
   permissions: PermissionList;
+  /** Everyone's personal tokens (or one person's), live ones and those that ended in the last 30 days. Needs `token.manage` on the platform. */
+  personal_tokens: PersonalTokenList;
+  /** Revokes anyone's live personal token. Needs `token.manage` on the platform. */
+  revoke_personal_token: null;
   /** Access policies (MFA and approval rules). Needs `access_policy.manage` or `audit.read`. */
   policies: PolicyList;
   /** Creates or updates a policy by name. `mfa`: `{"environments": ["production"], "infrastructure": true}`. `approval`: `{"actions": ["cluster.evacuate"]}` (extra actions that need approval where the API already asks for it). Needs `access_policy.manage`. */
@@ -2678,6 +2821,10 @@ export type Responses = {
   update_identity_provider: ProviderView;
   /** Removes a provider saved in the Console: people stop being able to sign in with it. Its name must be typed again. Needs `platform.security.manage`; audited. */
   delete_identity_provider: null;
+  /** Everyone's Apelora sessions open now (or one person's). Needs `user.manage` on the platform. */
+  sign_ins: ActiveSignInList;
+  /** Ends anyone's session. Needs `user.manage` on the platform. */
+  end_sign_in: null;
   /** People who have signed in, as far as the caller may see them: everyone for a platform administrator, otherwise those with a role in the caller's scopes. Needs `user.view`. */
   users: UserList;
   /** Finds one person by exact user name or e-mail so a role can be given to them. Someone who has never signed in does not exist yet. Needs `role.assign` or `group.manage`. */
@@ -2734,6 +2881,18 @@ export type Responses = {
   approve_machine: MachineApproved;
   /** Changes the caller's own password (local accounts only). Every other session of theirs is revoked; the one making the request stays. Counts towards the account's lock like a sign-in. */
   change_password: null;
+  /** Your Apelora sessions open now (password and directory sign-ins), most recently used first. Sign-ins with an identity provider's token are not sessions and are not listed. */
+  my_sign_ins: ActiveSignInList;
+  /** Ends one of your sessions (signs that browser out). Another person's answers 404. */
+  end_my_sign_in: null;
+  /** Your personal tokens (live ones, and those that ended in the last 30 days), newest first. Any signed-in person. */
+  my_tokens: PersonalTokenList;
+  /** Creates a personal token, shown only in this response. It acts as you with whatever you hold when it is used, and never opens terminal sessions or makes other credentials. Needs a sign-in (not a personal token); 1–365 days, no default; at most 20 live tokens. */
+  create_my_token: PersonalTokenCreated;
+  /** Revokes one of your live tokens; it stops working at once. Another person's token answers 404. */
+  revoke_my_token: null;
+  /** Rotates one of your live tokens: a successor with the same name (shown only in this response), and the old token keeps working for the overlap (0–1440 minutes, 60 by default), then expires. A token is rotated once; rotate its successor next time. */
+  rotate_my_token: PersonalTokenRotated;
   /** Where each metrics endpoint is, whether the caller may scrape, and the region, site and sector labels. Needs `fabric.metrics.read` or `cluster.view`. */
   monitoring: MonitoringInfo;
   /** Networks in all projects. Needs `read-inventory`. */
@@ -2746,6 +2905,8 @@ export type Responses = {
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
   terminate_session: null;
+  /** The settings this control plane runs with: every setting the control plane and the worker read, the value when it may be shown (never a secret, a key or a certificate path), whether it is the default and where it came from; sign-in settings saved in the Console; the workers seen recently. Needs `cluster.view` on the platform. */
+  effective_settings: EffectiveSettings;
   /** Public. How people can sign in to this control plane. */
   sign_in_options: SignInOptions;
   /** Public. Signs a person in with a username and password and returns an Apelora session. Every refusal answers `invalid_credentials` (unknown, wrong, locked or disabled alike). Limited to 10 attempts a minute per client address. */
@@ -2756,6 +2917,8 @@ export type Responses = {
   sign_out: null;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
+  /** Downloads a support bundle (a tar file, streamed): manifest, versions, effective settings (secrets never included), health, preflight, jobs that failed in the last 24 hours with their attempts, a metrics snapshot and where to find logs. Never tokens, passwords, certificates or keys. Needs `support.bundle`; audited (`support.bundle.downloaded`) before it is sent. */
+  support_bundle: Blob;
   /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire, and Incus as observed now (running version, or the error that keeps it unreachable). Needs `read-inventory`. */
   system: SystemInfo;
   /** API tokens, active and revoked (never the tokens themselves). Needs `manage-tokens`. */
@@ -2839,6 +3002,8 @@ export type Bodies = {
   create_organization: NewOrganization;
   create_project: NewProject;
   permissions: never;
+  personal_tokens: never;
+  revoke_personal_token: never;
   policies: never;
   save_policy: SavePolicy;
   delete_policy: never;
@@ -2864,6 +3029,8 @@ export type Bodies = {
   create_identity_provider: ProviderInput;
   update_identity_provider: ProviderInput;
   delete_identity_provider: ConfirmProvider;
+  sign_ins: never;
+  end_sign_in: never;
   users: never;
   lookup_user: never;
   disable_user: never;
@@ -2892,17 +3059,25 @@ export type Bodies = {
   withdraw_machine_approval: never;
   approve_machine: never;
   change_password: PasswordChangeRequest;
+  my_sign_ins: never;
+  end_my_sign_in: never;
+  my_tokens: never;
+  create_my_token: CreatePersonalToken;
+  revoke_my_token: never;
+  rotate_my_token: RotatePersonalToken;
   monitoring: never;
   networks: never;
   preflight: never;
   projects: never;
   sessions: never;
   terminate_session: never;
+  effective_settings: never;
   sign_in_options: never;
   sign_in_with_password: PasswordSignInRequest;
   complete_password_setup: PasswordSetupRequest;
   sign_out: never;
   storage_pools: never;
+  support_bundle: never;
   system: never;
   tokens: never;
   create_token: CreateToken;

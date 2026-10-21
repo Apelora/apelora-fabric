@@ -346,3 +346,37 @@ them (today to its log, `INFO outbox: message`). If `apelora_outbox_pending` or
    delivers the rest (some messages may be delivered twice, by design).
 
 Delivered messages are removed after seven days; undelivered ones are kept.
+
+## Support bundle and effective settings
+
+When you ask someone for help, give them a **support bundle** instead of screenshots and copied
+settings: Fabric Console → Administration → Support bundle → *Download support bundle*, or
+`curl -H "Authorization: Bearer $TOKEN" -o bundle.tar https://<api>/api/v1/support-bundle`.
+It needs `support.bundle` (Fabric Administrator and Platform Super Admin hold it) and is recorded
+in the audit trail as `support.bundle.downloaded` before the first byte is sent. Nothing is
+uploaded anywhere; the file exists only where you save it, so it works without internet access.
+
+| File | What it holds |
+|---|---|
+| `manifest.json` | who made it, when, the request id, the control plane's version, every file with its size, and the parts left out with the reason (for example a part the caller may not read) |
+| `versions.json` | the control plane, its API, the pinned Incus release, Incus as observed now, certificate expiry |
+| `settings.json` | the effective settings (below), sign-in settings saved in the Console, the workers seen in the last day |
+| `health.json`, `preflight.json` | the Health page's report and the preflight checks |
+| `jobs-failed.json` | jobs that failed in the last 24 hours (at most 50) with every attempt, error, request id and Incus operation; never a job's request body, which can hold instance configuration |
+| `metrics.txt` | the control plane's metrics, refreshed |
+| `logs/README.txt` | where the log lines are: the control plane does **not** keep log lines in memory, so the bundle holds none; collect the last hour of errors from your service manager (`journalctl -u apelora-control-plane --since "-1h" -p err`) |
+
+**Never in a bundle:** tokens, passwords, certificates or keys. Every part is built from listed
+fields, and every byte also passes through a scrubber that replaces Apelora tokens (`apl_`,
+`aps_`, `apu_`, `apt_`, `apw_`), PEM blocks, bearer values, JSON web tokens and passwords in URLs
+(`settings::scrub`; `account_tests::the_support_bundle_holds_the_parts_and_never_a_planted_secret`
+plants secrets in every source). Still look through log lines you add yourself.
+
+**Effective settings** (Administration → Settings, `GET /api/v1/settings`, needs `cluster.view`):
+every setting the control plane and the worker read, with the value this control plane started
+with, whether it is the default, and where it came from (environment, default, not set, saved in
+the Console). Values are shown only by allow-list: secrets, `DATABASE_URL`, and the paths of key
+and certificate files say only *Set, not shown*; so does any value that looks like a credential.
+An `APELORA_*` variable this version does not read is listed as *Not a setting this version
+reads*: a misspelt name is a common reason for "the setting does nothing". The worker does not
+report its settings; its own environment is what it runs with.

@@ -9,7 +9,7 @@ cd "$(git rev-parse --show-toplevel)"
 
 patterns=(
   'BEGIN (RSA |EC |DSA |OPENSSH |ENCRYPTED )?PRIVATE KEY'   # any private key
-  'apl_[0-9a-f]{64}'                                         # Apelora API token
+  'ap[lstuw]_[0-9a-f]{64}'                                   # Apelora tokens: API (apl_), service (aps_), session (apu_), personal (apt_), setup link (apw_)
   'eyJzZXJ2ZXJfbmFtZSI6[A-Za-z0-9+/=]{60,}'                  # Incus join token (base64 JSON with a secret)
 )
 # Test fixtures and docs may show the *shape* of a join token with a short, fake value; the

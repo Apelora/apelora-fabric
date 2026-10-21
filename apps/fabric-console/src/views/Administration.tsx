@@ -4,9 +4,13 @@ import type { Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } fro
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
+import { holdsPlatform } from "../lib/identity";
+import { EffectiveSettingsSection } from "./EffectiveSettings";
 import { ImageMirrorsSection } from "./ImageMirrors";
 import { ProjectsSection } from "./Infrastructure";
+import { LicenceNoticesSection } from "./LicenceNotices";
 import { MonitoringSection } from "./Monitoring";
+import { SupportBundleSection } from "./SupportBundle";
 
 const ROLES: { value: Role; label: string; what: string }[] = [
   { value: "auditor", label: "Auditor", what: "reads inventory and the audit log" },
@@ -177,6 +181,9 @@ export function AdministrationView({ me, onAuth }: { me: WhoAmI | null; onAuth: 
       <ProjectsSection onAuth={onAuth} />
       <ImageMirrorsSection onAuth={onAuth} />
       <MonitoringSection onAuth={onAuth} />
+      {holdsPlatform(me, "cluster.view") && <EffectiveSettingsSection onAuth={onAuth} />}
+      {holdsPlatform(me, "support.bundle") && <SupportBundleSection onAuth={onAuth} />}
+      <LicenceNoticesSection onAuth={onAuth} />
     </div>
   );
 }
