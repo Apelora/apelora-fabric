@@ -30,8 +30,8 @@ First runs, then the tests added in response.
 |---|---|---|---|---|---|
 | `apelora-auth` | 253 | 230 | **0** | 23 | First run: 34 missed. Gaps found: service-identity guard in `filter`/`holds_anywhere`, MFA and environment conditions in `filter`, expiry boundaries, emergency-grant boundary (exactly four hours), custom-role limits (60-character name, 100 permissions, role keys as names), Incus project-name cleaning, approval lifetimes, blank error messages. |
 | `apelora-domain` `access.rs`, `lifecycle.rs` | 66 | 58 + 2 timeouts | **0** | 6 | First run: 5 missed (shell command per session kind, self-connection and unknown endpoints in `layers`, one redundant branch). |
-| Control plane `sessions.rs`, `authz.rs` | 249 | see below | | | |
-| TypeScript model rules | see below | | | | |
+| Control plane `sessions.rs`, `authz.rs` | 254 | 150 | 15 on the first run | 89 | The first full run left 15 missed (the ticket generator could have been a constant, the one-minute window, the default terminal size, who may end a session, a disabled account ending a running one, the audit-name and legacy-role mappings). Tests were added and the functions re-run: the last of them, a `>` on ticket expiry in `Sessions::issue_at`, is now caught (14 of 14). A test written for it also found a real bug: failed opens were never audited because the code wrote the outcome `failure` and the table accepts `failed`. |
+| TypeScript model rules (Stryker) | 979 | 657 (653 + 4 timeouts) | 322 survived (no coverage: 0) | | **67%** overall: `cables.ts` 86%, `runtime.ts` 82%, `api-client` 78%, `network.ts` 61% (was 54%), `validate.ts` 54%. Most survivors are message strings, hint text and object literals in diagnostics (`validate.ts` alone has 64 string-literal mutants); the logic ones left are listed by `npm run mutation`. The deny-by-default rules in `network.ts` (`allows`, direction and publishing) now have tests that a rule for one appliance cannot be swapped for another. |
 
 ### What the Rust numbers do not say
 
@@ -43,6 +43,6 @@ Stryker runs **in place**. The workspace packages are symlinked into `node_modul
 
 - start from a clean `git status`;
 - do not edit anything under `apps/` or `packages/` during a run, and do not run two at once (an edit made while it runs is overwritten when the originals are restored);
-- if a run is killed, check `git status`; Stryker leaves its backup in `.stryker-tmp/backup-*` (git-ignored).
+- if a run is killed it leaves `// @ts-nocheck` lines in hundreds of files and its backup in `.stryker-tmp/backup-*` (git-ignored): check that `git diff` shows only those injected lines, then `git checkout -- apps packages tests scripts` (and any root config file listed) and delete `.stryker-tmp`.
 
 The Vitest runner plugin for Stryker does not yet work with Vitest 5 (mutants are never switched on, so everything "survives"), which is why `stryker.config.mjs` uses the `command` runner: each mutant runs `vitest run packages --bail=1` and the first failing test kills it. Revisit when the plugin supports Vitest 5.
