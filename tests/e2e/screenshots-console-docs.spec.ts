@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Request, type Route } from "@playwright/test";
-import { open } from "./helpers";
+import { open, openDeploy } from "./helpers";
 import { auditItem, base as identityBase, items, stub as identityStub, whoami } from "./identity-fixtures";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots-console-docs.spec.ts
@@ -68,16 +68,16 @@ test("console applications stop dialog screenshot 1440x900", async ({ page }) =>
   const status = (state: string, inst: string) => ({ source: src, items: [{ project: "apelora", instance: inst, module: "web", status: state, location: "node-1", owner: true, health: null }], services: [] });
   await stub(page, { ...common,
     "GET /api/v1/applications": { json: { items: [
-      app("shop", { start: no("it is already running"), stop: yes, restart: yes }),
-      app("blog", { start: yes, stop: no("nothing is running"), restart: no("nothing is running") }),
+      app("shop", { start: no("it is already running"), stop: yes, shutdown: yes, restart: yes, migrate: yes }),
+      app("blog", { start: yes, stop: no("nothing is running"), shutdown: no("nothing is running"), restart: no("nothing is running"), migrate: yes }),
     ] } },
     "GET /api/v1/applications/shop/status": { json: status("Running", "shop-web-01") },
     "GET /api/v1/applications/blog/status": { json: status("Stopped", "blog-web-01") },
   });
   await page.goto(`${CONSOLE}/#/applications`);
   await expect(page.getByTestId("application-row")).toHaveCount(2);
-  await page.getByTestId("application-row").first().getByTestId("application-stop").click();
-  await expect(page.locator("dialog[open]")).toContainText("Stop shop?");
+  await page.getByTestId("application-row").first().getByTestId("application-shutdown").click();
+  await expect(page.locator("dialog[open]")).toContainText("Shut down shop?");
   await settled(page);
   await page.screenshot({ path: "docs/screenshots/36-console-application-stop-1440x900.png" });
 });
@@ -140,7 +140,15 @@ test("studio deploy screenshots 1440x900", async ({ page }) => {
     ] : [], services: [] } }),
   });
   await open(page);
-  await page.getByTestId("deploy-open").click();
+  await page.mouse.move(700, 8);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/44-studio-canvas-autosaved-1440x900.png" });
+  await openDeploy(page, { stopAt: "list" });
+  await page.mouse.move(700, 8);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/45-studio-applications-deploy-1440x900.png" });
+  await page.locator("[data-testid=app-card][data-app=commerce-stack]").getByTestId("action-deploy").click();
+  await page.getByTestId("deploy-version-continue").click();
   const dialog = page.getByTestId("deploy-dialog");
   await expect(dialog.getByTestId("deploy-deployable")).toHaveCount(2);
   await settled(page);
@@ -152,9 +160,11 @@ test("studio deploy screenshots 1440x900", async ({ page }) => {
   await dialog.getByTestId("deploy-apply").click();
   await expect(dialog.getByTestId("deploy-job")).toHaveCount(2);
   await dialog.getByTestId("deploy-done").click();
-  await expect(page.locator("[data-node-id=nginx-01] [data-testid=live-status]")).toHaveAttribute("data-state", /Running|Healthy|Up/i, { timeout: 10_000 }).catch(() => undefined);
+  await page.locator("[data-testid=app-card][data-app=commerce-stack]").getByTestId("app-open").click();
+  await page.getByTestId("tab-designer").click();
+  await page.waitForSelector("[data-testid=module-node]");
+  await expect(page.locator("[data-node-id=nginx-01] [data-testid=live-status]")).toHaveAttribute("data-state", /Running/, { timeout: 15_000 });
   await page.mouse.move(700, 8);
-  await page.waitForTimeout(600);
   await settled(page);
   await page.screenshot({ path: "docs/screenshots/41-studio-live-status-1440x900.png" });
 });
@@ -175,6 +185,13 @@ test("studio applications list screenshots 1440x900", async ({ page }) => {
   await stub(page, { ...common,
     "GET /api/v1/whoami": { json: { name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["shop-prod"], capabilities: [], platformPermissions: [] } },
     "GET /api/v1/applications": { json: { items: [app("shop", "running", running), app("blog", "stopped", stopped)], observedAt: NOW, stale: false } },
+    "GET /api/v1/cluster/members": { json: { clustered: true, members: ["node-1", "node-2", "node-3"].map((n) => ({ name: n, status: "Online", architecture: "x86_64", roles: [], groups: [], failureDomain: "default", database: true, message: "", url: "" })), quorum: {}, source: src, versions: {} } },
+    "GET /api/v1/applications/shop/migration": (req) => {
+      const target = new URL(req.url()).searchParams.get("target") ?? "";
+      const item = (instance: string, module: string, from: string, stops: boolean) => ({ module, instance, from, alreadyThere: from === target, live: false, stops, copyMib: 0, blocked: [], notes: stops && from !== target ? [`it stops for the move (a container cannot move while running) and starts again on ${target}`] : [] });
+      const items = [item("shop-web-01", "web", "node-1", true), item("shop-web-02", "web", "node-2", true), item("shop-db-01", "db", "node-1", true)];
+      return { json: { source: src, target, items, possible: true, stops: items.filter((i) => i.stops && !i.alreadyThere).map((i) => i.instance) } };
+    },
   });
   await page.goto("http://127.0.0.1:5173/studio/applications");
   await expect(page.getByTestId("app-card")).toHaveCount(2);
@@ -184,4 +201,37 @@ test("studio applications list screenshots 1440x900", async ({ page }) => {
   await expect(page.getByTestId("app-row")).toHaveCount(2);
   await settled(page);
   await page.screenshot({ path: "docs/screenshots/43-studio-applications-list-1440x900.png" });
+});
+
+test("studio migrate dialog screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => { localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("apelora.apiToken", "apl_test_token_for_stub"); });
+  const proj = { id: "p1", name: "Shop", organizationId: "o1", organizationSlug: "acme", slug: "shop" };
+  const env = { id: "e1", name: "production", slug: "production", kind: "production", incusProject: "shop-prod" };
+  const a = (allowed: boolean, reason: string | null = null) => ({ allowed, reason });
+  const running = { start: a(false, "already running"), restart: a(false, "running normally"), shutdown: a(true), stop: a(true), migrate: a(true) };
+  const shop = {
+    name: "shop", description: "shop for customers", icon: "nginx", archived: false, createdAt: NOW, updatedAt: NOW, latestRevision: 2, project: proj, environment: env, actions: running,
+    design: { status: "published", draftVersion: 2, publishedVersion: 2, hasUnpublishedChanges: false, validationErrors: 0, updatedAt: NOW },
+    deployment: { status: "running", modules: 4, replicas: { desired: 4, healthy: 4, running: 4, unhealthy: 0 }, observedAt: NOW, stale: false, source: "incus", lastActivityAt: NOW, deployedVersion: 2, operation: null },
+  };
+  await stub(page, { ...common,
+    "GET /api/v1/applications": { json: { items: [shop], observedAt: NOW, stale: false } },
+    "GET /api/v1/cluster/members": { json: { clustered: true, members: ["node-1", "node-2", "node-3"].map((n) => ({ name: n, status: "Online", architecture: "x86_64", roles: [], groups: [], failureDomain: "default", database: true, message: "", url: "" })), quorum: {}, source: src, versions: {} } },
+    "GET /api/v1/applications/shop/migration": (req) => {
+      const target = new URL(req.url()).searchParams.get("target") ?? "";
+      const item = (instance: string, module: string, from: string) => ({ module, instance, from, alreadyThere: from === target, live: false, stops: true, copyMib: 0, blocked: [], notes: from !== target ? [`it stops for the move (a container cannot move while running) and starts again on ${target}`] : [] });
+      const items = [item("shop-web-01", "web", "node-1"), item("shop-web-02", "web", "node-2"), item("shop-db-01", "db", "node-1")];
+      return { json: { source: src, target, items, possible: true, stops: items.filter((i) => !i.alreadyThere).map((i) => i.instance) } };
+    },
+  });
+  await page.goto("http://127.0.0.1:5173/studio/applications");
+  await page.getByTestId("action-migrate").click();
+  await page.getByTestId("migrate-target").selectOption("node-3");
+  await expect(page.getByTestId("migrate-row")).toHaveCount(3);
+  await page.getByTestId("migrate-agree").check();
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(500);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/46-studio-migrate-1440x900.png" });
 });
