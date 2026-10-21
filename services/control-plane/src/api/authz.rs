@@ -314,6 +314,10 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         ],
     ),
     ("GET", "/api/v1/cluster", &["cluster.view"]),
+    // Servers area (clustering.rs), read-only; settings are read with the admin identity.
+    ("GET", "/api/v1/cluster/members", &["cluster.view"]),
+    ("GET", "/api/v1/cluster/groups", &["cluster.view"]),
+    ("GET", "/api/v1/cluster/settings", &["cluster.view"]),
     ("GET", "/api/v1/health/components", &["cluster.view"]),
     ("GET", "/api/v1/health/servers", &["cluster.view"]),
     // Server names only with cluster.view; capacity.view sees numbered servers (the handler decides).

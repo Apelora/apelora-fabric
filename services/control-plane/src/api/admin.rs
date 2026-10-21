@@ -304,6 +304,11 @@ pub(super) async fn revoke(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// The Incus release Apelora is pinned to (`upstream.lock.yaml`, e.g. `v7.0.2`).
+pub(super) fn pinned_incus() -> String {
+    lock_value(include_str!("../../../../upstream.lock.yaml"), "pinned_tag")
+}
+
 /// The value of `key:` inside the `incus:` block of `upstream.lock.yaml`.
 fn lock_value(lock: &str, key: &str) -> String {
     let mut inside = false;

@@ -23,7 +23,7 @@ again 84–206 s after the failure. Removing a member that never returns is NOT 
 
 ## What to do
 
-1. Confirm the failure: Membership shows the member Offline; check the server's power, network
+1. Confirm the failure: Servers → Members shows the member Offline; check the server's power, network
    and Incus service.
 2. For single-instance and stateful modules on the member: wait for the member if it will be
    back soon. Otherwise restore them elsewhere from your backups (stateful data is never

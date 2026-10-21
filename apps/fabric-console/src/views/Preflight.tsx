@@ -17,13 +17,13 @@ const OVERALL: Record<CheckStatus, string> = {
   fail: "Some checks failed: fix them before deploying.",
 };
 
-export function PreflightView({ onAuth }: { onAuth: (m: string) => void }) {
+export function PreflightView({ onAuth, level = 1 }: { onAuth: (m: string) => void; level?: 1 | 2 }) {
   const [report, reload] = useLoad<PreflightReport>(() => client.get("preflight"), onAuth);
   return (
-    <Section title="Preflight" level={1} state={report} testId="preflight" onRetry={reload}>
+    <Section title="Preflight" level={level} state={report} testId="preflight" onRetry={reload}>
       {(r) => (
         <>
-          <SectionHeader title="Preflight" level={1} source={r.source}>
+          <SectionHeader title="Preflight" level={level} source={r.source}>
             <button type="button" className="btn btn-sm btn-ghost" onClick={reload}>Check again</button>
           </SectionHeader>
           <p className="text-sm text-base-content/70" data-testid="preflight-overall">

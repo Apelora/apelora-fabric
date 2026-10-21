@@ -11,7 +11,7 @@ initialised. You need an API token with the `fabric-admin` role, and the control
 unrestricted admin identity (`APELORA_INCUS_ADMIN_CLIENT_CERT/KEY`, ADR 0003). Design:
 [node enrolment](../design/node-enrolment.md).
 
-1. **Add the machine:** Fabric Console → Membership → *Machines* → name (the member name it will
+1. **Add the machine:** Fabric Console → Servers → *Machines and join tokens* → name (the member name it will
    have) and an optional note, or `POST /api/v1/machines {"name": "<name>"}`. State: *Not
    approved*.
 2. **Approve it:** *Approve* (or `POST /api/v1/machines/<name>/approve`). The join token and the

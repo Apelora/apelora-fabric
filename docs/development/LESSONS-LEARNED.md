@@ -40,6 +40,8 @@ Read these first. Most entries below come from one of four causes:
 - **`ConfirmDialog` never focused its Cancel button although the code called `focus()`** (2026-10-21) → daisyUI's modal is `visibility: hidden` during its opening transition, and a hidden element cannot take focus; `prefers-reduced-motion` did not change that. → Focus dialog controls after the modal is visible (the dialog retries on the next frames, `components/ui.tsx`); assert focus with `toBeFocused()` (`fabric-console-operations.spec.ts`).
 - **A spacing measurement reported a 492 px gap between sections** (2026-10-21) → the capture had been trimmed by dropping middle sections, which leaves their space behind. → Trim only a contiguous run of subtrees from the top, or keep the whole page; re-read any gap finding against the trim.
 - **A ticking "checked 12 s ago" inside `aria-live` would be read out every few seconds** (2026-10-21) → live regions announce every text change. → Announce state changes (errors, stale data), never clocks; see the `fabric-console` skill.
+- **Grouping the navigation broke a phone test on another page** (2026-10-21) → visible group headings and a taller header added 40 px above every page on phones, pushing the directory rows' actions out of the first screen that `toBeInViewport` checks. → On phones the navigation stays one wrapping row with the group names for screen readers only (`App.tsx`); run every console spec after changing the shell, not just the new page's.
+- **Servers tabs rendered as plain text, then failed axe** (2026-10-21) → daisyUI styles `.tab` only as a direct child of `.tabs` (an `li` wrapper broke it), and its inactive tab colour is below 4.5:1. → Tabs are `<a class="tab">` directly inside the `nav.tabs`, inactive ones `text-base-content/75` (`views/servers/Servers.tsx`; axe in `fabric-console-servers.spec.ts`).
 
 ## Control plane and identity
 
@@ -74,6 +76,8 @@ Read these first. Most entries below come from one of four causes:
 - **Two "memory used" figures disagree by gigabytes** (2026-10-21, REAL INCUS TESTED) → `/1.0/cluster/members/<m>/state` gives total and free RAM (caches count as used), `/1.0/resources?target=<m>` gives used without caches. → Show the `/1.0/resources` figure (`HealthServerResources.memory`).
 - **A shared pool (clustered LVM, Ceph) appears in every member's state with the same space** (2026-10-21) → it is one pool. → Count it once (`capacity::pool_is_shared`); summing per member multiplied the test cluster's free space by four.
 - **The restricted deploy identity sees only its own projects' instances** → per-server instance lists from it are partial. Say so on screen (Health → Instances) instead of implying the server is empty.
+- **Cluster settings came back empty for the deploy identity** (2026-10-21, REAL INCUS TESTED read) → Incus answers `GET /1.0` with `config: {}` to a project-restricted certificate; the admin identity sees it, together with secrets and the placement scriptlet. → Read settings with the admin identity and return only allow-listed keys (`server_config(keys)`, `CLUSTER_SETTINGS`); defaults come from `/1.0/metadata/configuration`, which the deploy identity can read.
+- **A stand-by reports `database: true`** (2026-10-21, REAL INCUS TESTED read) → the flag means "holds a copy", not "votes". → Voters are members with the `database` role (`clustering::database_role`).
 
 ## Lab, shell and tooling
 
@@ -87,6 +91,7 @@ Read these first. Most entries below come from one of four causes:
 - **`verify.sh` printed VERIFIED and exited 1** (2026-10-21) → its EXIT trap ended with `[[ -n $TMP ]] && rm …`, which returns 1 when there is nothing to remove, and a trap's status becomes the script's. → End traps and functions with `if …; then …; fi`, and check the exit status in script tests, not just the output.
 - **nftables rules that looked right were refused** (2026-10-21) → `fwd` is an nft keyword (not a chain name) and `comment` must end a rule. → Lab scripts that generate rules validate them with `nft --check` in `plan` (`scripts/test-cluster/egress.sh`), so the dry run fails instead of `block`.
 - **A plain `sleep` was blocked in the agent shell** → wait with `until <condition>; do sleep 1; done`.
+- **An edit piped as `python3 /dev/stdin <<EOF` changed nothing and said nothing** (2026-10-21) → in the agent shell the heredoc did not reach the interpreter; the file stayed as it was and a later test failed for a reason that looked unrelated. → Put edit scripts in a file in your scratchpad folder, run that, and check the change with `grep` before moving on.
 - **The Incus CLI attach failed** → it needs a device name.
 - **A design-review tool refused SVGs with text** → review illustrations by rendering them and looking at screenshots instead.
 - **Another agent overwrote a helper script in the shared scratchpad mid-task** (2026-10-21) → parallel sessions share the scratchpad directory. → Keep your helpers in your own subfolder of the scratchpad, named after your worktree.

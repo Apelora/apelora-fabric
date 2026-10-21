@@ -2612,6 +2612,57 @@
         }
       }
     },
+    "/api/v1/cluster/groups": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Cluster groups and their members (empty on a standalone server). Read-only; needs\n`cluster.view`.",
+        "operationId": "cluster_groups",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterGroupList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cluster/join-tokens": {
       "get": {
         "tags": [
@@ -2825,6 +2876,57 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/members": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Members with their database role (voter, stand-by, spare), the leader, other roles,\nfailure domain, groups and Incus release; the database majority (how many voters answer,\nhow many are needed, how many more can be lost); and version skew against the pinned\nIncus release with what blocks an upgrade. Read-only; needs `cluster.view`.",
+        "operationId": "cluster_members",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterMembersReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "",
             "content": {
               "application/json": {
@@ -3288,6 +3390,67 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/settings": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Cluster-wide settings (offline and healing thresholds, database voters and stand-bys,\njoin-token lifetime, image replication and updates): the value set, Incus's default and\nwhether the default applies. Read with the admin identity, since Incus shows its\nconfiguration only to an unrestricted one (503 `cluster_admin_not_configured` without it);\nonly these keys are returned. Read-only; needs `cluster.view`.",
+        "operationId": "cluster_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterSettingsReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -9793,6 +9956,56 @@
           }
         }
       },
+      "ClusterDatabaseRole": {
+        "type": "string",
+        "description": "A member's part in the cluster database.",
+        "enum": [
+          "voter",
+          "standby",
+          "spare"
+        ]
+      },
+      "ClusterGroupInfo": {
+        "type": "object",
+        "description": "A cluster group (Incus `/1.0/cluster/groups`): a named set of members that instances and\nprojects can be placed on.",
+        "required": [
+          "name",
+          "description",
+          "members"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ClusterGroupList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClusterGroupInfo"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "ClusterMember": {
         "type": "object",
         "description": "Observed state of an Incus cluster member (a server in the UI).",
@@ -9847,6 +10060,226 @@
           }
         }
       },
+      "ClusterMemberDetail": {
+        "type": "object",
+        "description": "One member with its roles spelled out.",
+        "required": [
+          "name",
+          "status",
+          "message",
+          "roles",
+          "databaseRole",
+          "leader",
+          "eventHub",
+          "ovnChassis",
+          "databaseExcluded",
+          "upForDatabase",
+          "failureDomain",
+          "groups",
+          "architecture",
+          "held",
+          "incusVersion",
+          "versionError"
+        ],
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "databaseExcluded": {
+            "type": "boolean",
+            "description": "Kept out of the cluster database on purpose (`database-client`)."
+          },
+          "databaseRole": {
+            "$ref": "#/components/schemas/ClusterDatabaseRole"
+          },
+          "eventHub": {
+            "type": "boolean",
+            "description": "Relays events between members (`event-hub`)."
+          },
+          "failureDomain": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Kept out of automatic placement (`scheduler.instance=manual`)."
+          },
+          "incusVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Incus release the member runs; `null` when it could not be read."
+          },
+          "leader": {
+            "type": "boolean",
+            "description": "Leads the cluster database now."
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ovnChassis": {
+            "type": "boolean",
+            "description": "Runs OVN's chassis role (`ovn-chassis`). Incus lists it only when it was assigned."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The roles exactly as Incus reports them."
+          },
+          "status": {
+            "type": "string",
+            "description": "Incus status: Online, Evacuating, Evacuated, Restoring, Offline or Blocked."
+          },
+          "upForDatabase": {
+            "type": "boolean",
+            "description": "Counts towards the database majority: its daemon answers (not Offline or Blocked)."
+          },
+          "versionError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the version could not be read."
+          }
+        }
+      },
+      "ClusterMembersReport": {
+        "type": "object",
+        "description": "Members with their roles, the database majority and the Incus release each runs.",
+        "required": [
+          "source",
+          "clustered",
+          "members",
+          "quorum",
+          "versions"
+        ],
+        "properties": {
+          "clustered": {
+            "type": "boolean"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClusterMemberDetail"
+            },
+            "description": "Empty on a standalone server."
+          },
+          "quorum": {
+            "$ref": "#/components/schemas/ClusterQuorum"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/ClusterVersions",
+            "description": "Version skew against the pinned Incus release, and whether an upgrade could start."
+          }
+        }
+      },
+      "ClusterQuorum": {
+        "type": "object",
+        "description": "The cluster database's majority, now.",
+        "required": [
+          "state",
+          "voters",
+          "votersUp",
+          "needed",
+          "standbys",
+          "standbysUp",
+          "spares",
+          "leader",
+          "canLose",
+          "summary",
+          "nextStep",
+          "warnings"
+        ],
+        "properties": {
+          "canLose": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Voters that can be lost at once, now, before changes stop. Incus promotes a stand-by\nwhen a voter goes offline, which raises this again afterwards.",
+            "minimum": 0
+          },
+          "leader": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needed": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Voters that must answer for the cluster to accept changes (a majority).",
+            "minimum": 0
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spares": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Members holding no copy of the cluster database.",
+            "minimum": 0
+          },
+          "standbys": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "standbysUp": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClusterQuorumState"
+          },
+          "summary": {
+            "type": "string",
+            "description": "One sentence for the page."
+          },
+          "voters": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "votersUp": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ClusterQuorumState": {
+        "type": "string",
+        "enum": [
+          "healthy",
+          "at-risk",
+          "lost",
+          "not-clustered",
+          "unknown"
+        ]
+      },
       "ClusterResponse": {
         "type": "object",
         "required": [
@@ -9867,6 +10300,166 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ClusterSetting": {
+        "type": "object",
+        "description": "One cluster setting: its value when set, and Incus's default.",
+        "required": [
+          "key",
+          "label",
+          "meaning",
+          "value",
+          "default",
+          "usesDefault"
+        ],
+        "properties": {
+          "default": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Incus's default as the server describes it; `null` when it did not say."
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "meaning": {
+            "type": "string"
+          },
+          "usesDefault": {
+            "type": "boolean",
+            "description": "Not set, so Incus's default applies."
+          },
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value set in the cluster's configuration; `null` when it is not set."
+          }
+        }
+      },
+      "ClusterSettingsReport": {
+        "type": "object",
+        "required": [
+          "source",
+          "identity",
+          "items"
+        ],
+        "properties": {
+          "identity": {
+            "type": "string",
+            "description": "The Incus identity the values were read with (`admin`: Incus shows its configuration\nonly to an unrestricted identity)."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClusterSetting"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "ClusterVersionComparison": {
+        "type": "string",
+        "description": "How a running release compares with the pinned one.",
+        "enum": [
+          "same",
+          "older",
+          "newer",
+          "unknown"
+        ]
+      },
+      "ClusterVersionGroup": {
+        "type": "object",
+        "description": "The members running one release.",
+        "required": [
+          "version",
+          "members",
+          "againstPin"
+        ],
+        "properties": {
+          "againstPin": {
+            "$ref": "#/components/schemas/ClusterVersionComparison"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null`: the members whose version could not be read."
+          }
+        }
+      },
+      "ClusterVersionState": {
+        "type": "string",
+        "enum": [
+          "matches-pin",
+          "behind-pin",
+          "ahead-of-pin",
+          "mixed",
+          "unknown"
+        ]
+      },
+      "ClusterVersions": {
+        "type": "object",
+        "description": "Version skew across members and whether a rolling upgrade could start now.",
+        "required": [
+          "pinned",
+          "groups",
+          "state",
+          "summary",
+          "ready",
+          "blockers",
+          "notes"
+        ],
+        "properties": {
+          "blockers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What must be fixed before a member is upgraded."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClusterVersionGroup"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Facts worth knowing during an upgrade (members in maintenance, blocked members)."
+          },
+          "pinned": {
+            "type": "string",
+            "description": "The Incus release Apelora is pinned to (`upstream.lock.yaml`), without the `v`."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Nothing stands in the way of upgrading the next member."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ClusterVersionState"
+          },
+          "summary": {
+            "type": "string"
           }
         }
       },

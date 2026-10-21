@@ -28,7 +28,7 @@ export const degraded = (): HealthReport => {
     overall: "down",
     workers: { state: "down", items: [{ id: "worker-1", host: "cp-1", version: "0.1.0", startedAt: "2026-10-20T08:00:00Z", lastSeen: "2026-10-21T09:58:00Z", secondsSinceSeen: 120, state: "lost" }], reason: "No deployment worker is running: deployments, moves and recovery wait until one starts", nextStep: "Start the deployment worker (apelora-deployment-worker) with the same DATABASE_URL, and read its log" },
     jobQueue: { state: "down", counts: { waiting: 3, retrying: 1, running: 0, stalled: 1, failedLastHour: 2, oldestWaitingSecs: 300 }, reason: "3 jobs wait and no worker is running", nextStep: null },
-    incus: { ...r.incus, state: "degraded", members: { total: 3, online: 2, evacuated: 0, offline: 1, other: 0 }, reason: "1 of 3 servers not online: node-3 is Offline", nextStep: "See Servers below; Membership has evacuate and restore" },
+    incus: { ...r.incus, state: "degraded", members: { total: 3, online: 2, evacuated: 0, offline: 1, other: 0 }, reason: "1 of 3 servers not online: node-3 is Offline", nextStep: "See the servers below; Servers → Members has evacuate and restore" },
     identityProviders: { state: "degraded", items: [{ name: "Example Corp", source: "console", enabled: true, reachable: false, error: "connection refused" }], apiTokens: true, reason: "Not reachable: Example Corp. People who sign in with it cannot sign in until it answers (retried every minute)", nextStep: "Open Identity & Access → Sign-in and check the provider" },
   };
 };

@@ -446,3 +446,21 @@ pub(crate) struct PoolSpace {
     pub used: u64,
     pub total: u64,
 }
+
+/// `GET /1.0/cluster/groups?recursion=1` (read by the restricted identity on 7.0.1).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct ClusterGroup {
+    pub name: String,
+    pub description: String,
+    /// `null` for a group without members.
+    pub members: Option<Vec<String>>,
+}
+
+/// `GET /1.0` as the admin identity sees it: the server configuration. The restricted
+/// identity gets an empty `config` (REAL INCUS TESTED read, 7.0.1).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct ServerConfig {
+    pub config: Option<BTreeMap<String, serde_json::Value>>,
+}

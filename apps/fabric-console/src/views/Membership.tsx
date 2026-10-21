@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { ClusterMember, ClusterResponse, EvacuationPreview, JoinTokenList, RemovalPreview } from "@apelora/api-client";
+import type { EvacuationPreview, JoinTokenList, RemovalPreview } from "@apelora/api-client";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -10,7 +10,7 @@ import { MachinesSection } from "./Machines";
  * Evacuating a member for maintenance: first the dry run (what Incus does with each instance
  * and what that means for its application), then the member's name typed to confirm.
  */
-function EvacuateDialog({ member, onClose, onStarted }: { member: string | null; onClose: () => void; onStarted: (message: string) => void }) {
+export function EvacuateDialog({ member, onClose, onStarted }: { member: string | null; onClose: () => void; onStarted: (message: string) => void }) {
   const [preview, setPreview] = useState<EvacuationPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -89,7 +89,7 @@ function EvacuateDialog({ member, onClose, onStarted }: { member: string | null;
  * Removing an evacuated member for good: the check runs first (nothing may be left on it, the
  * cluster must keep running), then the member's name typed to confirm.
  */
-function RemoveMemberDialog({ member, onClose, onRemoved }: { member: string | null; onClose: () => void; onRemoved: (message: string) => void }) {
+export function RemoveMemberDialog({ member, onClose, onRemoved }: { member: string | null; onClose: () => void; onRemoved: (message: string) => void }) {
   const [preview, setPreview] = useState<RemovalPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -148,49 +148,9 @@ function RemoveMemberDialog({ member, onClose, onRemoved }: { member: string | n
   );
 }
 
-function MemberRows({ members, onEvacuate, onRestore, onRemove }: { members: ClusterMember[]; onEvacuate: (m: string) => void; onRestore: (m: string) => void; onRemove: (m: string) => void }) {
-  return (
-    <TableFrame>
-      <thead><tr><th>Member</th><th>Status</th><th>Architecture</th><th><span className="sr-only">Actions</span></th></tr></thead>
-      <tbody>
-        {members.map((m) => (
-          <tr key={m.name} data-testid="membership-member">
-            <td className="font-medium">{m.name}</td>
-            <td title={m.message}><span className={`status ${m.status === "Online" ? "status-success" : m.status === "Evacuated" ? "status-warning" : "status-error"} mr-2`} aria-hidden="true" />{m.status}</td>
-            <td>{m.architecture}</td>
-            <td className="text-right">
-              {m.status === "Evacuated"
-                ? (
-                  <span className="inline-flex flex-wrap justify-end gap-1">
-                    <button type="button" className="btn btn-xs btn-ghost" onClick={() => onRestore(m.name)} data-testid="restore-member">Restore…</button>
-                    <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Remove ${m.name} from the cluster`} onClick={() => onRemove(m.name)} data-testid="remove-member">Remove…</button>
-                  </span>
-                )
-                : <button type="button" className="btn btn-xs btn-ghost" disabled={m.status !== "Online"} onClick={() => onEvacuate(m.name)} data-testid="evacuate-member">Evacuate…</button>}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </TableFrame>
-  );
-}
 
-export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
-  const [cluster, reloadCluster] = useLoad<ClusterResponse>(() => client.get("cluster"), onAuth);
-  const [toEvacuate, setToEvacuate] = useState<string | null>(null);
-  const [toRestore, setToRestore] = useState<string | null>(null);
-  const [toRemove, setToRemove] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const restore = async (member: string) => {
-    setError(null);
-    try {
-      await client.request("restore_member", { params: { member }, body: { confirm: member } });
-      setNotice(`Restoring ${member}: Incus moves its instances back and starts them.`);
-      reloadCluster();
-    } catch (e) {
-      setError(messageOf(e));
-    }
-  };
+/** Servers → Machines and join tokens: enrolment of new servers and the tokens still unused. */
+export function MachinesTab({ onAuth }: { onAuth: (m: string) => void }) {
   const [tokens, reload] = useLoad<JoinTokenList>(() => client.get("list_join_tokens"), onAuth);
   const [error, setError] = useState<string | null>(null);
   const [toRevoke, setToRevoke] = useState<string | null>(null);
@@ -207,19 +167,8 @@ export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <MachinesSection onAuth={onAuth} onChanged={() => { reloadCluster(); reload(); }} />
+      <MachinesSection onAuth={onAuth} onChanged={reload} />
       {error && <ErrorPanel message={error} testId="membership-error" />}
-
-      <Section title="Cluster members" state={cluster} testId="membership-members" onRetry={reloadCluster}>
-        {(c) => (
-          <>
-            <SectionHeader title="Cluster members" count={c.members.length} source={c.source} />
-            <p className="text-sm text-base-content/70">Evacuate a member before maintenance: its instances move to the other members until you restore it. An evacuated, empty member can be removed for good.</p>
-            {notice && <p role="status" className="flex items-start gap-2 text-sm" data-testid="membership-notice"><span className="status status-info mt-1.5 shrink-0" aria-hidden="true" />{notice}</p>}
-            <MemberRows members={c.members} onEvacuate={setToEvacuate} onRestore={setToRestore} onRemove={setToRemove} />
-          </>
-        )}
-      </Section>
 
       <Section title="Unused join tokens" state={tokens} testId="join-tokens" onRetry={reload}>
         {(l) => (
@@ -243,25 +192,6 @@ export function MembershipView({ onAuth }: { onAuth: (m: string) => void }) {
         )}
       </Section>
 
-      <EvacuateDialog
-        member={toEvacuate}
-        onClose={() => setToEvacuate(null)}
-        onStarted={(m) => { setToEvacuate(null); setNotice(m); reloadCluster(); }}
-      />
-      <RemoveMemberDialog
-        member={toRemove}
-        onClose={() => setToRemove(null)}
-        onRemoved={(m) => { setToRemove(null); setNotice(m); reloadCluster(); }}
-      />
-      <ConfirmDialog
-        open={!!toRestore}
-        title={`Restore ${toRestore ?? ""}?`}
-        body={<p>Incus moves the instances it evacuated back to this member and starts them. New instances may be placed on it again.</p>}
-        action="Restore member"
-        typeToConfirm={toRestore ?? undefined}
-        onCancel={() => setToRestore(null)}
-        onConfirm={() => { const m = toRestore; setToRestore(null); if (m) void restore(m); }}
-      />
       <ConfirmDialog
         open={!!toRevoke}
         title={`Revoke the join token for ${toRevoke ?? ""}?`}

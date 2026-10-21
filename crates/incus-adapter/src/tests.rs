@@ -103,6 +103,58 @@ async fn maps_cluster_members() {
     assert_eq!(members[1].failure_domain, "rack-b");
 }
 
+/// Shapes read from the test cluster (Incus 7.0.1, 2026-10-21): groups with `config: null`,
+/// the admin identity's `/1.0` config, and the configuration metadata with its defaults.
+#[tokio::test]
+async fn reads_cluster_groups_settings_and_defaults() {
+    let mut admin_view = server_json(true);
+    admin_view["config"] = json!({
+        "cluster.join_token_expiry": "30M",
+        "core.https_address": "[::]:8443",
+        "core.trust_password": "never-leaves-the-adapter",
+        "instances.placement.scriptlet": "def instance_placement(r, c): return"
+    });
+    let base = fixture_server(vec![
+        ("/1.0", sync(admin_view)),
+        ("/1.0/cluster/groups?recursion=1", sync(json!([
+            { "description": "Default cluster group", "members": ["node-1", "node-2"], "config": null, "name": "default", "used_by": null },
+            { "description": "", "members": null, "config": null, "name": "empty", "used_by": null }
+        ]))),
+        ("/1.0/metadata/configuration", sync(json!({ "configs": { "server": {
+            "cluster": { "keys": [
+                { "cluster.offline_threshold": { "defaultdesc": "`20`", "scope": "global", "shortdesc": "", "type": "integer" } },
+                { "cluster.https_address": { "scope": "local", "shortdesc": "", "type": "string" } }
+            ] },
+            "images": { "keys": [ { "images.auto_update_cached": { "defaultdesc": "`true`", "type": "bool" } } ] }
+        } } }))),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let groups = p.cluster_groups().await.expect("groups");
+    assert_eq!(groups.len(), 2);
+    assert_eq!(groups[0].members, vec!["node-1", "node-2"]);
+    assert!(groups[1].members.is_empty());
+
+    let config = p
+        .server_config(&["cluster.join_token_expiry", "cluster.max_voters"])
+        .await
+        .expect("config");
+    assert_eq!(
+        config.len(),
+        1,
+        "only asked-for keys that are set: {config:?}"
+    );
+    assert_eq!(config["cluster.join_token_expiry"], "30M");
+
+    let defaults = p.config_defaults().await.expect("defaults");
+    assert_eq!(defaults["cluster.offline_threshold"], "20");
+    assert_eq!(defaults["images.auto_update_cached"], "true");
+    assert!(
+        !defaults.contains_key("cluster.https_address"),
+        "no default documented"
+    );
+}
+
 #[tokio::test]
 async fn standalone_server_has_no_members_and_skips_the_cluster_call() {
     // No /1.0/cluster/members route: calling it would 404.
@@ -992,6 +1044,11 @@ fn metrics_label_endpoints_by_template_never_by_name() {
     assert_eq!(
         t("/1.0/networks/apelora-shop/load-balancers/10.0.0.5"),
         "/1.0/networks/{id}/load-balancers/{id}"
+    );
+    assert_eq!(t("/1.0/cluster/groups?recursion=1"), "/1.0/cluster/groups");
+    assert_eq!(
+        t("/1.0/metadata/configuration"),
+        "/1.0/metadata/configuration"
     );
     assert_eq!(t("/1.0/something-new/x"), "/1.0/{id}/{id}");
 }

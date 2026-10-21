@@ -4,7 +4,7 @@
 Fabric Console; containers on local storage with OVN networking moved in about ten seconds and
 kept their addresses.
 
-1. Fabric Console → Membership → *Evacuate…* on the member (or
+1. Fabric Console → Servers → Members → *Evacuate…* on the member (or
    `GET /api/v1/cluster/members/<name>/evacuation`). Read the dry run:
    - **What Incus does** per instance, from its `cluster.evacuate` mode (`auto` moves it while
      stopped, or only stops it if a device cannot move).

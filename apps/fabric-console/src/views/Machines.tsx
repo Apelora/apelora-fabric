@@ -9,7 +9,7 @@ const NAME = /^[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 
 /** True from the `sm` breakpoint up; row actions sit in their own column there. */
 const WIDE = "(min-width: 640px)";
-const useWide = () => useSyncExternalStore(
+export const useWide = () => useSyncExternalStore(
   (change) => { const q = window.matchMedia(WIDE); q.addEventListener("change", change); return () => q.removeEventListener("change", change); },
   () => window.matchMedia(WIDE).matches,
 );

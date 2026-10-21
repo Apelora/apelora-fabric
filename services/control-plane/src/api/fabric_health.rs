@@ -498,7 +498,7 @@ async fn incus(state: &AppState) -> IncusReading {
                 counts.total,
                 names.join(", ")
             )),
-            Some("See Servers below; Membership has evacuate and restore".into()),
+            Some("See the servers below; Servers → Members has evacuate and restore".into()),
         )
     } else {
         (HealthCondition::Healthy, None, None)
@@ -510,7 +510,7 @@ async fn incus(state: &AppState) -> IncusReading {
         reason: (!problems.is_empty())
             .then(|| format!("{} {what} not created everywhere", problems.len())),
         next_step: (!problems.is_empty()).then(|| {
-            "Open Networks & storage, then check the Incus log on the named servers".into()
+            "Open Networks or Storage, then check the Incus log on the named servers".into()
         }),
         problems,
     };

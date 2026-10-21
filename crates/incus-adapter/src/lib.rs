@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use apelora_domain::capacity::HealthServerResources;
+use apelora_domain::clustering::ClusterGroupInfo;
 use apelora_domain::enrolment::HELD;
 use apelora_domain::inspect::{
     InstanceView, InstanceViewAddress, InstanceViewDisk, InstanceViewImage, InstanceViewLimits,
@@ -197,6 +198,50 @@ impl Provider {
                     Ok(Vec::new())
                 }
             }
+        }
+    }
+
+    /// Cluster groups and their members; none on a standalone server.
+    pub async fn cluster_groups(&self) -> Result<Vec<ClusterGroupInfo>, AdapterError> {
+        match self {
+            Provider::Mock(m) => Ok(m.groups()),
+            Provider::Incus(c) => {
+                if c.server_info().await?.clustered {
+                    c.cluster_groups().await
+                } else {
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+
+    /// The values of `keys` in the server configuration; unset keys are absent. Incus shows
+    /// the configuration only to an unrestricted identity (the restricted one gets none), so
+    /// call this on the admin provider. Keys outside `keys` never leave the adapter.
+    pub async fn server_config(
+        &self,
+        keys: &[&str],
+    ) -> Result<std::collections::BTreeMap<String, String>, AdapterError> {
+        match self {
+            Provider::Mock(m) => Ok(m
+                .config
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .filter(|(k, _)| keys.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()),
+            Provider::Incus(c) => c.server_config(keys).await,
+        }
+    }
+
+    /// Incus's defaults for server configuration keys, as the server documents them.
+    pub async fn config_defaults(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, String>, AdapterError> {
+        match self {
+            Provider::Mock(_) => Ok(mock_config_defaults()),
+            Provider::Incus(c) => c.config_defaults().await,
         }
     }
 
@@ -588,7 +633,16 @@ impl Provider {
         match self {
             Provider::Mock(m) => {
                 m.member(member)?;
-                Ok(m.server.clone())
+                let mut info = m.server.clone();
+                if let Some(v) = m
+                    .member_versions
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(member)
+                {
+                    info.server_version = Some(v.clone());
+                }
+                Ok(info)
             }
             Provider::Incus(c) => c.member_server_info(member).await,
         }
@@ -1422,6 +1476,11 @@ pub struct MockIncus {
     /// Resources per member name (fixture numbers, labelled mock by the API); a member without
     /// an entry gets [`mock_resources`] for its position.
     pub resources: Arc<Mutex<std::collections::BTreeMap<String, HealthServerResources>>>,
+    /// Server configuration (cluster-wide keys), as the admin identity would read it.
+    pub config: Arc<Mutex<std::collections::BTreeMap<String, String>>>,
+    /// Incus release per member name (tests); a member without one reports the server's
+    /// (unknown for the mock).
+    pub member_versions: Arc<Mutex<std::collections::BTreeMap<String, String>>>,
     next_op: Arc<Mutex<u64>>,
 }
 
@@ -1831,6 +1890,28 @@ impl MockIncus {
         Ok(self.op())
     }
 
+    /// Groups as the members name them (Incus puts every member in `default`).
+    fn groups(&self) -> Vec<ClusterGroupInfo> {
+        let mut by: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        for m in self
+            .members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
+            for g in &m.groups {
+                by.entry(g.clone()).or_default().push(m.name.clone());
+            }
+        }
+        by.into_iter()
+            .map(|(name, members)| ClusterGroupInfo {
+                description: "mock data".into(),
+                name,
+                members,
+            })
+            .collect()
+    }
+
     fn member_names(&self) -> Vec<String> {
         self.members
             .lock()
@@ -1945,6 +2026,25 @@ impl MockIncus {
     }
 }
 
+/// Incus 7.0.1's documented defaults for the cluster settings Apelora shows (read from
+/// `/1.0/metadata/configuration` on the test cluster, 2026-10-21), for the mock.
+fn mock_config_defaults() -> std::collections::BTreeMap<String, String> {
+    [
+        ("cluster.offline_threshold", "20"),
+        ("cluster.healing_threshold", "0"),
+        ("cluster.max_voters", "3"),
+        ("cluster.max_standby", "2"),
+        ("cluster.join_token_expiry", "3H"),
+        ("cluster.images_minimal_replica", "3"),
+        ("cluster.rebalance.interval", "0"),
+        ("images.auto_update_interval", "6"),
+        ("images.auto_update_cached", "true"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+    .collect()
+}
+
 impl Default for MockIncus {
     fn default() -> Self {
         let member = |n: u8, roles: &[&str]| ClusterMember {
@@ -2006,6 +2106,13 @@ impl Default for MockIncus {
             )),
             next_op: Arc::new(Mutex::new(0)),
             resources: Arc::default(),
+            config: Arc::new(Mutex::new(
+                [("cluster.join_token_expiry", "1H")]
+                    .into_iter()
+                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                    .collect(),
+            )),
+            member_versions: Arc::default(),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
             storage: Arc::default(),

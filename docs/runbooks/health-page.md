@@ -35,8 +35,8 @@ The overall state is the worst component state; *Not set up* counts as healthy t
 | Database | Not reachable, slow (a trivial query over 500 ms), or the schema is behind this build | `DATABASE_URL`, PostgreSQL running; restart the control plane (it applies migrations) |
 | Deployment workers | No heartbeat within 45 s; a worker lost in the last 10 minutes | Start `apelora-deployment-worker` with the same `DATABASE_URL`; read its log ([troubleshooting](troubleshooting.md)) |
 | Job queue | Jobs wait and no worker runs; the oldest waited over 2 min; a job's worker lease expired (stalled); failures in the last hour | Operations page for the jobs and their last error |
-| Incus | Not reachable; a server not Online | [api-outage](api-outage.md), [member-failure](member-failure.md), Membership for evacuate and restore |
-| Networks, Storage pools | Not `Created`, or missing on a server (OVN networks are exempt: they list only the members present when they were created) | Networks & storage page; the Incus log on the named server |
+| Incus | Not reachable; a server not Online | [api-outage](api-outage.md), [member-failure](member-failure.md), Servers → Members for evacuate and restore |
+| Networks, Storage pools | Not `Created`, or missing on a server (OVN networks are exempt: they list only the members present when they were created) | Networks or Storage page; the Incus log on the named server |
 | Identity providers | An enabled provider did not answer at the last check (retried every minute) | Identity & Access → Sign-in |
 
 ## Servers

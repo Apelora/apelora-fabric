@@ -209,6 +209,9 @@ pub fn router(state: AppState) -> Router {
             put(sessions_auth::set_local_accounts),
         )
         .route("/api/v1/cluster", get(cluster))
+        .route("/api/v1/cluster/members", get(clustering::members))
+        .route("/api/v1/cluster/groups", get(clustering::groups))
+        .route("/api/v1/cluster/settings", get(clustering::settings))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
         .route("/api/v1/capacity", get(fabric_health::capacity))
@@ -1429,6 +1432,7 @@ impl Modify for BearerAuth {
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
+        clustering::members, clustering::groups, clustering::settings,
         machines::list, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
@@ -1474,6 +1478,7 @@ mod audit;
 pub mod auth_config;
 mod authz;
 mod cluster_admin;
+mod clustering;
 mod deploy;
 mod directories;
 mod document;
@@ -1497,6 +1502,8 @@ mod volumes;
 
 #[cfg(test)]
 mod audit_coverage_tests;
+#[cfg(test)]
+mod clustering_tests;
 #[cfg(test)]
 mod containment_tests;
 #[cfg(test)]

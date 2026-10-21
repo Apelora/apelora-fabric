@@ -267,6 +267,21 @@ export type ClassImage = {
   setting?: string | null;
 };
 
+/** A member's part in the cluster database. */
+export type ClusterDatabaseRole = "voter" | "standby" | "spare";
+
+/** A cluster group (Incus `/1.0/cluster/groups`): a named set of members that instances and projects can be placed on. */
+export type ClusterGroupInfo = {
+  description: string;
+  members: string[];
+  name: string;
+};
+
+export type ClusterGroupList = {
+  items: ClusterGroupInfo[];
+  source: Source;
+};
+
 /** Observed state of an Incus cluster member (a server in the UI). */
 export type ClusterMember = {
   architecture: string;
@@ -282,11 +297,122 @@ export type ClusterMember = {
   url: string;
 };
 
+/** One member with its roles spelled out. */
+export type ClusterMemberDetail = {
+  architecture: string;
+  /** Kept out of the cluster database on purpose (`database-client`). */
+  databaseExcluded: boolean;
+  databaseRole: ClusterDatabaseRole;
+  /** Relays events between members (`event-hub`). */
+  eventHub: boolean;
+  failureDomain: string;
+  groups: string[];
+  /** Kept out of automatic placement (`scheduler.instance=manual`). */
+  held: boolean;
+  /** The Incus release the member runs; `null` when it could not be read. */
+  incusVersion: string | null;
+  /** Leads the cluster database now. */
+  leader: boolean;
+  message: string;
+  name: string;
+  /** Runs OVN's chassis role (`ovn-chassis`). Incus lists it only when it was assigned. */
+  ovnChassis: boolean;
+  /** The roles exactly as Incus reports them. */
+  roles: string[];
+  /** Incus status: Online, Evacuating, Evacuated, Restoring, Offline or Blocked. */
+  status: string;
+  /** Counts towards the database majority: its daemon answers (not Offline or Blocked). */
+  upForDatabase: boolean;
+  /** Why the version could not be read. */
+  versionError: string | null;
+};
+
+/** Members with their roles, the database majority and the Incus release each runs. */
+export type ClusterMembersReport = {
+  clustered: boolean;
+  /** Empty on a standalone server. */
+  members: ClusterMemberDetail[];
+  quorum: ClusterQuorum;
+  source: Source;
+  /** Version skew against the pinned Incus release, and whether an upgrade could start. */
+  versions: ClusterVersions;
+};
+
+/** The cluster database's majority, now. */
+export type ClusterQuorum = {
+  /** Voters that can be lost at once, now, before changes stop. Incus promotes a stand-by when a voter goes offline, which raises this again afterwards. */
+  canLose: number;
+  leader: string | null;
+  /** Voters that must answer for the cluster to accept changes (a majority). */
+  needed: number;
+  nextStep: string | null;
+  /** Members holding no copy of the cluster database. */
+  spares: number;
+  standbys: number;
+  standbysUp: number;
+  state: ClusterQuorumState;
+  /** One sentence for the page. */
+  summary: string;
+  voters: number;
+  votersUp: number;
+  warnings: string[];
+};
+
+export type ClusterQuorumState = "healthy" | "at-risk" | "lost" | "not-clustered" | "unknown";
+
 export type ClusterResponse = {
   /** Empty when the Incus server is not clustered. */
   members: ClusterMember[];
   server: ServerInfo;
   source: Source;
+};
+
+/** One cluster setting: its value when set, and Incus's default. */
+export type ClusterSetting = {
+  /** Incus's default as the server describes it; `null` when it did not say. */
+  default: string | null;
+  key: string;
+  label: string;
+  meaning: string;
+  /** Not set, so Incus's default applies. */
+  usesDefault: boolean;
+  /** The value set in the cluster's configuration; `null` when it is not set. */
+  value: string | null;
+};
+
+export type ClusterSettingsReport = {
+  /** The Incus identity the values were read with (`admin`: Incus shows its configuration only to an unrestricted identity). */
+  identity: string;
+  items: ClusterSetting[];
+  source: Source;
+};
+
+/** How a running release compares with the pinned one. */
+export type ClusterVersionComparison = "same" | "older" | "newer" | "unknown";
+
+/** The members running one release. */
+export type ClusterVersionGroup = {
+  againstPin: ClusterVersionComparison;
+  members: string[];
+  /** `null`: the members whose version could not be read. */
+  version: string | null;
+};
+
+export type ClusterVersionState = "matches-pin" | "behind-pin" | "ahead-of-pin" | "mixed" | "unknown";
+
+/** Version skew across members and whether a rolling upgrade could start now. */
+export type ClusterVersions = {
+  /** What must be fixed before a member is upgraded. */
+  blockers: string[];
+  groups: ClusterVersionGroup[];
+  /** Facts worth knowing during an upgrade (members in maintenance, blocked members). */
+  notes: string[];
+  /** The Incus release Apelora is pinned to (`upstream.lock.yaml`), without the `v`. */
+  pinned: string;
+  /** Nothing stands in the way of upgrading the next member. */
+  ready: boolean;
+  state: ClusterVersionState;
+  summary: string;
 };
 
 export type Conditions = {
@@ -2263,14 +2389,17 @@ export const operations = {
   audit_export: { method: "GET", path: "/api/v1/audit/export", params: [], public: false },
   capacity: { method: "GET", path: "/api/v1/capacity", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
+  cluster_groups: { method: "GET", path: "/api/v1/cluster/groups", params: [], public: false },
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   create_join_token: { method: "POST", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   revoke_join_token: { method: "DELETE", path: "/api/v1/cluster/join-tokens/{member}", params: ["member"], public: false },
+  cluster_members: { method: "GET", path: "/api/v1/cluster/members", params: [], public: false },
   evacuate_member: { method: "POST", path: "/api/v1/cluster/members/{member}/evacuate", params: ["member"], public: false },
   preview_evacuation: { method: "GET", path: "/api/v1/cluster/members/{member}/evacuation", params: ["member"], public: false },
   preview_member_removal: { method: "GET", path: "/api/v1/cluster/members/{member}/removal", params: ["member"], public: false },
   remove_member: { method: "POST", path: "/api/v1/cluster/members/{member}/remove", params: ["member"], public: false },
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
+  cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
   health_servers: { method: "GET", path: "/api/v1/health/servers", params: [], public: false },
@@ -2437,12 +2566,16 @@ export type Responses = {
   capacity: CapacityReport;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
   cluster: ClusterResponse;
+  /** Cluster groups and their members (empty on a standalone server). Read-only; needs `cluster.view`. */
+  cluster_groups: ClusterGroupList;
   /** Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`. */
   list_join_tokens: JoinTokenList;
   /** Approves a new cluster member: asks Incus for a single-use join token. Needs `manage-infrastructure`. The token is in this response only. */
   create_join_token: JoinTokenCreated;
   /** Withdraws a new member's approval: revokes its unused join token. Needs `manage-infrastructure`. */
   revoke_join_token: null;
+  /** Members with their database role (voter, stand-by, spare), the leader, other roles, failure domain, groups and Incus release; the database majority (how many voters answer, how many are needed, how many more can be lost); and version skew against the pinned Incus release with what blocks an upgrade. Read-only; needs `cluster.view`. */
+  cluster_members: ClusterMembersReport;
   /** Evacuates a cluster member through Incus after re-running the dry run: refused while anything blocks it. Needs `manage-infrastructure` and the admin identity; audited. */
   evacuate_member: MemberStateStarted;
   /** Dry run of evacuating a cluster member: per instance, what Incus will do and what it means for the application; what blocks it; what to accept. Changes nothing. */
@@ -2453,6 +2586,8 @@ export type Responses = {
   remove_member: null;
   /** Restores an evacuated member: Incus moves its instances back and starts them. Needs `manage-infrastructure` and the admin identity; audited. */
   restore_member: MemberStateStarted;
+  /** Cluster-wide settings (offline and healing thresholds, database voters and stand-bys, join-token lifetime, image replication and updates): the value set, Incus's default and whether the default applies. Read with the admin identity, since Incus shows its configuration only to an unrestricted one (503 `cluster_admin_not_configured` without it); only these keys are returned. Read-only; needs `cluster.view`. */
+  cluster_settings: ClusterSettingsReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
   health: Health;
   /** The state of each part of this installation: control plane, database, deployment workers, job queue, Incus, networks, storage pools and identity providers. Read-only; needs `cluster.view`. */
@@ -2673,14 +2808,17 @@ export type Bodies = {
   audit_export: never;
   capacity: never;
   cluster: never;
+  cluster_groups: never;
   list_join_tokens: never;
   create_join_token: CreateJoinToken;
   revoke_join_token: never;
+  cluster_members: never;
   evacuate_member: ConfirmMember;
   preview_evacuation: never;
   preview_member_removal: never;
   remove_member: ConfirmMember;
   restore_member: ConfirmMember;
+  cluster_settings: never;
   health: never;
   health_components: never;
   health_servers: never;

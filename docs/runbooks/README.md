@@ -19,6 +19,7 @@ previews and audits.
 | A server fails | [member-failure.md](member-failure.md) |
 | Remove a server for good | [member-removal.md](member-removal.md) |
 | The cluster loses quorum | [quorum-loss.md](quorum-loss.md) |
+| Read quorum; upgrade Incus one member at a time | [incus-rolling-upgrade.md](incus-rolling-upgrade.md) |
 | OVN or the uplink fails | [network-incident.md](network-incident.md) |
 | A replica fails its health check | [replica-unhealthy.md](replica-unhealthy.md) |
 | A volume is kept, missing or to be deleted | [volumes.md](volumes.md) |

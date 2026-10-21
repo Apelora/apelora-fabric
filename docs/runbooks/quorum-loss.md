@@ -28,7 +28,7 @@ change to the cluster; the instances keep running.
 2. The database regains quorum as soon as a majority is back: on the test cluster the API
    answered again and all members were Online within 10 s of the two members booting, with the
    same roles as before.
-3. Check: Fabric Console → Membership lists every member Online; Preflight passes; Operations
+3. Check: Fabric Console → Servers → Members lists every member Online and the cluster database as *Majority safe*; Preflight passes; Operations
    shows queued jobs completing. The supervisor resumes on its next pass.
 
 ## Permanent loss (the members will not come back) — NOT YET VERIFIED

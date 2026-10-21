@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { member as serverMember, members as serverMembers } from "./servers-fixtures";
+
 // The console must report the control plane, Incus and the data's origin honestly: never
 // "connected" or unlabelled data unless the API says it came from Incus.
 type Provider = "mock" | "incus";
@@ -430,13 +432,13 @@ test.describe("fabric console views", () => {
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
-      "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), ...(gone ? [] : [member("node-4", "Evacuated")])] } }),
+      "GET /api/v1/cluster/members": () => ({ json: serverMembers({ members: [serverMember("node-1"), ...(gone ? [] : [serverMember("node-4", { status: "Evacuated" })])] }) }),
       "GET /api/v1/cluster/members/node-4/removal": () => ({ json: { source: { provider: "incus", observedAt: now }, plan: {
         member: "node-4", status: "Evacuated", instances: blocked.length ? ["apelora/shop-db-01"] : [], volumes: [], blocked,
         warnings: ["to use the server again, reinstall it and enrol it as a new machine"] } } }),
       "POST /api/v1/cluster/members/node-4/remove": (req) => { sent.push(req.postDataJSON()); gone = true; return { status: 204 }; },
     });
-    await page.goto("/#/membership");
+    await page.goto("/#/servers/members");
     await page.getByRole("button", { name: "Remove node-4 from the cluster" }).click();
     const dialog = page.getByTestId("remove-member-dialog");
     await expect(dialog.getByTestId("removal-blocked")).toContainText("Cannot remove: 1 instance is still on it");
@@ -451,8 +453,8 @@ test.describe("fabric console views", () => {
     await expect(dialog.getByTestId("remove-member-start")).toBeDisabled();
     await dialog.getByTestId("remove-member-confirm").fill("node-4");
     await dialog.getByTestId("remove-member-start").click();
-    await expect(page.getByTestId("membership-notice")).toContainText("node-4 was removed from the cluster");
-    await expect(page.getByTestId("membership-member")).toHaveCount(1);
+    await expect(page.getByTestId("servers-notice")).toContainText("node-4 was removed from the cluster");
+    await expect(page.getByTestId("server-member")).toHaveCount(1);
     expect(sent).toEqual([{ confirm: "node-4" }]);
   });
 
@@ -472,13 +474,13 @@ test.describe("fabric console views", () => {
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
       "GET /api/v1/cluster/join-tokens": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
-      "GET /api/v1/cluster": () => ({ json: { ...cluster("incus", ["node-1"]), members: [member("node-1"), member("node-2", status)] } }),
+      "GET /api/v1/cluster/members": () => ({ json: serverMembers({ members: [serverMember("node-1"), serverMember("node-2", { status })] }) }),
       "GET /api/v1/cluster/members/node-2/evacuation": () => ({ json: plan(blocked) }),
       "POST /api/v1/cluster/members/node-2/evacuate": (req) => { sent.push({ path: "evacuate", body: req.postDataJSON() }); status = "Evacuated"; return { status: 202, json: { member: "node-2", operation: "op-1" } }; },
       "POST /api/v1/cluster/members/node-2/restore": (req) => { sent.push({ path: "restore", body: req.postDataJSON() }); status = "Online"; return { status: 202, json: { member: "node-2", operation: "op-2" } }; },
     });
-    await page.goto("/#/membership");
-    await expect(page.getByTestId("membership-member")).toHaveCount(2);
+    await page.goto("/#/servers/members");
+    await expect(page.getByTestId("server-member")).toHaveCount(2);
 
     // Blocked: explained, and nothing can be confirmed.
     blocked = ["no other online member can take its instances"];
@@ -500,18 +502,18 @@ test.describe("fabric console views", () => {
     await expect(dialog.getByTestId("evacuate-start")).toBeDisabled();
     await dialog.getByTestId("evacuate-confirm").fill("node-2");
     await dialog.getByTestId("evacuate-start").click();
-    await expect(page.getByTestId("membership-notice")).toContainText("Evacuating node-2");
+    await expect(page.getByTestId("servers-notice")).toContainText("Evacuating node-2");
     await expect(page.getByTestId("restore-member")).toHaveCount(1);
 
     await page.getByTestId("restore-member").click();
     const open = page.locator("dialog[open]");
     await open.getByTestId("confirm-input").fill("node-2");
     await open.getByTestId("confirm-action").click();
-    await expect(page.getByTestId("membership-notice")).toContainText("Restoring node-2");
+    await expect(page.getByTestId("servers-notice")).toContainText("Restoring node-2");
     expect(sent).toEqual([{ path: "evacuate", body: { confirm: "node-2" } }, { path: "restore", body: { confirm: "node-2" } }]);
   });
 
-  test("operators are not offered membership, the audit log or token administration", async ({ page }) => {
+  test("operators are not offered machine enrolment, the audit log or token administration", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
@@ -519,12 +521,14 @@ test.describe("fabric console views", () => {
     });
     await page.goto("/#/membership");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Applications", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Servers", "Applications", "Instances", "Operations", "Networks", "Storage", "Administration"]);
+    // The old enrolment address leads to Servers, without the machines tab.
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Servers");
+    await expect(page.getByRole("navigation", { name: "Servers" }).getByRole("link", { name: "Machines and join tokens" })).toHaveCount(0);
     await expect(page.getByTestId("whoami")).toHaveText("alex · operator");
   });
 
-  test("preflight, networks and storage, and the audit log show what the API returns", async ({ page }) => {
+  test("preflight, networks, storage and the audit log show what the API returns", async ({ page }) => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
@@ -546,9 +550,11 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("preflight-overall")).toContainText("need attention");
     await expect(page.getByTestId("preflight-check").nth(2)).toContainText("Not checked");
     await page.goto("/#/infrastructure");
-    await expect(page.getByTestId("project-row")).toContainText("Yes");
+    await expect(page).toHaveURL(/#\/networks$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Networks/);
     await expect(page.getByTestId("network-row")).toHaveCount(1);
     await expect(page.getByText("1 host interfaces not managed by Incus are not shown.")).toBeVisible();
+    await page.goto("/#/storage");
     await expect(page.getByTestId("pool-row")).toContainText("btrfs");
     await page.goto("/#/audit");
     await expect(page.getByTestId("audit-row")).toContainText("Cluster join token created");
@@ -714,7 +720,7 @@ test.describe("fabric console views", () => {
       "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster": () => ({ json: cluster("incus", ["node-1", "node-2"]) }),
     });
-    for (const view of ["instances", "membership"]) {
+    for (const view of ["instances", "servers/machines"]) {
       await page.goto(`/#/${view}`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
       await expect(page.locator(".btn-primary:visible")).toHaveCount(1);
@@ -854,10 +860,7 @@ test.describe("fabric console operations and administration", () => {
     });
     await page.goto("/#/administration");
     await expect(page.getByTestId("system")).toContainText("7.0.3 (7.0 LTS series) · running 7.0.2 differs");
-    await expect(page.getByTestId("certificate-row")).toHaveCount(2);
-    await expect(page.getByTestId("certificate-row").first()).toContainText("Deploy identity certificate");
-    await expect(page.getByTestId("certificate-row").first()).toContainText("12 days left: rotate it soon");
-    await expect(page.getByTestId("certificate-row").nth(1)).toContainText("3650 days left");
+    await expect(page.getByTestId("certificate-row")).toHaveCount(0);
     await page.getByTestId("token-open").click();
     await page.getByTestId("token-name").fill("ci");
     await page.getByTestId("token-role").selectOption("auditor");

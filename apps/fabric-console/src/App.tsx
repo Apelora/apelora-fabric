@@ -8,11 +8,10 @@ import { AdministrationView } from "./views/Administration";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
 import { HealthView } from "./views/Health";
-import { InfrastructureView } from "./views/Infrastructure";
+import { NetworksView, StorageView } from "./views/Infrastructure";
 import { InstancesView } from "./views/Instances";
-import { MembershipView } from "./views/Membership";
 import { OperationsView } from "./views/Operations";
-import { PreflightView } from "./views/Preflight";
+import { ServersView, isServerTab, type ServerTab } from "./views/servers/Servers";
 import { UserMenu } from "./views/Account";
 import { SetPasswordPage, setupTokenFromHash } from "./views/SetPassword";
 import { SignInPage, type SignInReason } from "./views/SignIn";
@@ -25,32 +24,75 @@ import { JobDetailView } from "./views/JobDetail";
 
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
 
-/** Views, in navigation order. A view whose permission the caller lacks is not offered. */
+/** Views, in navigation order; `group` puts a view under a heading. A view whose permission the caller lacks is not offered. */
 const VIEWS = [
   { id: "overview", label: "Overview" },
   { id: "health", label: "Health", needs: "read-inventory" as Permission },
-  { id: "applications", label: "Applications" },
-  { id: "instances", label: "Instances" },
-  { id: "operations", label: "Operations" },
-  { id: "preflight", label: "Preflight" },
-  { id: "infrastructure", label: "Networks & storage" },
-  { id: "membership", label: "Membership", needs: "manage-infrastructure" as Permission },
-  { id: "audit", label: "Audit log", needs: "read-audit" as Permission },
+  { id: "servers", label: "Servers", needs: "read-inventory" as Permission },
+  { id: "applications", label: "Applications", group: "Workloads" },
+  { id: "instances", label: "Instances", group: "Workloads" },
+  { id: "operations", label: "Operations", group: "Workloads" },
+  { id: "networks", label: "Networks", needs: "read-inventory" as Permission },
+  { id: "storage", label: "Storage", needs: "read-inventory" as Permission },
+  // Identity & Access pages come here (their own group, see navSections).
+  { id: "audit", label: "Audit", needs: "read-audit" as Permission },
   { id: "administration", label: "Administration" },
 ] as const;
 type CoreViewId = (typeof VIEWS)[number]["id"];
 type ViewId = CoreViewId | IdentityPageId;
 /** Views with one section use that section's header as their page title; Identity & Access pages carry their own. */
-const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "preflight", "audit", ...IDENTITY_PAGES.map((p) => p.id)]);
+const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations", "networks", "storage", "audit", ...IDENTITY_PAGES.map((p) => p.id)]);
 const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label;
 
-const viewFromHash = (): ViewId => {
-  const detail = detailView(window.location.hash);
-  if (detail) return detail;
-  const id = window.location.hash.replace(/^#\/?/, "").replace(/\?.*$/, "");
-  if (isIdentityPage(id)) return id;
-  return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
+/** Addresses from before the navigation was regrouped, and where they live now. */
+const MOVED: Record<string, string> = {
+  membership: "servers/machines",
+  preflight: "servers/preflight",
+  infrastructure: "networks",
 };
+
+/** The view, the Servers tab, and the whole address (detail pages under a view read it). */
+type Route = { view: ViewId; tab: ServerTab; hash: string };
+
+/** The view (and Servers tab) the address names; an old address is rewritten in place first. */
+const routeFromHash = (): Route => {
+  let path = window.location.hash.replace(/^#\/?/, "");
+  const moved = MOVED[path.split("/")[0] ?? ""];
+  if (moved) {
+    path = moved;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/${moved}`);
+  }
+  const hash = window.location.hash;
+  // Detail pages under a view (`#/instances/{project}/{name}`, `#/operations/{id}`).
+  const detail = detailView(hash);
+  if (detail) return { view: detail, tab: "members", hash };
+  // A view may keep its filters after `?` (Audit).
+  path = path.replace(/\?.*$/, "");
+  // Identity & Access pages carry their own slash (`identity/users`).
+  if (isIdentityPage(path)) return { view: path, tab: "members", hash };
+  const [id, sub] = path.split("/");
+  const tab: ServerTab = isServerTab(sub) ? sub : "members";
+  return { view: (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId, tab, hash };
+};
+
+type NavView = { id: ViewId; label: string; group?: string };
+const IDENTITY_GROUP = "Identity & Access";
+/** Consecutive views of one group share a heading; Identity & Access comes before Audit and Administration. */
+function navSections(views: readonly NavView[], identity: readonly NavView[]) {
+  const out: { group?: string; items: NavView[] }[] = [];
+  let placed = identity.length === 0;
+  for (const v of views) {
+    if (!placed && (v.id === "audit" || v.id === "administration")) {
+      out.push({ group: IDENTITY_GROUP, items: [...identity] });
+      placed = true;
+    }
+    const last = out[out.length - 1];
+    if (last && last.group === v.group) last.items.push(v);
+    else out.push({ group: v.group, items: [v] });
+  }
+  if (!placed) out.push({ group: IDENTITY_GROUP, items: [...identity] });
+  return out;
+}
 
 /** The cluster members. Also reports what it loaded: the Incus version, or why Incus cannot be reached (signed-in detail the public health check does not give). */
 function Members({ onAuth, onLoad }: { onAuth: (m: string) => void; onLoad: (state: Load<ClusterResponse>) => void }) {
@@ -100,9 +142,8 @@ export function App() {
   // The token in hand came from the identity provider just now: a refusal is not "session ended".
   const fromProvider = useRef(false);
   const [me, setMe] = useState<WhoAmI | null>(null);
-  const [view, setView] = useState<ViewId>(viewFromHash);
-  // The whole hash, for detail pages under a view (`#/instances/{project}/{name}`, `#/operations/{id}`).
-  const [route, setRoute] = useState(() => window.location.hash);
+  const [route, setRoute] = useState<Route>(routeFromHash);
+  const view = route.view;
   // `#/set-password?token=…`: a person choosing their password from a setup link.
   const [setupToken, setSetupToken] = useState(() => setupTokenFromHash(window.location.hash));
   const [attempt, setAttempt] = useState(0);
@@ -110,7 +151,7 @@ export function App() {
   const [clusterLoad, setClusterLoad] = useState<Load<ClusterResponse> | null>(null);
 
   useEffect(() => {
-    const onHash = () => { setView(viewFromHash()); setRoute(window.location.hash); setSetupToken(setupTokenFromHash(window.location.hash)); };
+    const onHash = () => { setRoute(routeFromHash()); setSetupToken(setupTokenFromHash(window.location.hash)); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -151,7 +192,7 @@ export function App() {
     finishOidcSignIn()
       .then((r) => {
         window.history.replaceState(null, "", `${window.location.pathname}${r?.returnTo ?? ""}`);
-        setView(viewFromHash()); // replaceState fires no hashchange
+        setRoute(routeFromHash()); // replaceState fires no hashchange
         if (r) { writeToken(r.token); fromProvider.current = true; }
         setReturning(false);
       })
@@ -214,7 +255,7 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-base-100 text-base-content">
-      <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-base-300 px-4">
+      <header className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-base-300 px-4">
         <div className="flex min-w-0 items-center gap-3">
           <img src="/logo.svg" alt="" className="size-6" />
           <span className="whitespace-nowrap text-sm font-semibold">Apelora Fabric Console</span>
@@ -225,26 +266,28 @@ export function App() {
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {ready && (
-          <nav aria-label="Console" className="shrink-0 border-b border-base-300 md:w-56 md:overflow-y-auto md:border-r md:border-b-0">
-            <ul className="menu menu-horizontal menu-sm w-full flex-wrap md:menu-vertical md:flex-nowrap md:gap-0.5 md:p-2">
-              {views.map((v) => (
-                <li key={v.id}>
-                  <a href={`#/${v.id}`} aria-current={current === v.id ? "page" : undefined} className={current === v.id ? "menu-active" : undefined}>{v.label}</a>
-                </li>
-              ))}
-            </ul>
-            {identityViews.length > 0 && (
-              <div role="group" aria-labelledby="nav-identity" data-testid="nav-identity">
-                <p id="nav-identity" className="px-4 pt-2 text-xs font-semibold uppercase tracking-wide text-base-content/70 md:px-6 md:pt-3">Identity &amp; Access</p>
-                <ul className="menu menu-horizontal menu-sm w-full flex-wrap md:menu-vertical md:flex-nowrap md:gap-0.5 md:p-2">
-                  {identityViews.map((p) => (
-                    <li key={p.id}>
-                      <a href={`#/${p.id}`} aria-current={current === p.id ? "page" : undefined} className={current === p.id ? "menu-active" : undefined}>{p.label}</a>
+          // Phones: one wrapping row of links (group names for screen readers only); from `md` a sidebar
+          // with the groups' links indented under their headings.
+          <nav aria-label="Console" className="flex shrink-0 flex-wrap items-center border-b border-base-300 px-2 py-1 md:block md:w-56 md:overflow-y-auto md:border-r md:border-b-0 md:px-0 md:py-2">
+            {navSections(views, identityViews).map((section, i) => {
+              const list = (
+                <ul className={`menu menu-horizontal menu-sm flex-wrap p-0 md:w-full md:menu-vertical md:flex-nowrap md:gap-0.5 md:px-2 max-md:contents ${section.group ? "md:pl-4" : ""}`}>
+                  {section.items.map((v) => (
+                    <li key={v.id}>
+                      <a href={`#/${v.id}`} aria-current={current === v.id ? "page" : undefined} className={current === v.id ? "menu-active" : undefined}>{v.label}</a>
                     </li>
                   ))}
                 </ul>
-              </div>
-            )}
+              );
+              if (!section.group) return <div key={`top-${i}`} className="contents md:block">{list}</div>;
+              const id = `nav-${section.group.toLowerCase().replace(/[^a-z]+/g, "-")}`;
+              return (
+                <div key={id} role="group" aria-labelledby={id} data-testid={section.group === IDENTITY_GROUP ? "nav-identity" : id} className="max-md:contents md:block md:pt-2">
+                  <p id={id} className="pr-1 pl-3 text-xs font-semibold uppercase tracking-wide text-base-content/70 max-md:sr-only md:px-4 md:pt-1 md:pb-1">{section.group}</p>
+                  {list}
+                </div>
+              );
+            })}
           </nav>
         )}
 
@@ -287,15 +330,15 @@ export function App() {
                 {current === "health" && <HealthView onAuth={onAuth} />}
                 {current === "applications" && <ApplicationsView me={me} onAuth={onAuth} />}
                 {current === "instances" && (() => {
-                  const r = instanceRoute(route);
-                  return r ? <InstanceDetailView key={route} project={r.project} name={r.name} me={me} onAuth={onAuth} /> : <InstancesView me={me} onAuth={onAuth} />;
+                  const r = instanceRoute(route.hash);
+                  return r ? <InstanceDetailView key={route.hash} project={r.project} name={r.name} me={me} onAuth={onAuth} /> : <InstancesView me={me} onAuth={onAuth} />;
                 })()}
-                {current === "preflight" && <PreflightView onAuth={onAuth} />}
-                {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}
-                {current === "membership" && <MembershipView onAuth={onAuth} />}
+                {current === "servers" && <ServersView tab={route.tab} me={me} onAuth={onAuth} />}
+                {current === "networks" && <NetworksView onAuth={onAuth} />}
+                {current === "storage" && <StorageView onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
                 {current === "operations" && (() => {
-                  const id = jobRoute(route);
+                  const id = jobRoute(route.hash);
                   return id ? <JobDetailView key={id} id={id} onAuth={onAuth} /> : <OperationsView onAuth={onAuth} />;
                 })()}
                 {current === "administration" && <AdministrationView me={me} onAuth={onAuth} />}

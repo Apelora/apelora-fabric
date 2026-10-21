@@ -1,7 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { addPorts, node, open, openProps } from "./helpers";
 import { ME, base, health, stub, uid } from "./identity-fixtures";
-import { capacity, degraded, healthy, servers, troubledServers } from "./health-fixtures";
+import { capacity, degraded, healthy, server as healthServer, servers, troubledServers } from "./health-fixtures";
+import { atRiskQuorum, groups as serverGroups, members as serverMembers, mixedBlocked, settings as serverSettings } from "./servers-fixtures";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 test.skip(!process.env.SCREENSHOTS, "screenshots are generated on demand");
@@ -289,5 +290,61 @@ test.describe("phone health", () => {
     await expect(page.getByTestId("server-card")).toHaveCount(3);
     await settled(page);
     await page.screenshot({ path: "docs/screenshots/29-console-health-phone-390x844.png" });
+  });
+});
+
+// Servers area with stubbed data (servers-fixtures.ts: the test cluster's layout, made-up numbers).
+const serversStub = async (page: Page, report = serverMembers()) => {
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = ({
+      "/api/v1/health": incusHealth, "/api/v1/whoami": healthAdmin, "/api/v1/cluster/members": report, "/api/v1/cluster/groups": serverGroups(),
+      "/api/v1/cluster/settings": serverSettings(),
+      "/api/v1/health/servers": servers("incus", ["node-1", "node-2", "node-3", "node-4"].map((n) => healthServer(n))),
+    } as Record<string, unknown>)[path];
+    return json ? route.fulfill({ json }) : route.abort();
+  });
+};
+
+for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
+  test(`console servers screenshots ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await serversStub(page);
+    await page.goto(`${CONSOLE}/#/servers/members`);
+    await expect(page.getByTestId("server-member")).toHaveCount(4);
+    await expect(page.getByTestId("server-member").first()).toContainText("Memory");
+    await fullHeight(page, w, h);
+    await settled(page);
+    await page.screenshot({ path: `docs/screenshots/31-console-servers-members-${w}x${h}.png` });
+  });
+}
+
+test("console servers upgrades and settings screenshots 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await serversStub(page, serverMembers({ quorum: atRiskQuorum, versions: mixedBlocked }));
+  await page.goto(`${CONSOLE}/#/servers/upgrades`);
+  await expect(page.getByTestId("version-group")).toHaveCount(2);
+  await fullHeight(page, 1440, 900);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/32-console-servers-upgrades-1440x900.png" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${CONSOLE}/#/servers/settings`);
+  await expect(page.getByTestId("cluster-setting")).toHaveCount(4);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/33-console-servers-settings-1440x900.png" });
+});
+
+test.describe("phone servers", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  test("console servers screenshot 390x844", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await serversStub(page, serverMembers({ quorum: atRiskQuorum }));
+    await page.goto(`${CONSOLE}/#/servers/members`);
+    await expect(page.getByTestId("server-member")).toHaveCount(4);
+    await page.evaluate(() => document.querySelector("[data-testid=server-tabs]")?.scrollIntoView());
+    await settled(page);
+    await page.screenshot({ path: "docs/screenshots/34-console-servers-phone-390x844.png" });
   });
 });

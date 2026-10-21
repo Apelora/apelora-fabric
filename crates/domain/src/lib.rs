@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod access;
 pub mod capacity;
+pub mod clustering;
 pub mod enrolment;
 pub mod evacuation;
 pub mod health;

@@ -38,8 +38,8 @@ test.describe("navigation", () => {
     await stub(page, { ...base(me), "GET /api/v1/cluster": cluster });
     await page.goto("/");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link", { name: "Membership", exact: true })).toBeVisible();
-    await expect(nav.getByRole("link", { name: "Audit log" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Servers", exact: true })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "Audit", exact: true })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Service identities" })).toBeVisible();
     await nav.getByRole("link", { name: "Users" }).click();
     await expect(page).toHaveURL(/#\/identity\/users$/);

@@ -20,7 +20,7 @@ Priorities:
 |---|---|---|
 | Overview | service status, members | "needs attention": failed jobs, waiting approvals, expiring certificates, open alerts (P1); recent changes (P2); capacity (IP) |
 | Health | — | per-component health, worker heartbeats, queue, member resources (IP); history and objectives (P2) |
-| Servers and clustering | member list; evacuate and restore with a dry run; remove; enrolment, admission and join tokens (REAL INCUS TESTED) | database roles, leader and quorum (P0); rolling upgrade with a version-skew check (P0); member detail (P1); cluster groups and failure domains (P1); cluster settings: offline and healing thresholds (P1); certificate rotation (P1) |
+| Servers and clustering | Servers area (B, 2026-10-21): members with database role, leader and quorum, failure domain, groups, Incus release and capacity; evacuate, restore and remove with a dry run; enrolment, admission and join tokens; cluster groups; cluster settings read-only with defaults; certificate expiry; version skew against the pin with upgrade blockers and the written rolling procedure (read-only API REAL INCUS TESTED; Console MOCK VERIFIED) | changing cluster settings with an approval (P1); an upgrade assistant that walks the rolling procedure member by member (P0); member detail (P1); certificate rotation (P1) |
 | Instances | list, deploy, start/stop, delete, move with a dry run; terminal (MOCK VERIFIED); detail page `#/instances/{project}/{name}` with restart, resources, addresses, disks, snapshots, recent jobs (B); instance and console logs, last 1–1024 KiB (B; MOCK and CONTRACT VERIFIED, real logs not yet read: the lab had no instances) | resize (P1); snapshots of a whole instance (P2); terminal (U) |
 | Applications | list, status, port checks, service addresses, volumes | start/restart/stop, versions, drafts and events in the Console (U, P1); archive and restore (A) |
 | Operations | job list; retry (a new linked job) and cancel at safe points (B); job detail `#/operations/{id}` with attempts, timings, request id, Incus operations, who queued it and linked jobs (B) | filters and paging (P1) |
@@ -31,7 +31,7 @@ Priorities:
 | Tenancy | organisations, projects, environments | create the environment's restricted Incus project with limits (P1); quotas (P1); delete and rename (P2) |
 | Identity and access | users, groups, roles, custom roles, assignments with preview, service identities, policies, approvals, emergency access, sign-in providers | local accounts, sign-out, change password (IP); directory sign-in (IP); personal tokens bound to a person (P1); token rotation (P1); a person's active sign-ins (P1); access-review export (P2) |
 | Audit | search by action and outcome, paged; filters by actor, target and time, kept in the page address; export as CSV or JSON lines, itself audited (built 2026-10-21) | retention and archive (P1) |
-| Debugging | request ids; preflight | log lookup by request id (P1); support bundle (P1) |
+| Debugging | request ids; preflight (now Servers → Preflight) | log lookup by request id (P1); support bundle (P1) |
 | Security | certificate expiry | TLS on the API (P0); security headers (P0); rate limits on public routes (P0); a security-posture page (P1) |
 | Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`); effective settings (P1); licence notices (P1) |
 | Terminal | Studio sessions; Console: Terminal… on Instances and Applications, production approval in the dialog, Sessions page with End session and history from the audit trail (MOCK and CONTRACT VERIFIED; [guide](../guides/terminal-sessions.md)) | run against real Incus (P0); recording, opt-in (P2) |
@@ -77,15 +77,15 @@ Packages in one wave touch different files and can be built in parallel.
 - S4 audit integrity (done): audit in the same transaction; `TRUNCATE` blocked; a structural test that every state-changing route audits or is listed as exempt; the outbox and its relay.
 
 **Wave 1 — operations core:**
-- Navigation regrouped: Overview, Health, Servers, Workloads, Networks, Storage, Alerts, Identity & Access, Audit, Administration.
+- Navigation regrouped: Overview, Health, Servers, Workloads, Networks, Storage, Alerts, Identity & Access, Audit, Administration. **Done (B, 2026-10-21)**, without Alerts until there is something to show; old addresses lead to the new places.
 - Audit filters and export (done): actor, target, action, outcome, from and to in the URL; CSV or JSON lines, audited as `audit.exported`.
 - Job detail, retry and cancel (built).
 - Instance detail with logs and restart (built).
 
 **Wave 2 — clustering and infrastructure:**
-- Servers area: members with database roles and quorum, groups, settings with approvals, upgrades, certificates.
-- Upgrade assistant.
-- Networks page (read-only first).
+- Servers area: members with database roles and quorum, groups, settings with approvals, upgrades, certificates. **Built read-only (B, 2026-10-21)**; settings changed with an approval are still to come.
+- Upgrade assistant. Version skew, blockers and the written procedure are on Servers → Upgrades ([runbook](../runbooks/incus-rolling-upgrade.md)); the step-by-step assistant is not built.
+- Networks page (read-only first). A Networks page lists the managed Incus networks; per-application networks and rules are not built.
 - Storage page with backups, restore from backup, schedules and orphans.
 
 **Wave 3 — alerts, terminal, identity:**

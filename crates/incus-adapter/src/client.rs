@@ -345,6 +345,7 @@ pub fn endpoint_template(path: &str) -> String {
         "images",
         "profiles",
         "warnings",
+        "groups",
     ];
     /// Fixed segments that do not name an object.
     const FIXED: &[&str] = &[
@@ -361,6 +362,8 @@ pub fn endpoint_template(path: &str) -> String {
         "console",
         "logs",
         "files",
+        "metadata",
+        "configuration",
     ];
     let base = path.split('?').next().unwrap_or("");
     let mut out = String::new();
@@ -380,6 +383,31 @@ pub fn endpoint_template(path: &str) -> String {
         }
     }
     if out.is_empty() { "/".into() } else { out }
+}
+
+/// The server-configuration defaults in a `/1.0/metadata/configuration` answer:
+/// `configs.server.<section>.keys[]`, each `{ "<key>": { "defaultdesc": "`20`", … } }`.
+pub(crate) fn config_defaults_from(meta: &Value) -> std::collections::BTreeMap<String, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let Some(sections) = meta.pointer("/configs/server").and_then(Value::as_object) else {
+        return out;
+    };
+    for section in sections.values() {
+        let Some(keys) = section.get("keys").and_then(Value::as_array) else {
+            continue;
+        };
+        for entry in keys.iter().filter_map(Value::as_object) {
+            for (key, about) in entry {
+                if let Some(d) = about.get("defaultdesc").and_then(Value::as_str) {
+                    let d = d.trim().trim_matches('`').trim();
+                    if !d.is_empty() {
+                        out.insert(key.clone(), d.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Counts one Incus request by endpoint template and outcome class (never the error text), and
@@ -1663,6 +1691,53 @@ impl IncusClient {
                     .unwrap_or_else(|| "all".into()),
             })
             .collect())
+    }
+
+    /// Cluster groups with their members (`GET /1.0/cluster/groups?recursion=1`).
+    pub async fn cluster_groups(
+        &self,
+    ) -> Result<Vec<apelora_domain::clustering::ClusterGroupInfo>, AdapterError> {
+        let groups: Vec<wire::ClusterGroup> = self.get("/1.0/cluster/groups?recursion=1").await?;
+        Ok(groups
+            .into_iter()
+            .map(|g| apelora_domain::clustering::ClusterGroupInfo {
+                name: g.name,
+                description: g.description,
+                members: g.members.unwrap_or_default(),
+            })
+            .collect())
+    }
+
+    /// The values of `keys` in the server configuration (`GET /1.0`); keys that are not set
+    /// are absent. Only an unrestricted identity sees the configuration. Nothing outside
+    /// `keys` is returned: the configuration also holds secrets.
+    pub async fn server_config(
+        &self,
+        keys: &[&str],
+    ) -> Result<std::collections::BTreeMap<String, String>, AdapterError> {
+        let s: wire::ServerConfig = self.get("/1.0").await?;
+        Ok(s.config
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(k, _)| keys.contains(&k.as_str()))
+            .map(|(k, v)| {
+                let v = match v {
+                    Value::String(s) => s,
+                    other => other.to_string(),
+                };
+                (k, v)
+            })
+            .collect())
+    }
+
+    /// Incus's documented defaults for server configuration keys
+    /// (`GET /1.0/metadata/configuration`, readable by the restricted identity), with the
+    /// formatting marks removed: `` `20` `` becomes `20`.
+    pub async fn config_defaults(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, String>, AdapterError> {
+        let meta: Value = self.get("/1.0/metadata/configuration").await?;
+        Ok(config_defaults_from(&meta))
     }
 
     pub async fn instances(&self) -> Result<Vec<Instance>, AdapterError> {
