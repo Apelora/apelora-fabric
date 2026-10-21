@@ -162,6 +162,9 @@ fn effective(quotas: &[Option<QuotaLimits>; 3]) -> QuotaLimits {
 pub(super) struct Adding<'a> {
     pub config: &'a BTreeMap<String, String>,
     pub volume_mib: i64,
+    /// For a resize of an existing instance: the increase it brings, instead of a new
+    /// instance's whole use.
+    pub resize: Option<QuotaUsage>,
 }
 
 /// Checks a deployment into `environment` against the quotas above it. `None` when no quota
@@ -187,11 +190,10 @@ pub(super) async fn check_deployment(
     } else {
         0
     };
-    let add = QuotaUsage::sum(
-        adding
-            .iter()
-            .map(|a| t::instance_usage(a.config, a.volume_mib, root)),
-    );
+    let add = QuotaUsage::sum(adding.iter().map(|a| {
+        a.resize
+            .unwrap_or_else(|| t::instance_usage(a.config, a.volume_mib, root))
+    }));
     let scopes = [
         (
             QuotaScopeKind::Organization,

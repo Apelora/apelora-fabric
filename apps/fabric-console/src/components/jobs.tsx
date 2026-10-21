@@ -11,6 +11,7 @@ export const KIND: Record<string, string> = {
   "instance.stop": "Stop instance",
   "instance.delete": "Delete instance",
   "instance.restart": "Restart instance",
+  "instance.resize": "Change instance resources",
   "instance.move": "Move instance",
   "network.sync": "Apply network rules",
   "volume.backup": "Back up volume",

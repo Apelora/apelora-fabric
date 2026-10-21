@@ -520,15 +520,18 @@ pub(super) async fn preview(
     Ok(Json(p))
 }
 
-/// What the plan creates, per instance: its config and volume sizes (quota accounting).
+/// What the plan adds, per instance: a created instance's config and volume sizes, and the
+/// increase of a resized one's CPU and memory (quota accounting).
 fn creating<'a>(plan: &Plan, modules: &'a [DesiredModule]) -> Vec<super::tenancy::Adding<'a>> {
     plan.items
         .iter()
-        .filter(|i| i.action == PlanAction::Create)
-        .filter_map(|i| modules.iter().find(|d| d.module == i.module))
-        .map(|d| super::tenancy::Adding {
+        .filter(|i| matches!(i.action, PlanAction::Create | PlanAction::Resize))
+        .filter_map(|i| Some((i, modules.iter().find(|d| d.module == i.module)?)))
+        .map(|(i, d)| super::tenancy::Adding {
             config: &d.spec.config,
             volume_mib: d.spec.volumes.iter().map(|v| i64::from(v.size_mib)).sum(),
+            resize: (i.action == PlanAction::Resize)
+                .then(|| apelora_domain::tenancy::resize_usage(&i.changes)),
         })
         .collect()
 }
@@ -695,6 +698,16 @@ pub(super) async fn deploy(
                     serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?,
                 )
             }
+            PlanAction::Resize => (
+                "instance.resize",
+                json!({
+                    "project": req.project,
+                    "name": item.instance,
+                    "limits": item.changes.iter()
+                        .map(|c| (c.key.clone(), c.to.clone()))
+                        .collect::<std::collections::BTreeMap<_, _>>(),
+                }),
+            ),
             PlanAction::Remove if req.remove_missing => (
                 "instance.delete",
                 json!({ "project": req.project, "name": item.instance }),
@@ -801,6 +814,7 @@ pub(super) async fn deploy(
                 "revision": revision_no,
                 "create": applied.count(PlanAction::Create),
                 "keep": applied.count(PlanAction::Keep),
+                "resize": applied.count(PlanAction::Resize),
                 "remove": if req.remove_missing { applied.count(PlanAction::Remove) } else { 0 },
                 "role": p.role,
             }),

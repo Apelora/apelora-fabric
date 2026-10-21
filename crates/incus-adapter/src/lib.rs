@@ -76,6 +76,8 @@ pub struct InstanceState {
     pub kind: InstanceKind,
     /// `migration.stateful=true`: a VM can move while running.
     pub stateful: bool,
+    /// The resource limits set on the instance itself (`apelora_domain::plan::RESIZABLE_KEYS`).
+    pub limits: std::collections::BTreeMap<String, String>,
 }
 
 /// A snapshot of a volume.
@@ -433,6 +435,7 @@ impl Provider {
                 volume_devices: i.volume_devices.clone(),
                 kind: i.instance.kind,
                 stateful: i.stateful,
+                limits: i.instance.limits.clone(),
             })),
             Provider::Incus(c) => c.instance(project, name).await,
         }
@@ -527,6 +530,47 @@ impl Provider {
         match self {
             Provider::Mock(m) => m.create(&spec),
             Provider::Incus(c) => c.create_instance(&spec).await,
+        }
+    }
+
+    /// Changes an Apelora-owned instance's resource limits in place and returns the operation:
+    /// `Some` sets a limit, `None` removes it so none applies. Only the keys in
+    /// `apelora_domain::plan::RESIZABLE_KEYS` with plain values are accepted; nothing else on
+    /// the instance can be changed through this call.
+    pub async fn set_instance_limits(
+        &self,
+        project: &str,
+        name: &str,
+        changes: &std::collections::BTreeMap<String, Option<String>>,
+    ) -> Result<String, AdapterError> {
+        let config = client::limits_body(changes)?;
+        match self {
+            Provider::Mock(m) => {
+                let mut all = m.lock();
+                let i = all
+                    .iter_mut()
+                    .find(|i| i.instance.project == project && i.instance.name == name)
+                    .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                if !i.instance.managed {
+                    return Err(AdapterError::Api {
+                        status: 409,
+                        message: "the instance is not managed by Apelora".into(),
+                    });
+                }
+                for (k, v) in config {
+                    match v.as_str().filter(|v| !v.is_empty()) {
+                        Some(v) => {
+                            i.instance.limits.insert(k, v.to_owned());
+                        }
+                        None => {
+                            i.instance.limits.remove(&k);
+                        }
+                    }
+                }
+                drop(all);
+                Ok(m.op())
+            }
+            Provider::Incus(c) => c.set_instance_limits(project, name, config).await,
         }
     }
 
@@ -2345,6 +2389,10 @@ impl MockIncus {
                 owner: spec.owner.clone(),
                 evacuate: spec.config.get("cluster.evacuate").cloned(),
                 unreachable: false,
+                limits: apelora_domain::plan::RESIZABLE_KEYS
+                    .iter()
+                    .filter_map(|k| spec.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
+                    .collect(),
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
@@ -2673,6 +2721,7 @@ impl Default for MockIncus {
             owner: None,
             evacuate: None,
             unreachable: false,
+            limits: Default::default(),
         };
         Self {
             server: ServerInfo {

@@ -661,6 +661,7 @@ async fn reads_ownership_and_reports_failed_operations() {
             volume_devices: Vec::new(),
             kind: InstanceKind::Unknown,
             stateful: false,
+            limits: Default::default(),
         }))
     );
     assert_eq!(
@@ -729,6 +730,7 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
             volume_devices: Vec::new(),
             kind: InstanceKind::Container,
             stateful: false,
+            limits: std::collections::BTreeMap::from([("limits.cpu".to_owned(), "1".to_owned())]),
         }))
     );
     assert_eq!(
@@ -1371,4 +1373,143 @@ async fn the_mock_runs_nothing_and_answers_as_told() {
         Some("no such file")
     );
     assert_eq!(mock.probes_run.lock().expect("lock").len(), 4);
+}
+
+#[tokio::test]
+async fn an_instances_limits_are_read_and_changed_in_place_with_only_the_resizable_keys() {
+    let (base, seen) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            sync(json!({ "name": "web-01", "status": "Running", "architecture": "x86_64",
+                "config": { "user.apelora.managed": "true", "limits.cpu": "1", "limits.memory": "512MiB", "limits.cpu.allowance": "50ms/100ms", "user.other": "x" } })),
+        ),
+        ("PATCH /1.0/instances/web-01?project=apelora", accepted()),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let now = p
+        .instance("apelora", "web-01")
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        now.limits,
+        std::collections::BTreeMap::from([
+            ("limits.cpu".to_owned(), "1".to_owned()),
+            ("limits.cpu.allowance".to_owned(), "50ms/100ms".to_owned()),
+            ("limits.memory".to_owned(), "512MiB".to_owned()),
+        ]),
+        "only the limits Apelora writes, never other config"
+    );
+    let changes = std::collections::BTreeMap::from([
+        ("limits.memory".to_owned(), Some("1024MiB".to_owned())),
+        ("limits.cpu.allowance".to_owned(), None),
+    ]);
+    let op = p
+        .set_instance_limits("apelora", "web-01", &changes)
+        .await
+        .expect("patched");
+    assert_eq!(op, OP);
+    let seen = seen.lock().expect("log");
+    let patch = seen
+        .iter()
+        .find(|(k, _)| k.starts_with("PATCH"))
+        .expect("patch call");
+    assert_eq!(
+        patch.1,
+        json!({ "config": { "limits.memory": "1024MiB", "limits.cpu.allowance": "" } }),
+        "a removed limit is sent empty; nothing else is sent"
+    );
+}
+
+#[tokio::test]
+async fn limits_outside_the_resizable_keys_or_not_plain_values_never_reach_incus() {
+    let (base, seen) = recording_server(vec![
+        ("GET /1.0/instances/web-01?project=apelora", sync(json!({ "name": "web-01", "status": "Running", "config": { "user.apelora.managed": "true" } }))),
+        ("GET /1.0/instances/theirs?project=apelora", sync(json!({ "name": "theirs", "status": "Running", "config": {} }))),
+        ("PATCH /1.0/instances/theirs?project=apelora", accepted()),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let one =
+        |k: &str, v: &str| std::collections::BTreeMap::from([(k.to_owned(), Some(v.to_owned()))]);
+    for bad in [
+        one("security.privileged", "true"),
+        one("raw.lxc", "x"),
+        one("user.apelora.managed", "false"),
+        one("limits.memory", "1GiB; reboot"),
+        one("limits.memory", &"9".repeat(40)),
+        std::collections::BTreeMap::new(),
+    ] {
+        let err = p
+            .set_instance_limits("apelora", "web-01", &bad)
+            .await
+            .expect_err("refused");
+        assert!(matches!(err, AdapterError::InvalidConfig(_)), "{err:?}");
+    }
+    // An instance Apelora does not own is not changed.
+    let err = p
+        .set_instance_limits("apelora", "theirs", &one("limits.cpu", "2"))
+        .await
+        .expect_err("refused");
+    assert!(
+        matches!(err, AdapterError::Api { status: 409, .. }),
+        "{err:?}"
+    );
+    assert!(
+        !seen
+            .lock()
+            .expect("log")
+            .iter()
+            .any(|(k, _)| k.starts_with("PATCH")),
+        "no change was sent"
+    );
+}
+
+#[tokio::test]
+async fn the_mock_changes_and_removes_limits_and_refuses_foreign_instances() {
+    let p = Provider::Mock(MockIncus::default());
+    let spec = oci_spec();
+    p.create_instance(&spec).await.expect("create");
+    let one = |k: &str, v: Option<&str>| {
+        std::collections::BTreeMap::from([(k.to_owned(), v.map(str::to_owned))])
+    };
+    p.set_instance_limits(
+        &spec.project,
+        &spec.name,
+        &one("limits.memory", Some("2GiB")),
+    )
+    .await
+    .expect("set");
+    let now = p
+        .instance(&spec.project, &spec.name)
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        now.limits.get("limits.memory").map(String::as_str),
+        Some("2GiB")
+    );
+    p.set_instance_limits(&spec.project, &spec.name, &one("limits.memory", None))
+        .await
+        .expect("unset");
+    let now = p
+        .instance(&spec.project, &spec.name)
+        .await
+        .expect("read")
+        .expect("exists");
+    assert!(!now.limits.contains_key("limits.memory"));
+    assert!(
+        matches!(
+            p.set_instance_limits("default", "mock-web-01", &one("limits.cpu", Some("2")))
+                .await,
+            Err(AdapterError::Api { status: 409, .. })
+        ),
+        "a seeded instance Apelora does not own"
+    );
+    assert!(matches!(
+        p.set_instance_limits(&spec.project, "nope", &one("limits.cpu", Some("2")))
+            .await,
+        Err(AdapterError::NotFound(_))
+    ));
 }

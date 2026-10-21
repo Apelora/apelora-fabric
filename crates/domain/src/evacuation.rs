@@ -247,6 +247,7 @@ mod tests {
             }),
             evacuate: None,
             unreachable: false,
+            limits: Default::default(),
         }
     }
 

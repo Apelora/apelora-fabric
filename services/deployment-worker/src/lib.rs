@@ -181,7 +181,7 @@ async fn run_claimed(
 /// Incus is still changing something on its behalf.
 ///
 /// The later safe points, per kind:
-/// - `instance.start|stop|restart|delete`: before each Incus change (`lifecycle`);
+/// - `instance.start|stop|restart|delete|resize`: before each Incus change (`lifecycle`);
 /// - `instance.create`: only before the instance exists; once created it gets its volumes and
 ///   is started, so a cancelled create never leaves a half-built instance;
 /// - `instance.move`: while the instance is still on its original member (started again there
@@ -464,6 +464,71 @@ mod tests {
             .await
             .expect("enqueue")
             .id()
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_resize_job_changes_an_instances_limits_in_place_and_repeating_it_changes_nothing(
+        pool: Pool,
+    ) {
+        let provider = mock();
+        let create = job(
+            &pool,
+            "instance.create",
+            json!({ "project": "apelora", "name": "web-01", "kind": "container",
+                    "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" },
+                    "config": { "limits.cpu": "1", "limits.memory": "512MiB", "limits.cpu.allowance": "50ms/100ms" },
+                    "start": true }),
+        )
+        .await;
+        drain(&pool, &provider).await;
+        assert_eq!(
+            get_job(&pool, create).await.expect("job").status,
+            "succeeded"
+        );
+        let payload = json!({ "project": "apelora", "name": "web-01",
+            "limits": { "limits.cpu": "2", "limits.memory": "1024MiB", "limits.cpu.allowance": null } });
+        let resize = job(&pool, "instance.resize", payload.clone()).await;
+        drain(&pool, &provider).await;
+        assert_eq!(
+            get_job(&pool, resize).await.expect("job").status,
+            "succeeded"
+        );
+        let now = provider
+            .instance("apelora", "web-01")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(now.status, "Running", "resizing does not stop it");
+        assert_eq!(
+            now.limits,
+            std::collections::BTreeMap::from([
+                ("limits.cpu".to_owned(), "2".to_owned()),
+                ("limits.memory".to_owned(), "1024MiB".to_owned())
+            ])
+        );
+        // The same job again, and one for an instance that is not there or not Apelora's.
+        let again = job(&pool, "instance.resize", payload).await;
+        let ghost = job(
+            &pool,
+            "instance.resize",
+            json!({ "project": "apelora", "name": "ghost", "limits": { "limits.cpu": "2" } }),
+        )
+        .await;
+        let foreign = job(
+            &pool,
+            "instance.resize",
+            json!({ "project": "default", "name": "mock-web-01", "limits": { "limits.cpu": "2" } }),
+        )
+        .await;
+        drain(&pool, &provider).await;
+        assert_eq!(
+            get_job(&pool, again).await.expect("job").status,
+            "succeeded"
+        );
+        for id in [ghost, foreign] {
+            let j = get_job(&pool, id).await.expect("job");
+            assert_eq!(j.status, "failed", "{:?}", j.last_error);
+        }
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

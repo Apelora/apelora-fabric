@@ -127,6 +127,10 @@ pub struct Instance {
     /// labels (and `managed`, `owner`) are unknown, not absent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unreachable: bool,
+    /// The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,
+    /// `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub limits: std::collections::BTreeMap<String, String>,
 }
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application

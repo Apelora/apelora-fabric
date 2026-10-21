@@ -618,6 +618,90 @@ async fn a_deployment_over_quota_is_refused_before_anything_is_saved_or_queued(p
     assert!(d["plan"]["quota"].is_null(), "no quota applies there: {d}");
 }
 
+/// Two modules with the given CPU limits.
+fn sized(project: &str, web: &str, db: &str) -> Value {
+    let mut web_m = module("web-01");
+    web_m["spec"]["config"] = json!({ "limits.cpu": web, "limits.memory": "1GiB" });
+    let mut db_m = module("db-01");
+    db_m["spec"]["config"] = json!({ "limits.cpu": db, "limits.memory": "1GiB" });
+    json!({ "project": project, "document": {}, "modules": [web_m, db_m] })
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn resizing_counts_only_the_increase_against_the_quota_and_queues_resize_jobs(pool: Pool) {
+    let l = lab(pool);
+    let w = world(&l).await;
+    let deploy = |body: Value| {
+        l.req(
+            "POST",
+            "/api/v1/applications/shop/deployments",
+            &w.admin,
+            Some(body),
+        )
+    };
+    let (s, d) = deploy(sized("acme-prod-live", "1", "1")).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{d}");
+    super::tests::drain(&l.pool, &l.state.provider).await;
+    let (s, _) = l
+        .req(
+            "PUT",
+            &format!("/api/v1/identity/quotas/organization/{}", w.acme),
+            &w.admin,
+            Some(json!({ "cpu": 3 })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK);
+    // Both modules to 2 CPUs adds 2 to the 2 in use: over the quota of 3, nothing queued.
+    let jobs_before: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&l.pool)
+        .await
+        .expect("jobs");
+    let (s, v) = deploy(sized("acme-prod-live", "2", "2")).await;
+    assert_eq!(
+        (s, v["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("quota_exceeded")),
+        "{v}"
+    );
+    let jobs: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&l.pool)
+        .await
+        .expect("jobs");
+    assert_eq!(jobs, jobs_before);
+    // One of them adds 1: within the quota, and one resize job is queued.
+    let (s, d) = deploy(sized("acme-prod-live", "2", "1")).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{d}");
+    let resize: Vec<&Value> = d["plan"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| i["action"] == "resize")
+        .collect();
+    assert_eq!(resize.len(), 1, "{d}");
+    assert_eq!(resize[0]["module"], "web-01");
+    assert_eq!(resize[0]["changes"][0]["to"], "2", "{d}");
+    assert_eq!(d["jobs"].as_array().expect("jobs").len(), 1, "{d}");
+    super::tests::drain(&l.pool, &l.state.provider).await;
+    let now = l
+        .state
+        .provider
+        .instance(
+            "acme-prod-live",
+            resize[0]["instance"].as_str().expect("instance"),
+        )
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(now.limits.get("limits.cpu").map(String::as_str), Some("2"));
+    // A decrease is never refused for quota and adds nothing.
+    let (s, d) = deploy(sized("acme-prod-live", "1", "1")).await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{d}");
+    assert_eq!(
+        actions(&l, "application.deploy.requested").await.len(),
+        3,
+        "every accepted deployment is audited, a refused one is not"
+    );
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn a_limit_incus_refuses_leaves_the_quota_in_force_and_says_why(pool: Pool) {
     let l = lab(pool);

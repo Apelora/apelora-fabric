@@ -133,6 +133,34 @@ fn load_balancer_body(lb: &LoadBalancer, application: &str) -> Value {
     })
 }
 
+/// The `config` object of a resource-limit change: only the resizable keys, with plain values.
+pub(crate) fn limits_body(
+    changes: &std::collections::BTreeMap<String, Option<String>>,
+) -> Result<serde_json::Map<String, Value>, AdapterError> {
+    if changes.is_empty() {
+        return Err(AdapterError::InvalidConfig("no limits to change".into()));
+    }
+    let mut out = serde_json::Map::new();
+    for (key, value) in changes {
+        if !apelora_domain::plan::RESIZABLE_KEYS.contains(&key.as_str()) {
+            return Err(AdapterError::InvalidConfig(format!(
+                "{key} is not a limit Apelora changes"
+            )));
+        }
+        let v = value.as_deref().unwrap_or("");
+        let plain = v.len() <= 32
+            && v.bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'%' | b'/' | b'.' | b'-'));
+        if !plain {
+            return Err(AdapterError::InvalidConfig(format!(
+                "{key}: {v:?} is not a plain limit value"
+            )));
+        }
+        out.insert(key.clone(), json!(v));
+    }
+    Ok(out)
+}
+
 /// The `config` object of a settings change, after checking every key and value.
 pub(crate) fn settings_body(
     changes: &std::collections::BTreeMap<String, Option<String>>,
@@ -720,6 +748,10 @@ impl IncusClient {
                     "container" => InstanceKind::Container,
                     _ => InstanceKind::Unknown,
                 },
+                limits: apelora_domain::plan::RESIZABLE_KEYS
+                    .iter()
+                    .filter_map(|k| d.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
+                    .collect(),
                 stateful: d
                     .config
                     .get("migration.stateful")
@@ -1219,6 +1251,32 @@ impl IncusClient {
     }
 
     /// `PUT /1.0/instances/<name>/state`.
+    /// `PATCH /1.0/instances/<name>`: merges the given limits into the instance's own
+    /// configuration (an empty value removes a key). Refuses an instance Apelora does not own.
+    pub(crate) async fn set_instance_limits(
+        &self,
+        project: &str,
+        name: &str,
+        config: serde_json::Map<String, Value>,
+    ) -> Result<String, AdapterError> {
+        match self.instance(project, name).await? {
+            None => return Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Some(s) if !s.managed => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: "the instance is not managed by Apelora".into(),
+                });
+            }
+            Some(_) => {}
+        }
+        self.start_operation(
+            Method::PATCH,
+            &format!("/1.0/instances/{name}?project={project}"),
+            Some(&json!({ "config": config })),
+        )
+        .await
+    }
+
     pub async fn change_state(
         &self,
         project: &str,
@@ -2066,6 +2124,10 @@ impl IncusClient {
                         _ => None,
                     },
                     evacuate: expanded.get("cluster.evacuate").cloned(),
+                    limits: apelora_domain::plan::RESIZABLE_KEYS
+                        .iter()
+                        .filter_map(|k| config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
+                        .collect(),
                     name: i.name,
                     project: i.project,
                     status: i.status,

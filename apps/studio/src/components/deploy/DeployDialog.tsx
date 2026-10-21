@@ -20,6 +20,7 @@ type Step =
 const ACTION: Record<PlanAction, { label: string; tone: string }> = {
   create: { label: "Create", tone: "status-success" },
   keep: { label: "Keep", tone: "status-neutral" },
+  resize: { label: "Resize", tone: "status-info" },
   remove: { label: "Remove", tone: "status-warning" },
   conflict: { label: "Conflict", tone: "status-error" },
 };
@@ -159,7 +160,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     }
   };
 
-  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || (i.action === "remove" && removeMissing)).length;
+  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || i.action === "resize" || (i.action === "remove" && removeMissing)).length;
   const conflicts = (plan: Plan) => plan.items.some((i) => i.action === "conflict");
   const overQuota = (plan: Plan) => plan.quota?.allowed === false;
   const nameError = appName && !NAME.test(appName) ? "Lowercase letters, digits and hyphens, starting with a letter (at most 40)." : null;

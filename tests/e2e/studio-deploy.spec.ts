@@ -124,6 +124,26 @@ test.describe("deploying from the Studio", () => {
     expect(deployCalls).toBe(0);
   });
 
+  test("a changed CPU or memory size is shown as a resize in place and counts as a change", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [
+        { ...item("nginx-01", "resize", "limits.cpu 1 → 2, limits.memory 512MiB → 1GiB"), changes: [{ key: "limits.cpu", from: "1", to: "2" }, { key: "limits.memory", from: "512MiB", to: "1GiB" }] },
+        item("nginx-02", "keep", "already running"),
+      ], warnings: [] } }),
+    });
+    await open(page);
+    await page.getByTestId("deploy-open").click();
+    await page.getByTestId("deploy-preview").click();
+    const rows = page.getByTestId("plan-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toHaveAttribute("data-action", "resize");
+    await expect(rows.first()).toContainText("Resize");
+    await expect(rows.first()).toContainText("limits.cpu 1 → 2");
+    await expect(page.getByTestId("deploy-apply")).toHaveText("Deploy 1 change");
+  });
+
   test("the review shows quota use, and a deployment over quota cannot be applied", async ({ page }) => {
     let deployCalls = 0;
     const GIB = 1024 ** 3;

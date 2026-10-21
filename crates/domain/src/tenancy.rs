@@ -293,6 +293,37 @@ pub fn instance_usage(
     }
 }
 
+/// What resizing one instance adds: only the increase of its CPU and memory limits (a decrease
+/// frees nothing a quota may count on). A limit that is absent or that Incus could not count
+/// is the profile's default, as when the instance is created.
+pub fn resize_usage(changes: &[crate::plan::LimitChange]) -> QuotaUsage {
+    let side = |v: &Option<String>, parse: fn(&str) -> Option<i64>, default: i64| {
+        v.as_deref().and_then(parse).unwrap_or(default)
+    };
+    let mut add = QuotaUsage::default();
+    for c in changes {
+        match c.key.as_str() {
+            "limits.cpu" => {
+                let (from, to) = (
+                    side(&c.from, parse_cpu, DEFAULT_INSTANCE_CPU),
+                    side(&c.to, parse_cpu, DEFAULT_INSTANCE_CPU),
+                );
+                add.cpu = add.cpu.saturating_add((to - from).max(0));
+            }
+            "limits.memory" => {
+                let default = DEFAULT_INSTANCE_MEMORY_GIB * GIB;
+                let (from, to) = (
+                    side(&c.from, parse_bytes, default),
+                    side(&c.to, parse_bytes, default),
+                );
+                add.memory_bytes = add.memory_bytes.saturating_add((to - from).max(0));
+            }
+            _ => {}
+        }
+    }
+    add
+}
+
 /// Which level of the tenancy tree a quota belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -783,6 +814,49 @@ pub struct IncusTrustEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn change(key: &str, from: Option<&str>, to: Option<&str>) -> crate::plan::LimitChange {
+        crate::plan::LimitChange {
+            key: key.into(),
+            from: from.map(Into::into),
+            to: to.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn a_resize_adds_only_the_increase() {
+        let up = resize_usage(&[
+            change("limits.cpu", Some("2"), Some("5")),
+            change("limits.memory", Some("1GiB"), Some("3GiB")),
+            change("limits.cpu.allowance", None, Some("50%")),
+        ]);
+        assert_eq!(
+            (up.instances, up.cpu, up.memory_bytes, up.disk_bytes),
+            (0, 3, 2 * GIB, 0)
+        );
+        let down = resize_usage(&[
+            change("limits.cpu", Some("4"), Some("1")),
+            change("limits.memory", Some("2GiB"), Some("512MiB")),
+        ]);
+        assert_eq!(
+            down,
+            QuotaUsage::default(),
+            "a decrease frees nothing to count on"
+        );
+    }
+
+    #[test]
+    fn a_resize_from_or_to_no_limit_counts_against_the_profile_default() {
+        let set = resize_usage(&[change("limits.cpu", None, Some("4"))]);
+        assert_eq!(set.cpu, 4 - DEFAULT_INSTANCE_CPU);
+        let cleared = resize_usage(&[change("limits.cpu", Some("4"), None)]);
+        assert_eq!(cleared.cpu, 0);
+        let odd = resize_usage(&[change("limits.memory", Some("lots"), Some("3GiB"))]);
+        assert_eq!(
+            odd.memory_bytes,
+            3 * GIB - DEFAULT_INSTANCE_MEMORY_GIB * GIB
+        );
+    }
 
     fn q(i: Option<i64>, c: Option<i64>, m: Option<i64>, d: Option<i64>) -> QuotaLimits {
         QuotaLimits {

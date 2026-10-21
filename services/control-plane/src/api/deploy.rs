@@ -306,6 +306,7 @@ pub(super) async fn create_instance(
         let adding = [super::tenancy::Adding {
             config: &spec.config,
             volume_mib: 0,
+            resize: None,
         }];
         let adding: &[super::tenancy::Adding<'_>] = if exists { &[] } else { &adding };
         if let Some(q) = super::tenancy::check_deployment(&state, env.id, adding).await?

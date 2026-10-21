@@ -16948,6 +16948,16 @@
           "kind": {
             "$ref": "#/components/schemas/InstanceKind"
           },
+          "limits": {
+            "type": "object",
+            "description": "The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,\n`limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "location": {
             "type": "string"
           },
@@ -18006,6 +18016,32 @@
           "application",
           "pool"
         ]
+      },
+      "LimitChange": {
+        "type": "object",
+        "description": "One limit that changes.",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value now; absent when no limit is set."
+          },
+          "key": {
+            "type": "string"
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value after; absent when the limit is removed."
+          }
+        }
       },
       "LinkedJob": {
         "type": "object",
@@ -20088,6 +20124,7 @@
         "enum": [
           "create",
           "keep",
+          "resize",
           "remove",
           "conflict"
         ]
@@ -20104,6 +20141,13 @@
         "properties": {
           "action": {
             "$ref": "#/components/schemas/PlanAction"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LimitChange"
+            },
+            "description": "For `resize`: each limit that changes."
           },
           "instance": {
             "type": "string"

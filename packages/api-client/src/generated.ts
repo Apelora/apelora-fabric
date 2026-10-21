@@ -1454,6 +1454,8 @@ export type Instance = {
   /** What Incus does with it when its member is evacuated (`cluster.evacuate`, with profiles applied); `None`: Incus's default, `auto`. */
   evacuate?: string | null;
   kind: InstanceKind;
+  /** The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`, `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`]. */
+  limits?: Record<string, unknown>;
   location: string;
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
   managed?: boolean;
@@ -1768,6 +1770,15 @@ export type KindAccess = {
 
 /** How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform. */
 export type Level = "platform" | "organization" | "project" | "application" | "pool";
+
+/** One limit that changes. */
+export type LimitChange = {
+  /** The value now; absent when no limit is set. */
+  from?: string | null;
+  key: string;
+  /** The value after; absent when the limit is removed. */
+  to?: string | null;
+};
 
 /** A job linked to the one shown. */
 export type LinkedJob = {
@@ -2393,10 +2404,12 @@ export type Plan = {
   warnings: string[];
 };
 
-export type PlanAction = "create" | "keep" | "remove" | "conflict";
+export type PlanAction = "create" | "keep" | "resize" | "remove" | "conflict";
 
 export type PlanItem = {
   action: PlanAction;
+  /** For `resize`: each limit that changes. */
+  changes?: LimitChange[];
   instance: string;
   /** The module in the design (for `remove`: the label of the instance being removed). */
   module: string;

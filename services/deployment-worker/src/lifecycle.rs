@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Instance lifecycle jobs (`instance.create|start|stop|delete`).
+//! Instance lifecycle jobs (`instance.create|start|stop|restart|delete|resize`).
 //!
 //! Level-triggered and idempotent: every step re-reads the instance from Incus and decides the
 //! next call from what it finds, so a retried or reclaimed job converges instead of repeating
@@ -28,6 +28,8 @@ pub enum Goal {
     /// the job is done as soon as one restart operation it started has finished.
     Restarted(Target),
     Absent(Target),
+    /// Its resource limits are these (`None` removes one): CPU and memory changed in place.
+    Limits(Target, std::collections::BTreeMap<String, Option<String>>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -58,6 +60,23 @@ impl Goal {
             "instance.stop" => target().map(|t| Goal::State(t, InstanceAction::Stop)),
             "instance.restart" => target().map(Goal::Restarted),
             "instance.delete" => target().map(Goal::Absent),
+            "instance.resize" => target().and_then(|t| {
+                let limits = serde_json::from_value::<
+                    std::collections::BTreeMap<String, Option<String>>,
+                >(payload["limits"].clone())
+                .map_err(|e| format!("invalid payload: {e}"))?;
+                if limits.is_empty()
+                    || limits
+                        .keys()
+                        .any(|k| !apelora_domain::plan::RESIZABLE_KEYS.contains(&k.as_str()))
+                {
+                    return Err(
+                        "limits must name only limits.cpu, limits.cpu.allowance or limits.memory"
+                            .into(),
+                    );
+                }
+                Ok(Goal::Limits(t, limits))
+            }),
             _ => return None,
         })
     }
@@ -65,7 +84,9 @@ impl Goal {
     fn target(&self) -> (&str, &str) {
         match self {
             Goal::Exists(s) => (&s.project, &s.name),
-            Goal::State(t, _) | Goal::Restarted(t) | Goal::Absent(t) => (&t.project, &t.name),
+            Goal::State(t, _) | Goal::Restarted(t) | Goal::Absent(t) | Goal::Limits(t, _) => {
+                (&t.project, &t.name)
+            }
         }
     }
 }
@@ -81,6 +102,8 @@ pub enum Step {
     Volumes,
     Change(InstanceAction, bool),
     Delete,
+    /// Change the instance's resource limits in place.
+    Limits,
 }
 
 pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
@@ -131,6 +154,25 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
             Step::Change(InstanceAction::Stop, true)
         }
         (Goal::Absent(_), Some(_)) => Step::Delete,
+        (Goal::Limits(..), None) => {
+            Step::Reject(format!("instance {project}/{name} does not exist"))
+        }
+        (Goal::Limits(..), Some(s)) if !s.managed => not_ours(),
+        (Goal::Limits(_, wanted), Some(s)) => {
+            // What the limits would be after the change; nothing to do when that is what they are.
+            let mut after = s.limits.clone();
+            for (k, v) in wanted {
+                match v {
+                    Some(v) => after.insert(k.clone(), v.clone()),
+                    None => after.remove(k),
+                };
+            }
+            if apelora_domain::plan::limit_changes(&after, &s.limits).is_empty() {
+                Step::Done
+            } else {
+                Step::Limits
+            }
+        }
     }
 }
 
@@ -216,6 +258,7 @@ pub fn safe_point(goal: &Goal, step: &Step) -> Option<&'static str> {
         (_, Step::Change(InstanceAction::Stop, _)) => Some("stopping"),
         (_, Step::Change(InstanceAction::Restart, _)) => Some("restarting"),
         (_, Step::Delete) => Some("deleting"),
+        (_, Step::Limits) => Some("resizing"),
         (_, Step::Create | Step::Volumes) => None,
     }
 }
@@ -388,6 +431,12 @@ async fn converge(
                 provider.change_state(project, name, action, force).await?
             }
             Step::Delete => provider.delete_instance(project, name).await?,
+            Step::Limits => {
+                let Goal::Limits(_, wanted) = goal else {
+                    unreachable!("limits are only decided for a Limits goal")
+                };
+                provider.set_instance_limits(project, name, wanted).await?
+            }
         };
         record_operation(pool, job, worker, Some(&op)).await?;
         tracing::info!(job = %job.id, operation = %op, instance = %format!("{project}/{name}"), provider = ?provider.mode(), "started operation");
@@ -456,6 +505,7 @@ mod tests {
             volume_devices: Vec::new(),
             kind: apelora_domain::InstanceKind::Container,
             stateful: false,
+            limits: Default::default(),
         })
     }
 
@@ -617,6 +667,80 @@ mod tests {
             Goal::from_job("instance.restart", &payload),
             Some(Ok(Goal::Restarted(_)))
         ));
+    }
+
+    fn limits_goal(pairs: &[(&str, Option<&str>)]) -> Goal {
+        Goal::Limits(
+            Target {
+                project: "apelora".into(),
+                name: "web-01".into(),
+            },
+            pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), v.map(str::to_owned)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_resize_changes_limits_until_they_are_what_was_asked_and_touches_nothing_else() {
+        let goal = limits_goal(&[
+            ("limits.memory", Some("1GiB")),
+            ("limits.cpu.allowance", None),
+        ]);
+        let mut now = st("Running", true).expect("state");
+        now.limits.insert("limits.memory".into(), "512MiB".into());
+        now.limits
+            .insert("limits.cpu.allowance".into(), "50ms/100ms".into());
+        assert_eq!(next_step(&goal, Some(&now)), Step::Limits);
+        // One limit done, one to go.
+        now.limits.insert("limits.memory".into(), "1024MiB".into());
+        assert_eq!(
+            next_step(&goal, Some(&now)),
+            Step::Limits,
+            "1GiB is 1024MiB; the quota is still set"
+        );
+        now.limits.remove("limits.cpu.allowance");
+        assert_eq!(
+            next_step(&goal, Some(&now)),
+            Step::Done,
+            "a retried or repeated job changes nothing"
+        );
+        // Not Apelora's, or gone: never changed.
+        assert!(matches!(
+            next_step(&goal, st("Running", false).as_ref()),
+            Step::Reject(_)
+        ));
+        assert!(matches!(next_step(&goal, None), Step::Reject(_)));
+        // A stopped instance is resized too.
+        let mut stopped = st("Stopped", true).expect("state");
+        stopped.limits.insert("limits.cpu".into(), "1".into());
+        assert_eq!(
+            next_step(&limits_goal(&[("limits.cpu", Some("2"))]), Some(&stopped)),
+            Step::Limits
+        );
+        assert_eq!(safe_point(&goal, &Step::Limits), Some("resizing"));
+    }
+
+    #[test]
+    fn a_resize_job_names_only_resizable_limits() {
+        let ok = serde_json::json!({ "project": "apelora", "name": "web-01", "limits": { "limits.memory": "2GiB", "limits.cpu.allowance": null } });
+        assert!(matches!(
+            Goal::from_job("instance.resize", &ok),
+            Some(Ok(Goal::Limits(..)))
+        ));
+        for bad in [
+            serde_json::json!({ "project": "apelora", "name": "web-01", "limits": {} }),
+            serde_json::json!({ "project": "apelora", "name": "web-01" }),
+            serde_json::json!({ "project": "apelora", "name": "web-01", "limits": { "security.privileged": "true" } }),
+            serde_json::json!({ "project": "apelora", "name": "../x", "limits": { "limits.cpu": "1" } }),
+            serde_json::json!({ "project": "apelora", "name": "web-01", "limits": { "limits.cpu": 2 } }),
+        ] {
+            assert!(
+                matches!(Goal::from_job("instance.resize", &bad), Some(Err(_))),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

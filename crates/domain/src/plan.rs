@@ -149,6 +149,9 @@ pub enum PlanAction {
     Create,
     /// The application's instance already exists and is left as it is.
     Keep,
+    /// The application's instance exists with other resource limits than the design asks for:
+    /// its CPU and memory limits are changed in place (`changes` says which).
+    Resize,
     /// The application's instance is no longer in the design.
     Remove,
     /// The name is taken by an instance that is not this module's: nothing can be applied.
@@ -168,6 +171,97 @@ pub struct PlanItem {
     pub action: PlanAction,
     /// Why, in a sentence (e.g. what the conflicting instance is).
     pub reason: String,
+    /// For `resize`: each limit that changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<LimitChange>,
+}
+
+/// The instance config keys a resize may change: the resource limits Apelora writes from a
+/// module's CPU and memory. Nothing else on an instance is changed in place.
+pub const RESIZABLE_KEYS: [&str; 3] = ["limits.cpu", "limits.cpu.allowance", "limits.memory"];
+
+/// One limit that changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct LimitChange {
+    pub key: String,
+    /// The value now; absent when no limit is set.
+    pub from: Option<String>,
+    /// The value after; absent when the limit is removed.
+    pub to: Option<String>,
+}
+
+/// Memory as bytes, for comparing `1GiB` with `1024MiB`; `None` when it is not a size Apelora
+/// writes or Incus reports (a plain number of bytes or a binary or decimal unit).
+fn memory_bytes(v: &str) -> Option<u128> {
+    let v = v.trim();
+    let split = v.find(|c: char| !c.is_ascii_digit()).unwrap_or(v.len());
+    let (digits, unit) = v.split_at(split);
+    let n: u128 = digits.parse().ok()?;
+    let mult: u128 = match unit {
+        "" | "B" => 1,
+        "kB" => 1_000,
+        "MB" => 1_000_000,
+        "GB" => 1_000_000_000,
+        "TB" => 1_000_000_000_000,
+        "KiB" => 1 << 10,
+        "MiB" => 1 << 20,
+        "GiB" => 1 << 30,
+        "TiB" => 1 << 40,
+        _ => return None,
+    };
+    n.checked_mul(mult)
+}
+
+fn same_limit(key: &str, a: &str, b: &str) -> bool {
+    a == b
+        || (key == "limits.memory"
+            && matches!((memory_bytes(a), memory_bytes(b)), (Some(x), Some(y)) if x == y))
+}
+
+/// The limits that differ between what the design asks for (`wanted`: the instance config a
+/// deployment would create) and what the instance has now. Only [`RESIZABLE_KEYS`] are compared;
+/// a limit the design no longer sets is removed.
+pub fn limit_changes(
+    wanted: &std::collections::BTreeMap<String, String>,
+    current: &std::collections::BTreeMap<String, String>,
+) -> Vec<LimitChange> {
+    RESIZABLE_KEYS
+        .iter()
+        .filter_map(|key| {
+            let want = wanted.get(*key).filter(|v| !v.is_empty());
+            let have = current.get(*key).filter(|v| !v.is_empty());
+            match (want, have) {
+                (None, None) => None,
+                (Some(w), Some(h)) if same_limit(key, w, h) => None,
+                (w, h) => Some(LimitChange {
+                    key: (*key).to_owned(),
+                    from: h.cloned(),
+                    to: w.cloned(),
+                }),
+            }
+        })
+        .collect()
+}
+
+fn describe(changes: &[LimitChange]) -> String {
+    let name = |k: &str| match k {
+        "limits.cpu" => "CPUs",
+        "limits.cpu.allowance" => "CPU quota",
+        _ => "memory",
+    };
+    changes
+        .iter()
+        .map(|c| {
+            format!(
+                "{} {} → {}",
+                name(&c.key),
+                c.from.as_deref().unwrap_or("no limit"),
+                c.to.as_deref().unwrap_or("no limit")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -260,6 +354,7 @@ pub fn plan(
                 instance: name.clone(),
                 action,
                 reason,
+                changes: Vec::new(),
             };
             if !is_valid_name(&name) {
                 items.push(item(
@@ -287,7 +382,18 @@ pub fn plan(
                     format!("its member {} cannot be reached", i.location),
                 ),
                 Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.module == d.module && o.replica == replica) => {
-                    item(PlanAction::Keep, format!("already deployed ({})", i.status))
+                    let changes = limit_changes(&d.spec.config, &i.limits);
+                    if changes.is_empty() {
+                        item(PlanAction::Keep, format!("already deployed ({})", i.status))
+                    } else {
+                        PlanItem {
+                            changes: changes.clone(),
+                            ..item(
+                                PlanAction::Resize,
+                                format!("resources change: {} ({})", describe(&changes), i.status),
+                            )
+                        }
+                    }
                 }
                 Some(i) if !i.managed => item(
                     PlanAction::Conflict,
@@ -315,6 +421,7 @@ pub fn plan(
             instance: i.name.clone(),
             action: PlanAction::Remove,
             reason: "no longer in the design".into(),
+            changes: Vec::new(),
         });
     }
 
@@ -404,6 +511,7 @@ mod tests {
             }),
             evacuate: None,
             unreachable: false,
+            limits: Default::default(),
         }
     }
 
@@ -497,7 +605,8 @@ mod tests {
                 replica: 3,
                 instance: "shop-web-01-r3".into(),
                 action: Remove,
-                reason: "no longer in the design".into()
+                reason: "no longer in the design".into(),
+                changes: vec![]
             }
         );
         // A replica label that does not match the name is somebody else's instance.
@@ -588,6 +697,195 @@ mod tests {
                 .map(|i| i.name.as_str())
                 .collect::<Vec<_>>(),
             ["shop-web-01-r2-s1"]
+        );
+    }
+
+    fn with_limits(mut d: DesiredModule, limits: &[(&str, &str)]) -> DesiredModule {
+        d.spec.config = limits
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        d
+    }
+
+    fn running_with(limits: &[(&str, &str)]) -> Instance {
+        let mut i = observed("shop-web-01", "apelora", true, Some(("shop", "web-01", 1)));
+        i.limits = limits
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        i
+    }
+
+    #[test]
+    fn an_instance_with_other_limits_than_the_design_is_resized_in_place() {
+        let want = [with_limits(
+            desired("web-01"),
+            &[("limits.cpu", "2"), ("limits.memory", "1024MiB")],
+        )];
+        let p = plan(
+            "shop",
+            "apelora",
+            &want,
+            &[running_with(&[
+                ("limits.cpu", "1"),
+                ("limits.memory", "512MiB"),
+            ])],
+        );
+        assert_eq!(actions(&p), [("shop-web-01", PlanAction::Resize)]);
+        let item = &p.items[0];
+        assert_eq!(
+            item.changes,
+            vec![
+                LimitChange {
+                    key: "limits.cpu".into(),
+                    from: Some("1".into()),
+                    to: Some("2".into())
+                },
+                LimitChange {
+                    key: "limits.memory".into(),
+                    from: Some("512MiB".into()),
+                    to: Some("1024MiB".into())
+                },
+            ]
+        );
+        assert_eq!(
+            item.reason,
+            "resources change: CPUs 1 → 2, memory 512MiB → 1024MiB (Running)"
+        );
+        assert!(!p.has_conflicts());
+    }
+
+    #[test]
+    fn the_same_limits_written_differently_are_not_a_change() {
+        let want = [with_limits(
+            desired("web-01"),
+            &[("limits.cpu", "1"), ("limits.memory", "1GiB")],
+        )];
+        let same = running_with(&[("limits.cpu", "1"), ("limits.memory", "1024MiB")]);
+        assert_eq!(
+            actions(&plan("shop", "apelora", &want, &[same])),
+            [("shop-web-01", PlanAction::Keep)]
+        );
+        // Binary and decimal units are different sizes.
+        let other = running_with(&[("limits.cpu", "1"), ("limits.memory", "1GB")]);
+        assert_eq!(
+            actions(&plan("shop", "apelora", &want, &[other])),
+            [("shop-web-01", PlanAction::Resize)]
+        );
+        // Neither side has limits.
+        let none = running_with(&[]);
+        assert_eq!(
+            actions(&plan("shop", "apelora", &[desired("web-01")], &[none])),
+            [("shop-web-01", PlanAction::Keep)]
+        );
+    }
+
+    #[test]
+    fn a_limit_the_design_no_longer_sets_is_removed_and_a_new_one_is_added() {
+        let want = [with_limits(desired("web-01"), &[("limits.cpu", "1")])];
+        let have = running_with(&[("limits.cpu", "1"), ("limits.cpu.allowance", "50ms/100ms")]);
+        let p = plan("shop", "apelora", &want, &[have]);
+        assert_eq!(
+            p.items[0].changes,
+            vec![LimitChange {
+                key: "limits.cpu.allowance".into(),
+                from: Some("50ms/100ms".into()),
+                to: None
+            }]
+        );
+        assert!(
+            p.items[0]
+                .reason
+                .contains("CPU quota 50ms/100ms → no limit"),
+            "{}",
+            p.items[0].reason
+        );
+        let added = plan(
+            "shop",
+            "apelora",
+            &[with_limits(
+                desired("web-01"),
+                &[("limits.memory", "256MiB")],
+            )],
+            &[running_with(&[])],
+        );
+        assert_eq!(
+            added.items[0].changes,
+            vec![LimitChange {
+                key: "limits.memory".into(),
+                from: None,
+                to: Some("256MiB".into())
+            }]
+        );
+        // Other config keys (labels, network) are never compared or changed.
+        let labels = with_limits(
+            desired("web-01"),
+            &[("user.apelora.x", "1"), ("limits.cpu", "1")],
+        );
+        let p = plan(
+            "shop",
+            "apelora",
+            &[labels],
+            &[running_with(&[("limits.cpu", "1")])],
+        );
+        assert_eq!(actions(&p), [("shop-web-01", PlanAction::Keep)]);
+    }
+
+    #[test]
+    fn only_the_applications_own_reachable_instance_is_resized() {
+        let want = [with_limits(desired("web-01"), &[("limits.cpu", "2")])];
+        let mut stranded = running_with(&[("limits.cpu", "1")]);
+        stranded.unreachable = true;
+        assert_eq!(
+            actions(&plan("shop", "apelora", &want, &[stranded])),
+            [("shop-web-01", PlanAction::Keep)],
+            "its member cannot be reached"
+        );
+        let mut stopped = running_with(&[("limits.cpu", "1")]);
+        stopped.status = "Stopped".into();
+        let p = plan("shop", "apelora", &want, &[stopped]);
+        assert_eq!(
+            p.items[0].action,
+            PlanAction::Resize,
+            "a stopped instance is resized too"
+        );
+        assert!(p.items[0].reason.ends_with("(Stopped)"));
+        // Someone else's instance with the name stays a conflict, and a substitute is only kept.
+        let foreign = observed("shop-web-01", "apelora", false, None);
+        assert_eq!(
+            plan("shop", "apelora", &want, &[foreign]).items[0].action,
+            PlanAction::Conflict
+        );
+        let mut sub = observed(
+            "shop-web-01-s1",
+            "apelora",
+            true,
+            Some(("shop", "web-01", 1)),
+        );
+        sub.limits.insert("limits.cpu".into(), "1".into());
+        let p = plan("shop", "apelora", &want, &[sub]);
+        assert!(
+            p.items.iter().all(|i| i.action != PlanAction::Resize),
+            "{:?}",
+            actions(&p)
+        );
+    }
+
+    #[test]
+    fn memory_sizes_compare_by_bytes() {
+        assert_eq!(memory_bytes("1GiB"), Some(1 << 30));
+        assert_eq!(memory_bytes("1024MiB"), Some(1 << 30));
+        assert_eq!(memory_bytes("1GB"), Some(1_000_000_000));
+        assert_eq!(memory_bytes("2048"), Some(2048));
+        assert_eq!(memory_bytes("10%"), None);
+        assert_eq!(memory_bytes("lots"), None);
+        assert_eq!(memory_bytes(""), None);
+        assert!(same_limit("limits.memory", "1GiB", "1024MiB"));
+        assert!(!same_limit("limits.memory", "1GiB", "1GB"));
+        assert!(
+            !same_limit("limits.cpu", "1", "01"),
+            "CPU counts are compared as written"
         );
     }
 

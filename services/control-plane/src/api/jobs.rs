@@ -131,7 +131,8 @@ pub struct JobCancellation {
 /// (`apelora_deployment_worker::cancelled_before_start` and the handlers).
 pub fn safe_points(kind: &str) -> &'static str {
     match kind {
-        "instance.start" | "instance.stop" | "instance.restart" | "instance.delete" => {
+        "instance.start" | "instance.stop" | "instance.restart" | "instance.delete"
+        | "instance.resize" => {
             "Before each change it asks Incus for. A change already sent is waited on to its end, so the instance is left running or stopped, never in between."
         }
         "instance.create" => {
