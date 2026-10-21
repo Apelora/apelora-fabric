@@ -149,6 +149,8 @@ systemctl daemon-reload
 systemctl enable --now apelora-db-backup.timer apelora-db-restore-drill.timer
 ```
 
+**See it in the Console.** Set `APELORA_DB_BACKUP_DIR` on the control plane to the directory the backup script writes to (read access is enough; the dumps themselves may live elsewhere). *Administration → Apelora's database backups* then shows the newest backup (age, size, encryption), the last verified restore, and any failed drill, with warnings at 26 hours without a backup, 35 days without a verified restore, an unencrypted backup or an empty one, and a failing state at 72 hours, 70 days or a drill that failed after the last pass (`GET /api/v1/database-backups`, needs `cluster.view`). It only reads the scripts' records; it runs nothing. MOCK VERIFIED (records written in a temporary directory); not checked against a real scheduled run.
+
 Alert on symptoms, not only on unit failures:
 - the newest `apelora-db-*.json` is older than 26 hours;
 - `restore-drill-last-verified.json` is older than 35 days.

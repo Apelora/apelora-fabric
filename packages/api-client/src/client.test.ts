@@ -190,6 +190,7 @@ describe("api client", () => {
       "GET /api/v1/cluster/members/{member}/removal",
       "GET /api/v1/cluster/recovery",
       "GET /api/v1/cluster/settings",
+      "GET /api/v1/database-backups",
       "GET /api/v1/health",
       "GET /api/v1/health/components",
       "GET /api/v1/health/servers",

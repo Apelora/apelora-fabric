@@ -221,6 +221,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_rate_limits(rate_limits)
         .with_tls(listening.tls())
         .with_image_mirrors(mirrors)
+        .with_db_backup_dir(
+            std::env::var("APELORA_DB_BACKUP_DIR")
+                .ok()
+                .filter(|d| !d.trim().is_empty())
+                .map(std::path::PathBuf::from),
+        )
         .with_monitoring(monitoring.clone())
         .with_environment(std::env::vars());
     // Identity providers saved in the Fabric Console (on top of the environment's).

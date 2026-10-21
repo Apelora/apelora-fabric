@@ -635,6 +635,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("POST", "/api/v1/tokens", &["token.manage"]),
     ("DELETE", "/api/v1/tokens/{id}", &["token.manage"]),
     ("GET", "/api/v1/system", &["cluster.view"]),
+    ("GET", "/api/v1/database-backups", &["cluster.view"]),
     (
         "GET",
         "/api/v1/cluster/join-tokens",

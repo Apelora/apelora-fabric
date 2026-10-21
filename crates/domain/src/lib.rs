@@ -7,6 +7,7 @@ pub mod access;
 pub mod alerts;
 pub mod capacity;
 pub mod clustering;
+pub mod dbbackup;
 pub mod enrolment;
 pub mod evacuation;
 pub mod fencing;

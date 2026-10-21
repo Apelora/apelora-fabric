@@ -3,6 +3,7 @@
 //! the permission it requires. Inventory responses carry their source (mock or Incus) and the
 //! time they were observed, so mock data is never mistaken for a real cluster.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use apelora_domain::preflight::{Check, CheckStatus};
@@ -83,6 +84,9 @@ pub struct AppState {
     headers: headers::HeaderPolicy,
     /// The public health summary, refreshed at most every 15 s.
     health: Arc<health_cache::HealthCache>,
+    /// Where the database backup and restore-drill scripts leave their records
+    /// (`APELORA_DB_BACKUP_DIR`); read-only, shown on the Administration page.
+    db_backup_dir: Option<Arc<PathBuf>>,
     /// Image mirrors from the environment (ADR 0010), shown read-only and checked by preflight.
     image_mirrors: Arc<apelora_domain::images::ImageMirrors>,
     /// Probes mirrors, at most once a minute each.
@@ -121,6 +125,7 @@ impl AppState {
             rate_limits: Arc::default(),
             headers: headers::HeaderPolicy::default(),
             health: Arc::default(),
+            db_backup_dir: None,
             image_mirrors: Arc::default(),
             prober: Arc::default(),
             monitoring: Arc::default(),
@@ -142,6 +147,11 @@ impl AppState {
     /// This process terminates TLS itself: responses carry `Strict-Transport-Security`.
     pub fn with_tls(mut self, tls: bool) -> Self {
         self.headers.hsts = tls;
+        self
+    }
+
+    pub fn with_db_backup_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.db_backup_dir = dir.map(Arc::new);
         self
     }
 
@@ -437,6 +447,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/machines/{name}/admit", post(machines::admit))
         .route("/api/v1/preflight", get(preflight))
         .route("/api/v1/image-mirrors", get(mirrors::image_mirrors))
+        .route(
+            "/api/v1/database-backups",
+            get(db_backups::database_backups),
+        )
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/networks/settings", get(networks::settings))
@@ -1569,7 +1583,7 @@ impl Modify for BearerAuth {
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         jobs::detail, jobs::retry, jobs::cancel,
         instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,
-        admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors, metrics::metrics, metrics::monitoring,
+        admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors, db_backups::database_backups, metrics::metrics, metrics::monitoring,
         alerts::list, alerts::history, alerts::acknowledge, alerts::create_silence, alerts::end_silence,
         alerts::rules, alerts::update_rule, alerts::channels, alerts::create_channel, alerts::update_channel,
         alerts::delete_channel, alerts::test_channel,
@@ -1633,6 +1647,7 @@ pub mod auth_config;
 mod authz;
 mod cluster_admin;
 mod clustering;
+mod db_backups;
 mod deploy;
 mod directories;
 mod document;
@@ -1668,6 +1683,8 @@ mod audit_coverage_tests;
 mod clustering_tests;
 #[cfg(test)]
 mod containment_tests;
+#[cfg(test)]
+mod db_backups_tests;
 #[cfg(test)]
 mod directories_tests;
 #[cfg(test)]

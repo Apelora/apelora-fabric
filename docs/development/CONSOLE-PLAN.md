@@ -95,7 +95,7 @@ Packages in one wave touch different files and can be built in parallel.
 - Audited sign-ins (done): provider tokens once per person per hour; password and directory sign-ins were already audited, now in the session's transaction.
 
 **Wave 4 — administration and tenancy:**
-- Effective settings, licence notices and a support bundle (built 2026-10-21); a database backup check.
+- Effective settings, licence notices and a support bundle (built 2026-10-21); a database backup check (built: Administration → Apelora's database backups, read-only, from the scripts' records).
 - Restricted Incus projects per environment with limits, and quotas (built 2026-10-21, migration 0027).
 - Then sectors (ADR 0008) and HA slice B.
 

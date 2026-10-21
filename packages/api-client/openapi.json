@@ -5107,6 +5107,47 @@
         }
       }
     },
+    "/api/v1/database-backups": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Whether Apelora's database is being backed up and a restore has been proven, from the records\nthe scripts leave in `APELORA_DB_BACKUP_DIR`. Needs `cluster.view`.",
+        "operationId": "database_backups",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseBackupReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
@@ -13318,6 +13359,108 @@
           "stateful"
         ]
       },
+      "BackupAssessment": {
+        "type": "object",
+        "required": [
+          "state",
+          "findings"
+        ],
+        "properties": {
+          "backupAgeHours": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "drillAgeDays": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackupFinding"
+            },
+            "description": "Every reason the state is not `ok`, worst first; one line saying so when it is."
+          },
+          "state": {
+            "$ref": "#/components/schemas/BackupState"
+          }
+        }
+      },
+      "BackupFinding": {
+        "type": "object",
+        "required": [
+          "level",
+          "text"
+        ],
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/BackupState"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "BackupInfo": {
+        "type": "object",
+        "description": "The manifest next to a dump (`apelora-db-backup/1`), as far as the Console shows it.",
+        "required": [
+          "file",
+          "createdAt",
+          "sizeBytes",
+          "encryption",
+          "pgDumpVersion",
+          "durationSeconds"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "encryption": {
+            "type": "string",
+            "description": "`none`, or how the dump is encrypted (`age`, `cms`)."
+          },
+          "file": {
+            "type": "string"
+          },
+          "migrations": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Migrations the database had when it was dumped.",
+            "minimum": 0
+          },
+          "pgDumpVersion": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "BackupState": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "warning",
+          "failing"
+        ]
+      },
       "Capabilities": {
         "type": "object",
         "description": "What a provisioner can do to a machine without someone at the server.",
@@ -14388,6 +14531,73 @@
           }
         }
       },
+      "DatabaseBackupReport": {
+        "type": "object",
+        "required": [
+          "configured",
+          "backups"
+        ],
+        "properties": {
+          "assessment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BackupAssessment"
+              }
+            ]
+          },
+          "backups": {
+            "type": "integer",
+            "description": "How many backup manifests the directory holds.",
+            "minimum": 0
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "`APELORA_DB_BACKUP_DIR` is set. When false, nothing else is known."
+          },
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The directory the records are read from."
+          },
+          "lastDrill": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DrillInfo",
+                "description": "The latest restore drill, whether it passed or failed."
+              }
+            ]
+          },
+          "lastVerified": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DrillInfo",
+                "description": "The latest drill that passed."
+              }
+            ]
+          },
+          "newestBackup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BackupInfo"
+              }
+            ]
+          }
+        }
+      },
       "DeployRequest": {
         "type": "object",
         "required": [
@@ -14985,6 +15195,37 @@
           "version": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "DrillInfo": {
+        "type": "object",
+        "description": "A restore drill's record (`apelora-restore-drill/1`).",
+        "required": [
+          "drilledAt",
+          "backup",
+          "passed",
+          "reason",
+          "durationSeconds"
+        ],
+        "properties": {
+          "backup": {
+            "type": "string",
+            "description": "The backup file the drill restored."
+          },
+          "drilledAt": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
           }
         }
       },

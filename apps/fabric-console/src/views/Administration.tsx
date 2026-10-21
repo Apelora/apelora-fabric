@@ -1,3 +1,4 @@
+import { DatabaseBackupsSection } from "./DatabaseBackups";
 import { useState } from "react";
 
 import type { Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } from "@apelora/api-client";
@@ -178,6 +179,7 @@ export function AdministrationView({ me, onAuth }: { me: WhoAmI | null; onAuth: 
     <div className="flex flex-col gap-8">
       {me?.permissions.includes("manage-tokens") && <TokensSection onAuth={onAuth} />}
       <SystemSection onAuth={onAuth} />
+      {holdsPlatform(me, "cluster.view") && <DatabaseBackupsSection onAuth={onAuth} />}
       <ProjectsSection onAuth={onAuth} />
       <ImageMirrorsSection onAuth={onAuth} />
       <MonitoringSection onAuth={onAuth} />

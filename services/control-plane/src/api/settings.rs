@@ -240,6 +240,12 @@ pub const SETTINGS: &[Setting] = &[
         "Shared storage pool behind the data-replicated volume class (modules that restart on another server after fencing)",
     ),
     s(
+        "APELORA_DB_BACKUP_DIR",
+        Cp,
+        None,
+        "Directory the database backup and restore-drill scripts write their records to (read only; Administration shows whether backups are recent and a restore was verified)",
+    ),
+    s(
         "APELORA_IMAGE_MIRRORS",
         Both,
         None,

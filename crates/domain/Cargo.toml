@@ -11,13 +11,14 @@ workspace = true
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+# Reads the backup scripts' JSON records (already in the workspace).
+serde_json = "1.0.154"
 # Already in the workspace (persistence, worker, control plane): names of scheduled snapshots and backups.
-time = "0.3.47"
+time = { version = "0.3.47", features = ["parsing"] }
 utoipa = { version = "5.5.0", optional = true }
 
 [dev-dependencies]
-serde_json = "1.0.154"
-time = { version = "0.3.47", features = ["macros"] }
+time = { version = "0.3.47", features = ["macros", "formatting"] }
 
 [features]
 utoipa = ["dep:utoipa"]

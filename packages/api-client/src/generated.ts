@@ -411,6 +411,34 @@ export type AuthMode = "tokens" | "disabled-development";
 /** How a module may be run and recovered (from its catalog class). */
 export type Availability = "stateless" | "singleton" | "stateful";
 
+export type BackupAssessment = {
+  backupAgeHours?: number | null;
+  drillAgeDays?: number | null;
+  /** Every reason the state is not `ok`, worst first; one line saying so when it is. */
+  findings: BackupFinding[];
+  state: BackupState;
+};
+
+export type BackupFinding = {
+  level: BackupState;
+  text: string;
+};
+
+/** The manifest next to a dump (`apelora-db-backup/1`), as far as the Console shows it. */
+export type BackupInfo = {
+  createdAt: string;
+  durationSeconds: number;
+  /** `none`, or how the dump is encrypted (`age`, `cms`). */
+  encryption: string;
+  file: string;
+  /** Migrations the database had when it was dumped. */
+  migrations?: number | null;
+  pgDumpVersion: string;
+  sizeBytes: number;
+};
+
+export type BackupState = "ok" | "warning" | "failing";
+
 /** What a provisioner can do to a machine without someone at the server. */
 export type Capabilities = {
   discovers: boolean;
@@ -744,6 +772,19 @@ export type CreateToken = {
   role: Role;
 };
 
+export type DatabaseBackupReport = {
+  assessment?: null | BackupAssessment;
+  /** How many backup manifests the directory holds. */
+  backups: number;
+  /** `APELORA_DB_BACKUP_DIR` is set. When false, nothing else is known. */
+  configured: boolean;
+  /** The directory the records are read from. */
+  directory?: string | null;
+  lastDrill?: null | DrillInfo;
+  lastVerified?: null | DrillInfo;
+  newestBackup?: null | BackupInfo;
+};
+
 export type DeployRequest = {
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
@@ -906,6 +947,16 @@ export type DraftDto = {
   updatedBy: string;
   validationErrors: string[];
   version: number;
+};
+
+/** A restore drill's record (`apelora-restore-drill/1`). */
+export type DrillInfo = {
+  /** The backup file the drill restored. */
+  backup: string;
+  drilledAt: string;
+  durationSeconds: number;
+  passed: boolean;
+  reason: string;
 };
 
 export type EffectivePermission = {
@@ -3376,6 +3427,7 @@ export const operations = {
   cluster_recovery: { method: "GET", path: "/api/v1/cluster/recovery", params: [], public: false },
   cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
   change_cluster_settings: { method: "PATCH", path: "/api/v1/cluster/settings", params: [], public: false },
+  database_backups: { method: "GET", path: "/api/v1/database-backups", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
   health_servers: { method: "GET", path: "/api/v1/health/servers", params: [], public: false },
@@ -3625,6 +3677,8 @@ export type Responses = {
   cluster_settings: ClusterSettingsReport;
   /** Changes cluster settings through Incus with the admin identity. Every key must be one the Servers page lists and every value is checked. Settings that already hold the value are left out; nothing to change is refused. With `dryRun` it only reports (what each becomes and what to watch for). Applying needs `cluster.sensitive_change` and another person's approval of `cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is audited with the old and new values. */
   change_cluster_settings: SettingsChangeReport;
+  /** Whether Apelora's database is being backed up and a restore has been proven, from the records the scripts leave in `APELORA_DB_BACKUP_DIR`. Needs `cluster.view`. */
+  database_backups: DatabaseBackupReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
   health: Health;
   /** The state of each part of this installation: control plane, database, deployment workers, job queue, Incus, networks, storage pools and identity providers. Read-only; needs `cluster.view`. */
@@ -3918,6 +3972,7 @@ export type Bodies = {
   cluster_recovery: never;
   cluster_settings: never;
   change_cluster_settings: ChangeSettings;
+  database_backups: never;
   health: never;
   health_components: never;
   health_servers: never;
