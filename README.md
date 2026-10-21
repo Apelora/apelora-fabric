@@ -94,7 +94,7 @@ cargo run -p apelora-control-plane                   # API at http://127.0.0.1:8
 npm run dev:console                                  # Fabric Console at http://127.0.0.1:5174
 ```
 
-The full walkthrough, including API tokens and adding cluster members, is in [docs/development/TEST-CLUSTER.md](docs/development/TEST-CLUSTER.md). How to sign in (development mode, API tokens, your organisation's identity provider) is in [docs/guides/signing-in.md](docs/guides/signing-in.md).
+No hardware needed: [testing without hardware](docs/guides/testing-without-hardware.md) says what the lab proves and what it cannot. The full walkthrough, including API tokens and adding cluster members, is in [docs/development/TEST-CLUSTER.md](docs/development/TEST-CLUSTER.md). How to sign in (development mode, API tokens, your organisation's identity provider) is in [docs/guides/signing-in.md](docs/guides/signing-in.md).
 
 ### Checks
 
@@ -117,6 +117,7 @@ cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && ca
 | [Disconnected installations](docs/architecture/DISCONNECTED.md) | Running without internet access |
 | [Console plan](docs/development/CONSOLE-PLAN.md) | What the Fabric Console still needs, in waves |
 | [Implementation phases](docs/development/IMPLEMENTATION-PHASES.md) | The build plan, phase by phase |
+| [Testing without hardware](docs/guides/testing-without-hardware.md) | Running and testing everything on one Mac: the mock, the Lima lab, what happens to IPMI/BMC, PXE and the physical network, and what only real servers can prove |
 | [Signing in](docs/guides/signing-in.md) | Signing in to the Fabric Console and the Studio; setting up an identity provider; troubleshooting |
 | [Runbooks](docs/runbooks/README.md) | Operating procedures: member failure, quorum loss, certificates |
 | [Studio design](docs/architecture/STUDIO-MVP.md) | How the designer works; screenshots in [`docs/screenshots/`](docs/screenshots/) |

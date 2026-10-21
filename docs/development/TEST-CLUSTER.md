@@ -2,6 +2,8 @@
 
 The **only** Incus that Apelora's tests may change. It runs in local VMs on a developer workstation, holds nothing of value, and is deleted and recreated at will. Results produced against it are labelled **REAL INCUS TESTED**.
 
+New here, or wondering what a Mac can and cannot test (BMC, PXE, the physical network)? Start with [testing without hardware](../guides/testing-without-hardware.md).
+
 Four Lima VMs (`apelora-incus`, `apelora-incus-2`, `-3`, `-4`; Incus members `apelora-test-1` … `-4`) stand in for the physical servers a production cluster has, and a fifth Lima VM (`apelora-san`) stands in for a SAN. Where a result depends on real hardware (disk speed, network latency, fencing through a BMC), the lab says nothing about it.
 
 ## What it is

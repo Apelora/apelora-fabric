@@ -4,6 +4,7 @@
 //! [`Provider`]; see [`lifecycle`].
 
 pub mod alerts;
+pub mod bmc;
 pub mod fencing;
 pub mod health;
 pub mod lifecycle;

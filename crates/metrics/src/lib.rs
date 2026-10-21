@@ -307,6 +307,11 @@ pub static FENCE_PROBES: Counter = Counter::new(
     "Reads of the shared storage's lease state on a member (sanlock, through the fence probe), by outcome (ok, failed).",
     &["outcome"],
 );
+pub static BMC_POWER_OFFS: Counter = Counter::new(
+    "apelora_bmc_power_offs",
+    "Attempts to fence a failed member by switching it off through its BMC (ADR 0014), by outcome (success: the power state read back Off; failed; refused: a guard held it back; unreadable: the power state could not be read).",
+    &["outcome"],
+);
 pub static RECOVERIES: Counter = Counter::new(
     "apelora_recoveries",
     "Instances of a failed member restarted on another member after fencing, by outcome (queued, succeeded, failed).",
@@ -453,6 +458,7 @@ pub static FAMILIES: &[&dyn Family] = &[
     &OUTBOX_DELIVERIES,
     &MEMBER_FAILURES,
     &FENCE_PROBES,
+    &BMC_POWER_OFFS,
     &RECOVERIES,
     &ALERTS_FIRING,
     &ALERT_EVALUATION,

@@ -91,6 +91,28 @@ What to do:
    the failure. Nothing was evacuated, so there is nothing to restore in Incus. Move instances back
    with *Move…* if you want them there.
 
+### A server cut off but still running: fencing through its BMC
+
+[ADR 0014](../adr/0014-bmc-power-off-fencing.md). When the worker has a BMC mapping for the server (`APELORA_BMC_MAP`, [testing without hardware](../guides/testing-without-hardware.md) for the lab's version), a member Offline for `APELORA_BMC_FENCE_AFTER_SECS` (default 30) is switched off through its BMC, its power state is read back, and *Off* is the fence. This is the case the lease cannot settle: a server cut off from the other servers that still reaches the SAN keeps renewing its lease (LIVE) and would never be fenced.
+
+Measured by `HA_DRILL_BMC=1 ha-drill.sh` on 2026-10-21 (REAL INCUS TESTED, the lab's `lima` provider standing in for a BMC; the Redfish provider is CONTRACT VERIFIED only): the member's Incus port was cut with nftables and its VM kept running.
+
+| t | What |
+|---|---|
+| +22 s | Incus reports the member Offline |
+| +29 s | The supervisor opens the failure: *its storage lease is still being renewed (LIVE)* |
+| +61 s | After the 30 s grace: power state read (On), power-off sent, **Off read back**: fenced (`cluster.member.power_off`, `cluster.member.fenced`), decision recorded, restart queued |
+| +152 s / +215 s | sanlock sees the powered-off host's lease FAIL, then DEAD (about 140 s after its last renewal, which stopped at the power-off) |
+| +220 s | The instance runs on another member, the marker file written before the failure intact |
+
+So the BMC fences earlier and in a case nothing else can, but **it does not shorten the restart** on clustered LVM: Incus refuses the start until sanlock expires the dead host's lease. The restart job waits without using up attempts (5 attempts, 26 Incus operations in the drill).
+
+What to know:
+
+- Apelora never switches a server off when: it was Offline for less than the grace, half or more of the members are Offline (more likely the control plane's own network), another server was already switched off by Apelora and is still down (confirm the second one yourself), or it switched this one off in the last 10 minutes. Each refusal is audited once as `cluster.member.power_off` with outcome `denied` and the reason.
+- A failed attempt is audited with outcome `failed` and its reason (`apelora_bmc_power_offs_total{outcome}` counts success, failed, refused, unreadable); a person's *Confirm powered off…* still works and wins.
+- Before enabling a mapping on real servers, read each BMC's power state with the check described in the ADR (the BMC must report the mapped hardware UUID), and test on one server you can afford to lose.
+
 ## A member that will not return (NOT YET VERIFIED)
 
 Apelora does not remove an unreachable member (an evacuated, reachable one: [member-removal.md](member-removal.md)).

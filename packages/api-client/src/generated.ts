@@ -1106,11 +1106,13 @@ export type FenceEvidence = {
   lockspace?: string | null;
   /** The member whose sanlock reported the lease (storage lease). */
   observedBy?: string | null;
+  /** Which fence provider read the power state (power-off): `redfish`, `lima`. */
+  provider?: string | null;
   summary: string;
 };
 
 /** How the failed member was fenced. */
-export type FenceKind = "storage-lease" | "confirmed";
+export type FenceKind = "storage-lease" | "confirmed" | "power-off";
 
 /** How a remote host's lease looks to sanlock on the member that was asked. */
 export type FenceLeaseState = "free" | "live" | "fail" | "dead" | "unknown";

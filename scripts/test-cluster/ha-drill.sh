@@ -6,6 +6,11 @@
 #   ha-drill.sh plan            # default: check the lab, print every step, write a plan file
 #   ha-drill.sh run <planfile>  # do it; refuses without a fresh plan for the same lab state
 #
+# HA_DRILL_BMC=1 (set it for both plan and run) changes the failure and the fence (ADR 0014):
+# instead of force-stopping the member, its Incus port is cut with nftables so the VM keeps
+# running, keeps renewing its storage lease (the SAN is still reachable) and only Apelora's
+# BMC fence provider (`lima`, which stops the VM) can fence it.
+#
 # What `run` changes, and only on the lab: a database `apelora_ha_drill_<ts>` on the dev
 # PostgreSQL (dropped afterwards), a control plane and a worker of this checkout on 127.0.0.1:8095
 # and :9495, one application `apelora-ha-test-<id>` (module `db`, root disk and volume on `shared`),
@@ -25,6 +30,7 @@ METRICS_ADDR=127.0.0.1:9495
 POOL=${APELORA_SHARED_POOL:-shared}
 declare -A VMS=([apelora-test-1]=apelora-incus [apelora-test-2]=apelora-incus-2 [apelora-test-3]=apelora-incus-3 [apelora-test-4]=apelora-incus-4)
 CORE=apelora-test-1   # the API address, the OVN central database: never stopped
+BMC=${HA_DRILL_BMC:-0}
 
 # shellcheck disable=SC1091
 source "$CONF/env"
@@ -75,6 +81,14 @@ check() {
 }
 
 plan_text() {
+  if [ "$BMC" = 1 ]; then
+    step7=" 7. cut the member's Incus port (tcp 8443, both directions) with nftables inside its VM: the VM keeps
+    running and renewing its storage lease; the worker has APELORA_BMC_MAP (lima provider for the four
+    members), APELORA_BMC_ALLOW_LAB=1, APELORA_BMC_FENCE_AFTER_SECS=30. After 30 s Offline the worker
+    must read its power state (On), switch it off (limactl stop --force) and read Off back   <-- the one destructive step"
+  else
+    step7=" 7. limactl stop -f <VM of the member it runs on>      <-- the one destructive step"
+  fi
   cat <<EOF
 HA drill plan ($(date -u +%FT%TZ))
 Lab: members
@@ -92,7 +106,7 @@ Steps of 'run':
  4. incus exec apelora-ha-test-<id>-db -- write a marker file into /srv/data
  5. if it does not run on one of [${victims[*]}]: incus stop / incus move --target ${victims[0]} / incus start
  6. wait until the worker has learned all four members' storage leases (member_lock_hosts)
- 7. limactl stop -f <VM of the member it runs on>      <-- the one destructive step
+$step7
  8. every 2 s: Incus member status, GET /api/v1/cluster/recovery, sanlock client gets -h 1 on $CORE,
     the instance's member and status; record the time of each change
  9. check the marker file on the new member
@@ -172,6 +186,10 @@ cp_pid=$!
   # shellcheck disable=SC1091
   source "$CONF/fence-probe.env"
   export APELORA_SUPERVISE_SECS=5 APELORA_WORKER_METRICS_ADDR=$METRICS_ADDR APELORA_ALERT_EVALUATE_SECS=0 RUST_LOG=info
+  if [ "$BMC" = 1 ]; then
+    for n in "${!VMS[@]}"; do printf '"%s":{"provider":"lima","vm":"%s"},' "$n" "${VMS[$n]}"; done | sed 's/^/{/; s/,$/}/' > "$run/bmc-map.json"
+    export APELORA_BMC_MAP=$run/bmc-map.json APELORA_BMC_ALLOW_LAB=1 APELORA_BMC_FENCE_AFTER_SECS=30
+  fi
   exec "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1
 ) &
 worker_pid=$!
@@ -213,10 +231,26 @@ done
 [ "$n" -ge 4 ] || { say "FAIL: the worker knows only $n members' storage leases; nothing was stopped"; exit 1; }
 say "worker knows $n members' storage leases: $(psql_ -c "select string_agg(member||'=host '||host_id||' gen '||generation, ', ' order by member) from member_lock_hosts")"
 
-say "STEP: force-stopping $victim ($vm) with $INST on it"
-t0=$(date +%s)
-stopped_vm=$vm
-limactl stop -f "$vm" >/dev/null 2>&1
+if [ "$BMC" = 1 ]; then
+  say "STEP: cutting $victim ($vm) off from the cluster (tcp 8443) with $INST on it; the VM keeps running"
+  t0=$(date +%s)
+  stopped_vm=$vm
+  member "$vm" <<'CUT'
+nft add table inet apelora_drill_cut
+nft add chain inet apelora_drill_cut in '{ type filter hook input priority -300; }'
+nft add chain inet apelora_drill_cut out '{ type filter hook output priority -300; }'
+nft add rule inet apelora_drill_cut in tcp dport 8443 drop
+nft add rule inet apelora_drill_cut in tcp sport 8443 drop
+nft add rule inet apelora_drill_cut out tcp dport 8443 drop
+nft add rule inet apelora_drill_cut out tcp sport 8443 drop
+CUT
+  say "the cut: $(echo 'nft list table inet apelora_drill_cut | grep -c drop' | member "$vm") drop rules in place; VM state: $(limactl list --format '{{.Status}}' "$vm")"
+else
+  say "STEP: force-stopping $victim ($vm) with $INST on it"
+  t0=$(date +%s)
+  stopped_vm=$vm
+  limactl stop -f "$vm" >/dev/null 2>&1
+fi
 declare -A seen=()
 mark() { if [ -z "${seen[$1]:-}" ]; then seen[$1]=$(( $(date +%s) - t0 )); say "t+${seen[$1]}s $1${2:+: $2}"; fi; }
 host_id=$(psql_ -c "select host_id from member_lock_hosts where member = '$victim'")
@@ -234,6 +268,7 @@ for _ in $(seq 1 450); do
   r=$(api "$API/cluster/recovery")
   f=$(echo "$r" | jq -r --arg v "$victim" '.items[] | select(.member==$v)')
   [ -n "$(echo "$f" | jq -r '.failure // empty' 2>/dev/null)" ] && mark "Apelora opened the failure" "$(echo "$f" | jq -r .fencing.reason)"
+  [ "$(psql_ -c "select count(*) from audit_events where action = 'cluster.member.power_off' and outcome = 'success'")" -ge 1 ] && mark "Apelora switched $victim off through its BMC and read the state back" "VM now: $(limactl list --format '{{.Status}}' "$vm")"
   [ "$(echo "$f" | jq -r '.fencing.condition' 2>/dev/null)" = fenced ] && mark "Apelora: fenced" "$(echo "$f" | jq -r '.evidence.summary')"
   [ -n "$(echo "$f" | jq -r '.decidedAt // empty' 2>/dev/null)" ] && mark "Apelora: decision recorded, restart queued"
   st=$(incus_ list "$INST" --project apelora -c sL -f csv)

@@ -7,7 +7,8 @@
 //!   Online. sanlock declares a host dead `host_dead_seconds` (8 × `io_timeout` + the 60 s
 //!   watchdog timeout: 140 s by default) after its last renewal, by which time its watchdog has
 //!   reset it if it was still running (sanlock(8), lvmlockd(8));
-//! - a person confirmed that the server is powered off.
+//! - a person confirmed that the server is powered off;
+//! - its power state, read back from its BMC after a power-off (or already Off), is Off (ADR 0014).
 //!
 //! Time alone never fences: a server cut off from the other servers but not from the SAN keeps
 //! renewing its lease, and virtual-machine disks on clustered LVM are activated shared, so the
@@ -202,6 +203,8 @@ pub enum FenceKind {
     StorageLease,
     /// A person confirmed it is powered off.
     Confirmed,
+    /// Its BMC reported it Off, read back after Apelora switched it off (ADR 0014).
+    PowerOff,
 }
 
 /// The evidence a fencing decision rests on; recorded and audited with it.
@@ -224,6 +227,9 @@ pub struct FenceEvidence {
     /// Who confirmed (confirmation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmed_by: Option<String>,
+    /// Which fence provider read the power state (power-off): `redfish`, `lima`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     pub summary: String,
 }
 
@@ -273,6 +279,81 @@ impl FenceView {
     }
 }
 
+/// What a fence provider read back from a member's BMC (ADR 0014).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerOffReading {
+    /// `redfish` or `lima`.
+    pub provider: String,
+    /// What was read: the BMC's system (a Redfish system path, a lab VM name).
+    pub system: String,
+    /// When the Off state was read back (Unix seconds).
+    pub at: i64,
+    /// Apelora switched it off in this pass (`false`: it was already off).
+    pub switched_off: bool,
+}
+
+/// The shortest time a member may be Offline before Apelora switches it off.
+pub const MIN_FENCE_AFTER_SECS: i64 = 20;
+/// A member Apelora switched off is not switched off again within this time, in case someone
+/// switched it back on while Incus still has not seen it.
+pub const POWER_OFF_COOLDOWN_SECS: i64 = 600;
+
+/// What the guards for switching a member off look at.
+pub struct PowerOffContext<'a> {
+    pub member: &'a str,
+    pub members: &'a [crate::ClusterMember],
+    /// How long Incus has reported the member Offline (since the failure was detected).
+    pub offline_for_secs: i64,
+    pub after_secs: i64,
+    /// Other members with an open failure that Apelora switched off.
+    pub others_powered_off: usize,
+    /// How long ago Apelora switched this member off in this failure, if it did.
+    pub last_power_off_ago: Option<i64>,
+}
+
+/// Why Apelora must not switch the member off now; `None` when every guard holds. Fails
+/// closed: anything unexpected is a reason.
+pub fn power_off_refusal(c: &PowerOffContext<'_>) -> Option<String> {
+    let Some(me) = c.members.iter().find(|m| m.name == c.member) else {
+        return Some(format!("{} is not a member Incus lists", c.member));
+    };
+    if me.status != "Offline" {
+        return Some(format!(
+            "Incus reports {} {}, not Offline",
+            c.member, me.status
+        ));
+    }
+    let after = c.after_secs.max(MIN_FENCE_AFTER_SECS);
+    if c.offline_for_secs < after {
+        return Some(format!(
+            "{} has been Offline for {} s; Apelora waits {after} s before switching a server off",
+            c.member, c.offline_for_secs
+        ));
+    }
+    let offline = c.members.iter().filter(|m| m.status == "Offline").count();
+    if offline * 2 >= c.members.len() {
+        return Some(format!(
+            "{offline} of {} servers are Offline: more likely a problem of the control plane's own network than of those servers, so none is switched off",
+            c.members.len()
+        ));
+    }
+    if c.others_powered_off > 0 {
+        return Some(
+            "Apelora already switched another server off and it has not come back; switching off a second one needs a person (confirm it on Servers → Members)".into(),
+        );
+    }
+    if let Some(ago) = c.last_power_off_ago
+        && ago < POWER_OFF_COOLDOWN_SECS
+    {
+        return Some(format!(
+            "Apelora switched {} off {ago} s ago; it waits {POWER_OFF_COOLDOWN_SECS} s before trying again",
+            c.member
+        ));
+    }
+    None
+}
+
 const CONFIRM: &str = "Check that the server is switched off (or cut off from the SAN), then confirm it on Servers → Members";
 
 /// What a fencing decision looks at.
@@ -286,6 +367,8 @@ pub struct FenceInput<'a> {
     pub observations: &'a [FenceObservation],
     /// A person's confirmation: who and when.
     pub confirmed: Option<(&'a str, i64)>,
+    /// The power state read back from the member's BMC: Off (ADR 0014).
+    pub power_off: Option<&'a PowerOffReading>,
     /// A lease probe is configured at all.
     pub probe: bool,
     pub now: i64,
@@ -311,7 +394,43 @@ pub fn decide(i: &FenceInput<'_>) -> FenceView {
                 host_id: None,
                 generation: None,
                 confirmed_by: Some(by.to_owned()),
+                provider: None,
                 summary: format!("{by} confirmed that {} is powered off", i.member),
+            }),
+            lease_state: None,
+            observed_by: None,
+            observed_at: None,
+        };
+    }
+    if let Some(r) = i.power_off {
+        return FenceView {
+            condition: FenceCondition::Fenced,
+            reason: format!(
+                "its power state was read back from its BMC as Off ({})",
+                r.provider
+            ),
+            next_step: None,
+            evidence: Some(FenceEvidence {
+                kind: FenceKind::PowerOff,
+                at: r.at,
+                observed_by: None,
+                lockspace: None,
+                host_id: None,
+                generation: None,
+                confirmed_by: None,
+                provider: Some(r.provider.clone()),
+                summary: format!(
+                    "the {} provider read {} ({}) as powered Off at {}{}",
+                    r.provider,
+                    i.member,
+                    r.system,
+                    r.at,
+                    if r.switched_off {
+                        ", after switching it off"
+                    } else {
+                        ", already off"
+                    }
+                ),
             }),
             lease_state: None,
             observed_by: None,
@@ -386,6 +505,7 @@ pub fn decide(i: &FenceInput<'_>) -> FenceView {
                     host_id: Some(h.host_id),
                     generation: Some(h.generation),
                     confirmed_by: None,
+                    provider: None,
                     summary: format!(
                         "sanlock on {} reported host {} (generation {}) of {} DEAD in {}: its lease was not renewed for {HOST_DEAD_SECS} s, so it is off or its watchdog reset it",
                         o.observed_by, h.host_id, h.generation, i.member, known.lockspace
@@ -500,6 +620,7 @@ mod tests {
             known,
             observations,
             confirmed: None,
+            power_off: None,
             probe: true,
             now: 1_000,
             max_age_secs: 60,
@@ -618,5 +739,137 @@ mod tests {
         );
         assert_eq!(last_heartbeat("Fully operational"), None);
         assert_eq!(last_heartbeat("No heartbeat (garbage)"), None);
+    }
+
+    fn cluster(statuses: &[(&str, &str)]) -> Vec<crate::ClusterMember> {
+        statuses
+            .iter()
+            .map(|(name, status)| crate::ClusterMember {
+                name: (*name).into(),
+                url: format!("https://{name}:8443"),
+                roles: vec![],
+                status: (*status).into(),
+                message: String::new(),
+                architecture: "aarch64".into(),
+                failure_domain: "default".into(),
+                database: true,
+                groups: vec![],
+                scheduler: "all".into(),
+            })
+            .collect()
+    }
+
+    fn ctx<'a>(members: &'a [crate::ClusterMember], member: &'a str) -> PowerOffContext<'a> {
+        PowerOffContext {
+            member,
+            members,
+            offline_for_secs: 45,
+            after_secs: 30,
+            others_powered_off: 0,
+            last_power_off_ago: None,
+        }
+    }
+
+    #[test]
+    fn a_power_state_read_back_as_off_fences_an_offline_member_whatever_the_lease_says() {
+        let reading = PowerOffReading {
+            provider: "redfish".into(),
+            system: "/redfish/v1/Systems/1".into(),
+            at: 990,
+            switched_off: true,
+        };
+        // The lease is still LIVE (a server cut off from the others but not from the SAN):
+        // the power state is what decides.
+        let live = [obs("m2", 995)];
+        let host = known(1, 1);
+        let mut i = input("m1", Some(&host), &live);
+        i.power_off = Some(&reading);
+        let v = decide(&i);
+        assert!(v.fenced(), "{v:?}");
+        let e = v.evidence.expect("evidence");
+        assert_eq!(e.kind, FenceKind::PowerOff);
+        assert_eq!(e.provider.as_deref(), Some("redfish"));
+        assert!(
+            e.summary.contains("after switching it off"),
+            "{}",
+            e.summary
+        );
+        // Never for a member Incus reports Online.
+        i.offline = false;
+        assert!(!decide(&i).fenced());
+        // A person's confirmation still comes first.
+        i.offline = true;
+        i.confirmed = Some(("ada", 900));
+        assert_eq!(
+            decide(&i).evidence.map(|e| e.kind),
+            Some(FenceKind::Confirmed)
+        );
+    }
+
+    #[test]
+    fn switching_a_member_off_needs_every_guard() {
+        let members = cluster(&[
+            ("m1", "Offline"),
+            ("m2", "Online"),
+            ("m3", "Online"),
+            ("m4", "Online"),
+        ]);
+        assert_eq!(power_off_refusal(&ctx(&members, "m1")), None);
+
+        // Not Offline, or not listed at all.
+        assert!(
+            power_off_refusal(&ctx(&members, "m2"))
+                .expect("online")
+                .contains("not Offline")
+        );
+        assert!(
+            power_off_refusal(&ctx(&members, "m9"))
+                .expect("unknown")
+                .contains("not a member")
+        );
+        // Offline for too short a time; the floor is 20 s whatever is configured.
+        let mut c = ctx(&members, "m1");
+        c.offline_for_secs = 25;
+        assert!(power_off_refusal(&c).expect("short").contains("waits 30 s"));
+        c.after_secs = 1;
+        c.offline_for_secs = 19;
+        assert!(power_off_refusal(&c).expect("floor").contains("waits 20 s"));
+        c.offline_for_secs = 20;
+        assert_eq!(power_off_refusal(&c), None);
+        // Half or more of the members Offline points at the control plane's own network.
+        let split = cluster(&[
+            ("m1", "Offline"),
+            ("m2", "Offline"),
+            ("m3", "Online"),
+            ("m4", "Online"),
+        ]);
+        assert!(
+            power_off_refusal(&ctx(&split, "m1"))
+                .expect("half")
+                .contains("2 of 4")
+        );
+        let one = cluster(&[("m1", "Offline")]);
+        assert!(
+            power_off_refusal(&ctx(&one, "m1")).is_some(),
+            "a one-member cluster never fences itself away"
+        );
+        // One at a time.
+        let mut c = ctx(&members, "m1");
+        c.others_powered_off = 1;
+        assert!(
+            power_off_refusal(&c)
+                .expect("second")
+                .contains("needs a person")
+        );
+        // Not again within the cooldown, again after it.
+        c.others_powered_off = 0;
+        c.last_power_off_ago = Some(60);
+        assert!(
+            power_off_refusal(&c)
+                .expect("cooldown")
+                .contains("60 s ago")
+        );
+        c.last_power_off_ago = Some(POWER_OFF_COOLDOWN_SECS);
+        assert_eq!(power_off_refusal(&c), None);
     }
 }

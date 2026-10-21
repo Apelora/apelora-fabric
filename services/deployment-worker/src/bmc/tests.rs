@@ -1,0 +1,362 @@
+// A Redfish-shaped BMC on loopback (CONTRACT VERIFIED: the shapes are the DMTF interface's, not a
+// vendor's), the mapping's checks, and the fixed provider the supervisor's tests use.
+
+use std::sync::{Arc, Mutex};
+
+use axum::Router;
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
+
+use super::*;
+
+const UUID: &str = "4c4c4544-0042-4c10-8051-b7c04f435331";
+const OTHER_UUID: &str = "11111111-2222-4333-8444-555555555555";
+
+fn b64(data: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in data.chunks(3) {
+        let n = (u32::from(c[0]) << 16)
+            | (u32::from(*c.get(1).unwrap_or(&0)) << 8)
+            | u32::from(*c.get(2).unwrap_or(&0));
+        out.push(T[(n >> 18) as usize & 63] as char);
+        out.push(T[(n >> 12) as usize & 63] as char);
+        out.push(if c.len() > 1 {
+            T[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if c.len() > 2 {
+            T[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+#[derive(Default)]
+struct Fake {
+    on: bool,
+    uuid: String,
+    /// The request is accepted but the power state does not change.
+    stays_on: bool,
+    /// `ResetType@Redfish.AllowableValues`.
+    allowed: Vec<&'static str>,
+    /// Two systems listed instead of one.
+    two_systems: bool,
+    resets: Vec<String>,
+    seen_auth: Vec<String>,
+}
+
+type Shared = Arc<Mutex<Fake>>;
+
+fn json(v: Value) -> Response {
+    ([("content-type", "application/json")], v.to_string()).into_response()
+}
+
+fn authed(s: &Shared, h: &HeaderMap) -> bool {
+    let want = format!("Basic {}", b64(b"apelora-fence:hunter2-lab-only"));
+    let got = h
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    s.lock().expect("fake").seen_auth.push(got.clone());
+    got == want
+}
+
+async fn systems(State(s): State<Shared>, h: HeaderMap) -> Response {
+    if !authed(&s, &h) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let mut members = vec![serde_json::json!({ "@odata.id": "/redfish/v1/Systems/1" })];
+    if s.lock().expect("fake").two_systems {
+        members.push(serde_json::json!({ "@odata.id": "/redfish/v1/Systems/2" }));
+    }
+    json(serde_json::json!({ "Members": members }))
+}
+
+async fn system(State(s): State<Shared>, h: HeaderMap) -> Response {
+    if !authed(&s, &h) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let f = s.lock().expect("fake");
+    json(serde_json::json!({
+        "UUID": f.uuid,
+        "PowerState": if f.on { "On" } else { "Off" },
+        "Actions": { "#ComputerSystem.Reset": {
+            "target": "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
+            "ResetType@Redfish.AllowableValues": f.allowed } }
+    }))
+}
+
+async fn reset(State(s): State<Shared>, h: HeaderMap, body: String) -> Response {
+    if !authed(&s, &h) {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let mut f = s.lock().expect("fake");
+    let kind = serde_json::from_str::<Value>(&body)
+        .ok()
+        .and_then(|v| {
+            v.get("ResetType")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_default();
+    f.resets.push(kind.clone());
+    if kind == "ForceOff" && !f.stays_on {
+        f.on = false;
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn bmc(on: bool) -> (String, Shared) {
+    let shared: Shared = Arc::new(Mutex::new(Fake {
+        on,
+        uuid: UUID.into(),
+        allowed: vec!["ForceOff", "GracefulShutdown", "On"],
+        ..Default::default()
+    }));
+    let app = Router::new()
+        .route("/redfish/v1/Systems", get(systems))
+        .route("/redfish/v1/Systems/1", get(system))
+        .route(
+            "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset",
+            post(reset),
+        )
+        .with_state(shared.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    (format!("https://{addr}"), shared)
+}
+
+fn mapping(url: &str, uuid: &str, secret: Option<&str>) -> Bmc {
+    let text = format!(
+        r#"{{ "m1": {{ "provider": "redfish", "url": "{url}", "user": "apelora-fence",
+              "secretRef": "APELORA_BMC_SECRET_M1", "uuid": "{uuid}" }} }}"#
+    );
+    let mut m = Mapping::parse(&text, false).expect("mapping");
+    m.plain = true;
+    m.settle = Some((Duration::from_millis(300), Duration::from_millis(20)));
+    let secret = secret.map(str::to_owned);
+    m.secrets = Some(Arc::new(move |k| {
+        (k == "APELORA_BMC_SECRET_M1")
+            .then(|| secret.clone())
+            .flatten()
+    }));
+    Bmc::Mapped(m)
+}
+
+const PASSWORD: &str = "hunter2-lab-only";
+
+#[tokio::test]
+async fn a_server_is_switched_off_and_the_power_state_is_read_back_before_it_counts() {
+    let (url, fake) = bmc(true).await;
+    let b = mapping(&url, UUID, Some(PASSWORD));
+    assert!(b.covers("m1") && !b.covers("m2"));
+    assert_eq!(b.power_state("m1").await, Ok(PowerState::On));
+    let r = b.fence("m1").await.expect("fenced");
+    assert_eq!(
+        (r.provider.as_str(), r.system.as_str(), r.switched_off),
+        ("redfish", "/redfish/v1/Systems/1", true)
+    );
+    assert_eq!(
+        fake.lock().expect("fake").resets,
+        vec!["ForceOff".to_owned()]
+    );
+    assert_eq!(b.power_state("m1").await, Ok(PowerState::Off));
+    // Already off: nothing is sent again, and the reading says so.
+    let again = b.fence("m1").await.expect("already off");
+    assert!(!again.switched_off);
+    assert_eq!(fake.lock().expect("fake").resets.len(), 1);
+}
+
+#[tokio::test]
+async fn an_accepted_request_that_leaves_the_server_on_is_not_evidence() {
+    let (url, fake) = bmc(true).await;
+    fake.lock().expect("fake").stays_on = true;
+    let e = mapping(&url, UUID, Some(PASSWORD))
+        .fence("m1")
+        .await
+        .expect_err("still on");
+    assert!(e.contains("still does not report Off"), "{e}");
+}
+
+#[tokio::test]
+async fn a_bmc_that_reports_another_servers_uuid_is_refused_before_anything_is_sent() {
+    let (url, fake) = bmc(true).await;
+    fake.lock().expect("fake").uuid = OTHER_UUID.into();
+    let b = mapping(&url, UUID, Some(PASSWORD));
+    let e = b.fence("m1").await.expect_err("wrong server");
+    assert!(e.contains("refusing") && e.contains(OTHER_UUID), "{e}");
+    assert!(
+        fake.lock().expect("fake").resets.is_empty(),
+        "nothing was sent"
+    );
+    // Reading the power state is refused too: another server's Off would be false evidence.
+    assert!(b.power_state("m1").await.is_err());
+}
+
+#[tokio::test]
+async fn wrong_or_missing_credentials_refuse_without_putting_the_password_in_the_error() {
+    let (url, _) = bmc(true).await;
+    let e = mapping(&url, UUID, Some("not-the-password"))
+        .fence("m1")
+        .await
+        .expect_err("refused");
+    assert!(e.contains("refused the credentials"), "{e}");
+    assert!(
+        !e.contains("not-the-password") && !e.contains(PASSWORD),
+        "{e}"
+    );
+    let e = mapping(&url, UUID, None)
+        .fence("m1")
+        .await
+        .expect_err("no secret");
+    assert!(e.contains("APELORA_BMC_SECRET_M1"), "{e}");
+}
+
+#[tokio::test]
+async fn a_system_that_does_not_offer_force_off_and_a_bmc_with_several_systems_refuse() {
+    let (url, fake) = bmc(true).await;
+    fake.lock().expect("fake").allowed = vec!["GracefulShutdown"];
+    let e = mapping(&url, UUID, Some(PASSWORD))
+        .fence("m1")
+        .await
+        .expect_err("no force off");
+    assert!(e.contains("does not offer ForceOff"), "{e}");
+    assert!(fake.lock().expect("fake").resets.is_empty());
+    let (url, fake) = bmc(true).await;
+    fake.lock().expect("fake").two_systems = true;
+    let e = mapping(&url, UUID, Some(PASSWORD))
+        .fence("m1")
+        .await
+        .expect_err("two systems");
+    assert!(e.contains("several systems"), "{e}");
+}
+
+#[test]
+fn the_mapping_is_checked_and_every_problem_is_named() {
+    let ok = |text: &str| Mapping::parse(text, false);
+    let redfish = |extra: &str| {
+        format!(
+            r#"{{ "m1": {{ "provider": "redfish", "url": "https://10.0.0.11", "user": "u",
+               "secretRef": "APELORA_BMC_SECRET_M1", "uuid": "{UUID}" {extra} }} }}"#
+        )
+    };
+    assert_eq!(ok(&redfish("")).expect("valid").targets.len(), 1);
+    assert!(ok("[]").is_err() && ok("{").is_err());
+    // No plain HTTP, no credentials in the address, no free-text secret names, the UUID is required.
+    assert!(
+        ok(&redfish("").replace("https://", "http://"))
+            .expect_err("http")
+            .contains("https")
+    );
+    assert!(
+        ok(&redfish("").replace("10.0.0.11", "u:p@10.0.0.11"))
+            .expect_err("credentials")
+            .contains("credentials")
+    );
+    assert!(
+        ok(&redfish("").replace("APELORA_BMC_SECRET_M1", "HOME"))
+            .expect_err("secret")
+            .contains("APELORA_BMC_SECRET_")
+    );
+    assert!(
+        ok(&redfish("").replace(UUID, "not-a-uuid"))
+            .expect_err("uuid")
+            .contains("hardware UUID")
+    );
+    assert!(
+        ok(&redfish("").replace(&format!(r#", "uuid": "{UUID}""#), "")).is_err(),
+        "the UUID cannot be left out"
+    );
+    assert!(
+        ok(&redfish(
+            r#", "system": "/redfish/v1/Systems/../Managers/1""#
+        ))
+        .is_err()
+    );
+    assert!(
+        ok(&redfish(r#", "ca": "/nonexistent/ca.pem""#))
+            .expect_err("ca")
+            .contains("missing")
+    );
+    assert!(
+        ok(&redfish(r#", "insecure": true"#)).is_err(),
+        "there is no insecure mode"
+    );
+    // The lab provider needs the lab switch, a lab VM name, and never the SAN.
+    let lima = |vm: &str| format!(r#"{{ "m4": {{ "provider": "lima", "vm": "{vm}" }} }}"#);
+    assert!(
+        ok(&lima("apelora-incus-4"))
+            .expect_err("lab")
+            .contains("APELORA_BMC_ALLOW_LAB")
+    );
+    assert!(Mapping::parse(&lima("apelora-incus-4"), true).is_ok());
+    assert!(Mapping::parse(&lima("apelora-san"), true).is_err());
+    assert!(Mapping::parse(&lima("my-laptop"), true).is_err());
+    assert!(Mapping::parse(&lima("apelora-x; rm -rf"), true).is_err());
+}
+
+#[test]
+fn the_settings_come_from_the_environment_and_nothing_secret_is_in_them() {
+    let none = |_: &str| None;
+    let (b, after) = bmc_from_env(none).expect("off");
+    assert!(!b.configured());
+    assert_eq!(after, 30);
+    for bad in ["19", "3601", "soon"] {
+        assert!(
+            bmc_from_env(|k| (k == "APELORA_BMC_FENCE_AFTER_SECS").then(|| bad.to_owned()))
+                .is_err(),
+            "{bad}"
+        );
+    }
+    assert!(
+        bmc_from_env(|k| (k == "APELORA_BMC_MAP").then(|| "/nonexistent/map.json".to_owned()))
+            .is_err()
+    );
+    let dir = std::env::temp_dir().join(format!("apelora-bmc-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let file = dir.join("map.json");
+    std::fs::write(
+        &file,
+        r#"{ "m4": { "provider": "lima", "vm": "apelora-incus-4" } }"#,
+    )
+    .expect("write");
+    let env = |k: &str| match k {
+        "APELORA_BMC_MAP" => Some(file.display().to_string()),
+        "APELORA_BMC_ALLOW_LAB" => Some("1".into()),
+        "APELORA_BMC_FENCE_AFTER_SECS" => Some("45".into()),
+        _ => None,
+    };
+    let (b, after) = bmc_from_env(env).expect("configured");
+    assert_eq!((b.members(), after), (vec!["m4".to_owned()], 45));
+    assert!(!format!("{b:?}").contains("secret"), "{b:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn the_fixed_provider_records_what_it_was_asked() {
+    let fixed = Bmc::Fixed(Arc::new(Mutex::new((
+        BTreeMap::from([(
+            "m1".to_owned(),
+            FixedMember {
+                on: true,
+                refuse: None,
+                stays_on: false,
+            },
+        )]),
+        vec![],
+    ))));
+    let r = fixed.fence("m1").await.expect("fenced");
+    assert!(r.switched_off);
+    assert_eq!(fixed.power_state("m1").await, Ok(PowerState::Off));
+    assert!(fixed.fence("m2").await.is_err());
+}

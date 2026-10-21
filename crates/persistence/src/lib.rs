@@ -1053,6 +1053,32 @@ pub async fn audit<'e>(
     .await
 }
 
+/// Like [`audit`], with an outcome other than success (`failed`, `denied`): an attempt that
+/// changed nothing in this database, or was refused.
+pub async fn audit_outcome<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    actor: &str,
+    action: &str,
+    target: &str,
+    outcome: &str,
+    detail: &Value,
+) -> Result<()> {
+    identity::audit_event(
+        db,
+        &identity::AuditEntry {
+            actor,
+            actor_type: "system",
+            actor_name: None,
+            action,
+            target,
+            outcome,
+            scope: None,
+            detail,
+        },
+    )
+    .await
+}
+
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

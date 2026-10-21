@@ -20,7 +20,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use apelora_domain::evacuation::Deployed;
-use apelora_domain::fencing::{self, FenceInput, FenceObservation, FenceView, KnownHost};
+use apelora_domain::fencing::{
+    self, FenceInput, FenceObservation, FenceView, KnownHost, PowerOffContext, PowerOffReading,
+    power_off_refusal,
+};
 use apelora_domain::plan::DesiredModule;
 use apelora_domain::recovery::{RecoveryAction, choose_target, plan_recovery};
 use apelora_domain::{ClusterMember, InstanceAction};
@@ -34,6 +37,7 @@ use serde_json::{Value, json};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::bmc::{Bmc, PowerState};
 use crate::fencing::Probe;
 
 /// Readings older than this do not fence anything.
@@ -61,6 +65,11 @@ pub struct Recovery {
     read_at: HashMap<String, i64>,
     /// Members whose probe failed on the previous read (logged once per change).
     failing: HashMap<String, String>,
+    /// Fence providers (ADR 0014) and how long a member is Offline before it is switched off.
+    bmc: Bmc,
+    bmc_after_secs: i64,
+    /// The last reason a power-off was held back, per member (said once per change).
+    held_back: HashMap<String, String>,
 }
 
 /// The deployment records, parsed (unreadable ones are left out, as elsewhere).
@@ -104,6 +113,108 @@ impl Recovery {
             lockspace,
             ..Default::default()
         }
+    }
+
+    /// Adds the BMC fence providers: a member Offline for `after_secs` is switched off and its
+    /// power state read back (ADR 0014).
+    pub fn with_bmc(mut self, bmc: Bmc, after_secs: i64) -> Self {
+        self.bmc = bmc;
+        self.bmc_after_secs = after_secs;
+        self
+    }
+
+    /// The power state of an Offline member that has a BMC: Off is evidence at once; On is
+    /// switched off when every guard holds. `None`: not fenced by power this pass.
+    async fn power_evidence(
+        &mut self,
+        pool: &Pool,
+        lease: Option<&Leadership>,
+        members: &[ClusterMember],
+        row: &store::FailureRecord,
+    ) -> Result<Option<PowerOffReading>, StoreError> {
+        let member = row.member.as_str();
+        let state = match self.bmc.power_state(member).await {
+            Ok(s) => s,
+            Err(e) => {
+                apelora_metrics::BMC_POWER_OFFS.inc(&["unreadable"]);
+                if self.held_back.get(member) != Some(&e) {
+                    tracing::warn!(%member, error = %e, "recovery: the BMC's power state cannot be read; nothing is switched off");
+                    self.held_back.insert(member.to_owned(), e);
+                }
+                return Ok(None);
+            }
+        };
+        if state == PowerState::Off {
+            return Ok(Some(PowerOffReading {
+                provider: self.bmc.provider_of(member),
+                system: self.bmc.system_of(member),
+                at: now(),
+                switched_off: false,
+            }));
+        }
+        let t = now();
+        // Still inside the grace period: Incus may only be slow to hear from it. Not worth a record.
+        if t - row.detected_at.unix_timestamp()
+            < self.bmc_after_secs.max(fencing::MIN_FENCE_AFTER_SECS)
+        {
+            tracing::debug!(%member, "recovery: offline for a short time; the BMC is not asked to switch it off yet");
+            return Ok(None);
+        }
+        let others = store::others_powered_off(pool, member).await?;
+        let refusal = power_off_refusal(&PowerOffContext {
+            member,
+            members,
+            offline_for_secs: t - row.detected_at.unix_timestamp(),
+            after_secs: self.bmc_after_secs,
+            others_powered_off: usize::try_from(others).unwrap_or(usize::MAX),
+            last_power_off_ago: row.power_off_at.map(|a| t - a.unix_timestamp()),
+        });
+        if let Some(why) = refusal {
+            // Said once per change (the numbers in the sentence change every pass).
+            let key = why
+                .split_whitespace()
+                .filter(|w| !w.chars().all(|c| c.is_ascii_digit()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            if self.held_back.get(member) != Some(&key) {
+                let mut tx = begin_fenced(pool, lease).await?;
+                apelora_persistence::audit_outcome(&mut *tx, "supervisor", "cluster.member.power_off", member, "denied",
+                    &json!({ "failure": row.id, "reason": why, "powerState": format!("{state:?}") })).await?;
+                tx.commit().await?;
+                apelora_metrics::BMC_POWER_OFFS.inc(&["refused"]);
+                tracing::info!(%member, reason = %why, "recovery: not switching the member off yet");
+                self.held_back.insert(member.to_owned(), key);
+            }
+            return Ok(None);
+        }
+        self.held_back.remove(member);
+        tracing::warn!(%member, failure = %row.id, "recovery: switching the failed member off through its BMC");
+        let result = self.bmc.fence(member).await;
+        let mut tx = begin_fenced(pool, lease).await?;
+        match &result {
+            Ok(r) => {
+                store::record_power_off(&mut tx, row.id, &encode(r)?).await?;
+                apelora_persistence::audit(&mut *tx, "supervisor", "cluster.member.power_off", member,
+                    &json!({ "failure": row.id, "provider": r.provider, "system": r.system, "switchedOff": r.switched_off, "readBackAt": r.at })).await?;
+                apelora_metrics::BMC_POWER_OFFS.inc(&["success"]);
+            }
+            Err(e) => {
+                store::record_power_off(&mut tx, row.id, &json!({ "error": e })).await?;
+                apelora_persistence::audit_outcome(
+                    &mut *tx,
+                    "supervisor",
+                    "cluster.member.power_off",
+                    member,
+                    "failed",
+                    &json!({ "failure": row.id, "error": e }),
+                )
+                .await?;
+                apelora_metrics::BMC_POWER_OFFS.inc(&["failed"]);
+                tracing::error!(%member, error = %e, "recovery: switching the member off failed");
+            }
+        }
+        tx.commit().await?;
+        Ok(result.ok())
     }
 
     /// Forgets readings (a new leadership starts over).
@@ -278,12 +389,21 @@ impl Recovery {
                 .confirmed_by
                 .as_deref()
                 .zip(row.confirmed_at.map(|t| t.unix_timestamp()));
+            // A person's confirmation and an earlier fencing need no BMC; otherwise a member in
+            // the allowlist is read, and switched off when every guard holds (ADR 0014).
+            let power =
+                if row.fenced_at.is_none() && confirmed.is_none() && self.bmc.covers(&m.name) {
+                    self.power_evidence(pool, lease, &members, &row).await?
+                } else {
+                    None
+                };
             let view: FenceView = fencing::decide(&FenceInput {
                 member: &m.name,
                 offline: true,
                 known: known.get(&m.name),
                 observations: &readings,
                 confirmed,
+                power_off: power.as_ref(),
                 probe: self.probe.configured(),
                 now: now(),
                 max_age_secs: READING_MAX_AGE_SECS,
@@ -928,6 +1048,261 @@ mod tests {
         assert_eq!(
             located(&provider, "shop-db"),
             ("mock-member-02".into(), "Stopped".into())
+        );
+    }
+
+    type FixedBmc = Arc<
+        Mutex<(
+            BTreeMap<String, crate::bmc::FixedMember>,
+            crate::bmc::FixedCalls,
+        )>,
+    >;
+
+    fn fixed_bmc(members: &[(&str, bool)]) -> (Bmc, FixedBmc) {
+        let shared: FixedBmc = Arc::new(Mutex::new((
+            members
+                .iter()
+                .map(|(m, on)| {
+                    (
+                        (*m).to_owned(),
+                        crate::bmc::FixedMember {
+                            on: *on,
+                            refuse: None,
+                            stays_on: false,
+                        },
+                    )
+                })
+                .collect(),
+            Vec::new(),
+        )));
+        (Bmc::Fixed(shared.clone()), shared)
+    }
+
+    fn asked(f: &FixedBmc, what: &str) -> usize {
+        f.lock()
+            .expect("lock")
+            .1
+            .iter()
+            .filter(|(w, _)| w == what)
+            .count()
+    }
+
+    async fn power_off_outcomes(pool: &Pool) -> Vec<String> {
+        sqlx::query_scalar("SELECT outcome FROM audit_events WHERE action = 'cluster.member.power_off' ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .expect("audit")
+    }
+
+    async fn age(pool: &Pool) {
+        sqlx::query("UPDATE member_failures SET detected_at = now() - interval '60 seconds'")
+            .execute(pool)
+            .await
+            .expect("age");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_failed_member_is_switched_off_through_its_bmc_and_fenced_without_any_lease_probe(
+        pool: Pool,
+    ) {
+        let mock = mock_with_shared_pool();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let (bmc, fixed) = fixed_bmc(&[("mock-member-01", true)]);
+        let mut s = Supervisor::new(Duration::from_secs(3600))
+            .with_recovery(Recovery::new(Probe::Off, None).with_bmc(bmc, 30));
+        set_member(&mock, "mock-member-01", "Offline");
+
+        // Just failed: Incus may only be slow; nothing is sent, nothing is fenced.
+        assert!(s.pass(&pool, &provider).await.expect("pass").is_empty());
+        assert_eq!(asked(&fixed, "off"), 0);
+        assert!(
+            store::open_failures(&pool).await.expect("open")[0]
+                .fenced_at
+                .is_none()
+        );
+
+        // Offline for a minute: switched off, the state read back, fenced, one recovery job.
+        age(&pool).await;
+        assert_eq!(
+            s.pass(&pool, &provider).await.expect("pass"),
+            vec!["shop-db".to_owned()]
+        );
+        assert_eq!(asked(&fixed, "off"), 1);
+        let f = store::open_failures(&pool).await.expect("open").remove(0);
+        assert!(f.fenced_at.is_some() && f.power_off_at.is_some());
+        let e = f.fence_evidence.as_ref().expect("evidence");
+        assert_eq!(
+            (e["kind"].as_str(), e["provider"].as_str()),
+            (Some("power-off"), Some("fixed"))
+        );
+        assert!(
+            e["summary"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("after switching it off"),
+            "{e}"
+        );
+        assert_eq!(
+            f.power_off_result.as_ref().expect("result")["switchedOff"],
+            true
+        );
+        // Not again: the failure is fenced and decided.
+        assert!(s.pass(&pool, &provider).await.expect("pass").is_empty());
+        assert_eq!(asked(&fixed, "off"), 1);
+        assert_eq!(power_off_outcomes(&pool).await, vec!["success".to_owned()]);
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_member_its_bmc_already_reports_off_is_fenced_at_once_without_sending_anything(
+        pool: Pool,
+    ) {
+        let mock = mock_with_shared_pool();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let (bmc, fixed) = fixed_bmc(&[("mock-member-01", false)]);
+        let mut s = Supervisor::new(Duration::from_secs(3600))
+            .with_recovery(Recovery::new(Probe::Off, None).with_bmc(bmc, 30));
+        set_member(&mock, "mock-member-01", "Offline");
+        assert_eq!(
+            s.pass(&pool, &provider).await.expect("pass"),
+            vec!["shop-db".to_owned()]
+        );
+        assert_eq!(asked(&fixed, "off"), 0);
+        let f = store::open_failures(&pool).await.expect("open").remove(0);
+        let e = f.fence_evidence.as_ref().expect("evidence");
+        assert_eq!(e["kind"], "power-off");
+        assert!(
+            e["summary"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("already off"),
+            "{e}"
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_guard_holds_the_power_off_back_and_says_so_once(pool: Pool) {
+        let mock = mock_with_shared_pool();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let (bmc, fixed) = fixed_bmc(&[("mock-member-01", true), ("mock-member-02", true)]);
+        let mut s = Supervisor::new(Duration::from_secs(3600))
+            .with_recovery(Recovery::new(Probe::Off, None).with_bmc(bmc, 30));
+        // Two of three members Offline: more likely the control plane's own network.
+        set_member(&mock, "mock-member-01", "Offline");
+        set_member(&mock, "mock-member-02", "Offline");
+        s.pass(&pool, &provider).await.expect("pass");
+        age(&pool).await;
+        for _ in 0..3 {
+            assert!(s.pass(&pool, &provider).await.expect("pass").is_empty());
+        }
+        assert_eq!(asked(&fixed, "off"), 0, "nothing was switched off");
+        assert!(
+            store::open_failures(&pool)
+                .await
+                .expect("open")
+                .iter()
+                .all(|f| f.fenced_at.is_none())
+        );
+        assert_eq!(
+            power_off_outcomes(&pool).await,
+            vec!["denied".to_owned(), "denied".to_owned()],
+            "once per member, not once per pass"
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_power_off_that_fails_fences_nothing_and_is_not_repeated_within_the_cooldown(
+        pool: Pool,
+    ) {
+        let mock = mock_with_shared_pool();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let (bmc, fixed) = fixed_bmc(&[("mock-member-01", true)]);
+        fixed
+            .lock()
+            .expect("lock")
+            .0
+            .get_mut("mock-member-01")
+            .expect("member")
+            .refuse = Some("the BMC answered 500".into());
+        let mut s = Supervisor::new(Duration::from_secs(3600))
+            .with_recovery(Recovery::new(Probe::Off, None).with_bmc(bmc, 30));
+        set_member(&mock, "mock-member-01", "Offline");
+        s.pass(&pool, &provider).await.expect("pass");
+        age(&pool).await;
+        for _ in 0..3 {
+            assert!(s.pass(&pool, &provider).await.expect("pass").is_empty());
+        }
+        assert_eq!(
+            asked(&fixed, "off"),
+            1,
+            "one attempt; the cooldown holds the rest back"
+        );
+        let f = store::open_failures(&pool).await.expect("open").remove(0);
+        assert!(f.fenced_at.is_none());
+        assert!(
+            f.power_off_result.as_ref().expect("result")["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("500")
+        );
+        assert_eq!(
+            power_off_outcomes(&pool).await,
+            vec!["failed".to_owned(), "denied".to_owned()],
+            "the failed attempt, then the cooldown said once"
+        );
+        // A person's confirmation still fences it.
+        let mut tx = apelora_persistence::begin(&pool).await.expect("tx");
+        store::confirm_powered_off(&mut tx, "mock-member-01", "user:ada")
+            .await
+            .expect("confirm");
+        tx.commit().await.expect("commit");
+        assert_eq!(
+            s.pass(&pool, &provider).await.expect("pass"),
+            vec!["shop-db".to_owned()]
+        );
+        assert_eq!(
+            store::open_failures(&pool).await.expect("open")[0]
+                .fence_evidence
+                .as_ref()
+                .expect("e")["kind"],
+            "confirmed"
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_second_member_is_not_switched_off_while_the_first_is_still_down(pool: Pool) {
+        let mock = mock_with_shared_pool();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let (bmc, fixed) = fixed_bmc(&[
+            ("mock-member-01", true),
+            ("mock-member-02", true),
+            ("mock-member-03", true),
+        ]);
+        // Five members would be needed to let a second one fail without reaching half: use the
+        // order of events instead. Member 1 fails and is switched off.
+        let mut s = Supervisor::new(Duration::from_secs(3600))
+            .with_recovery(Recovery::new(Probe::Off, None).with_bmc(bmc, 30));
+        set_member(&mock, "mock-member-01", "Offline");
+        s.pass(&pool, &provider).await.expect("pass");
+        age(&pool).await;
+        s.pass(&pool, &provider).await.expect("pass");
+        assert_eq!(asked(&fixed, "off"), 1);
+        // Member 2 now also fails (2 of 3: the half rule refuses first, and so would the
+        // one-at-a-time rule). Either way it is not switched off.
+        set_member(&mock, "mock-member-02", "Offline");
+        s.pass(&pool, &provider).await.expect("pass");
+        age(&pool).await;
+        s.pass(&pool, &provider).await.expect("pass");
+        assert_eq!(asked(&fixed, "off"), 1, "still only the first");
+        assert!(
+            store::others_powered_off(&pool, "mock-member-02")
+                .await
+                .expect("count")
+                >= 1
         );
     }
 }

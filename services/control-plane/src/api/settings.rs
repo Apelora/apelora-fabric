@@ -467,6 +467,23 @@ pub const SETTINGS: &[Setting] = &[
         None,
         "The shared volume group's lockspace the fence probe reads; default the only one joined",
     ),
+    hidden(
+        "APELORA_BMC_MAP",
+        Worker,
+        "File naming each server's BMC (ADR 0014): provider, address, user, the name of its password variable and its hardware UUID. No passwords in it; absent: no fencing through a BMC",
+    ),
+    s(
+        "APELORA_BMC_FENCE_AFTER_SECS",
+        Worker,
+        Some("30"),
+        "A server Offline for this long (at least 20) is switched off through its BMC and fenced",
+    ),
+    s(
+        "APELORA_BMC_ALLOW_LAB",
+        Worker,
+        None,
+        "Allows the lab-only provider that stops a Lima VM (the disposable test cluster); never in production",
+    ),
     s(
         "APELORA_BACKUP_POOL",
         Worker,

@@ -26,9 +26,12 @@ pub struct FailureRecord {
     pub decided_at: Option<OffsetDateTime>,
     pub decision: Option<Value>,
     pub resolved_at: Option<OffsetDateTime>,
+    /// When Apelora last switched the member off through its BMC, and how that ended.
+    pub power_off_at: Option<OffsetDateTime>,
+    pub power_off_result: Option<Value>,
 }
 
-const COLUMNS: &str = "id, member, detected_at, last_heartbeat, fencing, fencing_at, waiting_instances, fenced_at, fence_evidence, confirmed_by, confirmed_at, decided_at, decision, resolved_at";
+const COLUMNS: &str = "id, member, detected_at, last_heartbeat, fencing, fencing_at, waiting_instances, fenced_at, fence_evidence, confirmed_by, confirmed_at, decided_at, decision, resolved_at, power_off_at, power_off_result";
 
 /// The open failure of `member`, created when there is none. `true` when it was created now.
 pub async fn open_failure(
@@ -132,6 +135,32 @@ pub async fn record_decision(conn: &mut PgConnection, id: Uuid, decision: &Value
     .await?
     .rows_affected()
         == 1)
+}
+
+/// Records that Apelora tried to switch the member off, and how it ended (a `PowerOffReading`
+/// or the reason it failed). Each attempt replaces the last.
+pub async fn record_power_off(conn: &mut PgConnection, id: Uuid, result: &Value) -> Result<()> {
+    sqlx::query(
+        "UPDATE member_failures SET power_off_at = now(), power_off_result = $2
+         WHERE id = $1 AND resolved_at IS NULL",
+    )
+    .bind(id)
+    .bind(result)
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
+/// Open failures of other members that Apelora switched off.
+pub async fn others_powered_off(pool: &Pool, member: &str) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*) FROM member_failures
+         WHERE resolved_at IS NULL AND member <> $1 AND power_off_at IS NOT NULL
+           AND power_off_result ? 'provider'",
+    )
+    .bind(member)
+    .fetch_one(pool)
+    .await?)
 }
 
 /// A person confirmed that `member` is powered off: recorded on its open failure (created when

@@ -93,7 +93,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lockspace = lockspace.as_deref().unwrap_or("-"),
         "fence probe"
     );
-    let recovery = apelora_deployment_worker::recovery::Recovery::new(probe, lockspace);
+    // Fencing by switching a server off through its BMC (ADR 0014): APELORA_BMC_MAP,
+    // APELORA_BMC_FENCE_AFTER_SECS, APELORA_BMC_ALLOW_LAB; passwords from APELORA_BMC_SECRET_*.
+    let (bmc, bmc_after) = apelora_deployment_worker::bmc::bmc_from_env(|k| std::env::var(k).ok())?;
+    tracing::info!(members = ?bmc.members(), after_secs = bmc_after, "BMC fence providers");
+    let recovery = apelora_deployment_worker::recovery::Recovery::new(probe, lockspace)
+        .with_bmc(bmc, bmc_after);
     let supervisor = (every > 0).then(|| {
         tracing::info!(every_secs = every, "replica supervisor started");
         tokio::spawn(apelora_deployment_worker::supervisor::supervise(

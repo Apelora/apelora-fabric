@@ -63,10 +63,10 @@ Add a storage-class choice to the volume editor (`setVolumes`/`volumesOf` in `as
 the inspector), refuse mixing with `data-local` the way the API does, and add a Playwright test
 and a real-browser check. *Needs:* nothing from the lab; this can be built and verified now.
 
-**4. Faster fencing: a BMC power-off provider.** The real speed lever. Recovery takes about 140 s
+**4. Fencing through a BMC (built 2026-10-21, ADR 0014).** Not the speed lever it was thought to be (see below); it closes the partition case. Recovery takes about 140 s
 today because sanlock's `host_dead_seconds` is the floor. With a power-off fence: Incus marks the
 member Offline at 20 s, Apelora powers it off through its BMC, the evidence is "powered off", and
-recovery lands around 40–60 s (*estimate, not measured*).
+recovery was expected to land around 40–60 s. **Measured on the lab (2026-10-21, [ADR 0014](../adr/0014-bmc-power-off-fencing.md)): fenced at 61 s, running again at 220 s** — clustered LVM still waits for sanlock to expire the dead host's lease (about 140 s after its last renewal), so the BMC fence does not shorten recovery on this storage; it fences a server cut off from the cluster that still reaches the SAN, which the lease alone cannot.
 - A `FenceProvider` trait next to the SSH probe in `services/deployment-worker/src/fencing.rs`, a
   new `power-off` evidence kind in `apelora_domain::fencing::decide`, and an ADR 0014 amending 0013.
 - BMC credentials stay in the backend's secret store, never in the database, logs or the browser

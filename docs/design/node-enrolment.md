@@ -87,5 +87,6 @@ script and token through cloud-init; nothing in the lifecycle above changes.
 
 Join tokens are never stored, logged or audited (ADR 0003); the approve response is
 `no-store`; the enrolment script reads the token from standard input. All mutating calls need
-`manage-infrastructure`, the admin identity and the database (audit). BMC credentials are never
-handled by Apelora.
+`manage-infrastructure`, the admin identity and the database (audit). BMC credentials are not
+stored by Apelora: with a MAAS provider they stay in MAAS ([the adapter](provisioner-maas.md)); the only
+place Apelora handles one is the worker's own process environment, for fencing (ADR 0014).

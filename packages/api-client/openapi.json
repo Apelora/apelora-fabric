@@ -15778,6 +15778,13 @@
             ],
             "description": "The member whose sanlock reported the lease (storage lease)."
           },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Which fence provider read the power state (power-off): `redfish`, `lima`."
+          },
           "summary": {
             "type": "string"
           }
@@ -15788,7 +15795,8 @@
         "description": "How the failed member was fenced.",
         "enum": [
           "storage-lease",
-          "confirmed"
+          "confirmed",
+          "power-off"
         ]
       },
       "FenceLeaseState": {
