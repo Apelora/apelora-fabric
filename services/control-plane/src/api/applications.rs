@@ -630,13 +630,20 @@ pub(super) async fn deploy(
         let job_key = key
             .as_ref()
             .map(|k| format!("{k}:{}:{kind}", item.instance));
-        let job_id = apelora_persistence::enqueue_job_for_request(
-            pool,
+        let job_id = apelora_persistence::enqueue_job_from(
+            &mut *pool
+                .acquire()
+                .await
+                .map_err(apelora_persistence::StoreError::from)?,
             kind,
             Some(app.id),
             &payload,
             job_key.as_deref(),
-            super::requests::current().as_deref(),
+            &apelora_persistence::JobOrigin {
+                request_id: super::requests::current().as_deref(),
+                queued_by: Some(&p.actor_ref()),
+                retry_of: None,
+            },
         )
         .await?
         .id();
@@ -695,13 +702,20 @@ pub(super) async fn deploy(
         )
         .map_err(|e| bad_request(e.to_string()))?;
         let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
-        let job_id = apelora_persistence::enqueue_job_for_request(
-            pool,
+        let job_id = apelora_persistence::enqueue_job_from(
+            &mut *pool
+                .acquire()
+                .await
+                .map_err(apelora_persistence::StoreError::from)?,
             "network.sync",
             Some(app.id),
             &payload,
             job_key.as_deref(),
-            super::requests::current().as_deref(),
+            &apelora_persistence::JobOrigin {
+                request_id: super::requests::current().as_deref(),
+                queued_by: Some(&p.actor_ref()),
+                retry_of: None,
+            },
         )
         .await?
         .id();

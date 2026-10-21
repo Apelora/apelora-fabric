@@ -21,9 +21,9 @@ Priorities:
 | Overview | service status, members | "needs attention": failed jobs, waiting approvals, expiring certificates, open alerts (P1); recent changes (P2); capacity (IP) |
 | Health | — | per-component health, worker heartbeats, queue, member resources (IP); history and objectives (P2) |
 | Servers and clustering | member list; evacuate and restore with a dry run; remove; enrolment, admission and join tokens (REAL INCUS TESTED) | database roles, leader and quorum (P0); rolling upgrade with a version-skew check (P0); member detail (P1); cluster groups and failure domains (P1); cluster settings: offline and healing thresholds (P1); certificate rotation (P1) |
-| Instances | list, deploy, start/stop, delete, move with a dry run; terminal (MOCK VERIFIED) | instance and console logs (P0); restart in the Console (A → P1); detail page (P1); resize (P1); snapshots of a whole instance (P2) |
+| Instances | list, deploy, start/stop, delete, move with a dry run; terminal (MOCK VERIFIED); detail page `#/instances/{project}/{name}` with restart, resources, addresses, disks, snapshots, recent jobs (B); instance and console logs, last 1–1024 KiB (B; MOCK and CONTRACT VERIFIED, real logs not yet read: the lab had no instances) | resize (P1); snapshots of a whole instance (P2); terminal (U) |
 | Applications | list, status, port checks, service addresses, volumes | start/restart/stop, versions, drafts and events in the Console (U, P1); archive and restore (A) |
-| Operations | job list | retry and cancel (P0); job detail and step log (A, P1) |
+| Operations | job list; retry (a new linked job) and cancel at safe points (B); job detail `#/operations/{id}` with attempts, timings, request id, Incus operations, who queued it and linked jobs (B) | filters and paging (P1) |
 | Alerts and events | per-application events (Studio) | rules, notifications, acknowledgement, history (P0); Incus warnings and events (P1) |
 | Networks | Incus network list | per-application networks, rules and address sets (P1); uplink and address-range settings in the Console (P1); peers (P2) |
 | Storage | pools; volumes: grow, delete, snapshots, restore | backups: list and restore from a backup (P0); schedules (P1); pool usage and quotas (IP, P1); orphaned volumes (P1); volume classes (P2) |
@@ -77,8 +77,8 @@ Packages in one wave touch different files and can be built in parallel.
 **Wave 1 — operations core:**
 - Navigation regrouped: Overview, Health, Servers, Workloads, Networks, Storage, Alerts, Identity & Access, Audit, Administration.
 - Audit filters and export.
-- Job detail, retry and cancel.
-- Instance detail with logs and restart.
+- Job detail, retry and cancel (built).
+- Instance detail with logs and restart (built).
 
 **Wave 2 — clustering and infrastructure:**
 - Servers area: members with database roles and quorum, groups, settings with approvals, upgrades, certificates.

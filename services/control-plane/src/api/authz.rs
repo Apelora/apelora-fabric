@@ -339,6 +339,28 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "/api/v1/instances/{project}/{name}/move",
         &["instance.manage"],
     ),
+    // The handlers decide per instance (its environment and its application) and answer 404
+    // for instances the caller may not see.
+    (
+        "GET",
+        "/api/v1/instances/{project}/{name}",
+        &["cluster.view", "instance.manage", "application.view"],
+    ),
+    (
+        "GET",
+        "/api/v1/instances/{project}/{name}/logs",
+        &["application.logs.read", "instance.manage"],
+    ),
+    (
+        "GET",
+        "/api/v1/instances/{project}/{name}/logs/{file}",
+        &["application.logs.read", "instance.manage"],
+    ),
+    (
+        "GET",
+        "/api/v1/instances/{project}/{name}/console-log",
+        &["application.logs.read", "instance.manage"],
+    ),
     (
         "POST",
         "/api/v1/instances/{project}/{name}/move",
@@ -521,6 +543,32 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "GET",
         "/api/v1/jobs/{id}",
         &["cluster.view", "application.view", "instance.manage"],
+    ),
+    (
+        "GET",
+        "/api/v1/jobs/{id}/detail",
+        &["cluster.view", "application.view", "instance.manage"],
+    ),
+    // The permission that queued the job's kind, checked by the handler on the job's target.
+    (
+        "POST",
+        "/api/v1/jobs/{id}/retry",
+        &[
+            "instance.manage",
+            "application.deploy",
+            "application.operate",
+            "cluster.manage",
+        ],
+    ),
+    (
+        "POST",
+        "/api/v1/jobs/{id}/cancel",
+        &[
+            "instance.manage",
+            "application.deploy",
+            "application.operate",
+            "cluster.manage",
+        ],
     ),
     ("GET", "/api/v1/tokens", &["token.manage"]),
     ("POST", "/api/v1/tokens", &["token.manage"]),

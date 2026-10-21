@@ -67,9 +67,21 @@ pub struct Job {
     pub created_at: String,
     /// RFC 3339.
     pub updated_at: String,
+    /// Who asked for it (`user:…`, `service:…`, `token:…`); absent for jobs the supervisor or
+    /// the scheduler queued, and for jobs queued before this was recorded.
+    pub queued_by: Option<String>,
+    /// The failed job this one retries.
+    pub retry_of: Option<Uuid>,
+    /// The job that retries this one.
+    pub retried_by: Option<Uuid>,
+    /// RFC 3339; set once someone asked to cancel it.
+    pub cancel_requested_at: Option<String>,
+    pub cancel_requested_by: Option<String>,
+    /// What the caller may do with it, each with the reason when not.
+    pub actions: super::jobs::JobActions,
 }
 
-fn rfc3339(t: time::OffsetDateTime) -> String {
+pub(super) fn rfc3339(t: time::OffsetDateTime) -> String {
     t.format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default()
 }
@@ -89,6 +101,12 @@ impl From<JobView> for Job {
             request: j.payload,
             created_at: rfc3339(j.created_at),
             updated_at: rfc3339(j.updated_at),
+            queued_by: j.queued_by,
+            retry_of: j.retry_of,
+            retried_by: j.retried_by,
+            cancel_requested_at: j.cancel_requested_at.map(rfc3339),
+            cancel_requested_by: j.cancel_requested_by,
+            actions: super::jobs::JobActions::none(),
         }
     }
 }
@@ -216,13 +234,21 @@ pub(super) async fn queue(
     let pool = store(state)?;
     let key = idempotency_key(headers, p)?;
     let request = super::requests::current();
-    let enqueued = apelora_persistence::enqueue_job_for_request(
-        pool,
+    let actor = p.actor_ref();
+    let enqueued = apelora_persistence::enqueue_job_from(
+        &mut *pool
+            .acquire()
+            .await
+            .map_err(apelora_persistence::StoreError::from)?,
         kind,
         None,
         &payload,
         key.as_deref(),
-        request.as_deref(),
+        &apelora_persistence::JobOrigin {
+            request_id: request.as_deref(),
+            queued_by: Some(&actor),
+            retry_of: None,
+        },
     )
     .await?;
     let (job_id, created) = match enqueued {
@@ -343,7 +369,7 @@ pub(super) async fn jobs(
         apelora_persistence::identity::recent_application_jobs(pool, &filter, 100).await?
     };
     Ok(Json(JobList {
-        items: rows.into_iter().map(Job::from).collect(),
+        items: super::jobs::with_actions(&state, &p, rows).await?,
     }))
 }
 
@@ -358,34 +384,37 @@ pub(super) async fn job(
     Path(id): Path<Uuid>,
 ) -> Result<Json<Job>, ApiError> {
     let pool = store(&state)?;
-    let job = apelora_persistence::get_job(pool, id).await?;
-    if require(&p, Permission::ReadInventory).is_err() {
-        // Otherwise only the people who may view the job's application (or manage its environment's instances).
-        let visible = match job.application_id {
-            Some(app) => {
-                match apelora_persistence::identity::application_context_by_id(pool, app).await? {
-                    Some(ctx) => allow(&p, "application.view", &ctx.resource()).is_ok(),
-                    None => false,
-                }
-            }
-            None => match job.payload.get("project").and_then(Value::as_str) {
-                Some(project) => allow(
-                    &p,
-                    "instance.manage",
-                    &instance_resource(&state, project).await?,
-                )
-                .is_ok(),
-                None => false,
-            },
-        };
-        if !visible {
-            // The same answer as for a job that does not exist, so ids do not leak.
-            return Err(ApiError::new(
-                StatusCode::NOT_FOUND,
-                "not_found",
-                format!("not found: job {id}"),
-            ));
-        }
+    let job = super::jobs::visible_job(&state, &p, pool, id).await?;
+    let mut out = super::jobs::with_actions(&state, &p, vec![job]).await?;
+    Ok(Json(out.remove(0)))
+}
+
+/// Whether the caller may see a job: whole-platform readers see every job; anyone else the jobs
+/// of applications they may view, or of instances in environments they manage.
+pub(super) async fn job_visible(
+    state: &AppState,
+    p: &Principal,
+    job: &JobView,
+) -> Result<bool, ApiError> {
+    if require(p, Permission::ReadInventory).is_ok() {
+        return Ok(true);
     }
-    Ok(Json(job.into()))
+    let pool = store(state)?;
+    Ok(match job.application_id {
+        Some(app) => {
+            match apelora_persistence::identity::application_context_by_id(pool, app).await? {
+                Some(ctx) => allow(p, "application.view", &ctx.resource()).is_ok(),
+                None => false,
+            }
+        }
+        None => match job.payload.get("project").and_then(Value::as_str) {
+            Some(project) if is_valid_name(project) => allow(
+                p,
+                "instance.manage",
+                &instance_resource(state, project).await?,
+            )
+            .is_ok(),
+            _ => false,
+        },
+    })
 }

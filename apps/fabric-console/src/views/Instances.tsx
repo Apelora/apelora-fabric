@@ -8,6 +8,7 @@ import { TerminalDialog, type TerminalTarget } from "../components/TerminalDialo
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, followJob, idempotencyKey, messageOf, useLoad } from "../lib/api";
 import { holds } from "../lib/identity";
+import { instanceHref } from "../lib/routes";
 
 const KIND_LABEL: Record<Instance["kind"], string> = { container: "Container", "virtual-machine": "Virtual machine", unknown: "Unknown" };
 const NAME = /^[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
@@ -121,7 +122,7 @@ function DeployDialog({ open, projects, onClose, onQueued }: { open: boolean; pr
  * Moving an instance to another member: the dry run says whether it keeps running or must stop
  * (and what it copies); a stop needs the person's consent, and the name typed to go ahead.
  */
-function MoveDialog({ instance, onClose, onQueued }: { instance: Instance | null; onClose: () => void; onQueued: (target: string, label: string, jobId: string) => void }) {
+export function MoveDialog({ instance, onClose, onQueued }: { instance: Instance | null; onClose: () => void; onQueued: (target: string, label: string, jobId: string) => void }) {
   const [members, setMembers] = useState<string[]>([]);
   const [target, setTarget] = useState("");
   const [allowStop, setAllowStop] = useState(false);
@@ -274,7 +275,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
                     return (
                       <tr key={target} data-testid="instance-row">
                         <td className="font-medium">
-                          {i.name}
+                          {i.unreachable ? i.name : <a href={instanceHref(i.project, i.name)} className="link link-hover" data-testid="instance-link">{i.name}</a>}
                           {i.managed && <span className="badge badge-xs badge-ghost ml-2" title="Created by Apelora">Apelora</span>}
                         </td>
                         <td className="max-sm:hidden">{KIND_LABEL[i.kind]}</td>

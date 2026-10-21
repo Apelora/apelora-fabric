@@ -203,6 +203,85 @@ pub(crate) struct InstanceDetail {
     pub devices: BTreeMap<String, BTreeMap<String, String>>,
 }
 
+/// `GET /1.0/instances/<name>` for the detail page: with the expanded configuration and
+/// devices (profiles applied).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct InstanceFull {
+    pub name: String,
+    pub project: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub status: String,
+    pub location: String,
+    pub architecture: String,
+    pub description: String,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub profiles: Vec<String>,
+    pub config: BTreeMap<String, String>,
+    pub expanded_config: BTreeMap<String, String>,
+    pub expanded_devices: BTreeMap<String, BTreeMap<String, String>>,
+}
+
+/// `GET /1.0/instances/<name>/state`, everything the detail page shows.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct InstanceStateFull {
+    pub status: String,
+    pub cpu: Option<StateCpu>,
+    pub memory: Option<StateMemory>,
+    pub disk: Option<BTreeMap<String, StateDisk>>,
+    pub network: Option<BTreeMap<String, NetworkStateFull>>,
+    pub processes: Option<i64>,
+    pub started_at: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct StateCpu {
+    pub usage: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct StateMemory {
+    pub usage: Option<i64>,
+    pub usage_peak: Option<i64>,
+    pub total: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct StateDisk {
+    pub usage: Option<i64>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetworkStateFull {
+    pub addresses: Vec<NetworkAddressFull>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetworkAddressFull {
+    pub family: String,
+    pub address: String,
+    pub netmask: String,
+    pub scope: String,
+}
+
+/// `GET /1.0/instances/<name>/snapshots?recursion=1`.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct InstanceSnapshot {
+    pub name: String,
+    pub created_at: String,
+    pub expires_at: String,
+    pub stateful: bool,
+}
+
 /// A snapshot of a custom volume (`…/volumes/custom/<name>/snapshots/<snapshot>`).
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]

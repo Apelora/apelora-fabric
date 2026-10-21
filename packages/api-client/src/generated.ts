@@ -976,6 +976,44 @@ export type InstanceList = {
   source: Source;
 };
 
+/** The instance's log files. */
+export type InstanceLogList = {
+  /** File names as Incus lists them (e.g. `lxc.log`, `qemu.log`). */
+  files: string[];
+  source: Source;
+};
+
+/** The end of one log. */
+export type InstanceLogText = {
+  /** The file name, or `console` for the console log. */
+  file: string;
+  log: LogTail;
+  source: Source;
+  /** How much of the end was asked for, in KiB. */
+  tailKib: number;
+};
+
+/** One instance as Incus reports it, with the application it belongs to and its recent jobs. */
+export type InstancePage = {
+  actions: InstancePageActions;
+  /** The application it belongs to (its Apelora labels). */
+  application?: string | null;
+  instance: InstanceView;
+  /** The latest jobs for it, newest first (at most 10). */
+  jobs: Job[];
+  source: Source;
+};
+
+/** What the caller may do with the instance, each with the reason when not. */
+export type InstancePageActions = {
+  delete: ActionState;
+  logs: ActionState;
+  move: ActionState;
+  restart: ActionState;
+  start: ActionState;
+  stop: ActionState;
+};
+
 /** An instance Apelora should create. Apelora's ownership marker is added on creation. */
 export type InstanceSpec = {
   /** Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
@@ -997,11 +1035,105 @@ export type InstanceSpec = {
   volumes?: VolumeMount[];
 };
 
+/** An instance in detail (`/1.0/instances/{name}`, its `state` and its `snapshots`). */
+export type InstanceView = {
+  addresses: InstanceViewAddress[];
+  architecture: string;
+  /** RFC 3339, as Incus reports them. */
+  createdAt?: string | null;
+  description: string;
+  disks: InstanceViewDisk[];
+  image: InstanceViewImage;
+  kind: InstanceKind;
+  lastUsedAt?: string | null;
+  limits: InstanceViewLimits;
+  /** The member it runs on; empty on a standalone server. */
+  location: string;
+  /** Carries Apelora's ownership marker. */
+  managed: boolean;
+  name: string;
+  owner?: null | Owner;
+  profiles: string[];
+  project: string;
+  snapshots: InstanceViewSnapshot[];
+  /** When the running instance started (`instance_state_started_at`). */
+  startedAt?: string | null;
+  /** `Running`, `Stopped`, `Frozen`, `Error`, … */
+  status: string;
+  usage?: null | InstanceViewUsage;
+};
+
+/** One address on one interface, as the instance reports it. */
+export type InstanceViewAddress = {
+  address: string;
+  /** `inet` or `inet6`. */
+  family: string;
+  interface: string;
+  netmask: string;
+  /** `global`, `link` or `local`. */
+  scope: string;
+};
+
+/** A disk device (expanded devices: profiles applied). */
+export type InstanceViewDisk = {
+  device: string;
+  /** Mount path in the instance; `/` for the root disk; `None` for a block device. */
+  path?: string | null;
+  pool?: string | null;
+  size?: string | null;
+  /** The custom volume, for disks backed by one. */
+  volume?: string | null;
+};
+
+/** The image it was built from (`image.*` and `volatile.base_image` config). */
+export type InstanceViewImage = {
+  description?: string | null;
+  fingerprint?: string | null;
+  os?: string | null;
+  release?: string | null;
+};
+
+/** Limits from the expanded configuration (profiles applied); `None`: no limit set. */
+export type InstanceViewLimits = {
+  /** `limits.cpu` as written (a count or a set of CPUs). */
+  cpu?: string | null;
+  /** `limits.memory` as written (e.g. `2GiB`, `50%`). */
+  memory?: string | null;
+  /** `size` of the root disk device as written. */
+  rootDisk?: string | null;
+};
+
+export type InstanceViewSnapshot = {
+  createdAt?: string | null;
+  expiresAt?: string | null;
+  name: string;
+  /** Includes the running state (memory). */
+  stateful: boolean;
+};
+
+/** Use reported by Incus for a running instance. */
+export type InstanceViewUsage = {
+  /** CPU time used since start, in nanoseconds. */
+  cpuNs?: number | null;
+  memoryBytes?: number | null;
+  memoryPeakBytes?: number | null;
+  /** Memory available to it, when Incus reports it (`instances_state_total`). */
+  memoryTotalBytes?: number | null;
+  processes?: number | null;
+  /** Root disk use in bytes. */
+  rootDiskBytes?: number | null;
+};
+
 /** What a module may reach outside the application (the internet, through the uplink). Inside the application only connections count, whatever this says. */
 export type Internet = "none" | "web" | "any";
 
 export type Job = {
+  /** What the caller may do with it, each with the reason when not. */
+  actions: JobActions;
   attempts: number;
+  /** RFC 3339; set once someone asked to cancel it. */
+  cancelRequestedAt?: string | null;
+  cancelRequestedBy?: string | null;
   /** RFC 3339. */
   createdAt: string;
   id: string;
@@ -1013,9 +1145,15 @@ export type Job = {
   kind: string;
   lastError?: string | null;
   maxAttempts: number;
+  /** Who asked for it (`user:…`, `service:…`, `token:…`); absent for jobs the supervisor or the scheduler queued, and for jobs queued before this was recorded. */
+  queuedBy?: string | null;
   request: Record<string, unknown>;
   /** The `x-request-id` of the API request that queued the job; absent for jobs the supervisor or the scheduler queued. The request's audit rows carry it as `requestId`. */
   requestId?: string | null;
+  /** The job that retries this one. */
+  retriedBy?: string | null;
+  /** The failed job this one retries. */
+  retryOf?: string | null;
   /** `pending`, `running`, `succeeded`, `failed` or `cancelled`. */
   status: string;
   /** RFC 3339. */
@@ -1026,6 +1164,50 @@ export type JobAccepted = {
   /** False when an earlier request with the same idempotency key already created the job. */
   created: boolean;
   jobId: string;
+};
+
+/** What the caller may do with a job. */
+export type JobActions = {
+  cancel: ActionState;
+  retry: ActionState;
+};
+
+/** One attempt of a job. */
+export type JobAttempt = {
+  attempt: number;
+  endedAt?: string | null;
+  error?: string | null;
+  /** Incus operations this attempt started, oldest first. */
+  incusOperations: string[];
+  /** `succeeded`, `failed`, `rejected`, `waiting`, `cancelled` or `lost` (its worker stopped renewing the lease and another worker took the job over); absent while it runs. */
+  outcome?: string | null;
+  /** RFC 3339. */
+  startedAt: string;
+  /** The worker that ran it. */
+  worker: string;
+};
+
+/** The answer to a cancellation request. */
+export type JobCancellation = {
+  job: Job;
+  /** `cancelled` (it had not started: done) or `requested` (the worker stops at the next safe point). */
+  outcome: string;
+};
+
+/** A job with everything known about it. */
+export type JobDetail = {
+  /** The application it belongs to, if any. */
+  application?: string | null;
+  attempts: JobAttempt[];
+  finishedAt?: string | null;
+  job: Job;
+  linked: LinkedJob[];
+  /** Where a cancelled job of this kind stops. */
+  safePoints: string;
+  /** RFC 3339: when the first attempt started, and when it reached a final status. */
+  startedAt?: string | null;
+  /** `project/name` or the application. */
+  target: string;
 };
 
 export type JobList = {
@@ -1060,6 +1242,19 @@ export type KindAccess = {
 /** How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform. */
 export type Level = "platform" | "organization" | "project" | "application" | "pool";
 
+/** A job linked to the one shown. */
+export type LinkedJob = {
+  /** RFC 3339. */
+  createdAt: string;
+  id: string;
+  kind: string;
+  /** `retry-of` (the failed job this one repeats), `retried-by`, or `same-request` (queued by the same API request, e.g. an application operation's instance jobs). */
+  relation: string;
+  status: string;
+  /** `project/name` or the application. */
+  target: string;
+};
+
 export type LocalAccountCreated = {
   /** RFC 3339. */
   setupExpiresAt: string;
@@ -1093,6 +1288,16 @@ export type LocalAccountSetupLink = {
 
 export type LocalAccountsRequest = {
   enabled: boolean;
+};
+
+/** The end of a log as read: at most the requested number of bytes from its end. */
+export type LogTail = {
+  /** The text (invalid UTF-8 replaced); starts at a line boundary when it was cut. */
+  content: string;
+  /** The whole log's size in bytes as received. */
+  size: number;
+  /** Only the end is shown. */
+  truncated: boolean;
 };
 
 export type Machine = {
@@ -1362,7 +1567,7 @@ export type OperationList = {
   items: OperationDto[];
 };
 
-export type OperationState = "pending" | "running" | "succeeded" | "failed";
+export type OperationState = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type OperationSummary = {
   createdAt: string;
@@ -2115,12 +2320,19 @@ export const operations = {
   image_mirrors: { method: "GET", path: "/api/v1/image-mirrors", params: [], public: false },
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
+  instance_page: { method: "GET", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
   delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
+  instance_console_log: { method: "GET", path: "/api/v1/instances/{project}/{name}/console-log", params: ["project","name"], public: false },
+  instance_logs: { method: "GET", path: "/api/v1/instances/{project}/{name}/logs", params: ["project","name"], public: false },
+  instance_log: { method: "GET", path: "/api/v1/instances/{project}/{name}/logs/{file}", params: ["project","name","file"], public: false },
   preview_instance_move: { method: "GET", path: "/api/v1/instances/{project}/{name}/move", params: ["project","name"], public: false },
   move_instance: { method: "POST", path: "/api/v1/instances/{project}/{name}/move", params: ["project","name"], public: false },
   change_state: { method: "POST", path: "/api/v1/instances/{project}/{name}/state", params: ["project","name"], public: false },
   jobs: { method: "GET", path: "/api/v1/jobs", params: [], public: false },
   job: { method: "GET", path: "/api/v1/jobs/{id}", params: ["id"], public: false },
+  cancel_job: { method: "POST", path: "/api/v1/jobs/{id}/cancel", params: ["id"], public: false },
+  job_detail: { method: "GET", path: "/api/v1/jobs/{id}/detail", params: ["id"], public: false },
+  retry_job: { method: "POST", path: "/api/v1/jobs/{id}/retry", params: ["id"], public: false },
   list_machines: { method: "GET", path: "/api/v1/machines", params: [], public: false },
   register_machine: { method: "POST", path: "/api/v1/machines", params: [], public: false },
   remove_machine: { method: "DELETE", path: "/api/v1/machines/{name}", params: ["name"], public: false },
@@ -2340,8 +2552,16 @@ export type Responses = {
   instances: InstanceList;
   /** Queues creation of an instance. Needs `deploy`. Apelora marks it as its own; only such instances can later be stopped or deleted through Apelora. */
   create_instance: JobAccepted;
+  /** The instance with the application it belongs to, its recent jobs, and what the caller may do (Start, Stop, Restart, Move and Delete go through the existing instance routes and jobs). */
+  instance_page: InstancePage;
   /** Queues deletion of an Apelora instance (stopped first if running). Needs `deploy`. */
   delete_instance: JobAccepted;
+  /** The end of the instance's console log (`tailKib`, default 64, at most 1024). */
+  instance_console_log: InstanceLogText;
+  /** The instance's log files as Incus lists them (names only). */
+  instance_logs: InstanceLogList;
+  /** The end of one of the instance's log files (`tailKib`, default 64, at most 1024). */
+  instance_log: InstanceLogText;
   /** Dry run of moving an instance to another member: whether it keeps running, what it copies, what blocks it. Changes nothing. Needs `deploy` (or `instance.manage`). */
   preview_instance_move: MovePreview;
   /** Moves an Apelora instance to another member, after the check runs again and its name is typed: live when it can, otherwise only with `allowStop`, copying its volumes there. Queues an `instance.move` job. Needs `deploy` (or `instance.manage`); audited. */
@@ -2352,6 +2572,12 @@ export type Responses = {
   jobs: JobList;
   /** A queued job and its progress. Needs `read-inventory`. */
   job: Job;
+  /** Cancels a job. A waiting job with nothing in flight is cancelled at once (`cancelled`); otherwise the request is recorded (`requested`) and the worker stops at the job kind's next safe point, never in the middle of an Incus change (see `safePoints` on the job's detail). Repeating the request changes nothing. Refused (409 `job_finished`) for a finished job. Needs the permission that queues that kind of job on its target; audited. */
+  cancel_job: JobCancellation;
+  /** A job with its attempts (worker, timings, outcome, error and the Incus operations each started), who queued it, its request id, and the jobs linked to it (retries, and other jobs the same request queued). Same visibility as `GET /api/v1/jobs/{id}`. */
+  job_detail: JobDetail;
+  /** Queues a new job that repeats a failed one, linked to it (`retryOf`); the failed job is kept unchanged as evidence. Needs the permission that queues that kind of job on its target. Refused (409) when the job did not fail (`not_failed`), was retried already (`already_retried`), a newer job for the same target was queued since (`superseded`), or it is an application operation (`not_retryable`: start it again from the application). Audited. */
+  retry_job: JobAccepted;
   /** Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`. */
   list_machines: MachineList;
   /** Registers a machine. A name that is already an eligible member is adopted as admitted. Needs `manage-infrastructure`; audited. */
@@ -2501,12 +2727,19 @@ export type Bodies = {
   image_mirrors: never;
   instances: never;
   create_instance: InstanceSpec;
+  instance_page: never;
   delete_instance: never;
+  instance_console_log: never;
+  instance_logs: never;
+  instance_log: never;
   preview_instance_move: never;
   move_instance: MoveRequest;
   change_state: StateChange;
   jobs: never;
   job: never;
+  cancel_job: never;
+  job_detail: never;
+  retry_job: never;
   list_machines: never;
   register_machine: RegisterMachine;
   remove_machine: never;

@@ -47,7 +47,8 @@ for JSON logs. Then look for the same id in the audit detail.
 Worker lines carry a `job` span instead: `job` (id), `kind`, `target` (`project/name` or the
 application) and `request_id`, the id of the request that queued the job (`-` for jobs the
 supervisor or the scheduler queued). `GET /api/v1/jobs/{id}` shows the same job's status and
-last error.
+last error; `GET /api/v1/jobs/{id}/detail` adds every attempt and the linked jobs (see
+[Retrying and cancelling a job](#retrying-and-cancelling-a-job)).
 
 ### From a request id to the job and the Incus operation
 
@@ -184,6 +185,75 @@ answering, `INFO health: Incus is reachable again` when it is back.
   taken over once its 30 s lease expires.
 - `WARN job: stopped working on it (another worker holds it now)`: the lease was lost (a pause
   longer than the lease); the other worker's result counts.
+
+### Retrying and cancelling a job
+
+**Evidence:** MOCK VERIFIED with a real PostgreSQL (API, worker and persistence tests,
+2026-10-21); not yet used on a real cluster incident.
+
+The job's page (Console → Operations → the change; `GET /api/v1/jobs/{id}/detail`) shows every
+attempt with its worker, start, duration, outcome, error and the Incus operations it started;
+who queued the job; its request id; and the jobs linked to it (retries, and other jobs the same
+request queued, such as an application operation's instance jobs). An attempt marked
+**Worker stopped; taken over** (`lost`) was claimed again after its worker stopped renewing the
+lease.
+
+**Retry** (`POST /api/v1/jobs/{id}/retry`, Console: Retry) queues a *new* job with the same kind
+and request, linked by `retryOf`. The failed job stays exactly as it was, as evidence. Refusals
+(409, audited as a denied `job.retry`):
+
+- `not_failed`: only failed jobs are retried;
+- `already_retried`: the job was retried already; retry the newer job if it failed too;
+- `superseded`: a newer job for the same instance (or the same kind for the same application)
+  was queued since; retrying would undo it;
+- `not_retryable`: an application operation; start, stop or restart the application again,
+  which plans anew from what runs now.
+
+**Cancel** (`POST /api/v1/jobs/{id}/cancel`, Console: Cancel…): a waiting job with nothing in
+flight is cancelled at once (`outcome: cancelled`). Otherwise the request is recorded
+(`outcome: requested`, the status shows *cancelling*) and the worker stops at the kind's next
+safe point, logging `job: cancelled on request at a safe point note=…`. It never stops in the
+middle of an Incus change: a change already sent is waited on to its end.
+
+| Kind | Where it stops |
+|---|---|
+| `instance.start`, `stop`, `restart`, `delete` | before each change it asks Incus for (a cancelled delete may leave the instance stopped) |
+| `instance.create` | only before the instance exists; once created, its volumes are attached and it is started |
+| `instance.move` | while the instance is still on its original member (started again there if the move had stopped it); once on the new member, the move is finished |
+| `application.operation` | between phases: the running phase's instance jobs finish, later phases are skipped, the operation ends `cancelled` |
+| `network.sync`, `volume.backup` | only before they start |
+
+A job whose earlier attempt left an Incus operation unfinished waits on it first, then stops.
+Both actions need the permission that queues that kind of job, checked on its target:
+`instance.manage` on the environment for single instances, `application.operate` (start, stop,
+restart, backups, operations) or `application.deploy` (create, delete, networks) on the
+application. Others get 403 (audited as `access.denied`), and people who may not see the job get
+404. Successful requests are audited as `job.retry` / `job.cancel` with the job ids.
+
+In the database: `SELECT attempt, worker, started_at, ended_at, outcome, error, incus_operations
+FROM job_attempts WHERE job_id = '…' ORDER BY attempt`; `SELECT id, status FROM jobs WHERE
+retry_of = '…'`.
+
+### Reading an instance's logs
+
+**Evidence:** CONTRACT VERIFIED (adapter against spec-shaped replies) and MOCK VERIFIED (API and
+Console); against the real test cluster only the "instance does not exist" answer was checked
+(it had no instances), so real log content is NOT VERIFIED yet.
+
+Console → Instances → the instance → Logs, or the API:
+
+- `GET /api/v1/instances/{project}/{name}/logs`: the log files Incus lists for it, by name only
+  (typically `lxc.log` for containers, `qemu.log` for VMs; Incus's own paths are never shown);
+- `GET …/logs/{file}?tailKib=64`: the end of one listed file;
+- `GET …/console-log?tailKib=64`: the end of the console output (Incus `type=log`).
+
+`tailKib` is 1–1024 (default 64); the text starts at the first whole line, and the answer says
+whether it was cut and the whole log's size. Logs larger than 64 MiB are refused (read them on
+the member). Nothing is streamed; Refresh reads again. Reading needs `application.logs.read` on
+the instance's application or `instance.manage` on its environment; reads are logged at info
+(`instance log read`, without the content) and not audited. With the mock provider the text is
+labelled `Mock ·` and is fixture data. Incus keeps a container's console output in a ring
+buffer, so an empty console log right after a start is normal.
 
 ### An operation (start, stop, restart) reports a failed phase
 

@@ -60,6 +60,7 @@ export const useLifecycle = create<LifecycleState>((set, get) => ({
           track({ kind, phase: "running", opId: op.id, done: current.stepsDone, total: current.stepsTotal });
         }
         if (current.state === "succeeded") toast("success", `${VERB[kind]} of ${name} finished: the control plane confirmed every step.`);
+        else if (current.state === "cancelled") toast("warning", `${VERB[kind]} of ${name} was cancelled between phases${current.error ? ` (${current.error})` : ""}. ${current.stepsDone} of ${current.stepsTotal} steps had completed.`);
         else toast("error", `${VERB[kind]} of ${name} failed${current.error ? `: ${current.error}` : "."} ${current.stepsDone} of ${current.stepsTotal} steps had completed.`);
       } catch (e) {
         toast("error", `Lost track of the ${kind} of ${name}: ${e instanceof Error ? e.message : String(e)}. Its real state is shown on the application.`);

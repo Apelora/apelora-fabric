@@ -176,6 +176,28 @@ pub async fn run(
             )));
         }
         tracing::debug!(instance = %format!("{}/{}", r.project, r.name), member = %now.location, status = %now.status, from = %r.from, to = %r.target, live = r.live, "move: deciding the next step");
+        // Safe point: still on the original member. Put it back as it was (running, if this
+        // move stopped it) and stop. Once it is on the new member the move is finished instead.
+        if now.location == r.from
+            && let Some(by) = apelora_persistence::jobs::cancel_requested(pool, job.id).await?
+        {
+            if r.start_after && now.status != "Running" {
+                if let Err(e) = mover.change(&r, InstanceAction::Start).await {
+                    let e = incus_only(e)?;
+                    return Ok(Outcome::Failed(format!(
+                        "cancelled by {by}, but {} did not start again on {}: {e}",
+                        r.name, r.from
+                    )));
+                }
+                continue;
+            }
+            return Ok(Outcome::Cancelled(format!(
+                "cancelled by {by} before {} left {}; it stays there{}",
+                r.name,
+                r.from,
+                if r.start_after { ", running" } else { "" }
+            )));
+        }
         if now.location == r.target {
             if r.start_after && now.status != "Running" {
                 if let Err(e) = mover.change(&r, InstanceAction::Start).await {
@@ -344,6 +366,74 @@ mod tests {
                 .expect("audit")
                 .iter()
                 .any(|e| e.action == "instance.moved" && e.detail["jobId"] == json!(id))
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_cancelled_move_that_had_stopped_the_instance_starts_it_again_where_it_was(
+        pool: Pool,
+    ) {
+        let m = MockIncus::default();
+        let provider = Provider::Mock(m.clone());
+        ensure_application(&pool, "shop")
+            .await
+            .expect("application");
+        job(&pool, "instance.create", json!({ "project": "apelora", "name": "shop-web-01", "kind": "container",
+            "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" }, "start": true,
+            "owner": { "application": "shop", "module": "web", "replica": 1 } })).await;
+        drain(&pool, &provider).await;
+        // An earlier attempt stopped it for a cold move, then the person cancelled.
+        job(
+            &pool,
+            "instance.stop",
+            json!({ "project": "apelora", "name": "shop-web-01" }),
+        )
+        .await;
+        drain(&pool, &provider).await;
+        let id = job(
+            &pool,
+            "instance.move",
+            json!({ "project": "apelora", "name": "shop-web-01", "application": "shop",
+            "from": "mock-member-01", "target": "mock-member-02", "live": false, "startAfter": true }),
+        )
+        .await;
+        apelora_persistence::jobs::request_cancel(&pool, id, "user:alice")
+            .await
+            .expect("cancel");
+        assert_eq!(
+            get_job(&pool, id).await.expect("job").status,
+            "cancelled",
+            "not started yet: cancelled at once"
+        );
+        // Once claimed, the request reaches the move itself.
+        let id = job(
+            &pool,
+            "instance.move",
+            json!({ "project": "apelora", "name": "shop-web-01", "application": "shop",
+            "from": "mock-member-01", "target": "mock-member-02", "live": false, "startAfter": true }),
+        )
+        .await;
+        let claimed = apelora_persistence::claim_job(&pool, "test", 30)
+            .await
+            .expect("claim")
+            .expect("job");
+        apelora_persistence::jobs::request_cancel(&pool, id, "user:alice")
+            .await
+            .expect("cancel");
+        let outcome = run(&pool, &provider, &claimed, "test").await.expect("run");
+        assert!(
+            matches!(&outcome, Outcome::Cancelled(n) if n.contains("before shop-web-01 left mock-member-01")),
+            "{outcome:?}"
+        );
+        let now = provider
+            .instance("apelora", "shop-web-01")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(
+            (now.location.as_str(), now.status.as_str()),
+            ("mock-member-01", "Running"),
+            "back as it was before the move"
         );
     }
 

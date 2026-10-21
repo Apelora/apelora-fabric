@@ -203,6 +203,23 @@ pub fn placeable(
     Ok(())
 }
 
+/// Whether the job may stop on request before taking `step`, and what it would have done. Each
+/// Incus change is one operation that is always waited on to its end; between them the
+/// instance is in a state Incus reports as complete. A create stops only before the instance
+/// exists: once it does, its volumes are attached and it is started, never left half-built.
+pub fn safe_point(goal: &Goal, step: &Step) -> Option<&'static str> {
+    match (goal, step) {
+        (_, Step::Done | Step::Reject(_)) => None,
+        (Goal::Exists(_), Step::Create) => Some("creating"),
+        (Goal::Exists(_), _) => None,
+        (_, Step::Change(InstanceAction::Start, _)) => Some("starting"),
+        (_, Step::Change(InstanceAction::Stop, _)) => Some("stopping"),
+        (_, Step::Change(InstanceAction::Restart, _)) => Some("restarting"),
+        (_, Step::Delete) => Some("deleting"),
+        (_, Step::Create | Step::Volumes) => None,
+    }
+}
+
 enum Failure {
     Retry(String),
     Store(StoreError),
@@ -268,6 +285,13 @@ async fn converge(
         let now = provider.instance(project, name).await?;
         let step = next_step(goal, now.as_ref());
         tracing::debug!(instance = %format!("{project}/{name}"), observed = now.as_ref().map_or("absent", |s| s.status.as_str()), ?step, "lifecycle: next step");
+        if let Some(what) = safe_point(goal, &step)
+            && let Some(by) = apelora_persistence::jobs::cancel_requested(pool, job.id).await?
+        {
+            return Ok(Outcome::Cancelled(format!(
+                "cancelled by {by} before {what} {project}/{name}"
+            )));
+        }
         let op = match step {
             Step::Done => return Ok(Outcome::Succeeded),
             Step::Reject(msg) => return Ok(Outcome::Rejected(msg)),

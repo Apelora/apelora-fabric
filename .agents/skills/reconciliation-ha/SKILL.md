@@ -35,6 +35,12 @@ Use for replicas, health checks, deployment worker, failure detection and failov
 - **Anti-affinity is Incus's placement**, steered by `infra/incus/placement.star` (installed by the Incus operator; cluster-wide). Call scriptlet helpers with keyword arguments (positional `get_instances` returned nothing on 7.0.1). Never set targets from Apelora.
 - **Tests:** mock (`supervisor::tests`, API `stateless_replicas_are_deployed_recorded_and_restored`) and REAL (`real_incus.rs` `replicas_spread_across_members_and_lost_ones_return`; prove the scriptlet matters with a control run without it under skewed load).
 
+## Job control: retry, cancel, attempts (Console wave 1)
+
+- **Retry is a new job**, linked by `jobs.retry_of` (`apelora_persistence::jobs::retry_job`): the failed row is never re-queued, so its attempts, error and Incus operations stay as evidence and a stale worker's fenced writes cannot reach the new job. One retry per failed job (unique index); refused when a newer job targets the same instance (or the same kind for the same application), because re-running an older intent would undo a newer one.
+- **Cancel** (`jobs::request_cancel`): a pending job with no in-flight Incus operation, and not a coordinator, becomes `cancelled` at once; otherwise `cancel_requested_at/by` is set and the worker stops at a **safe point** with `Outcome::Cancelled(note)` (fenced like every outcome; the note goes on the attempt). Safe points: the claim (`cancelled_before_start`, not for `application.operation` or `instance.move`, and only when no earlier operation is unfinished); `lifecycle::safe_point` before each Incus change (a create only before the instance exists); a move only while on its source member, starting it again there if the move had stopped it; an operation between phases. Never cancel an Incus operation that was sent: wait on it. A new handler must define its safe points and add a test that cancels it mid-attempt (`claim_then` in `services/deployment-worker/src/lib.rs`).
+- **Attempts** (`job_attempts`): written by `claim_job` in the same statement (an unfinished earlier attempt becomes `lost`), closed by `complete_job` fenced on the generation, Incus operations appended by `record_operation`. A coordinator's waiting polls share one attempt row.
+
 ## Evidence required before calling a feature complete
 
 Explain what changed, actual tests and commands run, source/API reference, remaining safety constraints, and whether tested against real Incus or only mocks.

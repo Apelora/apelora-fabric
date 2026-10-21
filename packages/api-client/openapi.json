@@ -5917,6 +5917,95 @@
       }
     },
     "/api/v1/instances/{project}/{name}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The instance with the application it belongs to, its recent jobs, and what the caller may\ndo (Start, Stop, Restart, Move and Delete go through the existing instance routes and jobs).",
+        "operationId": "instance_page",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstancePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "tags": [
           "deployment"
@@ -5997,6 +6086,316 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{project}/{name}/console-log": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The end of the instance's console log (`tailKib`, default 64, at most 1024).",
+        "operationId": "instance_console_log",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tailKib",
+            "in": "query",
+            "description": "How many KiB from the end of the log (1–1024, default 64).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceLogText"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{project}/{name}/logs": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The instance's log files as Incus lists them (names only).",
+        "operationId": "instance_logs",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceLogList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/instances/{project}/{name}/logs/{file}": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The end of one of the instance's log files (`tailKib`, default 64, at most 1024).",
+        "operationId": "instance_log",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "description": "Incus project.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Instance name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Log file name, as listed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tailKib",
+            "in": "query",
+            "description": "How many KiB from the end of the log (1–1024, default 64).",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceLogText"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "",
             "content": {
               "application/json": {
@@ -6434,6 +6833,257 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}/cancel": {
+      "post": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Cancels a job. A waiting job with nothing in flight is cancelled at once (`cancelled`);\notherwise the request is recorded (`requested`) and the worker stops at the job kind's next\nsafe point, never in the middle of an Incus change (see `safePoints` on the job's detail).\nRepeating the request changes nothing. Refused (409 `job_finished`) for a finished job. Needs\nthe permission that queues that kind of job on its target; audited.",
+        "operationId": "cancel_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCancellation"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}/detail": {
+      "get": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "A job with its attempts (worker, timings, outcome, error and the Incus operations each\nstarted), who queued it, its request id, and the jobs linked to it (retries, and other jobs\nthe same request queued). Same visibility as `GET /api/v1/jobs/{id}`.",
+        "operationId": "job_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{id}/retry": {
+      "post": {
+        "tags": [
+          "deployment"
+        ],
+        "summary": "Queues a new job that repeats a failed one, linked to it (`retryOf`); the failed job is kept\nunchanged as evidence. Needs the permission that queues that kind of job on its target.\nRefused (409) when the job did not fail (`not_failed`), was retried already\n(`already_retried`), a newer job for the same target was queued since (`superseded`), or it\nis an application operation (`not_retryable`: start it again from the application). Audited.",
+        "operationId": "retry_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -11279,6 +11929,121 @@
           }
         }
       },
+      "InstanceLogList": {
+        "type": "object",
+        "description": "The instance's log files.",
+        "required": [
+          "source",
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "File names as Incus lists them (e.g. `lxc.log`, `qemu.log`)."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "InstanceLogText": {
+        "type": "object",
+        "description": "The end of one log.",
+        "required": [
+          "source",
+          "file",
+          "tailKib",
+          "log"
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "The file name, or `console` for the console log."
+          },
+          "log": {
+            "$ref": "#/components/schemas/LogTail"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "tailKib": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How much of the end was asked for, in KiB.",
+            "minimum": 0
+          }
+        }
+      },
+      "InstancePage": {
+        "type": "object",
+        "description": "One instance as Incus reports it, with the application it belongs to and its recent jobs.",
+        "required": [
+          "source",
+          "instance",
+          "jobs",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/InstancePageActions"
+          },
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The application it belongs to (its Apelora labels)."
+          },
+          "instance": {
+            "$ref": "#/components/schemas/InstanceView"
+          },
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            },
+            "description": "The latest jobs for it, newest first (at most 10)."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "InstancePageActions": {
+        "type": "object",
+        "description": "What the caller may do with the instance, each with the reason when not.",
+        "required": [
+          "start",
+          "stop",
+          "restart",
+          "move",
+          "delete",
+          "logs"
+        ],
+        "properties": {
+          "delete": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "logs": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "move": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "restart": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "start": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "stop": {
+            "$ref": "#/components/schemas/ActionState"
+          }
+        }
+      },
       "InstanceSpec": {
         "type": "object",
         "description": "An instance Apelora should create. Apelora's ownership marker is added on creation.",
@@ -11361,6 +12126,331 @@
           }
         }
       },
+      "InstanceView": {
+        "type": "object",
+        "description": "An instance in detail (`/1.0/instances/{name}`, its `state` and its `snapshots`).",
+        "required": [
+          "name",
+          "project",
+          "kind",
+          "status",
+          "location",
+          "architecture",
+          "description",
+          "managed",
+          "profiles",
+          "image",
+          "limits",
+          "addresses",
+          "disks",
+          "snapshots"
+        ],
+        "properties": {
+          "addresses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceViewAddress"
+            }
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339, as Incus reports them."
+          },
+          "description": {
+            "type": "string"
+          },
+          "disks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceViewDisk"
+            }
+          },
+          "image": {
+            "$ref": "#/components/schemas/InstanceViewImage"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/InstanceKind"
+          },
+          "lastUsedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limits": {
+            "$ref": "#/components/schemas/InstanceViewLimits"
+          },
+          "location": {
+            "type": "string",
+            "description": "The member it runs on; empty on a standalone server."
+          },
+          "managed": {
+            "type": "boolean",
+            "description": "Carries Apelora's ownership marker."
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Owner",
+                "description": "The application and module it was deployed for."
+              }
+            ]
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "project": {
+            "type": "string"
+          },
+          "snapshots": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InstanceViewSnapshot"
+            }
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the running instance started (`instance_state_started_at`)."
+          },
+          "status": {
+            "type": "string",
+            "description": "`Running`, `Stopped`, `Frozen`, `Error`, …"
+          },
+          "usage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InstanceViewUsage",
+                "description": "`None` while stopped (Incus reports no usage then)."
+              }
+            ]
+          }
+        }
+      },
+      "InstanceViewAddress": {
+        "type": "object",
+        "description": "One address on one interface, as the instance reports it.",
+        "required": [
+          "interface",
+          "family",
+          "address",
+          "netmask",
+          "scope"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string",
+            "description": "`inet` or `inet6`."
+          },
+          "interface": {
+            "type": "string"
+          },
+          "netmask": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "description": "`global`, `link` or `local`."
+          }
+        }
+      },
+      "InstanceViewDisk": {
+        "type": "object",
+        "description": "A disk device (expanded devices: profiles applied).",
+        "required": [
+          "device"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Mount path in the instance; `/` for the root disk; `None` for a block device."
+          },
+          "pool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "volume": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The custom volume, for disks backed by one."
+          }
+        }
+      },
+      "InstanceViewImage": {
+        "type": "object",
+        "description": "The image it was built from (`image.*` and `volatile.base_image` config).",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fingerprint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "os": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "release": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "InstanceViewLimits": {
+        "type": "object",
+        "description": "Limits from the expanded configuration (profiles applied); `None`: no limit set.",
+        "properties": {
+          "cpu": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`limits.cpu` as written (a count or a set of CPUs)."
+          },
+          "memory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`limits.memory` as written (e.g. `2GiB`, `50%`)."
+          },
+          "rootDisk": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`size` of the root disk device as written."
+          }
+        }
+      },
+      "InstanceViewSnapshot": {
+        "type": "object",
+        "required": [
+          "name",
+          "stateful"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "stateful": {
+            "type": "boolean",
+            "description": "Includes the running state (memory)."
+          }
+        }
+      },
+      "InstanceViewUsage": {
+        "type": "object",
+        "description": "Use reported by Incus for a running instance.",
+        "properties": {
+          "cpuNs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "CPU time used since start, in nanoseconds."
+          },
+          "memoryBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "memoryPeakBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "memoryTotalBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Memory available to it, when Incus reports it (`instances_state_total`)."
+          },
+          "processes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "rootDiskBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Root disk use in bytes."
+          }
+        }
+      },
       "Internet": {
         "type": "string",
         "description": "What a module may reach outside the application (the internet, through the uplink).\nInside the application only connections count, whatever this says.",
@@ -11381,12 +12471,30 @@
           "incusOperations",
           "request",
           "createdAt",
-          "updatedAt"
+          "updatedAt",
+          "actions"
         ],
         "properties": {
+          "actions": {
+            "$ref": "#/components/schemas/JobActions",
+            "description": "What the caller may do with it, each with the reason when not."
+          },
           "attempts": {
             "type": "integer",
             "format": "int32"
+          },
+          "cancelRequestedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339; set once someone asked to cancel it."
+          },
+          "cancelRequestedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "createdAt": {
             "type": "string",
@@ -11424,6 +12532,13 @@
             "type": "integer",
             "format": "int32"
           },
+          "queuedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who asked for it (`user:…`, `service:…`, `token:…`); absent for jobs the supervisor or\nthe scheduler queued, and for jobs queued before this was recorded."
+          },
           "request": {
             "type": "object"
           },
@@ -11433,6 +12548,22 @@
               "null"
             ],
             "description": "The `x-request-id` of the API request that queued the job; absent for jobs the\nsupervisor or the scheduler queued. The request's audit rows carry it as `requestId`."
+          },
+          "retriedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The job that retries this one."
+          },
+          "retryOf": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The failed job this one retries."
           },
           "status": {
             "type": "string",
@@ -11458,6 +12589,145 @@
           "jobId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "JobActions": {
+        "type": "object",
+        "description": "What the caller may do with a job.",
+        "required": [
+          "retry",
+          "cancel"
+        ],
+        "properties": {
+          "cancel": {
+            "$ref": "#/components/schemas/ActionState"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/ActionState"
+          }
+        }
+      },
+      "JobAttempt": {
+        "type": "object",
+        "description": "One attempt of a job.",
+        "required": [
+          "attempt",
+          "worker",
+          "startedAt",
+          "incusOperations"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incusOperations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Incus operations this attempt started, oldest first."
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`succeeded`, `failed`, `rejected`, `waiting`, `cancelled` or `lost` (its worker stopped\nrenewing the lease and another worker took the job over); absent while it runs."
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "worker": {
+            "type": "string",
+            "description": "The worker that ran it."
+          }
+        }
+      },
+      "JobCancellation": {
+        "type": "object",
+        "description": "The answer to a cancellation request.",
+        "required": [
+          "outcome",
+          "job"
+        ],
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`cancelled` (it had not started: done) or `requested` (the worker stops at the next\nsafe point)."
+          }
+        }
+      },
+      "JobDetail": {
+        "type": "object",
+        "description": "A job with everything known about it.",
+        "required": [
+          "job",
+          "target",
+          "attempts",
+          "linked",
+          "safePoints"
+        ],
+        "properties": {
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The application it belongs to, if any."
+          },
+          "attempts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobAttempt"
+            }
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "linked": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkedJob"
+            }
+          },
+          "safePoints": {
+            "type": "string",
+            "description": "Where a cancelled job of this kind stops."
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339: when the first attempt started, and when it reached a final status."
+          },
+          "target": {
+            "type": "string",
+            "description": "`project/name` or the application."
           }
         }
       },
@@ -11561,6 +12831,42 @@
           "pool"
         ]
       },
+      "LinkedJob": {
+        "type": "object",
+        "description": "A job linked to the one shown.",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "relation",
+          "target",
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string",
+            "description": "`retry-of` (the failed job this one repeats), `retried-by`, or `same-request` (queued\nby the same API request, e.g. an application operation's instance jobs)."
+          },
+          "status": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string",
+            "description": "`project/name` or the application."
+          }
+        }
+      },
       "LocalAccountCreated": {
         "type": "object",
         "required": [
@@ -11655,6 +12961,31 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "LogTail": {
+        "type": "object",
+        "description": "The end of a log as read: at most the requested number of bytes from its end.",
+        "required": [
+          "content",
+          "size",
+          "truncated"
+        ],
+        "properties": {
+          "content": {
+            "type": "string",
+            "description": "The text (invalid UTF-8 replaced); starts at a line boundary when it was cut."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The whole log's size in bytes as received.",
+            "minimum": 0
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "Only the end is shown."
           }
         }
       },
@@ -12550,7 +13881,8 @@
           "pending",
           "running",
           "succeeded",
-          "failed"
+          "failed",
+          "cancelled"
         ]
       },
       "OperationSummary": {

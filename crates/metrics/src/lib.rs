@@ -237,7 +237,7 @@ pub static JOB_DURATION: Histogram = Histogram::new(
 );
 pub static JOB_ATTEMPTS: Counter = Counter::new(
     "apelora_worker_job_attempts",
-    "Job attempts finished, by kind and outcome (succeeded, retry, failed, rejected, waiting, lost).",
+    "Job attempts finished, by kind and outcome (succeeded, retry, failed, rejected, waiting, cancelled, lost).",
     &["kind", "outcome"],
 );
 pub static LEASE_LOST: Counter = Counter::new(

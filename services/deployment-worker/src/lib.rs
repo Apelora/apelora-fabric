@@ -122,7 +122,13 @@ async fn run_claimed(
         })
     };
     let started = std::time::Instant::now();
-    let outcome = handle(pool, provider, &job, worker).await;
+    let outcome = if cancelled_before_start(&job) {
+        Ok(Outcome::Cancelled(
+            "cancelled before this attempt changed anything".into(),
+        ))
+    } else {
+        handle(pool, provider, &job, worker).await
+    };
     renew.abort();
     let kind = apelora_metrics::job_kind_label(&job.kind);
     let record = |outcome: &str| {
@@ -156,11 +162,33 @@ async fn run_claimed(
     Ok(true)
 }
 
+/// The first safe point of every job kind: claimed with a cancellation request and nothing of an
+/// earlier attempt still in flight in Incus. A coordinating `application.operation` decides for
+/// itself (it must close its operation record), so does `instance.move` (an earlier attempt may
+/// have stopped the instance, which must run again before the job ends), and a job whose earlier
+/// attempt left an Incus operation unfinished waits on it first, so the job never ends while
+/// Incus is still changing something on its behalf.
+///
+/// The later safe points, per kind:
+/// - `instance.start|stop|restart|delete`: before each Incus change (`lifecycle`);
+/// - `instance.create`: only before the instance exists; once created it gets its volumes and
+///   is started, so a cancelled create never leaves a half-built instance;
+/// - `instance.move`: while the instance is still on its original member (started again there
+///   if the move had stopped it); once on the new member the move is finished;
+/// - `application.operation`: between phases; the running phase's instance jobs finish;
+/// - `network.sync`, `volume.backup`: none after the start (each is one idempotent pass).
+pub fn cancelled_before_start(job: &ClaimedJob) -> bool {
+    job.cancel_requested
+        && job.external_operation.is_none()
+        && !matches!(job.kind.as_str(), "application.operation" | "instance.move")
+}
+
 /// The outcome of an attempt as a metrics label: a failure that will run again is a `retry`.
 fn outcome_label(job: &ClaimedJob, outcome: &Outcome) -> &'static str {
     match outcome {
         Outcome::Succeeded => "succeeded",
         Outcome::Waiting(_) => "waiting",
+        Outcome::Cancelled(_) => "cancelled",
         Outcome::Failed(_) if job.attempts < job.max_attempts => "retry",
         Outcome::Failed(_) => "failed",
         Outcome::Rejected(_) => "rejected",
@@ -174,6 +202,9 @@ fn log_outcome(job: &ClaimedJob, outcome: &Outcome) {
     match outcome {
         Outcome::Succeeded => tracing::info!(attempt, "job: succeeded"),
         Outcome::Waiting(secs) => tracing::debug!(after_secs = secs, "job: waiting; runs again"),
+        Outcome::Cancelled(note) => {
+            tracing::info!(attempt, %note, "job: cancelled on request at a safe point")
+        }
         Outcome::Failed(error) if attempt < max_attempts => {
             let retry_in_secs = 2u32.saturating_pow(attempt.max(0).unsigned_abs()).min(300);
             tracing::warn!(attempt, max_attempts, retry_in_secs, %error, "job: attempt failed; will be retried")
@@ -300,6 +331,7 @@ mod tests {
             generation: 1,
             external_operation: None,
             request_id: None,
+            cancel_requested: false,
         };
         assert_eq!(
             target_of(&job(json!({ "project": "apelora", "name": "web-01" }))),
@@ -343,12 +375,25 @@ mod tests {
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn run_stops_on_shutdown(pool: Pool) {
+        // Shut down once the worker has registered (a fixed delay was too short when many
+        // database tests run at once), so the test checks the result, not a race.
+        let registered = {
+            let pool = pool.clone();
+            async move {
+                while apelora_persistence::status::workers(&pool)
+                    .await
+                    .map_or(true, |w| w.is_empty())
+                {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+        };
         let handle = tokio::spawn(run(
             pool.clone(),
             mock(),
             "test-worker".into(),
             Duration::from_millis(20),
-            tokio::time::sleep(Duration::from_millis(100)),
+            registered,
         ));
         tokio::time::timeout(Duration::from_secs(5), handle)
             .await
@@ -669,6 +714,173 @@ mod tests {
                 .contains("not created by Apelora")
         );
         assert_eq!(provider.instances().await.expect("instances"), before);
+    }
+
+    /// Claims the next job, lets `between` run (a cancellation arriving mid-attempt), then runs it.
+    async fn claim_then<F: std::future::Future<Output = ()>>(
+        pool: &Pool,
+        provider: &Provider,
+        between: impl FnOnce(uuid::Uuid) -> F,
+    ) -> uuid::Uuid {
+        let job = claim_job(pool, "w", LEASE_SECS)
+            .await
+            .expect("claim")
+            .expect("a job");
+        let id = job.id;
+        between(id).await;
+        run_claimed(pool, provider, "w", job).await.expect("run");
+        id
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_lifecycle_job_stops_before_its_incus_change_and_leaves_the_instance_as_it_was(
+        pool: Pool,
+    ) {
+        let provider = mock();
+        create_instance(&pool, &provider, "web").await;
+        job(
+            &pool,
+            "instance.stop",
+            json!({ "project": "apelora", "name": "web" }),
+        )
+        .await;
+        let id = claim_then(&pool, &provider, |id| {
+            let pool = pool.clone();
+            async move {
+                apelora_persistence::jobs::request_cancel(&pool, id, "user:alice")
+                    .await
+                    .expect("cancel");
+            }
+        })
+        .await;
+        let j = get_job(&pool, id).await.expect("job");
+        assert_eq!(j.status, "cancelled");
+        assert!(
+            j.incus_operations.is_empty(),
+            "Incus was not asked to do anything"
+        );
+        let a = apelora_persistence::jobs::job_attempts(&pool, id)
+            .await
+            .expect("attempts");
+        assert!(
+            a[0].error
+                .as_deref()
+                .is_some_and(|e| e.contains("cancelled by user:alice before stopping apelora/web")),
+            "{a:?}"
+        );
+        assert_eq!(status_of(&provider, "web").await, "Running");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_create_whose_instance_exists_finishes_instead_of_leaving_it_half_built(pool: Pool) {
+        let provider = mock();
+        let spec = |start: bool| {
+            json!({ "project": "apelora", "name": "web", "kind": "container",
+                    "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" },
+                    "start": start })
+        };
+        job(&pool, "instance.create", spec(false)).await;
+        drain(&pool, &provider).await;
+        assert_eq!(status_of(&provider, "web").await, "Stopped");
+        job(&pool, "instance.create", spec(true)).await;
+        let id = claim_then(&pool, &provider, |id| {
+            let pool = pool.clone();
+            async move {
+                apelora_persistence::jobs::request_cancel(&pool, id, "user:alice")
+                    .await
+                    .expect("cancel");
+            }
+        })
+        .await;
+        assert_eq!(get_job(&pool, id).await.expect("job").status, "succeeded");
+        assert_eq!(status_of(&provider, "web").await, "Running");
+
+        // Before the instance exists, a create stops.
+        job(
+            &pool,
+            "instance.create",
+            json!({ "project": "apelora", "name": "api", "kind": "container",
+                    "source": { "protocol": "oci", "server": "https://registry.example", "alias": "nginx:1.29" },
+                    "start": true }),
+        )
+        .await;
+        let id = claim_then(&pool, &provider, |id| {
+            let pool = pool.clone();
+            async move {
+                apelora_persistence::jobs::request_cancel(&pool, id, "user:alice")
+                    .await
+                    .expect("cancel");
+            }
+        })
+        .await;
+        assert_eq!(get_job(&pool, id).await.expect("job").status, "cancelled");
+        assert_eq!(provider.instance("apelora", "api").await, Ok(None));
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_cancelled_operation_finishes_its_running_phase_and_skips_the_rest(pool: Pool) {
+        let provider = mock();
+        for n in ["web", "db"] {
+            create_instance(&pool, &provider, n).await;
+        }
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let op = operation(
+            &pool,
+            app.id,
+            "stop",
+            phases(&[("stop", &["web"]), ("stop", &["db"])]),
+        )
+        .await;
+        assert!(
+            run_once(&pool, &provider, "w").await.expect("run"),
+            "phase 1 queued"
+        );
+        let coordinator: uuid::Uuid =
+            sqlx::query_scalar("SELECT id FROM jobs WHERE kind = 'application.operation'")
+                .fetch_one(&pool)
+                .await
+                .expect("coordinator");
+        assert_eq!(
+            apelora_persistence::jobs::request_cancel(&pool, coordinator, "user:alice")
+                .await
+                .expect("cancel"),
+            apelora_persistence::jobs::Cancel::Requested,
+            "a coordinator always stops through its worker"
+        );
+        settle(&pool, &provider).await;
+        let done = apelora_persistence::lifecycle::get_operation(&pool, op.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!(done.state, "cancelled");
+        assert!(done.finished_at.is_some());
+        assert!(
+            done.error
+                .as_deref()
+                .is_some_and(|e| e.contains("after phase 1 (stop)")),
+            "{:?}",
+            done.error
+        );
+        let p: Vec<serde_json::Value> = serde_json::from_value(done.phases).expect("phases");
+        let states: Vec<&str> = p
+            .iter()
+            .map(|x| x["state"].as_str().unwrap_or(""))
+            .collect();
+        assert_eq!(states, ["succeeded", "skipped"]);
+        assert_eq!(
+            (
+                status_of(&provider, "web").await.as_str(),
+                status_of(&provider, "db").await.as_str()
+            ),
+            ("Stopped", "Running"),
+            "the started phase finished; the next was never started"
+        );
+        assert_eq!(
+            get_job(&pool, coordinator).await.expect("job").status,
+            "cancelled"
+        );
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

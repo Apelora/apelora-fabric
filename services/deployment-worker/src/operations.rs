@@ -13,7 +13,7 @@
 use apelora_incus_adapter::Provider;
 use apelora_persistence::lifecycle::{get_operation, update_operation};
 use apelora_persistence::{
-    ClaimedJob, Outcome, Pool, StoreError, enqueue_job_for_request, job_status,
+    ClaimedJob, JobOrigin, Outcome, Pool, StoreError, enqueue_job_from, job_status,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -44,6 +44,16 @@ struct Phase {
 /// How long to wait between looks at a phase's jobs.
 const POLL_SECS: u32 = 2;
 
+/// Marks the phase at `from` and every later one as skipped.
+fn skip_from(phases: &mut [Phase], from: usize) {
+    for p in phases.iter_mut().skip(from) {
+        p.state = "skipped".into();
+        for s in &mut p.steps {
+            s.state = "skipped".into();
+        }
+    }
+}
+
 pub async fn run(
     pool: &Pool,
     provider: &Provider,
@@ -62,7 +72,7 @@ pub async fn run(
             "operation {op_id} does not exist"
         )));
     };
-    if op.state == "succeeded" || op.state == "failed" {
+    if matches!(op.state.as_str(), "succeeded" | "failed" | "cancelled") {
         return Ok(Outcome::Succeeded);
     }
     let Ok(mut phases) = serde_json::from_value::<Vec<Phase>>(op.phases.clone()) else {
@@ -102,18 +112,44 @@ pub async fn run(
         "Stopped"
     };
 
+    // Cancellation stops between phases: a phase not started yet is skipped with all after it;
+    // a running phase's instance jobs are left to finish (each stops at its own safe point).
+    let cancel_by = if job.cancel_requested {
+        apelora_persistence::jobs::cancel_requested(pool, job.id).await?
+    } else {
+        None
+    };
+    if let Some(by) = &cancel_by
+        && phases[at].state == "pending"
+    {
+        let note = format!(
+            "cancelled by {by} before phase {} ({})",
+            at + 1,
+            phases[at].action
+        );
+        skip_from(&mut phases, at);
+        save("cancelled", &phases, Some(&note)).await?;
+        tracing::info!(operation = %op_id, phase = at, "operation: cancelled between phases");
+        return Ok(Outcome::Cancelled(note));
+    }
+
     // First look at this phase: queue the instance jobs, under the request that asked for the
     // operation.
     if phases[at].state == "pending" {
         for (i, s) in phases[at].steps.iter_mut().enumerate() {
             let key = format!("application.operation:{op_id}:{at}:{i}");
-            let id = enqueue_job_for_request(
-                pool,
+            let mut conn = pool.acquire().await?;
+            let id = enqueue_job_from(
+                &mut conn,
                 kind,
                 Some(op.application_id),
                 &json!({ "project": s.project, "name": s.name }),
                 Some(&key),
-                job.request_id.as_deref(),
+                &JobOrigin {
+                    request_id: job.request_id.as_deref(),
+                    queued_by: Some(&op.requested_by),
+                    retry_of: None,
+                },
             )
             .await?
             .id();
@@ -181,6 +217,17 @@ pub async fn run(
     if phases[at].steps.iter().all(|s| s.state == "succeeded") {
         phases[at].state = "succeeded".into();
         let done = phases.iter().all(|p| p.state == "succeeded");
+        if !done && let Some(by) = &cancel_by {
+            let note = format!(
+                "cancelled by {by} after phase {} ({}); later phases were not started",
+                at + 1,
+                phases[at].action
+            );
+            skip_from(&mut phases, at + 1);
+            save("cancelled", &phases, Some(&note)).await?;
+            tracing::info!(operation = %op_id, phase = at, "operation: cancelled between phases");
+            return Ok(Outcome::Cancelled(note));
+        }
         save(if done { "succeeded" } else { "running" }, &phases, None).await?;
         tracing::info!(operation = %op_id, phase = at, action = %phases[at].action, done, "operation: phase succeeded");
         return Ok(if done {

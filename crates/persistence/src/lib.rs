@@ -16,6 +16,7 @@ pub mod coordination;
 pub mod directories;
 mod health;
 pub mod identity;
+pub mod jobs;
 pub mod lifecycle;
 pub mod local_accounts;
 mod machines;
@@ -523,6 +524,9 @@ pub struct ClaimedJob {
     pub external_operation: Option<String>,
     /// The API request that queued the job (`x-request-id`), if a request did.
     pub request_id: Option<String>,
+    /// Someone asked to cancel the job (as of the claim). Handlers stop at their next safe
+    /// point; long handlers ask again with [`jobs::cancel_requested`].
+    pub cancel_requested: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -584,9 +588,46 @@ pub async fn enqueue_job_in(
     idempotency_key: Option<&str>,
     request_id: Option<&str>,
 ) -> Result<Enqueued> {
+    let origin = JobOrigin {
+        request_id,
+        ..JobOrigin::default()
+    };
+    enqueue_job_from(
+        conn,
+        kind,
+        application_id,
+        payload,
+        idempotency_key,
+        &origin,
+    )
+    .await
+}
+
+/// Where a job comes from: the API request, the person or service that asked, and the failed
+/// job it retries.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JobOrigin<'a> {
+    /// `x-request-id` of the request that queued it.
+    pub request_id: Option<&'a str>,
+    /// Who asked (`user:…`, `service:…`, `token:…`); `None` for the supervisor and the scheduler.
+    pub queued_by: Option<&'a str>,
+    /// The failed job this one retries.
+    pub retry_of: Option<Uuid>,
+}
+
+/// Queues a job with its origin, on the caller's connection or inside its transaction.
+pub async fn enqueue_job_from(
+    conn: &mut sqlx::PgConnection,
+    kind: &str,
+    application_id: Option<Uuid>,
+    payload: &Value,
+    idempotency_key: Option<&str>,
+    origin: &JobOrigin<'_>,
+) -> Result<Enqueued> {
     let id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO jobs (id, kind, application_id, payload, idempotency_key, request_id) VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO jobs (id, kind, application_id, payload, idempotency_key, request_id, queued_by, retry_of)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id",
     )
     .bind(id)
@@ -594,7 +635,9 @@ pub async fn enqueue_job_in(
     .bind(application_id)
     .bind(payload)
     .bind(idempotency_key)
-    .bind(request_id)
+    .bind(origin.request_id)
+    .bind(origin.queued_by)
+    .bind(origin.retry_of)
     .fetch_optional(&mut *conn)
     .await?;
     if inserted.is_some() {
@@ -609,19 +652,37 @@ pub async fn enqueue_job_in(
 
 /// Claims one runnable job: pending and due, or running with an expired lease (its worker is
 /// presumed dead). Concurrent workers never claim the same job (`FOR UPDATE SKIP LOCKED`).
+/// The attempt is recorded in `job_attempts` in the same statement; an earlier attempt that
+/// never finished (its worker stopped renewing the lease) is closed as `lost`.
 pub async fn claim_job(pool: &PgPool, worker: &str, lease_secs: i64) -> Result<Option<ClaimedJob>> {
     Ok(sqlx::query_as::<_, ClaimedJob>(
-        "UPDATE jobs SET status = 'running', lease_owner = $1, lease_until = now() + make_interval(secs => $2),
-                attempts = attempts + 1, generation = generation + 1, updated_at = now()
-         WHERE id = (
-             SELECT id FROM jobs
-             WHERE (status = 'pending' AND run_after <= now())
-                OR (status = 'running' AND lease_until < now())
-             ORDER BY run_after, created_at
-             FOR UPDATE SKIP LOCKED
-             LIMIT 1
+        "WITH claimed AS (
+             UPDATE jobs SET status = 'running', lease_owner = $1, lease_until = now() + make_interval(secs => $2),
+                    attempts = attempts + 1, generation = generation + 1, updated_at = now()
+             WHERE id = (
+                 SELECT id FROM jobs
+                 WHERE (status = 'pending' AND run_after <= now())
+                    OR (status = 'running' AND lease_until < now())
+                 ORDER BY run_after, created_at
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT 1
+             )
+             RETURNING id, kind, application_id, payload, attempts, max_attempts, generation, external_operation,
+                       request_id, cancel_requested_at IS NOT NULL AS cancel_requested
+         ),
+         lost AS (
+             UPDATE job_attempts a SET outcome = 'lost', ended_at = now()
+             FROM claimed c
+             WHERE a.job_id = c.id AND a.ended_at IS NULL AND a.attempt <> c.attempts
+         ),
+         attempt AS (
+             INSERT INTO job_attempts (job_id, attempt, generation, worker)
+             SELECT id, attempts, generation, $1 FROM claimed
+             ON CONFLICT (job_id, attempt) DO UPDATE
+                 SET generation = EXCLUDED.generation, worker = EXCLUDED.worker,
+                     ended_at = NULL, outcome = NULL, error = NULL
          )
-         RETURNING id, kind, application_id, payload, attempts, max_attempts, generation, external_operation, request_id",
+         SELECT * FROM claimed",
     )
     .bind(worker)
     .bind(lease_secs as f64)
@@ -660,65 +721,86 @@ pub enum Outcome {
     /// Not finished and not failing: run again after this many seconds without using up an
     /// attempt (a coordinating job waiting for the jobs it queued).
     Waiting(u32),
+    /// Stopped on request at a safe point; the text says where (kept on the attempt).
+    Cancelled(String),
+}
+
+impl Outcome {
+    /// The attempt's outcome as recorded in `job_attempts`.
+    fn attempt_label(&self) -> &'static str {
+        match self {
+            Outcome::Succeeded => "succeeded",
+            Outcome::Failed(_) => "failed",
+            Outcome::Rejected(_) => "rejected",
+            Outcome::Waiting(_) => "waiting",
+            Outcome::Cancelled(_) => "cancelled",
+        }
+    }
+
+    fn attempt_error(&self) -> Option<&str> {
+        match self {
+            Outcome::Failed(e) | Outcome::Rejected(e) | Outcome::Cancelled(e) => Some(e),
+            Outcome::Succeeded | Outcome::Waiting(_) => None,
+        }
+    }
 }
 
 /// Records the result. Rejected with `Conflict` when another worker has claimed the job since.
+/// The attempt's row is closed in the same statement, fenced the same way.
 pub async fn complete_job(
     pool: &PgPool,
     job: &ClaimedJob,
     worker: &str,
     outcome: &Outcome,
 ) -> Result<()> {
-    let n = match outcome {
-        Outcome::Succeeded => sqlx::query(
-            "UPDATE jobs SET status = 'succeeded', lease_owner = NULL, lease_until = NULL, last_error = NULL, updated_at = now()
-             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
-        )
-        .bind(job.id)
-        .bind(worker)
-        .bind(job.generation)
-        .execute(pool)
-        .await?
-        .rows_affected(),
-        Outcome::Failed(err) => sqlx::query(
+    let update = match outcome {
+        Outcome::Succeeded => {
+            "UPDATE jobs SET status = 'succeeded', lease_owner = NULL, lease_until = NULL, last_error = NULL, updated_at = now()"
+        }
+        Outcome::Failed(_) => {
             "UPDATE jobs SET
                 status = CASE WHEN attempts >= max_attempts THEN 'failed' ELSE 'pending' END,
                 run_after = now() + make_interval(secs => least(300, 2 ^ attempts)::double precision),
-                lease_owner = NULL, lease_until = NULL, last_error = $4, updated_at = now()
-             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
-        )
-        .bind(job.id)
-        .bind(worker)
-        .bind(job.generation)
-        .bind(err)
-        .execute(pool)
-        .await?
-        .rows_affected(),
-        Outcome::Waiting(secs) => sqlx::query(
-            "UPDATE jobs SET status = 'pending', attempts = greatest(attempts - 1, 0), run_after = now() + make_interval(secs => $4::double precision),
-                lease_owner = NULL, lease_until = NULL, updated_at = now()
-             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
-        )
-        .bind(job.id)
-        .bind(worker)
-        .bind(job.generation)
-        .bind(f64::from(*secs))
-        .execute(pool)
-        .await?
-        .rows_affected(),
-        Outcome::Rejected(err) => sqlx::query(
-            "UPDATE jobs SET status = 'failed', lease_owner = NULL, lease_until = NULL, last_error = $4, updated_at = now()
-             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
-        )
-        .bind(job.id)
-        .bind(worker)
-        .bind(job.generation)
-        .bind(err)
-        .execute(pool)
-        .await?
-        .rows_affected(),
+                lease_owner = NULL, lease_until = NULL, last_error = $4, updated_at = now()"
+        }
+        Outcome::Waiting(_) => {
+            "UPDATE jobs SET status = 'pending', attempts = greatest(attempts - 1, 0),
+                run_after = now() + make_interval(secs => $5::double precision),
+                lease_owner = NULL, lease_until = NULL, updated_at = now()"
+        }
+        Outcome::Rejected(_) => {
+            "UPDATE jobs SET status = 'failed', lease_owner = NULL, lease_until = NULL, last_error = $4, updated_at = now()"
+        }
+        // An earlier attempt's error stays: it is history. Why it stopped is on the attempt.
+        Outcome::Cancelled(_) => {
+            "UPDATE jobs SET status = 'cancelled', lease_owner = NULL, lease_until = NULL, updated_at = now()"
+        }
     };
-    fenced(n, job)
+    let waiting_secs = match outcome {
+        Outcome::Waiting(secs) => f64::from(*secs),
+        _ => 0.0,
+    };
+    let n: i64 = sqlx::query_scalar(&format!(
+        "WITH done AS (
+             {update}
+             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'
+             RETURNING id
+         ),
+         attempt AS (
+             UPDATE job_attempts SET ended_at = now(), outcome = $6, error = $4
+             WHERE job_id IN (SELECT id FROM done) AND generation = $3
+         )
+         SELECT count(*) FROM done"
+    ))
+    .bind(job.id)
+    .bind(worker)
+    .bind(job.generation)
+    .bind(outcome.attempt_error())
+    .bind(waiting_secs)
+    .bind(outcome.attempt_label())
+    .fetch_one(pool)
+    .await?;
+    fenced(u64::try_from(n).unwrap_or(0), job)
 }
 
 /// Records the Incus operation this attempt started, fenced like every other job write. Call it
@@ -730,20 +812,28 @@ pub async fn record_operation(
     worker: &str,
     operation: Option<&str>,
 ) -> Result<()> {
-    let n = sqlx::query(
-        "UPDATE jobs SET external_operation = $4, updated_at = now(),
-                incus_operations = CASE WHEN $4::text IS NULL OR $4 = ANY(incus_operations)
-                                        THEN incus_operations ELSE array_append(incus_operations, $4) END
-         WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
+    let n: i64 = sqlx::query_scalar(
+        "WITH done AS (
+             UPDATE jobs SET external_operation = $4, updated_at = now(),
+                    incus_operations = CASE WHEN $4::text IS NULL OR $4 = ANY(incus_operations)
+                                            THEN incus_operations ELSE array_append(incus_operations, $4) END
+             WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'
+             RETURNING id
+         ),
+         attempt AS (
+             UPDATE job_attempts SET incus_operations = array_append(incus_operations, $4)
+             WHERE job_id IN (SELECT id FROM done) AND generation = $3
+               AND $4::text IS NOT NULL AND NOT ($4 = ANY(incus_operations))
+         )
+         SELECT count(*) FROM done",
     )
     .bind(job.id)
     .bind(worker)
     .bind(job.generation)
     .bind(operation)
-    .execute(pool)
-    .await?
-    .rows_affected();
-    fenced(n, job)
+    .fetch_one(pool)
+    .await?;
+    fenced(u64::try_from(n).unwrap_or(0), job)
 }
 
 /// A job as shown to API callers.
@@ -764,27 +854,35 @@ pub struct JobView {
     pub payload: Value,
     pub created_at: time::OffsetDateTime,
     pub updated_at: time::OffsetDateTime,
+    /// Who asked for it; `None` for the supervisor and the scheduler.
+    pub queued_by: Option<String>,
+    /// The failed job this one retries.
+    pub retry_of: Option<Uuid>,
+    /// The job that retries this one, if any.
+    pub retried_by: Option<Uuid>,
+    pub cancel_requested_at: Option<time::OffsetDateTime>,
+    pub cancel_requested_by: Option<String>,
 }
 
+/// The columns of [`JobView`], for `FROM jobs j`.
+pub(crate) const JOB_COLS: &str = "j.id, j.kind, j.application_id, j.status, j.attempts, j.max_attempts, j.last_error,
+    j.external_operation, j.request_id, j.incus_operations, j.payload, j.created_at, j.updated_at, j.queued_by,
+    j.retry_of, (SELECT r.id FROM jobs r WHERE r.retry_of = j.id) AS retried_by, j.cancel_requested_at,
+    j.cancel_requested_by";
+
 pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
-    sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, request_id,
-                incus_operations, payload, created_at, updated_at
-         FROM jobs WHERE id = $1",
-    )
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| StoreError::NotFound(format!("job {id}")))
+    sqlx::query_as::<_, JobView>(&format!("SELECT {JOB_COLS} FROM jobs j WHERE j.id = $1"))
+        .bind(id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| StoreError::NotFound(format!("job {id}")))
 }
 
 /// The most recently created jobs, newest first.
 pub async fn recent_jobs(pool: &PgPool, limit: i64) -> Result<Vec<JobView>> {
-    Ok(sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, request_id,
-                incus_operations, payload, created_at, updated_at
-         FROM jobs ORDER BY created_at DESC, id LIMIT $1",
-    )
+    Ok(sqlx::query_as::<_, JobView>(&format!(
+        "SELECT {JOB_COLS} FROM jobs j ORDER BY j.created_at DESC, j.id LIMIT $1"
+    ))
     .bind(limit.clamp(1, 500))
     .fetch_all(pool)
     .await?)

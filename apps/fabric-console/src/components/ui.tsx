@@ -117,8 +117,8 @@ export function TableFrame({ children, fixed }: { children: ReactNode; fixed?: b
  * Confirms an action that cannot be undone. Cancel is the prominent, focused choice; the
  * action itself is quieter. With `typeToConfirm`, the user must type that text first.
  */
-export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, danger = true, onConfirm, onCancel }: {
-  open: boolean; title: string; body: ReactNode; action: string; typeToConfirm?: string; busy?: boolean; danger?: boolean;
+export function ConfirmDialog({ open, title, body, action, dismiss = "Cancel", typeToConfirm, busy, danger = true, onConfirm, onCancel }: {
+  open: boolean; title: string; body: ReactNode; action: string; dismiss?: string; typeToConfirm?: string; busy?: boolean; danger?: boolean;
   onConfirm: () => void; onCancel: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -132,8 +132,16 @@ export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, 
     if (open && !d.open) {
       setTyped("");
       d.showModal();
-      // The next step: typing the name when asked to, otherwise the safe choice.
-      (typeToConfirm ? inputRef.current : cancelRef.current)?.focus();
+      // The next step: typing the name when asked to, otherwise the safe choice. The modal's
+      // opening transition keeps it `visibility: hidden` for a moment, and a hidden button
+      // cannot take focus: try again on the next frames until it does.
+      const target = typeToConfirm ? inputRef.current : cancelRef.current;
+      let frames = 30;
+      const focus = () => {
+        target?.focus();
+        if (target && document.activeElement !== target && d.open && frames-- > 0) requestAnimationFrame(focus);
+      };
+      focus();
     }
     if (!open && d.open) d.close();
   }, [open, typeToConfirm]);
@@ -150,7 +158,7 @@ export function ConfirmDialog({ open, title, body, action, typeToConfirm, busy, 
           </label>
         )}
         <div className="modal-action mt-2">
-          <button ref={cancelRef} type="button" className="btn btn-sm btn-outline" onClick={onCancel}>Cancel</button>
+          <button ref={cancelRef} type="button" className="btn btn-sm btn-outline" onClick={onCancel}>{dismiss}</button>
           <button type="button" className={`btn btn-sm btn-ghost ${danger ? "text-error" : ""}`} disabled={!ready || busy} onClick={onConfirm} data-testid="confirm-action">{action}</button>
         </div>
       </div>

@@ -222,11 +222,23 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/instances/{project}/{name}",
-            delete(deploy::delete_instance),
+            get(instance_detail::page).delete(deploy::delete_instance),
         )
         .route(
             "/api/v1/instances/{project}/{name}/move",
             get(mobility::preview).post(mobility::request),
+        )
+        .route(
+            "/api/v1/instances/{project}/{name}/logs",
+            get(instance_detail::logs),
+        )
+        .route(
+            "/api/v1/instances/{project}/{name}/logs/{file}",
+            get(instance_detail::log_file),
+        )
+        .route(
+            "/api/v1/instances/{project}/{name}/console-log",
+            get(instance_detail::console_log),
         )
         .route(
             "/api/v1/applications",
@@ -297,6 +309,9 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/jobs", get(deploy::jobs))
         .route("/api/v1/jobs/{id}", get(deploy::job))
+        .route("/api/v1/jobs/{id}/detail", get(jobs::detail))
+        .route("/api/v1/jobs/{id}/retry", post(jobs::retry))
+        .route("/api/v1/jobs/{id}/cancel", post(jobs::cancel))
         .route("/api/v1/tokens", get(admin::list).post(admin::create))
         .route("/api/v1/tokens/{id}", delete(admin::revoke))
         .route("/api/v1/system", get(admin::system))
@@ -1431,6 +1446,8 @@ impl Modify for BearerAuth {
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
+        jobs::detail, jobs::retry, jobs::cancel,
+        instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,
         admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors, metrics::metrics, metrics::monitoring,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
@@ -1487,6 +1504,8 @@ mod fabric_health;
 pub mod headers;
 mod health_cache;
 mod identity;
+mod instance_detail;
+mod jobs;
 mod ldap;
 mod machines;
 mod manage;
@@ -1507,6 +1526,8 @@ mod directories_tests;
 mod fabric_health_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod jobs_tests;
 #[cfg(test)]
 mod manage_tests;
 #[cfg(test)]

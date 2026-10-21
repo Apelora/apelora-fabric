@@ -24,6 +24,10 @@ use std::time::{Duration, Instant};
 
 use apelora_domain::capacity::HealthServerResources;
 use apelora_domain::enrolment::HELD;
+use apelora_domain::inspect::{
+    InstanceView, InstanceViewAddress, InstanceViewDisk, InstanceViewImage, InstanceViewLimits,
+    InstanceViewUsage, LogTail,
+};
 use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::storage::{VolumeMount, volume_name};
 use apelora_domain::{
@@ -283,6 +287,88 @@ impl Provider {
                 stateful: i.stateful,
             })),
             Provider::Incus(c) => c.instance(project, name).await,
+        }
+    }
+
+    /// One instance in detail for its page; `None` when it does not exist. Names must already
+    /// be validated.
+    pub async fn instance_view(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<InstanceView>, AdapterError> {
+        match self {
+            Provider::Mock(m) => Ok(m.find(project, name).map(|i| m.view(&i))),
+            Provider::Incus(c) => c.instance_view(project, name).await,
+        }
+    }
+
+    /// The names of the instance's log files, as Incus lists them.
+    pub async fn instance_logs(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        match self {
+            Provider::Mock(m) => m
+                .find(project, name)
+                .map(|i| vec![mock_log_name(&i).to_owned()])
+                .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Provider::Incus(c) => c.instance_logs(project, name).await,
+        }
+    }
+
+    /// The last `max` bytes of one of the instance's log files.
+    pub async fn instance_log(
+        &self,
+        project: &str,
+        name: &str,
+        file: &str,
+        max: usize,
+    ) -> Result<LogTail, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let i = m
+                    .find(project, name)
+                    .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                if file != mock_log_name(&i) {
+                    return Err(AdapterError::NotFound(format!("log {file}")));
+                }
+                let text = format!(
+                    "Mock · fixture log of {project}/{name}; not read from Incus\n\
+                     Mock · {} is {}\n",
+                    i.instance.name, i.instance.status
+                );
+                Ok(LogTail::from_bytes(text.as_bytes(), text.len() as u64, max))
+            }
+            Provider::Incus(c) => c.instance_log(project, name, file, max).await,
+        }
+    }
+
+    /// The last `max` bytes of the instance's console log.
+    pub async fn console_log(
+        &self,
+        project: &str,
+        name: &str,
+        max: usize,
+    ) -> Result<LogTail, AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let i = m
+                    .find(project, name)
+                    .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                let text = format!(
+                    "Mock · console of {project}/{name}; not read from Incus\nMock · {} reached {}\n",
+                    i.instance.name,
+                    if i.instance.status == "Running" {
+                        "its login prompt"
+                    } else {
+                        "shutdown"
+                    }
+                );
+                Ok(LogTail::from_bytes(text.as_bytes(), text.len() as u64, max))
+            }
+            Provider::Incus(c) => c.console_log(project, name, max).await,
         }
     }
 
@@ -1467,7 +1553,93 @@ pub struct MockInstance {
     pub uuid: String,
 }
 
+/// The mock's one log file per instance, named like Incus's for its kind.
+fn mock_log_name(i: &MockInstance) -> &'static str {
+    match i.instance.kind {
+        InstanceKind::VirtualMachine => "qemu.log",
+        _ => "lxc.log",
+    }
+}
+
 impl MockIncus {
+    /// The detail page's view of a mock instance: fixture limits and use, labelled as mock by
+    /// the API's source.
+    fn view(&self, i: &MockInstance) -> InstanceView {
+        let running = i.instance.status == "Running";
+        let n = self
+            .lock()
+            .iter()
+            .position(|x| {
+                x.instance.project == i.instance.project && x.instance.name == i.instance.name
+            })
+            .unwrap_or(0) as u8;
+        InstanceView {
+            name: i.instance.name.clone(),
+            project: i.instance.project.clone(),
+            kind: i.instance.kind,
+            status: i.instance.status.clone(),
+            location: i.instance.location.clone(),
+            architecture: i.instance.architecture.clone(),
+            description: i.instance.description.clone(),
+            managed: i.instance.managed,
+            owner: i.instance.owner.clone(),
+            created_at: Some("2026-10-01T09:00:00Z".into()),
+            last_used_at: Some("2026-10-20T08:00:00Z".into()),
+            started_at: running.then(|| "2026-10-20T08:00:00Z".into()),
+            profiles: vec!["default".into()],
+            image: InstanceViewImage {
+                description: Some("Mock image".into()),
+                os: Some("Debian".into()),
+                release: Some("13".into()),
+                fingerprint: i.base_image.clone(),
+            },
+            limits: InstanceViewLimits {
+                cpu: Some("2".into()),
+                memory: Some("2GiB".into()),
+                root_disk: Some("10GiB".into()),
+            },
+            usage: running.then_some(InstanceViewUsage {
+                cpu_ns: Some(42_000_000_000),
+                memory_bytes: Some(268_435_456),
+                memory_peak_bytes: Some(301_989_888),
+                memory_total_bytes: Some(2_147_483_648),
+                processes: Some(23),
+                root_disk_bytes: Some(1_073_741_824),
+            }),
+            addresses: if running {
+                vec![InstanceViewAddress {
+                    interface: "eth0".into(),
+                    family: "inet".into(),
+                    address: format!("10.0.0.{}", 10 + n),
+                    netmask: "24".into(),
+                    scope: "global".into(),
+                }]
+            } else {
+                Vec::new()
+            },
+            disks: std::iter::once(InstanceViewDisk {
+                device: "root".into(),
+                path: Some("/".into()),
+                pool: Some("mock-local".into()),
+                volume: None,
+                size: Some("10GiB".into()),
+            })
+            .chain(i.volume_devices.iter().map(|d| InstanceViewDisk {
+                device: d.clone(),
+                path: None,
+                pool: Some("local".into()),
+                volume: Some(format!(
+                    "{}-{}",
+                    i.instance.name,
+                    d.trim_start_matches("vol-")
+                )),
+                size: None,
+            }))
+            .collect(),
+            snapshots: Vec::new(),
+        }
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<MockInstance>> {
         // A panic while holding the lock leaves plain data behind; keep using it.
         self.instances.lock().unwrap_or_else(|e| e.into_inner())
@@ -1934,5 +2106,7 @@ fn valid_member(name: &str) -> Result<(), AdapterError> {
     }
 }
 
+#[cfg(test)]
+mod inspect_tests;
 #[cfg(test)]
 mod tests;

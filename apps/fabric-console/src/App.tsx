@@ -19,6 +19,9 @@ import { SignInPage, type SignInReason } from "./views/SignIn";
 import { IdentityPage } from "./views/identity";
 import { IDENTITY_PAGES, isIdentityPage, type IdentityPageId } from "./views/identity/pages";
 import { holds } from "./lib/identity";
+import { detailView, instanceRoute, jobRoute } from "./lib/routes";
+import { InstanceDetailView } from "./views/InstanceDetail";
+import { JobDetailView } from "./views/JobDetail";
 
 type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: "down" };
 
@@ -42,6 +45,8 @@ const SINGLE_SECTION = new Set<ViewId>(["applications", "instances", "operations
 const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTITY_PAGES.find((p) => p.id === id)?.label;
 
 const viewFromHash = (): ViewId => {
+  const detail = detailView(window.location.hash);
+  if (detail) return detail;
   const id = window.location.hash.replace(/^#\/?/, "");
   if (isIdentityPage(id)) return id;
   return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
@@ -96,6 +101,8 @@ export function App() {
   const fromProvider = useRef(false);
   const [me, setMe] = useState<WhoAmI | null>(null);
   const [view, setView] = useState<ViewId>(viewFromHash);
+  // The whole hash, for detail pages under a view (`#/instances/{project}/{name}`, `#/operations/{id}`).
+  const [route, setRoute] = useState(() => window.location.hash);
   // `#/set-password?token=…`: a person choosing their password from a setup link.
   const [setupToken, setSetupToken] = useState(() => setupTokenFromHash(window.location.hash));
   const [attempt, setAttempt] = useState(0);
@@ -103,7 +110,7 @@ export function App() {
   const [clusterLoad, setClusterLoad] = useState<Load<ClusterResponse> | null>(null);
 
   useEffect(() => {
-    const onHash = () => { setView(viewFromHash()); setSetupToken(setupTokenFromHash(window.location.hash)); };
+    const onHash = () => { setView(viewFromHash()); setRoute(window.location.hash); setSetupToken(setupTokenFromHash(window.location.hash)); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -279,12 +286,18 @@ export function App() {
                 {current === "overview" && <Members onAuth={onAuth} onLoad={setClusterLoad} />}
                 {current === "health" && <HealthView onAuth={onAuth} />}
                 {current === "applications" && <ApplicationsView me={me} onAuth={onAuth} />}
-                {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
+                {current === "instances" && (() => {
+                  const r = instanceRoute(route);
+                  return r ? <InstanceDetailView key={route} project={r.project} name={r.name} me={me} onAuth={onAuth} /> : <InstancesView me={me} onAuth={onAuth} />;
+                })()}
                 {current === "preflight" && <PreflightView onAuth={onAuth} />}
                 {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}
                 {current === "membership" && <MembershipView onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
-                {current === "operations" && <OperationsView onAuth={onAuth} />}
+                {current === "operations" && (() => {
+                  const id = jobRoute(route);
+                  return id ? <JobDetailView key={id} id={id} onAuth={onAuth} /> : <OperationsView onAuth={onAuth} />;
+                })()}
                 {current === "administration" && <AdministrationView me={me} onAuth={onAuth} />}
                 {me && isIdentityPage(current) && <IdentityPage id={current} me={me} onAuth={onAuth} />}
               </div>

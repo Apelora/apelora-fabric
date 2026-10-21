@@ -14,6 +14,10 @@ use serde_json::{Value, json};
 
 use crate::wire::{self, Envelope, Operation, OperationList};
 use crate::{AdapterError, InstanceState, SnapshotInfo, VolumeState};
+use apelora_domain::inspect::{
+    InstanceView, InstanceViewAddress, InstanceViewDisk, InstanceViewImage, InstanceViewLimits,
+    InstanceViewSnapshot, InstanceViewUsage, LogTail,
+};
 use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::storage::{VOLUME_KEY, VolumeMount};
 use apelora_domain::{JoinToken, PendingJoin};
@@ -159,6 +163,135 @@ pub(crate) fn parse_mib(size: &str) -> Option<u32> {
         _ => return None,
     };
     u32::try_from(mib).ok()
+}
+
+/// The most a raw download (a log) may be before it is refused: 64 MiB.
+pub const RAW_LIMIT: u64 = 64 << 20;
+
+/// Incus reports "never" as the zero time (`0001-01-01T00:00:00Z`): that is no value.
+fn timestamp(s: String) -> Option<String> {
+    (!s.is_empty() && !s.starts_with("0001-01-01")).then_some(s)
+}
+
+/// The detail page's view of an instance from Incus's three answers.
+pub(crate) fn instance_view_from(
+    full: wire::InstanceFull,
+    state: Option<wire::InstanceStateFull>,
+    snapshots: Vec<wire::InstanceSnapshot>,
+) -> InstanceView {
+    let config = &full.config;
+    let expanded = &full.expanded_config;
+    let get = |k: &str| expanded.get(k).or_else(|| config.get(k)).cloned();
+    let root = full.expanded_devices.values().find(|d| {
+        d.get("type").is_some_and(|t| t == "disk") && d.get("path").is_some_and(|p| p == "/")
+    });
+    let disks = full
+        .expanded_devices
+        .iter()
+        .filter(|(_, d)| d.get("type").is_some_and(|t| t == "disk"))
+        .map(|(device, d)| InstanceViewDisk {
+            device: device.clone(),
+            path: d.get("path").cloned(),
+            pool: d.get("pool").cloned(),
+            volume: d.get("source").filter(|_| d.contains_key("pool")).cloned(),
+            size: d.get("size").cloned(),
+        })
+        .collect();
+    let running = state.as_ref().is_some_and(|s| s.status == "Running");
+    let usage = state
+        .as_ref()
+        .filter(|_| running)
+        .map(|s| InstanceViewUsage {
+            cpu_ns: s.cpu.as_ref().and_then(|c| c.usage),
+            memory_bytes: s.memory.as_ref().and_then(|m| m.usage),
+            memory_peak_bytes: s.memory.as_ref().and_then(|m| m.usage_peak),
+            memory_total_bytes: s.memory.as_ref().and_then(|m| m.total).filter(|t| *t > 0),
+            processes: s.processes.filter(|p| *p >= 0),
+            root_disk_bytes: s
+                .disk
+                .as_ref()
+                .and_then(|d| d.get("root"))
+                .and_then(|d| d.usage),
+        });
+    let mut addresses: Vec<InstanceViewAddress> = state
+        .as_ref()
+        .and_then(|s| s.network.as_ref())
+        .map(|n| {
+            n.iter()
+                .filter(|(iface, _)| iface.as_str() != "lo")
+                .flat_map(|(iface, n)| {
+                    n.addresses.iter().map(move |a| InstanceViewAddress {
+                        interface: iface.clone(),
+                        family: a.family.clone(),
+                        address: a.address.clone(),
+                        netmask: a.netmask.clone(),
+                        scope: a.scope.clone(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    addresses.sort_by(|a, b| {
+        (&a.interface, &a.family, &a.address).cmp(&(&b.interface, &b.family, &b.address))
+    });
+    let owner = match (
+        config.get(APPLICATION_KEY),
+        apelora_domain::module_label(config),
+    ) {
+        (Some(application), Some(module)) => Some(Owner {
+            application: application.clone(),
+            module: module.clone(),
+            replica: config
+                .get(REPLICA_KEY)
+                .and_then(|r| r.parse().ok())
+                .unwrap_or(1),
+        }),
+        _ => None,
+    };
+    InstanceView {
+        kind: match full.kind.as_str() {
+            "container" => InstanceKind::Container,
+            "virtual-machine" => InstanceKind::VirtualMachine,
+            _ => InstanceKind::Unknown,
+        },
+        managed: config.get(MANAGED_KEY).is_some_and(|v| v == "true"),
+        owner,
+        image: InstanceViewImage {
+            description: get("image.description"),
+            os: get("image.os"),
+            release: get("image.release"),
+            fingerprint: config.get("volatile.base_image").cloned(),
+        },
+        limits: InstanceViewLimits {
+            cpu: get("limits.cpu"),
+            memory: get("limits.memory"),
+            root_disk: root.and_then(|r| r.get("size").cloned()),
+        },
+        usage,
+        addresses,
+        disks,
+        snapshots: snapshots
+            .into_iter()
+            .map(|s| InstanceViewSnapshot {
+                name: s.name.rsplit('/').next().unwrap_or_default().to_owned(),
+                created_at: timestamp(s.created_at),
+                expires_at: timestamp(s.expires_at),
+                stateful: s.stateful,
+            })
+            .collect(),
+        started_at: state
+            .filter(|_| running)
+            .and_then(|s| timestamp(s.started_at)),
+        created_at: timestamp(full.created_at),
+        last_used_at: timestamp(full.last_used_at),
+        profiles: full.profiles,
+        name: full.name,
+        project: full.project,
+        status: full.status,
+        location: full.location,
+        architecture: full.architecture,
+        description: full.description,
+    }
 }
 
 /// Operation ids are UUIDs; anything else must never reach an API path.
@@ -1291,6 +1424,158 @@ impl IncusClient {
             .unwrap_or_default();
         out.sort();
         Ok(out)
+    }
+
+    /// One instance in detail: three reads (the instance, its state, its snapshots). `None`
+    /// when it does not exist. The state and snapshots are best effort: a VM whose agent does
+    /// not answer still has a detail page.
+    pub async fn instance_view(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<InstanceView>, AdapterError> {
+        let full: wire::InstanceFull = match self
+            .get(&format!("/1.0/instances/{name}?project={project}"))
+            .await
+        {
+            Ok(f) => f,
+            Err(AdapterError::NotFound(_)) => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let state: Option<wire::InstanceStateFull> = match self
+            .get(&format!("/1.0/instances/{name}/state?project={project}"))
+            .await
+        {
+            Ok(s) => Some(s),
+            Err(AdapterError::NotFound(_)) => return Ok(None),
+            Err(e) => {
+                tracing::debug!(instance = %format!("{project}/{name}"), error = %e, "incus: instance state not readable; shown without it");
+                None
+            }
+        };
+        let snapshots: Vec<wire::InstanceSnapshot> = self
+            .get(&format!(
+                "/1.0/instances/{name}/snapshots?project={project}&recursion=1"
+            ))
+            .await
+            .unwrap_or_default();
+        Ok(Some(instance_view_from(full, state, snapshots)))
+    }
+
+    /// The instance's log files, as names (Incus lists them as URLs).
+    pub async fn instance_logs(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Vec<String>, AdapterError> {
+        let urls: Vec<String> = self
+            .get(&format!("/1.0/instances/{name}/logs?project={project}"))
+            .await?;
+        let mut names: Vec<String> = urls
+            .iter()
+            .filter_map(|u| apelora_domain::inspect::log_file_name(u))
+            .map(str::to_owned)
+            .collect();
+        names.sort();
+        names.dedup();
+        Ok(names)
+    }
+
+    /// The end of one log file (raw content, not an envelope), at most `max` bytes.
+    pub async fn instance_log(
+        &self,
+        project: &str,
+        name: &str,
+        file: &str,
+        max: usize,
+    ) -> Result<LogTail, AdapterError> {
+        let file = apelora_domain::inspect::log_file_name(file)
+            .filter(|f| *f == file)
+            .ok_or_else(|| {
+                AdapterError::InvalidConfig(format!("invalid log file name {file:?}"))
+            })?;
+        self.get_tail(
+            &format!("/1.0/instances/{name}/logs/{file}?project={project}"),
+            max,
+        )
+        .await
+    }
+
+    /// The end of the instance's console log (`type=log`), at most `max` bytes.
+    pub async fn console_log(
+        &self,
+        project: &str,
+        name: &str,
+        max: usize,
+    ) -> Result<LogTail, AdapterError> {
+        self.get_tail(
+            &format!("/1.0/instances/{name}/console?project={project}&type=log"),
+            max,
+        )
+        .await
+    }
+
+    /// A raw (non-envelope) download, keeping only its last `max` bytes in memory. Refuses
+    /// more than [`RAW_LIMIT`] in total. Error replies are envelopes and are read as such.
+    async fn get_tail(&self, path: &str, max: usize) -> Result<LogTail, AdapterError> {
+        let started = std::time::Instant::now();
+        let result = self.send_tail(path, max).await;
+        record_call(path, "GET", started.elapsed().as_secs_f64(), &result);
+        result
+    }
+
+    async fn send_tail(&self, path: &str, max: usize) -> Result<LogTail, AdapterError> {
+        let what = format!("GET {}", loggable(path));
+        let mut res = self
+            .http
+            .get(format!("{}{}", self.base, path))
+            .send()
+            .await
+            .map_err(|e| {
+                let e = chain(&e);
+                tracing::debug!(request = %what, error = %e, "incus: request not sent or not answered");
+                AdapterError::Connectivity(format!("{what}: {e}"))
+            })?;
+        let status = res.status().as_u16();
+        tracing::debug!(request = %what, status, "incus: response");
+        let read_err = |e: reqwest::Error| {
+            AdapterError::Connectivity(format!(
+                "{what}: HTTP {status}, reading the reply: {}",
+                chain(&e)
+            ))
+        };
+        if status >= 400 {
+            let bytes = res.bytes().await.map_err(read_err)?;
+            let env: Option<Envelope<Value>> = serde_json::from_slice(&bytes).ok();
+            let message = env.map_or_else(
+                || format!("{what}: HTTP {status} with a reply that is not from the Incus API"),
+                |e| format!("{what}: {}", e.error),
+            );
+            return Err(match status {
+                401 | 403 => AdapterError::Authentication(message),
+                404 => AdapterError::NotFound(path.to_owned()),
+                _ => AdapterError::Api { status, message },
+            });
+        }
+        let mut kept: Vec<u8> = Vec::new();
+        let mut size: u64 = 0;
+        while let Some(chunk) = res.chunk().await.map_err(read_err)? {
+            size += chunk.len() as u64;
+            if size > RAW_LIMIT {
+                return Err(AdapterError::Api {
+                    status: 413,
+                    message: format!(
+                        "{what}: larger than {} MiB; read it on the server",
+                        RAW_LIMIT >> 20
+                    ),
+                });
+            }
+            kept.extend_from_slice(&chunk);
+            if kept.len() > max.saturating_mul(2) {
+                kept.drain(..kept.len() - max);
+            }
+        }
+        Ok(LogTail::from_bytes(&kept, size, max))
     }
 
     /// Waits up to `timeout_secs` (kept below the request timeout) for an operation to finish

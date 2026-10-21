@@ -384,13 +384,17 @@ pub async fn create_operation(pool: &PgPool, n: &NewOperation<'_>) -> Result<(Op
         sqlx::Error::Database(d) if d.is_unique_violation() => StoreError::Conflict("another operation on this application is still in progress".into()),
         _ => StoreError::Database(e),
     })?;
-    crate::enqueue_job_in(
+    crate::enqueue_job_from(
         &mut tx,
         "application.operation",
         Some(application_id),
         &serde_json::json!({ "operation": id }),
         Some(&format!("application.operation:{id}")),
-        request_id,
+        &crate::JobOrigin {
+            request_id,
+            queued_by: Some(requested_by),
+            retry_of: None,
+        },
     )
     .await?;
     tx.commit().await?;
@@ -437,7 +441,7 @@ pub async fn update_operation(
     sqlx::query(
         "UPDATE application_operations SET state = $2, phases = $3, error = $4,
             started_at = CASE WHEN started_at IS NULL AND $2 <> 'pending' THEN now() ELSE started_at END,
-            finished_at = CASE WHEN $2 IN ('succeeded', 'failed') THEN now() ELSE NULL END
+            finished_at = CASE WHEN $2 IN ('succeeded', 'failed', 'cancelled') THEN now() ELSE NULL END
          WHERE id = $1",
     )
     .bind(id)

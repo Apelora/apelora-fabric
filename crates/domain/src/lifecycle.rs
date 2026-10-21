@@ -70,6 +70,9 @@ pub enum OperationState {
     Succeeded,
     /// Some steps succeeded and one failed; nothing further was attempted.
     Failed,
+    /// Cancelled on request at a phase boundary: the phase that was running finished, later
+    /// phases were not started.
+    Cancelled,
 }
 
 impl OperationState {
@@ -79,6 +82,7 @@ impl OperationState {
             OperationState::Running => "running",
             OperationState::Succeeded => "succeeded",
             OperationState::Failed => "failed",
+            OperationState::Cancelled => "cancelled",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -87,6 +91,7 @@ impl OperationState {
             OperationState::Running,
             OperationState::Succeeded,
             OperationState::Failed,
+            OperationState::Cancelled,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
