@@ -96,11 +96,12 @@ test.describe("fabric console", () => {
     await expect(page.locator(".btn-primary")).toHaveCount(1);
     await expect(page.getByTestId("sign-in-status")).toContainText("showing mock data");
 
-    // A wrong token: said plainly, the field is marked and keeps what was typed.
+    // A wrong token: said plainly, the field is marked and emptied (a refused secret is not kept on screen).
     await page.getByTestId("token-input").fill("apl_wrong");
     await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByTestId("sign-in-error")).toHaveText("That token was not accepted. It may have expired or been revoked.");
     await expect(page.getByTestId("token-input")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByTestId("token-input")).toHaveValue("");
 
     await page.getByTestId("token-input").fill(good);
     await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
@@ -137,7 +138,7 @@ test.describe("fabric console", () => {
       return route.fulfill({ headers: cors, json: { access_token: at, token_type: "Bearer", scope: pending.get("scope") ?? "" } });
     });
     await page.goto("/#/instances");
-    await expect(page.getByTestId("sign-in-oidc")).toHaveText("Sign in with Example Corp");
+    await expect(page.getByTestId("sign-in-oidc")).toHaveText("Continue with Example Corp");
     await expect(page.getByTestId("sign-in")).toHaveCount(0);
     await page.getByTestId("sign-in-use-token").click();
     await expect(page.getByTestId("sign-in")).toBeVisible();
@@ -151,6 +152,47 @@ test.describe("fabric console", () => {
     expect(tokenRequest!.get("code")).toBe("the-code");
     expect(tokenRequest!.get("code_verifier")).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(await page.evaluate(() => sessionStorage.getItem("apelora.apiToken"))).toBe(at);
+  });
+
+  test("sign-in page: several identity providers are offered by name in one row; the illustration is decorative and still for reduced motion", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("incus", true), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [
+      { issuer: "https://id.example.test", clientId: "c", scopes: ["openid"], label: "Example Corp" },
+      { issuer: "https://partners.example.test", clientId: "c", scopes: ["openid"], label: "Partner accounts" },
+    ], apiTokens: true } }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "sign in" } } }));
+    await page.goto("/");
+    const group = page.getByRole("group", { name: "Sign in with your organisation" });
+    await expect(group.getByRole("button")).toHaveText(["Example Corp", "Partner accounts"]);
+    await expect(page.getByRole("button", { name: "Sign in with Partner accounts" })).toBeVisible();
+    const [a, b] = await Promise.all(["Example Corp", "Partner accounts"].map((n) => group.getByRole("button", { name: `Sign in with ${n}` }).boundingBox()));
+    expect(Math.abs(a!.y - b!.y)).toBeLessThan(1);
+    expect(a!.width).toBeLessThan(200);
+    await expect(page.locator(".btn-primary")).toHaveCount(1);
+    await expect(page.locator("aside svg")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.locator("aside svg animateMotion")).toHaveCount(0);
+  });
+
+  test("sign-in page: an empty token is explained, not sent; no way to sign in says what an administrator does", async ({ page }) => {
+    let whoamiCalls = 0;
+    let apiTokens = true;
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("incus", true), auth: "tokens" } }));
+    await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [], apiTokens } }));
+    await page.route("**/api/v1/whoami", (route) => { whoamiCalls += 1; return route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "sign in" } } }); });
+    await page.goto("/");
+    await expect(page.getByTestId("sign-in")).toBeVisible();
+    const calls = whoamiCalls;
+    await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByTestId("token-input")).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText("Paste the API token an administrator gave you.")).toBeVisible();
+    await expect(page.getByTestId("token-input")).toBeFocused();
+    expect(whoamiCalls).toBe(calls);
+    apiTokens = false;
+    await page.reload();
+    await expect(page.getByTestId("sign-in-none")).toContainText("Sign-in is not set up yet");
+    await expect(page.getByTestId("sign-in")).toHaveCount(0);
   });
 
   test("a token from the identity provider that Apelora refuses says why, not that the session ended", async ({ page }) => {

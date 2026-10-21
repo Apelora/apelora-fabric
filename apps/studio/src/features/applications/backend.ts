@@ -1,6 +1,8 @@
+import { completeOidcSignIn } from "@apelora/api-client";
 import { create } from "zustand";
 
-import { client, readToken, writeToken } from "../deploy/api";
+import { client, messageOf, readToken, writeToken } from "../deploy/api";
+import { navigate } from "../router";
 import { createApiBackend } from "./apiBackend";
 import { createLocalBackend } from "./localBackend";
 import type { AppBackend } from "./model";
@@ -17,6 +19,13 @@ interface BackendState {
   disconnect: () => void;
 }
 
+// Back from the identity provider (?code&state): the code can be exchanged once, and effects may
+// run twice (StrictMode), so the page load shares one exchange.
+let oidcReturn: ReturnType<typeof completeOidcSignIn> | null = null;
+const finishOidcSignIn = () => (oidcReturn ??= completeOidcSignIn(new URL(window.location.href)));
+// The token the provider issued on this page load, so a refusal of it is explained as such.
+let providerToken: string | null = null;
+
 const local = createLocalBackend();
 const api = createApiBackend();
 
@@ -30,19 +39,37 @@ export const useBackend = create<BackendState>((set, get) => ({
   reason: null,
   who: null,
   detect: async () => {
+    if (new URL(window.location.href).searchParams.has("state")) {
+      try {
+        const r = await finishOidcSignIn();
+        if (r) { writeToken(r.token); providerToken = r.token; }
+        navigate(r?.returnTo || window.location.pathname, { replace: true });
+        if (window.location.search) window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+      } catch (e) {
+        window.history.replaceState(null, "", window.location.pathname);
+        set({ status: "ready", backend: local, who: null, reason: messageOf(e) });
+        return;
+      }
+    }
     if (!readToken()) {
       let reachable = true;
       try { await client.get("health"); } catch { reachable = false; }
       set({ status: "ready", backend: local, who: null, reason: reachable ? "Not signed in to the control plane." : "No control plane is reachable." });
       return;
     }
+    const token = readToken();
     try {
       const me = await client.get("whoami");
       set({ status: "ready", backend: api, who: me.name, reason: null });
     } catch (e) {
       const unauth = e instanceof Error && "status" in e && (e as { status: number }).status === 401;
       if (unauth) writeToken(null);
-      set({ status: "ready", backend: local, who: null, reason: unauth ? "The saved sign-in was not accepted." : "The control plane could not be reached." });
+      set({
+        status: "ready", backend: local, who: null,
+        reason: unauth
+          ? token !== null && token === providerToken ? `You signed in, but Apelora did not accept the identity provider's token: ${messageOf(e)}` : "The saved sign-in was not accepted."
+          : "The control plane could not be reached.",
+      });
     }
   },
   connect: async (token) => {

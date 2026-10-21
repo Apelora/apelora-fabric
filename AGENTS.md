@@ -35,7 +35,8 @@ Apelora composes applications from modules in a visual designer and runs them on
 npm install
 npm run dev              # Studio at http://127.0.0.1:5173
 npm run dev:console      # Fabric Console at http://127.0.0.1:5174 (proxies /api to 127.0.0.1:8080)
-cargo run -p apelora-control-plane   # API at http://127.0.0.1:8080 (mock provider)
+DATABASE_URL= cargo run -p apelora-control-plane   # API at http://127.0.0.1:8080, mock provider, no sign-in (development only)
+cargo run -p apelora-control-plane   # same, with the dev database from .cargo/config.toml: sign-in required
 docker compose -f infra/dev/compose.yaml up -d   # PostgreSQL 18 on 127.0.0.1:15432 for Rust tests and the worker
 DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --role fabric-admin   # API token (shown once)
 npm run api:generate   # after API changes: OpenAPI document + TypeScript client (packages/api-client)
@@ -53,6 +54,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 
 ## How to change things
 
+- Before starting, read the sections of [lessons learned](docs/development/LESSONS-LEARNED.md) that touch your area; add an entry when something fails for a non-obvious reason or the owner corrects how we work.
 - Start from the nearest existing implementation and its tests; extend existing helpers instead of adding parallel ones.
 - Keep changes focused; prefer the smallest change that fits the current design.
 - New dependencies (npm or Cargo), new public Rust items and new crates are architectural decisions: justify them, check their licence (`license-compliance`), and prefer what is already in the tree.

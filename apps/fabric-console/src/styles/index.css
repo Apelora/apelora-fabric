@@ -33,3 +33,13 @@ html, body, #root { height: 100%; }
 
 /* Text in the error colour must reach 4.5:1 on white (WCAG AA); the theme's error colour is too light for text. */
 .text-error { color: color-mix(in oklab, var(--color-error) 62%, black); }
+
+
+/* Safety net for people who ask for less motion: any transition or animation ends at once. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

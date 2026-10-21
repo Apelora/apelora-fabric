@@ -216,7 +216,7 @@ export function App() {
               <section aria-label="Service status" aria-live="polite" className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="status">
                 <StatusRow label="Control plane" {...controlPlane} />
                 <StatusRow label="Incus cluster" {...incus} />
-                {up && <StatusRow label="Authentication" tone={up.auth === "tokens" ? "ok" : "off"} value={up.auth === "tokens" ? "API tokens required" : "Disabled (development only)"} />}
+                {up && <StatusRow label="Authentication" tone={up.auth === "tokens" ? "ok" : "off"} value={up.auth === "tokens" ? "Sign-in required" : "Disabled (development only)"} />}
               </section>
             )}
 

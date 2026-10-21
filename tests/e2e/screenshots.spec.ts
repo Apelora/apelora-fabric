@@ -1,5 +1,6 @@
-import { test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { addPorts, node, open, openProps } from "./helpers";
+import { ME, base, health, stub, uid } from "./identity-fixtures";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 test.skip(!process.env.SCREENSHOTS, "screenshots are generated on demand");
@@ -114,3 +115,108 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.screenshot({ path: out("05-expanded-density") });
   });
 }
+
+// ---- Fabric Console: sign-in, against a stubbed control plane ----------------------------------
+// Nothing here reaches a real server or shows a real token: every /api call is answered by a stub
+// (or aborted), and the identity providers' addresses are example domains.
+
+const CONSOLE = "http://127.0.0.1:5174";
+const consoleHealth = { ...health, auth: "tokens" };
+const EXAMPLE_CORP = { issuer: "https://login.example.org/realms/staff", clientId: "apelora-console", scopes: ["openid", "profile", "email"], label: "Example Corp" };
+
+/**
+ * Waits until no time-based transition is running (menu and button colours still fade under
+ * reduced motion). Endless and scroll-driven animations are not waited for.
+ */
+const settled = (page: Page) => page.waitForFunction(() =>
+  document.getAnimations().every((a) => a.playState !== "running" || !(a.timeline instanceof DocumentTimeline) || a.effect?.getTiming().iterations === Infinity));
+
+/** The sign-in page as a person sees it before signing in: health answers, `whoami` refuses. */
+async function signInStub(page: Page, providers: unknown[], apiTokens = true) {
+  await page.route("**/api/**", (route) => route.abort());
+  await page.route("**/api/v1/health", (route) => route.fulfill({ json: consoleHealth }));
+  await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers, apiTokens } }));
+  await page.route("**/api/v1/whoami", (route) => route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "a bearer token is required" } } }));
+}
+
+const providerView = (n: number, name: string, issuer: string, extra: Record<string, unknown> = {}) => ({
+  id: uid(n), source: "console", name, issuer, audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"],
+  groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa", "otp", "hwk"], mfaAcr: [], authorizedParties: [],
+  enabled: true, reachable: true, error: null, updatedBy: `user:${ME}`, ...extra,
+});
+const PROVIDERS = [
+  providerView(70, "Example Corp", EXAMPLE_CORP.issuer),
+  providerView(71, "Contractors", "https://id.contractors.example/oidc", { reachable: false, error: "discovery failed: connection refused" }),
+  providerView(72, "Old directory", "https://sso.example.net/oidc", { enabled: false, clientId: null }),
+];
+
+for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
+  const out = (n: string) => `docs/screenshots/${n}-${w}x${h}.png`;
+
+  test(`console sign-in screenshots ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await signInStub(page, [EXAMPLE_CORP]);
+    await page.goto(`${CONSOLE}/`);
+    await expect(page.getByTestId("sign-in-oidc")).toHaveText("Continue with Example Corp");
+    await expect(page.getByTestId("sign-in-status")).toContainText("Apelora");
+    await settled(page);
+    await page.screenshot({ path: out("22-console-sign-in") });
+  });
+
+  test(`console sign-in with an API token ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await signInStub(page, []);
+    await page.goto(`${CONSOLE}/`);
+    // An obviously fake value; the field masks it anyway.
+    await page.getByTestId("token-input").fill("not-a-real-token");
+    await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
+    await expect(page.getByTestId("sign-in-error")).toHaveText("That token was not accepted. It may have expired or been revoked.");
+    await settled(page);
+    await page.screenshot({ path: out("23-console-sign-in-token-not-accepted") });
+  });
+
+  test(`console sign-in settings ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.route("**/api/**", (route) => route.abort());
+    await stub(page, {
+      ...base(),
+      "GET /api/v1/health": { json: consoleHealth },
+      "GET /api/v1/identity/sign-in": { json: { providers: PROVIDERS, apiTokens: { enabled: true, lockedByEnvironment: false } } },
+      "POST /api/v1/identity/sign-in/check": { json: { authorizationEndpoint: `${EXAMPLE_CORP.issuer}/auth`, tokenEndpoint: `${EXAMPLE_CORP.issuer}/token`, jwksUri: `${EXAMPLE_CORP.issuer}/keys`, keys: 2 } },
+    });
+    await page.goto(`${CONSOLE}/#/identity/sign-in`);
+    await expect(page.getByTestId("provider-row")).toHaveCount(3);
+    await expect(page.getByTestId("api-tokens-setting")).toBeVisible();
+    await settled(page);
+    await page.screenshot({ path: out("24-console-sign-in-settings") });
+
+    await page.getByTestId("provider-add").click();
+    const dialog = page.getByTestId("provider-dialog");
+    await dialog.getByTestId("provider-name").fill("Example Corp");
+    await dialog.getByTestId("provider-issuer").fill(EXAMPLE_CORP.issuer);
+    await dialog.getByTestId("provider-check").click();
+    await expect(dialog.getByTestId("provider-check-ok")).toContainText("2 signing keys");
+    await dialog.getByTestId("provider-audiences").fill("apelora-api");
+    await dialog.getByTestId("provider-client").fill("apelora-console");
+    await dialog.getByTestId("provider-advanced").locator("summary").click();
+    await settled(page);
+    await page.screenshot({ path: out("25-console-identity-provider-dialog") });
+  });
+}
+
+test.describe("phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  test("console sign-in screenshot 390x844", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await signInStub(page, [EXAMPLE_CORP]);
+    await page.goto(`${CONSOLE}/`);
+    await expect(page.getByTestId("sign-in-oidc")).toHaveText("Continue with Example Corp");
+    await page.getByTestId("sign-in-use-token").click();
+    await expect(page.getByTestId("token-input")).toBeVisible();
+    await settled(page);
+    await page.screenshot({ path: "docs/screenshots/26-console-sign-in-phone-390x844.png" });
+  });
+});

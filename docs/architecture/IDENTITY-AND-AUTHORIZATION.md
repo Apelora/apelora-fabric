@@ -53,6 +53,8 @@ Rules that are enforced and tested (API integration tests, 22 for identity, 13 f
 
 ## 3. Sign-in
 
+How people and administrators use it, with screenshots and troubleshooting: [Signing in](../guides/signing-in.md).
+
 OIDC access tokens are validated by `crates/identity`: asymmetric algorithms only (no `none`, no shared-secret algorithms), issuer and audience pinned, `exp`/`nbf`/`iat` checked with 30 s leeway, maximum lifetime, key set fetched over TLS only (loopback allowed for development) and cached. An application end-user token with another audience is refused. MFA is derived from configured `amr`/`acr` values and can be required by an access policy.
 
 **Where sign-in is configured.** Platform administrators (`platform.security.manage`) add, edit, turn off and remove identity providers in the Fabric Console (Identity & Access → Sign-in); changes apply at once, without a restart, and are audited (`identity.provider.saved`, `identity.provider.deleted`). Any OpenID Connect provider works. Per provider: name on the button, issuer, audiences, an optional public browser client ID (no secret; the browser uses authorization code with PKCE, `state` and `nonce`), scopes, the groups and username claims, the `amr`/`acr` values that count as multi-factor, and the clients a token must be issued to (`azp`). *Check connection* reads the provider's discovery document and key set before saving. A provider set by environment variables (`APELORA_OIDC_ISSUER`, `APELORA_OIDC_AUDIENCE`, `APELORA_OIDC_CLIENT_ID`, `APELORA_OIDC_SCOPES`, `APELORA_OIDC_LABEL` and the claim variables; see `.env.example`) keeps working and is shown read-only.
