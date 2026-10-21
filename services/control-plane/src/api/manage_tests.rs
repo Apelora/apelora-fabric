@@ -1032,7 +1032,7 @@ async fn operators_operate_only_their_scope_and_designers_and_strangers_cannot(p
         assert_eq!(actions(&i), (false, false, false), "{who}");
         assert_eq!(
             i["actions"]["stop"]["reason"],
-            "you may not start or stop this application"
+            "you may not operate this application"
         );
         let (st, b) = operate(&l, t, "stop", true).await;
         assert_eq!(
@@ -1320,5 +1320,239 @@ async fn a_readiness_command_is_checked_before_a_deployment_is_queued_and_kept_w
         desired[0]["readiness"],
         json!({ "command": ["pg_isready", "-q"], "timeoutSecs": 3 }),
         "{desired}"
+    );
+}
+
+// ---- shutting down, stopping at once and migrating (ADR 0015) ---------------------------------
+
+fn jobs_of(kind: &str, forced: bool) -> String {
+    format!(
+        "SELECT count(*) FROM jobs WHERE kind = '{kind}' AND COALESCE(payload->>'force', 'false') = '{forced}'"
+    )
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn shutting_down_is_graceful_and_stopping_is_immediate_and_each_says_when_it_is_offered(
+    pool: Pool,
+) {
+    let (l, mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    deployed(&l, &s).await;
+    let i = info(&l, &s.owner).await;
+    let a = &i["actions"];
+    assert_eq!(
+        [&a["shutdown"], &a["stop"], &a["migrate"]].map(|x| x["allowed"] == true),
+        [true, true, true],
+        "running: shut down, stop and migrate are offered: {a}"
+    );
+
+    // A graceful shutdown asks the guests to stop: no instance job says `force`.
+    let (st, b) = operate(&l, &s.owner, "shutdown", true).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    assert_eq!(b["operation"]["kind"], "shutdown");
+    settle(&l).await;
+    let stopped: i64 = sqlx::query_scalar(&jobs_of("instance.stop", false))
+        .fetch_one(&l.pool)
+        .await
+        .expect("count");
+    let forced: i64 = sqlx::query_scalar(&jobs_of("instance.stop", true))
+        .fetch_one(&l.pool)
+        .await
+        .expect("count");
+    assert_eq!((stopped, forced), (2, 0), "graceful: not forced");
+    let after = info(&l, &s.owner).await;
+    assert_eq!(after["deployment"]["status"], "stopped");
+    let a = &after["actions"];
+    assert_eq!(
+        [
+            &a["start"],
+            &a["shutdown"],
+            &a["stop"],
+            &a["restart"],
+            &a["migrate"]
+        ]
+        .map(|x| x["allowed"] == true),
+        [true, false, false, false, true],
+        "stopped: start, and moving what is stopped: {a}"
+    );
+
+    // Start again, then stop at once: every instance job is forced, in the same dependency order.
+    let (st, _) = operate(&l, &s.owner, "start", false).await;
+    assert_eq!(st, StatusCode::ACCEPTED);
+    settle(&l).await;
+    let (st, b) = operate(&l, &s.owner, "stop", true).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    assert_eq!(b["operation"]["kind"], "stop");
+    assert_eq!(b["operation"]["phases"][0]["action"], "poweroff", "{b}");
+    settle(&l).await;
+    let forced: i64 = sqlx::query_scalar(&jobs_of("instance.stop", true))
+        .fetch_one(&l.pool)
+        .await
+        .expect("count");
+    assert_eq!(forced, 2, "immediate: the instance jobs carry force");
+    assert_eq!(info(&l, &s.owner).await["deployment"]["status"], "stopped");
+    assert!(
+        mock.instances
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|i| i.instance.name.starts_with("shop-"))
+            .all(|i| i.instance.status == "Stopped")
+    );
+    // Both still ask first when clients lose service.
+    let (st, _) = operate(&l, &s.owner, "start", false).await;
+    assert_eq!(st, StatusCode::ACCEPTED);
+    settle(&l).await;
+    for action in ["shutdown", "stop"] {
+        let (st, b) = operate(&l, &s.owner, action, false).await;
+        assert_eq!(
+            (st, code(&b)),
+            (StatusCode::CONFLICT, Some("confirmation_required")),
+            "{action}: {b}"
+        );
+    }
+}
+
+async fn migration(l: &Lab, token: &str, target: &str) -> (StatusCode, Value) {
+    l.req(
+        "GET",
+        &format!("/api/v1/applications/shop/migration?target={target}"),
+        token,
+        None,
+    )
+    .await
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_application_is_migrated_after_a_dry_run_and_a_confirmation_and_every_instance_is_confirmed_on_the_new_server(
+    pool: Pool,
+) {
+    let (l, mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    deployed(&l, &s).await;
+    let location = |name: &str| {
+        mock.instances
+            .lock()
+            .expect("lock")
+            .iter()
+            .find(|i| i.instance.name == name)
+            .map(|i| i.instance.location.clone())
+            .expect("instance")
+    };
+    let from = location("shop-web-01");
+    let target = ["mock-member-01", "mock-member-02", "mock-member-03"]
+        .into_iter()
+        .find(|m| *m != from && *m != location("shop-db-01"))
+        .expect("a member that runs neither");
+
+    // The dry run changes nothing and says what would stop.
+    let (st, p) = migration(&l, &s.owner, target).await;
+    assert_eq!(st, StatusCode::OK, "{p}");
+    assert_eq!(p["possible"], true, "{p}");
+    assert_eq!(p["items"].as_array().map(Vec::len), Some(2), "{p}");
+    assert_eq!(
+        p["stops"].as_array().map(Vec::len),
+        Some(2),
+        "containers stop while they move: {p}"
+    );
+    assert_eq!(location("shop-web-01"), from, "a dry run moves nothing");
+    // A name that is not a member blocks it, with the reason.
+    let (st, p) = migration(&l, &s.owner, "no-such-member").await;
+    assert_eq!(st, StatusCode::OK, "{p}");
+    assert_eq!(p["possible"], false);
+    assert!(
+        p["items"][0]["blocked"]
+            .to_string()
+            .contains("not a cluster member"),
+        "{p}"
+    );
+
+    let migrate = |confirm: bool, to: &str| {
+        let body = json!({ "action": "migrate", "target": to, "confirmDisruption": confirm });
+        l.req(
+            "POST",
+            "/api/v1/applications/shop/operations",
+            &s.owner,
+            Some(body),
+        )
+    };
+    let (st, b) = migrate(false, target).await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("confirmation_required")),
+        "stopping while moving needs the same confirmation: {b}"
+    );
+    let (st, b) = migrate(true, "no-such-member").await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("migration_blocked")),
+        "{b}"
+    );
+    let (st, b) = l
+        .req(
+            "POST",
+            "/api/v1/applications/shop/operations",
+            &s.owner,
+            Some(json!({ "action": "migrate", "confirmDisruption": true })),
+        )
+        .await;
+    assert_eq!(
+        st,
+        StatusCode::BAD_REQUEST,
+        "a migration names its target: {b}"
+    );
+    assert_eq!(
+        location("shop-web-01"),
+        from,
+        "nothing was moved by the refusals"
+    );
+
+    let (st, b) = migrate(true, target).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    assert_eq!(b["operation"]["kind"], "migrate");
+    assert_eq!(
+        info(&l, &s.owner).await["deployment"]["status"],
+        "migrating"
+    );
+    settle(&l).await;
+    let (_, ops) = l
+        .req(
+            "GET",
+            "/api/v1/applications/shop/operations",
+            &s.owner,
+            None,
+        )
+        .await;
+    let op = &ops["items"][0];
+    assert_eq!(
+        (
+            op["kind"].as_str(),
+            op["state"].as_str(),
+            op["stepsDone"].as_u64()
+        ),
+        (Some("migrate"), Some("succeeded"), Some(2)),
+        "{op}"
+    );
+    assert_eq!(op["phases"][0]["action"], "migrate");
+    for name in ["shop-web-01", "shop-db-01"] {
+        assert_eq!(location(name), target, "{name} runs on the target");
+    }
+    assert!(
+        mock.instances
+            .lock()
+            .expect("lock")
+            .iter()
+            .filter(|i| i.instance.name.starts_with("shop-"))
+            .all(|i| i.instance.status == "Running"),
+        "what was running runs again"
+    );
+    assert_eq!(info(&l, &s.owner).await["deployment"]["status"], "running");
+
+    // Nothing is left to move.
+    let (st, b) = migrate(true, target).await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("nothing_to_do")),
+        "{b}"
     );
 }

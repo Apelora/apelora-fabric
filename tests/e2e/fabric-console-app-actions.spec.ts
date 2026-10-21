@@ -108,6 +108,37 @@ test("a start goes at once and a refusal is shown on its row; a viewer is told w
   await expect(rows.nth(1).locator("button[data-testid^=application-s], button[data-testid=application-restart]")).toHaveCount(0);
 });
 
+test("a current control plane offers Shut down (graceful) and Stop (immediate), each asking first and sending its own action", async ({ page }) => {
+  const sent: unknown[] = [];
+  const all = (over: Record<string, unknown> = {}) => ({ start: no("it is already running"), restart: yes, shutdown: yes, stop: yes, migrate: yes, ...over });
+  await stub(page, {
+    ...base,
+    "GET /api/v1/applications": () => ({ json: { items: [app("shop", all())] } }),
+    "GET /api/v1/applications/shop/status": () => ({ json: status("Running") }),
+    "POST /api/v1/applications/shop/operations": (req) => { sent.push(req.postDataJSON()); return { status: 202, json: { created: true, operation: operation("running", 0) } }; },
+    "GET /api/v1/applications/shop/operations/44444444-4444-4444-8444-444444444444": () => ({ json: operation("succeeded", 2, { finishedAt: now, kind: (sent.at(-1) as { action: string }).action }) }),
+  });
+  await page.goto("/#/applications");
+  const row = page.getByTestId("application-row").first();
+  await expect(row.getByTestId("application-shutdown")).toHaveText("Shut down…");
+  await expect(row.getByTestId("application-stop")).toHaveText("Stop…");
+  await row.getByTestId("application-shutdown").click();
+  const dialog = page.locator("dialog[open]");
+  await expect(dialog).toContainText("Shut down shop?");
+  await expect(dialog).toContainText("asked to shut down");
+  await dialog.getByRole("button", { name: "Shut down", exact: true }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(row.getByTestId("application-operation")).toContainText("Shut down.");
+  await row.getByTestId("application-stop").click();
+  await expect(dialog).toContainText("Stop now shop?");
+  await expect(dialog).toContainText("powered off at once");
+  await dialog.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator("dialog[open]")).toHaveCount(0);
+  await expect(row.getByTestId("application-operation")).toContainText("Stopped.");
+  expect(sent).toEqual([{ action: "shutdown", confirmDisruption: false }, { action: "stop", confirmDisruption: false }]);
+  expect(await serious(page)).toEqual([]);
+});
+
 test("an older control plane without actions still shows the applications", async ({ page }) => {
   await stub(page, {
     ...base,

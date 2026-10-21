@@ -899,6 +899,129 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn an_immediate_stop_queues_forced_stop_jobs_and_a_shutdown_does_not(pool: Pool) {
+        let provider = mock();
+        for n in ["web", "db"] {
+            create_instance(&pool, &provider, n).await;
+        }
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let op = operation(
+            &pool,
+            app.id,
+            "stop",
+            phases(&[("poweroff", &["web"]), ("poweroff", &["db"])]),
+        )
+        .await;
+        settle(&pool, &provider).await;
+        let done = apelora_persistence::lifecycle::get_operation(&pool, op.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!(done.state, "succeeded", "{:?}", done.error);
+        let forced: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM jobs WHERE kind = 'instance.stop' AND payload->>'force' = 'true'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(forced, 2, "each instance was powered off");
+        assert_eq!(
+            (
+                status_of(&provider, "web").await.as_str(),
+                status_of(&provider, "db").await.as_str()
+            ),
+            ("Stopped", "Stopped")
+        );
+        // The graceful phase (`stop`, also what earlier operations recorded) is not forced.
+        for n in ["web", "db"] {
+            job(
+                &pool,
+                "instance.start",
+                json!({ "project": "apelora", "name": n }),
+            )
+            .await;
+        }
+        settle(&pool, &provider).await;
+        let op = operation(&pool, app.id, "shutdown", phases(&[("stop", &["web"])])).await;
+        settle(&pool, &provider).await;
+        assert_eq!(
+            apelora_persistence::lifecycle::get_operation(&pool, op.id)
+                .await
+                .expect("op")
+                .expect("row")
+                .state,
+            "succeeded"
+        );
+        let forced: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM jobs WHERE kind = 'instance.stop' AND payload->>'force' = 'true'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+        assert_eq!(forced, 2, "the shutdown added no forced job");
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_migration_moves_each_instance_and_succeeds_only_when_it_is_confirmed_on_the_target(
+        pool: Pool,
+    ) {
+        let provider = mock();
+        create_instance(&pool, &provider, "web").await;
+        let from = provider
+            .instance("apelora", "web")
+            .await
+            .expect("read")
+            .expect("exists")
+            .location;
+        let target = provider
+            .cluster_members()
+            .await
+            .expect("members")
+            .into_iter()
+            .map(|m| m.name)
+            .find(|m| *m != from)
+            .expect("another member");
+        let app = apelora_persistence::create_application(&pool, "shop")
+            .await
+            .expect("app");
+        let step = |to: &str| {
+            json!({ "project": "apelora", "name": "web", "module": "web", "state": "pending",
+            "payload": { "project": "apelora", "name": "web", "application": "shop", "from": from, "target": to,
+                         "live": false, "startAfter": true, "volumes": [] } })
+        };
+        let op = operation(
+            &pool,
+            app.id,
+            "migrate",
+            json!([{ "action": "migrate", "state": "pending", "steps": [step(&target)] }]),
+        )
+        .await;
+        settle(&pool, &provider).await;
+        let done = apelora_persistence::lifecycle::get_operation(&pool, op.id)
+            .await
+            .expect("op")
+            .expect("row");
+        assert_eq!(done.state, "succeeded", "{:?}", done.error);
+        let now = provider
+            .instance("apelora", "web")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(
+            (now.location.as_str(), now.status.as_str()),
+            (target.as_str(), "Running")
+        );
+        let moves: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'instance.move'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
+        assert_eq!(moves, 1);
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn a_cancelled_operation_finishes_its_running_phase_and_skips_the_rest(pool: Pool) {
         let provider = mock();
         for n in ["web", "db"] {

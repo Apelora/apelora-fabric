@@ -1,7 +1,7 @@
 import { healthLine, type AppView } from "../../features/applications/model";
 import { onLinkClick, paths } from "../../features/router";
 import { AppIcon, DesignBadge, RuntimeBadge, timeAgo } from "./common";
-import { LifecycleActions } from "./LifecycleActions";
+import { ApplicationActions } from "./ApplicationActions";
 import { MoreMenu } from "./MoreMenu";
 
 export function ApplicationCard({ app }: { app: AppView }) {
@@ -25,8 +25,8 @@ export function ApplicationCard({ app }: { app: AppView }) {
       </dl>
       <div className="mt-auto flex flex-wrap items-center gap-2 border-t border-base-300 pt-2.5">
         <a href={paths.application(app.name)} onClick={onLinkClick} className="btn btn-xs btn-primary" data-testid="app-open">Open</a>
-        <LifecycleActions app={app} />
-        <div className="ml-auto"><MoreMenu name={app.name} /></div>
+        <ApplicationActions app={app} />
+        <div className="ml-auto"><MoreMenu app={app} /></div>
       </div>
     </article>
   );

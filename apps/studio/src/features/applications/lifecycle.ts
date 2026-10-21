@@ -15,17 +15,17 @@ export interface Tracked {
 
 interface LifecycleState {
   tracked: Record<string, Tracked>;
-  /** Stop and restart ask first; this is the application being asked about. */
+  /** Shut down, stop, restart and migrate ask first; this is the application being asked about. */
   asking: { app: AppView; kind: OperationKind } | null;
   /** Bumped whenever an operation finishes, so lists and pages reload their status. */
   bump: number;
   ask: (app: AppView, kind: OperationKind) => void;
   close: () => void;
-  run: (name: string, kind: OperationKind, confirmDisruption: boolean) => Promise<{ ok: true } | { ok: false; code: string; message: string }>;
+  run: (name: string, kind: OperationKind, confirmDisruption: boolean, target?: string) => Promise<{ ok: true } | { ok: false; code: string; message: string }>;
 }
 
 const POLL_MS = 1500;
-const VERB: Record<OperationKind, string> = { start: "Start", stop: "Stop", restart: "Restart" };
+const VERB: Record<OperationKind, string> = { start: "Start", stop: "Stop", shutdown: "Shutdown", restart: "Restart", migrate: "Migration" };
 
 export const useLifecycle = create<LifecycleState>((set, get) => ({
   tracked: {},
@@ -33,7 +33,7 @@ export const useLifecycle = create<LifecycleState>((set, get) => ({
   bump: 0,
   ask: (app, kind) => set({ asking: { app, kind } }),
   close: () => set({ asking: null }),
-  run: async (name, kind, confirmDisruption) => {
+  run: async (name, kind, confirmDisruption, target) => {
     // One operation per application: a second click while one is submitted or running does nothing.
     if (get().tracked[name]) return { ok: false, code: "operation_in_progress", message: "An operation is already in progress." };
     const track = (t: Tracked | null) => set((s) => { const next = { ...s.tracked }; if (t) next[name] = t; else delete next[name]; return { tracked: next }; });
@@ -42,7 +42,7 @@ export const useLifecycle = create<LifecycleState>((set, get) => ({
     const toast = useAppToasts.getState().push;
     let op;
     try {
-      op = await backend.operate(name, kind, confirmDisruption);
+      op = await backend.operate(name, kind, confirmDisruption, target);
     } catch (e) {
       track(null);
       const err = e instanceof AppError ? e : new AppError(e instanceof Error ? e.message : String(e));

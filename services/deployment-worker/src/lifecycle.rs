@@ -24,6 +24,9 @@ const MAX_STEPS: usize = 4;
 pub enum Goal {
     Exists(Box<InstanceSpec>),
     State(Target, InstanceAction),
+    /// Powered off at once, without waiting for the guest to shut down (`instance.stop` with
+    /// `force`): an application's immediate Stop.
+    PoweredOff(Target),
     /// Restarted once by this job (a stopped instance is started): an event, not a state, so
     /// the job is done as soon as one restart operation it started has finished.
     Restarted(Target),
@@ -57,6 +60,9 @@ impl Goal {
                 .map_err(|e| format!("invalid payload: {e}"))
                 .and_then(|s| s.validate().map(|()| Goal::Exists(Box::new(s)))),
             "instance.start" => target().map(|t| Goal::State(t, InstanceAction::Start)),
+            "instance.stop" if payload["force"].as_bool() == Some(true) => {
+                target().map(Goal::PoweredOff)
+            }
             "instance.stop" => target().map(|t| Goal::State(t, InstanceAction::Stop)),
             "instance.restart" => target().map(Goal::Restarted),
             "instance.delete" => target().map(Goal::Absent),
@@ -84,9 +90,11 @@ impl Goal {
     fn target(&self) -> (&str, &str) {
         match self {
             Goal::Exists(s) => (&s.project, &s.name),
-            Goal::State(t, _) | Goal::Restarted(t) | Goal::Absent(t) | Goal::Limits(t, _) => {
-                (&t.project, &t.name)
-            }
+            Goal::State(t, _)
+            | Goal::PoweredOff(t)
+            | Goal::Restarted(t)
+            | Goal::Absent(t)
+            | Goal::Limits(t, _) => (&t.project, &t.name),
         }
     }
 }
@@ -138,6 +146,12 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
         (Goal::State(..), Some(s)) if !s.managed => not_ours(),
         (Goal::State(_, a), Some(s)) if s.status == a.target_status() => Step::Done,
         (Goal::State(_, a), Some(_)) => Step::Change(*a, false),
+        (Goal::PoweredOff(_), None) => {
+            Step::Reject(format!("instance {project}/{name} does not exist"))
+        }
+        (Goal::PoweredOff(_), Some(s)) if !s.managed => not_ours(),
+        (Goal::PoweredOff(_), Some(s)) if s.status == "Stopped" => Step::Done,
+        (Goal::PoweredOff(_), Some(_)) => Step::Change(InstanceAction::Stop, true),
         (Goal::Restarted(_), None) => {
             Step::Reject(format!("instance {project}/{name} does not exist"))
         }
@@ -608,6 +622,18 @@ mod tests {
                 st("Frozen", true),
                 Step::Change(Stop, false),
             ),
+            (Goal::PoweredOff(t()), None, Step::Reject(String::new())),
+            (Goal::PoweredOff(t()), st("Stopped", true), Step::Done),
+            (
+                Goal::PoweredOff(t()),
+                st("Running", true),
+                Step::Change(Stop, true),
+            ),
+            (
+                Goal::PoweredOff(t()),
+                st("Running", false),
+                Step::Reject(String::new()),
+            ),
             (Goal::Absent(t()), None, Step::Done),
             (
                 Goal::Absent(t()),
@@ -636,6 +662,18 @@ mod tests {
         let ok = serde_json::json!({ "project": "apelora", "name": "web-01" });
         assert_eq!(
             Goal::from_job("instance.stop", &ok),
+            Some(Ok(Goal::State(t(), InstanceAction::Stop)))
+        );
+        // `force` makes the stop an immediate power-off; anything else stays graceful.
+        let forced = serde_json::json!({ "project": "apelora", "name": "web-01", "force": true });
+        assert_eq!(
+            Goal::from_job("instance.stop", &forced),
+            Some(Ok(Goal::PoweredOff(t())))
+        );
+        let not_forced =
+            serde_json::json!({ "project": "apelora", "name": "web-01", "force": false });
+        assert_eq!(
+            Goal::from_job("instance.stop", &not_forced),
             Some(Ok(Goal::State(t(), InstanceAction::Stop)))
         );
         let bad = serde_json::json!({ "project": "apelora", "name": "../x" });

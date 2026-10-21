@@ -73,7 +73,7 @@ function view(a: LocalApp): AppView {
       lastActivityAt: a.updatedAt,
       operation: null,
     },
-    actions: { start: unavailable, stop: unavailable, restart: unavailable },
+    actions: { start: unavailable, stop: unavailable, shutdown: unavailable, restart: unavailable, migrate: unavailable },
   };
 }
 
@@ -168,7 +168,7 @@ export function createLocalBackend(): AppBackend {
       if (!v) throw new AppError(`Version ${revision} does not exist.`, "not_found");
       return v.document;
     },
-    async operate(_name: string, _action: OperationKind): Promise<never> {
+    async operate(_name: string, _action: OperationKind, _confirm: boolean, _target?: string): Promise<never> {
       throw new AppError(NOT_CONNECTED, "not_connected");
     },
     async operation(): Promise<never> {

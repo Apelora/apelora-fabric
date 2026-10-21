@@ -47,8 +47,12 @@ test.describe("templates and imports", () => {
 test.describe("hypervisor target and totals", () => {
   test("Incus is the default; VMware is selectable as a planned target, saved in the file and flagged by validation", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("platform-badge")).toHaveText("Incus");
-    await page.getByTestId("platform-badge").click();
+    // The default target is not announced in the header; the design's properties hold the choice.
+    await expect(page.getByTestId("platform-badge")).toHaveCount(0);
+    await expect(page.getByTestId("header")).not.toContainText("Incus");
+    const cv = (await page.getByTestId("canvas").boundingBox())!;
+    await page.mouse.click(cv.x + 80, cv.y + 80, { button: "right" });
+    await page.getByTestId("menu-assembly-props").click();
     await expect(page.getByTestId("platform-select")).toHaveValue("incus");
     await expect(page.getByTestId("platform-facts")).toContainText("Incus agent");
     await page.getByTestId("platform-select").selectOption("vmware");

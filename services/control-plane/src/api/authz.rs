@@ -461,6 +461,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "GET",
+        "/api/v1/applications/{name}/migration",
+        &["application.operate"],
+    ),
+    (
+        "GET",
         "/api/v1/applications/{name}/events",
         &["application.view"],
     ),

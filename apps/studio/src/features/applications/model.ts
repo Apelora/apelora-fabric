@@ -60,7 +60,8 @@ export interface AppBackend {
   saveDraft(name: string, document: unknown, baseVersion: number | null): Promise<SaveResult>;
   publish(name: string, label?: string): Promise<VersionInfo>;
   versionDocument(name: string, revision: number): Promise<unknown>;
-  operate(name: string, action: OperationKind, confirmDisruption: boolean): Promise<OperationDto>;
+  /** `target` names the server for a migration; it is ignored for every other action. */
+  operate(name: string, action: OperationKind, confirmDisruption: boolean, target?: string): Promise<OperationDto>;
   operation(name: string, id: string): Promise<OperationDto>;
   events(name: string): Promise<AuditItem[]>;
   archive(name: string, archived: boolean): Promise<void>;
@@ -72,6 +73,7 @@ export const RUNTIME_LABEL: Record<DeploymentStatus, string> = {
   running: "Running",
   degraded: "Degraded",
   stopping: "Stopping",
+  migrating: "Migrating",
   stopped: "Stopped",
   failed: "Failed",
   unknown: "Unknown",

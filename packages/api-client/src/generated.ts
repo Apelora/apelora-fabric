@@ -19,8 +19,13 @@ export type ActionState = {
 };
 
 export type Actions = {
+  /** Move every instance to another server. */
+  migrate: ActionState;
   restart: ActionState;
+  /** Graceful: each guest is asked to shut down and given time to. */
+  shutdown: ActionState;
   start: ActionState;
+  /** Immediate power-off: nothing waits for the guests to shut down. */
   stop: ActionState;
 };
 
@@ -825,7 +830,7 @@ export type DeploymentInfo = {
   status: DeploymentStatus;
 };
 
-export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "stopped" | "failed" | "unknown";
+export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "migrating" | "stopped" | "failed" | "unknown";
 
 export type DesignInfo = {
   draftVersion?: number | null;
@@ -1935,6 +1940,32 @@ export type MetricsEndpoint = {
   path: string;
 };
 
+export type MigrationItemDto = {
+  /** Already on the target: nothing to move. */
+  alreadyThere: boolean;
+  /** Why this instance cannot move; empty when it can. */
+  blocked: string[];
+  copyMib: number;
+  from: string;
+  instance: string;
+  /** Moves while running. */
+  live: boolean;
+  module: string;
+  notes: string[];
+  /** Stops for the move and starts again on the target. */
+  stops: boolean;
+};
+
+export type MigrationPreview = {
+  items: MigrationItemDto[];
+  /** Whether a migration to the target can start (nothing blocks it and something moves). */
+  possible: boolean;
+  source: Source;
+  /** The instances that stop while they move: starting the migration then needs a confirmation. */
+  stops: string[];
+  target: string;
+};
+
 /** One configured mirror and whether it answered. */
 export type MirrorStatus = {
   /** RFC 3339: when the probe ran (results are reused for a minute). */
@@ -2253,6 +2284,8 @@ export type OperateRequest = {
   action: OperationKind;
   /** Required to stop or restart an application that has single-instance or stateful modules: it acknowledges that their clients lose service meanwhile. */
   confirmDisruption?: boolean;
+  /** The server to move the application to. Needed for `migrate`, ignored otherwise. */
+  target?: string | null;
 };
 
 export type OperationAccepted = {
@@ -2275,7 +2308,7 @@ export type OperationDto = {
   stepsTotal: number;
 };
 
-export type OperationKind = "start" | "stop" | "restart";
+export type OperationKind = "start" | "stop" | "shutdown" | "restart" | "migrate";
 
 export type OperationList = {
   items: OperationDto[];
@@ -3445,6 +3478,7 @@ export const operations = {
   save_application_draft: { method: "PUT", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
   application_events: { method: "GET", path: "/api/v1/applications/{name}/events", params: ["name"], public: false },
   open_session: { method: "POST", path: "/api/v1/applications/{name}/instances/{instance}/sessions", params: ["name","instance"], public: false },
+  preview_application_migration: { method: "GET", path: "/api/v1/applications/{name}/migration", params: ["name"], public: false },
   application_operations: { method: "GET", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
   operate_application: { method: "POST", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
   application_operation: { method: "GET", path: "/api/v1/applications/{name}/operations/{id}", params: ["name","id"], public: false },
@@ -3652,9 +3686,11 @@ export type Responses = {
   application_events: AuditList;
   /** Opens a session: checks the caller, the instance and the approval rule, and answers with a single-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or `instance.desktop` (RDP) on the application; in production also an approval (`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`. */
   open_session: SessionTicket;
+  /** Dry run of migrating the application to another server: for each instance whether it keeps running, what is copied and what blocks it. Changes nothing. Needs `application.operate`. */
+  preview_application_migration: MigrationPreview;
   /** Recent operations of the application, newest first. Needs `application.view`. */
   application_operations: OperationList;
-  /** Starts, stops or restarts the application's instances, in dependency order, as an asynchronous operation. Succeeds only when Incus confirms each instance's state. Needs `application.operate` on the application. It only touches instances this application owns; networks, volumes, data and other applications are left alone. */
+  /** Starts, shuts down (graceful), stops (immediate), restarts or migrates the application's instances, in dependency order where that matters, as an asynchronous operation. Succeeds only when Incus confirms each instance's state (and, for a migration, its new server). Needs `application.operate` on the application. It only touches instances this application owns; networks, volumes, data and other applications are left alone. */
   operate_application: OperationAccepted;
   /** One operation with the progress of each phase and instance. Needs `application.view`. */
   application_operation: OperationDto;
@@ -3993,6 +4029,7 @@ export type Bodies = {
   save_application_draft: SaveDraft;
   application_events: never;
   open_session: NewSession;
+  preview_application_migration: never;
   application_operations: never;
   operate_application: OperateRequest;
   application_operation: never;

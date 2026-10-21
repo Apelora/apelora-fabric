@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import type { ApplicationAssembly } from "@apelora/assembly-model";
 
 import { useBackend } from "../../features/applications/backend";
 import { useAppList } from "../../features/applications/hooks";
 import { useLifecycle } from "../../features/applications/lifecycle";
+import { readImport } from "../../features/applications/transfer";
+import { useAppToasts } from "../../features/applications/toast";
 import { DESIGN_LABEL, NEEDS_ATTENTION, RUNTIME_LABEL, type AppView, type DeploymentStatus, type DesignStatus } from "../../features/applications/model";
 import { DESIGN_ORDER, STATUS_ORDER, loadPrefs, savePrefs, type Prefs, type SortKey } from "../../features/applications/prefs";
-import { IconCards, IconList, IconPlus, IconSearch } from "../icons";
+import { IconCards, IconList, IconPlus, IconSearch, IconUpload } from "../icons";
 import { ApplicationCard } from "./ApplicationCard";
 import { ApplicationRow } from "./ApplicationRow";
 import { NewApplicationDialog } from "./NewApplicationDialog";
@@ -50,6 +54,14 @@ export function ApplicationsPage() {
   const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(0);
   const [creating, setCreating] = useState(false);
+  const [imported, setImported] = useState<{ assembly: ApplicationAssembly; fileName: string } | null>(null);
+  const file = useRef<HTMLInputElement>(null);
+  const toast = useAppToasts((s) => s.push);
+  const doImport = async (f: File) => {
+    const r = await readImport(f);
+    if (r.ok) setImported({ assembly: r.assembly, fileName: f.name });
+    else toast("error", `${f.name} was not imported: ${r.errors.slice(0, 2).join("; ")}`);
+  };
   const [list, reload] = useAppList(archived);
   const bump = useLifecycle((s) => s.bump);
   const backend = useBackend((s) => s.backend);
@@ -78,7 +90,11 @@ export function ApplicationsPage() {
           <h1 className="text-2xl font-semibold">Applications</h1>
           <p className="text-sm text-base-content/60">Design, deploy, and manage your application assemblies.</p>
         </div>
-        <button type="button" className="btn btn-sm btn-primary" onClick={() => setCreating(true)} data-testid="new-application"><IconPlus size={14} />New application</button>
+        <div className="flex items-center gap-2">
+          <button type="button" className="btn btn-sm" onClick={() => file.current?.click()} data-testid="import-application"><IconUpload size={14} />Import</button>
+          <input ref={file} type="file" accept="application/json,.json" hidden data-testid="import-application-input" onChange={(e) => { const f = e.target.files?.[0]; if (f) void doImport(f); e.target.value = ""; }} />
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => setCreating(true)} data-testid="new-application"><IconPlus size={14} />New application</button>
+        </div>
       </div>
 
       <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -158,6 +174,7 @@ export function ApplicationsPage() {
         <label className="flex items-center gap-1.5 self-end text-xs">Per page <select className="select select-xs" value={prefs.pageSize} onChange={(e) => set({ pageSize: Number(e.target.value) })} aria-label="Per page">{[12, 24, 48].map((n) => <option key={n}>{n}</option>)}</select></label>
       )}
       {creating && <NewApplicationDialog onClose={() => setCreating(false)} />}
+      {imported && <NewApplicationDialog imported={imported} onClose={() => setImported(null)} />}
     </main>
   );
 }

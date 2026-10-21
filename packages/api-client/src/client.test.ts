@@ -169,6 +169,7 @@ describe("api client", () => {
       "GET /api/v1/applications/{name}/access",
       "GET /api/v1/applications/{name}/draft",
       "GET /api/v1/applications/{name}/events",
+    "GET /api/v1/applications/{name}/migration",
       "GET /api/v1/applications/{name}/operations",
       "GET /api/v1/applications/{name}/operations/{id}",
       "GET /api/v1/applications/{name}/status",

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Application operations: start, stop and restart carried out phase by phase.
+//! Application operations: start, stop, shut down, restart and migrate carried out phase by phase.
 //!
 //! The `application.operation` job is a coordinator. It queues the ordinary per-instance jobs
 //! of one phase, waits for them, confirms what Incus then reports, and only then moves on. It
@@ -31,11 +31,16 @@ struct Step {
     state: String,
     #[serde(default)]
     error: Option<String>,
+    /// What a `migrate` step asks of `instance.move`: the request the control plane checked
+    /// when the operation was accepted. Other steps carry none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    payload: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Phase {
-    /// `start` or `stop`.
+    /// `start`, `stop` (graceful: each guest is asked to shut down; also what operations
+    /// recorded before ADR 0015 say), `poweroff` (immediate) or `migrate`.
     action: String,
     state: String,
     steps: Vec<Step>,
@@ -101,10 +106,10 @@ pub async fn run(
         async move { update_operation(&pool, id, &state, &value, error.as_deref()).await }
     };
 
-    let kind = if phases[at].action == "start" {
-        "instance.start"
-    } else {
-        "instance.stop"
+    let kind = match phases[at].action.as_str() {
+        "start" => "instance.start",
+        "migrate" => "instance.move",
+        _ => "instance.stop",
     };
     let target_status = if phases[at].action == "start" {
         "Running"
@@ -136,6 +141,7 @@ pub async fn run(
     // First look at this phase: queue the instance jobs, under the request that asked for the
     // operation.
     if phases[at].state == "pending" {
+        let phases_action = phases[at].action.clone();
         for (i, s) in phases[at].steps.iter_mut().enumerate() {
             let key = format!("application.operation:{op_id}:{at}:{i}");
             let mut conn = pool.acquire().await?;
@@ -143,7 +149,14 @@ pub async fn run(
                 &mut conn,
                 kind,
                 Some(op.application_id),
-                &json!({ "project": s.project, "name": s.name }),
+                &match phases_action.as_str() {
+                    "migrate" => s
+                        .payload
+                        .clone()
+                        .unwrap_or_else(|| json!({ "project": s.project, "name": s.name })),
+                    "poweroff" => json!({ "project": s.project, "name": s.name, "force": true }),
+                    _ => json!({ "project": s.project, "name": s.name }),
+                },
                 Some(&key),
                 &JobOrigin {
                     request_id: job.request_id.as_deref(),
@@ -164,20 +177,54 @@ pub async fn run(
 
     // Later looks: read the jobs, and confirm against Incus what they report as done.
     let mut changed = false;
+    let migrating = phases[at].action == "migrate";
     for s in phases[at].steps.iter_mut().filter(|s| s.state == "running") {
         let Some(job_id) = s.job else { continue };
         let (status, _, err) = job_status(pool, job_id).await?;
         match status.as_str() {
             "succeeded" => {
                 let seen = provider.instance(&s.project, &s.name).await;
+                // A migrated instance is confirmed on its new member, running again if it was.
+                let moved_to = migrating
+                    .then(|| {
+                        s.payload
+                            .as_ref()
+                            .and_then(|p| p["target"].as_str())
+                            .unwrap_or("")
+                    })
+                    .map(str::to_owned);
+                let expected = if moved_to.is_some() {
+                    if s.payload
+                        .as_ref()
+                        .is_some_and(|p| p["startAfter"] == json!(true))
+                    {
+                        "Running"
+                    } else {
+                        "Stopped"
+                    }
+                } else {
+                    target_status
+                };
                 match seen {
-                    Ok(Some(i)) if i.status == target_status => s.state = "succeeded".into(),
+                    Ok(Some(i))
+                        if i.status == expected
+                            && moved_to.as_deref().is_none_or(|m| i.location == m) =>
+                    {
+                        s.state = "succeeded".into();
+                    }
                     Ok(Some(i)) => {
                         s.state = "failed".into();
-                        s.error = Some(format!(
-                            "Incus reports {} (expected {target_status})",
-                            i.status
-                        ));
+                        s.error = Some(match &moved_to {
+                            Some(m) if i.location != *m => format!(
+                                "Incus reports it on {} (expected {m})",
+                                if i.location.is_empty() {
+                                    "no member"
+                                } else {
+                                    &i.location
+                                }
+                            ),
+                            _ => format!("Incus reports {} (expected {expected})", i.status),
+                        });
                     }
                     Ok(None) => {
                         s.state = "failed".into();

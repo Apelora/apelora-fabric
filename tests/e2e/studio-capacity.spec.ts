@@ -49,7 +49,7 @@ test("connected: the design fits on one server; servers are numbered, numbers co
   await expect(chip(page)).toHaveAttribute("aria-expanded", "true");
   const p = panel(page);
   await expect(p.getByTestId("capacity-verdict")).toHaveText("The design fits on one server.");
-  await expect(p).toContainText("From Incus");
+  await expect(p).toContainText("From the cluster");
   await expect(p.getByRole("row", { name: /Memory/ })).toContainText("13 GiB of 16 GiB");
   await expect(p.getByRole("row", { name: /vCPU/ })).toContainText("8 threads");
   await expect(p.getByTestId("capacity-servers").locator("li")).toHaveText([/Server 1\s*6 GiB free, 4 threads/, /Server 2\s*7 GiB free, 4 threads/, /Server 3\s*It is Offline/]);

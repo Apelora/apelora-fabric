@@ -22,9 +22,9 @@ export function Monitoring({ detail }: { detail: AppDetailView }) {
   return (
     <div className="flex flex-col gap-5" data-testid="tab-monitoring">
       <p className="text-xs text-base-content/60" data-testid="observed-at">
-        {d.source === "none" ? "This browser cannot observe a cluster; nothing is monitored." : `Observed ${timeAgo(d.observedAt)}${d.source === "mock" ? " from mock data, not a real cluster" : " from Incus"}.`}
+        {d.source === "none" ? "This browser cannot observe a cluster; nothing is monitored." : `Observed ${timeAgo(d.observedAt)}${d.source === "mock" ? " from mock data, not a real cluster" : " from the cluster"}.`}
       </p>
-      {d.stale && d.source !== "none" && <div role="status" className="rounded-box border border-warning/50 bg-warning/10 px-3 py-2 text-xs" data-testid="monitoring-stale">The control plane could not observe Incus. The table below is the last known state and is not current.</div>}
+      {d.stale && d.source !== "none" && <div role="status" className="rounded-box border border-warning/50 bg-warning/10 px-3 py-2 text-xs" data-testid="monitoring-stale">The control plane could not observe the cluster. The table below is the last known state and is not current.</div>}
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Replicas</h2>
         {rows.length === 0 ? (

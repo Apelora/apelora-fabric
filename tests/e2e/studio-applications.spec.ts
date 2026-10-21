@@ -1,4 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
+import { readFileSync } from "node:fs";
+
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 // Application Management in the Studio. Two backends are exercised: the browser-only one (no control
@@ -43,7 +45,8 @@ test.describe("applications in this browser (no control plane)", () => {
   test("the Assembly Library at / is still the editor", async ({ page }) => {
     await page.goto("/");
     await page.waitForSelector("[data-testid=module-node]");
-    await expect(page.getByTestId("deploy-open")).toBeVisible();
+    await expect(page.getByTestId("deploy-open")).toHaveCount(0);
+    await expect(page.getByTestId("library-exit")).toBeVisible();
     await expect(page.getByTestId("publish-open")).toHaveCount(0);
   });
 
@@ -153,6 +156,83 @@ test.describe("applications in this browser (no control plane)", () => {
     await expect(page.getByTestId("versions-deploy-1")).toBeDisabled();
   });
 
+  test("a design saves itself while you work, and the header never names the runtime", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=module-node]");
+    const before = await page.getByTestId("module-node").count();
+    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
+    await expect(page.getByTestId("module-node")).toHaveCount(before + 1);
+    await expect(page.getByTestId("save-state")).toHaveText("All changes saved");
+    await page.reload();
+    await page.waitForSelector("[data-testid=module-node]");
+    await expect(page.getByTestId("module-node")).toHaveCount(before + 1);
+    await expect(page.getByTestId("header")).not.toContainText("Incus");
+    // Visible on a narrow window too.
+    await page.setViewportSize({ width: 900, height: 700 });
+    await expect(page.getByTestId("save-state")).toBeVisible();
+  });
+
+  test("double-click renames the design; Escape keeps the old name; an application's name is fixed", async ({ page }) => {
+    // In an application the name cannot change, and double-click says why.
+    await page.goto("/studio/applications");
+    await page.locator("[data-testid=app-card][data-app=commerce-stack] [data-testid=app-open]").click();
+    await page.getByTestId("tab-designer").click();
+    await page.waitForSelector("[data-testid=module-node]");
+    await page.getByTestId("assembly-name").dblclick();
+    await expect(page.getByTestId("assembly-name-input")).toHaveCount(0);
+    await expect(page.getByTestId("toast").first()).toContainText("name cannot be changed");
+
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=module-node]");
+    const label = page.getByTestId("assembly-name");
+    await expect(label).toHaveText("commerce-stack");
+    await label.dblclick();
+    const input = page.getByTestId("assembly-name-input");
+    await expect(input).toBeFocused();
+    await input.fill("not-saved");
+    await input.press("Escape");
+    await expect(page.getByTestId("assembly-name")).toHaveText("commerce-stack");
+    await page.getByTestId("assembly-name").dblclick();
+    await page.getByTestId("assembly-name-input").fill("shop-front");
+    await page.getByTestId("assembly-name-input").press("Enter");
+    await expect(page.getByTestId("assembly-name")).toHaveText("shop-front");
+    await expect(page.getByTestId("breadcrumb-name")).toHaveText("shop-front");
+    // The keyboard reaches it too.
+    await page.getByTestId("assembly-name").focus();
+    await page.keyboard.press("F2");
+    await expect(page.getByTestId("assembly-name-input")).toBeFocused();
+    await page.keyboard.press("Escape");
+  });
+
+  test("applications are exported and imported from the list", async ({ page }) => {
+    await page.goto("/studio/applications");
+    const card = page.locator("[data-testid=app-card][data-app=commerce-stack]");
+    await card.getByTestId("more-actions").click();
+    const download = page.waitForEvent("download");
+    await card.getByTestId("app-export").click();
+    const file = await download;
+    expect(file.suggestedFilename()).toBe("commerce-stack.assembly.json");
+    const text = readFileSync((await file.path())!, "utf8");
+    expect(JSON.parse(text).spec.modules.length).toBeGreaterThanOrEqual(5);
+
+    // A file that is not an assembly is refused with the reason; nothing is created.
+    await page.getByTestId("import-application-input").setInputFiles({ name: "bad.json", mimeType: "application/json", buffer: Buffer.from('{"hello":1}') });
+    await expect(page.getByTestId("toast").first()).toContainText("bad.json was not imported");
+    await expect(page.getByTestId("new-application-dialog")).toHaveCount(0);
+
+    // A good one opens the dialog with its name filled in; the name can be changed before it is created.
+    await page.getByTestId("import-application-input").setInputFiles({ name: "commerce-stack.assembly.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    const dialog = page.getByTestId("new-application-dialog");
+    await expect(dialog).toContainText("Import an application");
+    await expect(page.getByTestId("new-app-name")).toHaveValue("commerce-stack");
+    await expect(page.getByTestId("from-file")).toBeChecked();
+    await page.getByTestId("new-app-name").fill("imported-shop");
+    await page.getByTestId("new-app-create").click();
+    await page.waitForURL("**/studio/applications/imported-shop/designer");
+    await page.waitForSelector("[data-testid=module-node]");
+    expect(await page.getByTestId("module-node").count()).toBe(JSON.parse(text).spec.modules.length);
+  });
+
   test("an unknown application and a missing canvas say so", async ({ page }) => {
     await page.goto("/studio/applications/no-such-app");
     await expect(page.getByTestId("empty-state")).toContainText("Application not found");
@@ -179,18 +259,19 @@ const ok = { allowed: true, reason: null };
 const no = (reason: string) => ({ allowed: false, reason });
 
 function actionsFor(status: Status, busy: boolean, denied = false) {
-  if (denied) return { start: no("You may view this application but not operate it"), restart: no("You may view this application but not operate it"), stop: no("You may view this application but not operate it") };
-  if (busy || status === "starting" || status === "stopping") return { start: no("An operation is in progress"), restart: no("An operation is in progress"), stop: no("An operation is in progress") };
+  const all = (a: { allowed: boolean; reason: string | null }) => ({ start: a, restart: a, stop: a, shutdown: a, migrate: a });
+  if (denied) return all(no("You may view this application but not operate it"));
+  if (busy || status === "starting" || status === "stopping") return all(no("An operation is in progress"));
   switch (status) {
-    case "running": return { start: no("Already running"), restart: no("Nothing is failing; use Stop to stop it"), stop: ok };
-    case "degraded": return { start: no("Already running"), restart: ok, stop: ok };
-    case "stopped": return { start: ok, restart: no("Nothing is running"), stop: no("Already stopped") };
-    case "failed": return { start: ok, restart: ok, stop: ok };
-    default: return { start: no("Deploy a published version first"), restart: no("Not deployed"), stop: no("Not deployed") };
+    case "running": return { start: no("Already running"), restart: no("Nothing is failing; shut it down to stop it"), stop: ok, shutdown: ok, migrate: ok };
+    case "degraded": return { start: no("Already running"), restart: ok, stop: ok, shutdown: ok, migrate: ok };
+    case "stopped": return { start: ok, restart: no("Nothing is running"), stop: no("Already stopped"), shutdown: no("Already stopped"), migrate: ok };
+    case "failed": return { start: ok, restart: ok, stop: ok, shutdown: ok, migrate: ok };
+    default: return all(no("Deploy a published version first"));
   }
 }
 
-interface Sim { apps: Record<string, { status: Status; denied?: boolean; versions: number; error?: string; needsConfirm?: boolean }>; ops: Record<string, { name: string; kind: string; polls: number; fail?: boolean; error?: string }>; posted: unknown[]; staleAll?: boolean; listFails?: boolean }
+interface Sim { apps: Record<string, { status: Status; denied?: boolean; versions: number; error?: string; needsConfirm?: boolean }>; ops: Record<string, { name: string; kind: string; polls: number; fail?: boolean; error?: string }>; posted: unknown[]; previews?: string[]; staleAll?: boolean; listFails?: boolean }
 
 function appInfo(sim: Sim, name: string) {
   const a = sim.apps[name]!;
@@ -198,7 +279,7 @@ function appInfo(sim: Sim, name: string) {
   const status: Status = sim.staleAll ? ("unknown" as Status) : a.status;
   return {
     name, description: `${name} description`, icon: name === "web-shop" ? "nginx" : "generic-box", archived: false, createdAt: T, updatedAt: T, latestRevision: a.versions || null,
-    project, environment, actions: sim.staleAll ? { start: no("Status unknown"), restart: no("Status unknown"), stop: no("Status unknown") } : actionsFor(a.status, busy, a.denied),
+    project, environment, actions: sim.staleAll ? { start: no("Status unknown"), restart: no("Status unknown"), stop: no("Status unknown"), shutdown: no("Status unknown"), migrate: no("Status unknown") } : actionsFor(a.status, busy, a.denied),
     design: { status: a.versions ? "published" : "draft", draftVersion: 1, publishedVersion: a.versions || null, hasUnpublishedChanges: !a.versions, validationErrors: 0, updatedAt: T },
     deployment: { status, modules: 2, replicas: { desired: 2, healthy: status === "running" ? 2 : status === "degraded" ? 1 : 0, running: status === "running" ? 2 : status === "degraded" ? 1 : 0, unhealthy: status === "degraded" ? 1 : 0 }, observedAt: T, stale: !!sim.staleAll, source: "incus", lastActivityAt: T, deployedVersion: a.status === "not-deployed" ? null : 1, operation: null },
   };
@@ -215,6 +296,7 @@ async function installApi(page: Page, sim: Sim) {
     const err = (status: number, code: string, message: string) => json({ error: { code, message } }, status);
     if (p === "/health") return json({ status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" });
     if (p === "/whoami") return json({ name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["shop-prod"], capabilities: [], platformPermissions: [] });
+    if (p === "/cluster/members") return json({ clustered: true, members: ["node-a", "node-b", "node-c"].map((n) => ({ name: n, status: n === "node-c" ? "Offline" : "Online", architecture: "x86_64", roles: [], groups: [], failureDomain: "default", database: true, message: "", url: "" })), quorum: {}, source: { provider: "incus", observedAt: T }, versions: {} });
     if (p === "/applications" && req.method() === "GET") return sim.listFails ? err(500, "internal", "database unavailable") : json({ items: Object.keys(sim.apps).map((n) => appInfo(sim, n)), observedAt: T, stale: !!sim.staleAll });
     const m = /^\/applications\/([^/]+)(?:\/(.*))?$/.exec(p);
     if (!m) return err(404, "not_found", `unstubbed ${req.method()} ${p}`);
@@ -222,6 +304,14 @@ async function installApi(page: Page, sim: Sim) {
     if (!sim.apps[name]) return err(404, "not_found", `Application ${name} does not exist`);
     const a = sim.apps[name]!;
     if (!rest) return json({ application: appInfo(sim, name), modules: a.status === "not-deployed" ? [] : [{ module: "web", availability: "stateless", replicas: 2, instances: [{ instance: `${name}-web-1`, location: "node-a", status: "Running", unhealthy: false }, { instance: `${name}-web-2`, location: "node-b", status: a.status === "degraded" ? "Stopped" : "Running", unhealthy: a.status === "degraded" }] }], operations: Object.entries(sim.ops).filter(([, o]) => o.name === name).map(([id, o]) => opDto(id, o)), versions: a.versions ? [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "alex", createdAt: T }] : [] });
+    if (rest === "migration") {
+      const target = url.searchParams.get("target") ?? "";
+      const blocked = target === "node-a" ? ["node-a runs aarch64, the instance needs x86_64"] : [];
+      const item = (instance: string, from: string, stops: boolean) => ({ module: "web", instance, from, alreadyThere: from === target, live: false, stops, copyMib: 0, blocked: from === target ? [] : blocked, notes: stops ? ["it stops for the move (a container cannot move while running) and starts again on " + target] : [] });
+      const items = [item("web-1", "node-a", true), item("web-2", "node-b", true)];
+      sim.previews = [...(sim.previews ?? []), target];
+      return json({ source: { provider: "incus", observedAt: T }, target, items, possible: !blocked.length && items.some((i) => !i.alreadyThere), stops: items.filter((i) => i.stops && !i.alreadyThere).map((i) => i.instance) });
+    }
     if (rest === "draft") return json({ document: { apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly", metadata: { name, uid: "assembly-x" }, spec: { modules: [], connections: [] }, editor: { layoutVersion: 1, density: "compact", nodes: [] } }, version: 1, updatedAt: T, updatedBy: "alex", validationErrors: [] });
     if (rest === "events") return json({ items: [] });
     if (rest === "operations" && req.method() === "POST") {
@@ -238,8 +328,8 @@ async function installApi(page: Page, sim: Sim) {
       o.polls++;
       if (o.polls >= 2) {
         if (o.fail) a.status = "failed";
-        else a.status = o.kind === "stop" ? "stopped" : "running";
-      } else a.status = o.kind === "stop" ? "stopping" : "starting";
+        else a.status = o.kind === "stop" || o.kind === "shutdown" ? "stopped" : "running";
+      } else a.status = o.kind === "stop" || o.kind === "shutdown" ? "stopping" : "starting";
       return json(opDto(op[1]!, o));
     }
     return err(404, "not_found", `unstubbed ${req.method()} ${p}`);
@@ -308,6 +398,59 @@ test.describe("applications on the control plane (stubbed API)", () => {
     await page.getByTestId("lifecycle-confirm-disruption").click();
     await expect(page.getByTestId("lifecycle-dialog")).toHaveCount(0);
     expect(sim.posted).toEqual([{ name: "web-deg", action: "restart", confirmDisruption: false }, { name: "web-deg", action: "restart", confirmDisruption: true }]);
+  });
+
+  test("Shut down asks each guest to stop and Stop powers off at once; each asks first and sends its own action", async ({ page }) => {
+    const sim: Sim = { ops: {}, posted: [], apps: { "web-run": { status: "running", versions: 1 } } };
+    await installApi(page, sim);
+    await page.goto("/studio/applications");
+    await expect(act(page, "web-run", "shutdown")).toBeEnabled();
+    await act(page, "web-run", "shutdown").click();
+    const dialog = page.getByTestId("lifecycle-dialog");
+    await expect(dialog).toContainText("Shut down web-run?");
+    await expect(dialog).toContainText("asks this application's instances to shut down");
+    await page.getByTestId("lifecycle-confirm").click();
+    await expect(page.locator("[data-testid=app-card] [data-testid=runtime-status]")).toHaveAttribute("data-status", "stopped", { timeout: 15000 });
+    expect(sim.posted).toEqual([{ name: "web-run", action: "shutdown", confirmDisruption: false }]);
+    await act(page, "web-run", "start").click();
+    await expect(page.locator("[data-testid=app-card] [data-testid=runtime-status]")).toHaveAttribute("data-status", "running", { timeout: 15000 });
+    await act(page, "web-run", "stop").click();
+    await expect(dialog).toContainText("Stop web-run now?");
+    await expect(dialog).toContainText("powered off at once");
+    await page.getByTestId("lifecycle-confirm").click();
+    await expect(page.locator("[data-testid=app-card] [data-testid=runtime-status]")).toHaveAttribute("data-status", "stopped", { timeout: 15000 });
+    expect(sim.posted.at(-1)).toEqual({ name: "web-run", action: "stop", confirmDisruption: false });
+  });
+
+  test("Migrate shows what would happen to each instance before anything is asked, and what stops needs a tick", async ({ page }) => {
+    const sim: Sim = { ops: {}, posted: [], apps: { "web-run": { status: "running", versions: 1 } } };
+    await installApi(page, sim);
+    await page.goto("/studio/applications");
+    await act(page, "web-run", "migrate").click();
+    const dialog = page.getByTestId("migrate-dialog");
+    await expect(dialog).toContainText("Migrate web-run");
+    await expect(dialog.getByTestId("migrate-confirm")).toBeDisabled();
+    // An offline server cannot be chosen.
+    await expect(dialog.getByTestId("migrate-target").locator("option", { hasText: "node-c (Offline)" })).toHaveJSProperty("disabled", true);
+    // A target that blocks it says why and cannot be confirmed.
+    await dialog.getByTestId("migrate-target").selectOption("node-a");
+    await expect(dialog.getByTestId("migrate-row").nth(1)).toContainText("needs x86_64");
+    await expect(dialog.getByTestId("migrate-confirm")).toBeDisabled();
+    // A good one: the plan, the replicas warning and the tick.
+    await dialog.getByTestId("migrate-target").selectOption("node-b");
+    await expect(dialog.getByTestId("migrate-row")).toHaveCount(2);
+    await expect(dialog.getByTestId("migrate-row").nth(0)).toHaveAttribute("data-how", "Stops while it moves");
+    await expect(dialog.getByTestId("migrate-row").nth(1)).toHaveAttribute("data-how", "Already there");
+    await expect(dialog).toContainText("Replicas of one module then share that server");
+    await expect(dialog.getByTestId("migrate-confirm")).toBeDisabled();
+    await dialog.getByTestId("migrate-agree").check();
+    await expect(dialog.getByTestId("migrate-confirm")).toBeEnabled();
+    const axe = await new AxeBuilder({ page }).include("[data-testid=migrate-dialog]").withTags(["wcag2a", "wcag2aa"]).analyze();
+    expect(axe.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => `${v.id}: ${v.nodes[0]?.target.join(" ")}`)).toEqual([]);
+    expect(sim.posted, "the dry runs sent nothing").toEqual([]);
+    await dialog.getByTestId("migrate-confirm").click();
+    await expect(page.getByTestId("migrate-dialog")).toHaveCount(0);
+    expect(sim.posted).toEqual([{ name: "web-run", action: "migrate", confirmDisruption: true, target: "node-b" }]);
   });
 
   test("when Incus cannot be observed the status is Unknown and nothing can be operated", async ({ page }) => {

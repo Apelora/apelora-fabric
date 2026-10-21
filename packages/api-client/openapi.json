@@ -1605,6 +1605,97 @@
         }
       }
     },
+    "/api/v1/applications/{name}/migration": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Dry run of migrating the application to another server: for each instance whether it keeps\nrunning, what is copied and what blocks it. Changes nothing. Needs `application.operate`.",
+        "operationId": "preview_application_migration",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "The server to move the application to.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationPreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/applications/{name}/operations": {
       "get": {
         "tags": [
@@ -1650,7 +1741,7 @@
         "tags": [
           "applications"
         ],
-        "summary": "Starts, stops or restarts the application's instances, in dependency order, as an\nasynchronous operation. Succeeds only when Incus confirms each instance's state. Needs\n`application.operate` on the application. It only touches instances this application owns;\nnetworks, volumes, data and other applications are left alone.",
+        "summary": "Starts, shuts down (graceful), stops (immediate), restarts or migrates the application's\ninstances, in dependency order where that matters, as an asynchronous operation. Succeeds\nonly when Incus confirms each instance's state (and, for a migration, its new server). Needs\n`application.operate` on the application. It only touches instances this application owns;\nnetworks, volumes, data and other applications are left alone.",
         "operationId": "operate_application",
         "parameters": [
           {
@@ -12158,17 +12249,28 @@
         "required": [
           "start",
           "stop",
-          "restart"
+          "shutdown",
+          "restart",
+          "migrate"
         ],
         "properties": {
+          "migrate": {
+            "$ref": "#/components/schemas/ActionState",
+            "description": "Move every instance to another server."
+          },
           "restart": {
             "$ref": "#/components/schemas/ActionState"
+          },
+          "shutdown": {
+            "$ref": "#/components/schemas/ActionState",
+            "description": "Graceful: each guest is asked to shut down and given time to."
           },
           "start": {
             "$ref": "#/components/schemas/ActionState"
           },
           "stop": {
-            "$ref": "#/components/schemas/ActionState"
+            "$ref": "#/components/schemas/ActionState",
+            "description": "Immediate power-off: nothing waits for the guests to shut down."
           }
         }
       },
@@ -14872,6 +14974,7 @@
           "running",
           "degraded",
           "stopping",
+          "migrating",
           "stopped",
           "failed",
           "unknown"
@@ -18652,6 +18755,96 @@
           }
         }
       },
+      "MigrationItemDto": {
+        "type": "object",
+        "required": [
+          "module",
+          "instance",
+          "from",
+          "alreadyThere",
+          "live",
+          "stops",
+          "copyMib",
+          "blocked",
+          "notes"
+        ],
+        "properties": {
+          "alreadyThere": {
+            "type": "boolean",
+            "description": "Already on the target: nothing to move."
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why this instance cannot move; empty when it can."
+          },
+          "copyMib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "from": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "Moves while running."
+          },
+          "module": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stops": {
+            "type": "boolean",
+            "description": "Stops for the move and starts again on the target."
+          }
+        }
+      },
+      "MigrationPreview": {
+        "type": "object",
+        "required": [
+          "source",
+          "target",
+          "items",
+          "possible",
+          "stops"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MigrationItemDto"
+            }
+          },
+          "possible": {
+            "type": "boolean",
+            "description": "Whether a migration to the target can start (nothing blocks it and something moves)."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The instances that stop while they move: starting the migration then needs a confirmation."
+          },
+          "target": {
+            "type": "string"
+          }
+        }
+      },
       "MirrorStatus": {
         "type": "object",
         "description": "One configured mirror and whether it answered.",
@@ -19729,6 +19922,13 @@
           "confirmDisruption": {
             "type": "boolean",
             "description": "Required to stop or restart an application that has single-instance or stateful\nmodules: it acknowledges that their clients lose service meanwhile."
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The server to move the application to. Needed for `migrate`, ignored otherwise."
           }
         }
       },
@@ -19818,7 +20018,9 @@
         "enum": [
           "start",
           "stop",
-          "restart"
+          "shutdown",
+          "restart",
+          "migrate"
         ]
       },
       "OperationList": {

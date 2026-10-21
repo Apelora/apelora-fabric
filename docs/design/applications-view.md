@@ -19,11 +19,14 @@ flowchart LR
   NEW -- "Create" --> CANVAS
   LIST -- "click a row" --> CANVAS["Canvas<br/>/applications/:name"]
   CANVAS -- "breadcrumb: Applications" --> LIST
-  CANVAS -- "Deploy…" --> DEP["Deploy dialog<br/>plan, approve, jobs"]
+  LIST -- "Deploy…" --> DEP["Deploy dialog<br/>plan, approve, jobs"]
+  LIST -- "Import" --> NEW
   CANVAS -- "History" --> REV["Revisions and snapshots"]
   CANVAS -- "Properties of the application" --> SET["Settings<br/>description, target platform, danger zone"]
-  LIST -- "row menu" --> ACT["Duplicate · Export · Archive"]
+  LIST -- "row menu" --> ACT["Export JSON · Open · Settings"]
 ```
+
+Deploying is not done from the canvas. Leaving it (the breadcrumb, or the Applications link of the Assembly Library) lands on the list, where each application has Deploy…, Start, Restart, Stop and the rest of its lifecycle. The canvas saves by itself (the Assembly Library in this browser a moment after each change and when the page is left; an application's draft on the server, shown as "All changes saved"). The design's name is edited by double-clicking it; an application's own name is fixed because its instances are named after it. **Import** on the list creates an application from an exported `.assembly.json` (validated like any import, the name chosen before it is created); **Export JSON** in a row's menu saves its draft, or its latest version, as that file. Header chips and messages say "cluster", never the name of the runtime.
 
 The canvas is not a separate product: it is the existing Studio workspace bound to one application. Routes use the path `/applications` (list) and `/applications/:name` (canvas) so a link opens the right application.
 

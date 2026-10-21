@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { expect, open, openProps } from "./helpers";
+import { expect, open, openDeploy, openProps } from "./helpers";
 
 // Deploying from the Studio, against a stubbed control plane: the Studio must only deploy
 // modules that have a runtime, show the server's plan before changing anything, follow the
@@ -21,18 +21,25 @@ async function stub(page: Page, routes: Record<string, (req: Request) => { statu
 }
 
 test.describe("deploying from the Studio", () => {
-  test("an unreachable control plane keeps the design design-only", async ({ page }) => {
+  test("without a control plane the list explains why nothing can be deployed", async ({ page }) => {
     await page.route("**/api/**", (route) => route.abort());
-    await open(page);
-    await page.getByTestId("deploy-open").click();
-    await expect(page.getByTestId("deploy-unreachable")).toContainText("stays design-only");
-    await expect(page.getByTestId("mock-badge")).toHaveText("Mock · Design only");
+    await page.addInitScript(() => { if (!sessionStorage.getItem("__seeded")) { localStorage.clear(); localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("__seeded", "1"); } });
+    await page.goto("/studio/applications");
+    const deploy = page.locator("[data-testid=app-card][data-app=commerce-stack]").getByTestId("action-deploy");
+    await expect(deploy).toBeDisabled();
+    await expect(deploy.locator("xpath=..")).toHaveAttribute("title", /needs a control plane/i);
+    // The canvas offers no way to deploy: deploying is done from the list.
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=module-node]");
+    await expect(page.getByTestId("deploy-open")).toHaveCount(0);
   });
 
   test("plan, approve, follow the jobs and see live state per module", { tag: "@smoke" }, async ({ page }) => {
     let deployed: { body: Record<string, unknown>; key: string | undefined } | null = null;
     let planBody: unknown = null;
     let done = false;
+    let drafts = 0;
+    await page.route("**/api/v1/applications/commerce-stack/draft", (route) => { if (route.request().method() !== "GET") drafts += 1; return route.fallback(); });
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health }),
       "GET /api/v1/whoami": () => ({ json: operator }),
@@ -63,8 +70,7 @@ test.describe("deploying from the Studio", () => {
     await page.keyboard.press("Escape");
     // Saving is debounced: take the reference copy once the edit is stored.
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.v1") ?? "")).toContain("replicas");
-    const before = await page.evaluate(() => localStorage.getItem("apelora.studio.v1"));
-    await page.getByTestId("deploy-open").click();
+    await openDeploy(page);
     const dialog = page.getByTestId("deploy-dialog");
     await expect(dialog.getByTestId("deploy-app")).toHaveValue("commerce-stack");
     await expect(dialog.getByTestId("deploy-deployable")).toHaveCount(2);
@@ -94,6 +100,10 @@ test.describe("deploying from the Studio", () => {
     expect(deployed!.key).toBeTruthy();
     expect(deployed!.body).toMatchObject({ project: "apelora", removeMissing: false, document: { apiVersion: "fabric.apelora/v1alpha1", metadata: { name: "commerce-stack" } } });
     await dialog.getByTestId("deploy-done").click();
+    // The application's canvas overlays what runs, without changing the design.
+    await page.locator("[data-testid=app-card][data-app=commerce-stack]").getByTestId("app-open").click();
+    await page.getByTestId("tab-designer").click();
+    await page.waitForSelector("[data-testid=module-node]");
 
     const liveOf = (id: string) => page.locator(`[data-node-id="${id}"] [data-testid=live-status]`);
     // One of nginx-01's two replicas is down: degraded, with every replica and the service address listed.
@@ -103,8 +113,10 @@ test.describe("deploying from the Studio", () => {
     await expect(liveOf("nginx-02")).toHaveAttribute("data-state", "Unhealthy");
     await expect(liveOf("nginx-02")).toHaveAttribute("title", /commerce-stack-nginx-02: Running, failing its port check on node-2/);
     await expect(liveOf("postgresql-01")).toHaveAttribute("data-state", "absent");
-    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running in Incus");
-    expect(await page.evaluate(() => localStorage.getItem("apelora.studio.v1")), "the overlay never changes the design").toBe(before);
+    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running");
+    await expect(page.getByTestId("mock-badge")).not.toContainText("Incus");
+    await page.waitForTimeout(1500);
+    expect(drafts, "the overlay never changes the design: no draft was saved").toBe(0);
   });
 
   test("a conflict blocks deploying and nothing is sent", async ({ page }) => {
@@ -116,7 +128,7 @@ test.describe("deploying from the Studio", () => {
       "POST /api/v1/applications/commerce-stack/deployments": () => { deployCalls += 1; return { status: 409, json: { error: { code: "plan_conflict", message: "nothing was deployed" } } }; },
     });
     await open(page);
-    await page.getByTestId("deploy-open").click();
+    await openDeploy(page);
     await page.getByTestId("deploy-preview").click();
     await expect(page.getByTestId("deploy-conflicts")).toContainText("Resolve the conflicts first");
     await expect(page.getByTestId("plan-row").first()).toContainText("not created by Apelora");
@@ -134,7 +146,7 @@ test.describe("deploying from the Studio", () => {
       ], warnings: [] } }),
     });
     await open(page);
-    await page.getByTestId("deploy-open").click();
+    await openDeploy(page);
     await page.getByTestId("deploy-preview").click();
     const rows = page.getByTestId("plan-row");
     await expect(rows).toHaveCount(2);
@@ -160,7 +172,7 @@ test.describe("deploying from the Studio", () => {
       "POST /api/v1/applications/commerce-stack/deployments": () => { deployCalls += 1; return { status: 409, json: { error: { code: "quota_exceeded", message: "nothing was deployed" } } }; },
     });
     await open(page);
-    await page.getByTestId("deploy-open").click();
+    await openDeploy(page);
     await page.getByTestId("deploy-preview").click();
     const rows = page.getByTestId("deploy-quota-row");
     await expect(rows).toHaveCount(2);
@@ -172,14 +184,19 @@ test.describe("deploying from the Studio", () => {
     expect(deployCalls).toBe(0);
   });
 
-  test("asks for a token when the control plane requires one, and keeps it for the tab only", async ({ page }) => {
+  test("asks to sign in again when the control plane stops accepting the token, and keeps it for the tab only", async ({ page }) => {
     const good = "apl_" + "c".repeat(64);
+    let expired = false;
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health }),
-      "GET /api/v1/whoami": (req) => (req.headers()["authorization"] === `Bearer ${good}` ? { json: operator } : { status: 401, json: { error: { code: "unauthenticated", message: "an API token is required" } } }),
+      // The list signs in with the saved token; the deploy review then finds it expired.
+      "GET /api/v1/whoami": (req) => (!expired || req.headers()["authorization"] === `Bearer ${good}` ? { json: operator } : { status: 401, json: { error: { code: "unauthenticated", message: "an API token is required" } } }),
     });
     await open(page);
-    await page.getByTestId("deploy-open").click();
+    await openDeploy(page, { stopAt: "list" });
+    expired = true;
+    await page.locator("[data-testid=app-card][data-app=commerce-stack]").getByTestId("action-deploy").click();
+    await page.getByTestId("deploy-version-continue").click();
     await expect(page.getByTestId("deploy-sign-in")).toContainText("an API token is required");
     await page.getByTestId("deploy-token").fill(good);
     await page.getByRole("button", { name: "Sign in" }).click();

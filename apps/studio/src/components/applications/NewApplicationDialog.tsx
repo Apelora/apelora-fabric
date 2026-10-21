@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { TEMPLATES } from "@apelora/module-catalog";
-import { randomUid, serializeAssembly } from "@apelora/assembly-model";
+import { applicationName, randomUid, serializeAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
 
 import { useBackend } from "../../features/applications/backend";
 import { AppError, type EnvChoice } from "../../features/applications/model";
@@ -13,16 +13,16 @@ import { IconPicker } from "./IconPicker";
 const NAME = /^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
 /** Creates an application: where it lives, what it is called, its icon, and what to start from. */
-export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
+export function NewApplicationDialog({ onClose, imported }: { onClose: () => void; imported?: { assembly: ApplicationAssembly; fileName: string } }) {
   const backend = useBackend((s) => s.backend);
   const toast = useAppToasts((s) => s.push);
-  const [name, setName] = useState("");
+  const [name, setName] = useState(() => (imported ? applicationName(imported.assembly.metadata.name) : ""));
   const [description, setDescription] = useState("");
   const [icon, setIcon] = useState("generic-box");
   const [env, setEnv] = useState("");
   const [envs, setEnvs] = useState<EnvChoice[] | null>(null);
   const [envError, setEnvError] = useState<string | null>(null);
-  const [from, setFrom] = useState<"blank" | "template" | "library">("blank");
+  const [from, setFrom] = useState<"blank" | "template" | "library" | "file">(imported ? "file" : "blank");
   const [template, setTemplate] = useState(TEMPLATES[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +50,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
     try {
       let document: unknown;
       if (from === "template") document = JSON.parse(serializeAssembly({ ...TEMPLATES.find((t) => t.id === template)!.build(), metadata: { name, uid: `assembly-${randomUid()}` } }));
+      else if (from === "file" && imported) document = JSON.parse(serializeAssembly({ ...imported.assembly, metadata: { ...imported.assembly.metadata, name } }));
       else if (from === "library" && library) document = JSON.parse(serializeAssembly({ ...library, metadata: { ...library.metadata, name } }));
       await backend.create({ name, description: description.trim(), icon, environmentId: env, document });
       toast("success", `Created ${name}.`);
@@ -65,7 +66,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
     <dialog className="modal modal-open" aria-labelledby="new-app-title" data-testid="new-application-dialog">
       <form className="modal-box flex max-h-[92vh] max-w-2xl flex-col gap-4 overflow-y-auto" onSubmit={(e) => void submit(e)}>
         <div>
-          <h3 id="new-app-title" className="text-base font-semibold">New application</h3>
+          <h3 id="new-app-title" className="text-base font-semibold">{imported ? "Import an application" : "New application"}</h3>
           <p className="text-xs text-base-content/60">An application is a design you can version, deploy and operate. Its name becomes the prefix of its instances.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -93,6 +94,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
         </div>
         <fieldset className="flex flex-col gap-2 text-sm">
           <legend className="mb-1 font-medium">Start from</legend>
+          {imported && <label className="flex items-center gap-2"><input type="radio" className="radio radio-xs" name="from" checked={from === "file"} onChange={() => setFrom("file")} data-testid="from-file" />The imported file {imported.fileName} ({imported.assembly.spec.modules.length} modules)</label>}
           <label className="flex items-center gap-2"><input type="radio" className="radio radio-xs" name="from" checked={from === "blank"} onChange={() => setFrom("blank")} data-testid="from-blank" />A blank canvas</label>
           <label className="flex flex-wrap items-center gap-2">
             <input type="radio" className="radio radio-xs" name="from" checked={from === "template"} onChange={() => setFrom("template")} data-testid="from-template" />
@@ -106,7 +108,7 @@ export function NewApplicationDialog({ onClose }: { onClose: () => void }) {
         {error && <p role="alert" className="text-sm text-error" data-testid="new-app-error">{error}</p>}
         <div className="modal-action mt-0">
           <button type="button" className="btn btn-sm" onClick={onClose}>Cancel</button>
-          <button type="submit" className="btn btn-sm btn-primary" disabled={!ready} data-testid="new-app-create">{busy ? "Creating…" : "Create application"}</button>
+          <button type="submit" className="btn btn-sm btn-primary" disabled={!ready} data-testid="new-app-create">{busy ? "Creating…" : imported ? "Import application" : "Create application"}</button>
         </div>
       </form>
       <div className="modal-backdrop" onClick={onClose} />

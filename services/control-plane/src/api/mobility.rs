@@ -48,7 +48,7 @@ pub struct MoveRequest {
 
 /// The plan, from what Incus reports now and the instance's recorded volumes. Also returns
 /// the application the instance belongs to.
-async fn plan(
+pub(super) async fn plan(
     state: &AppState,
     project: &str,
     name: &str,
@@ -160,21 +160,34 @@ pub(super) async fn request(
             format!("nothing was moved: {}", plan.blocked.join("; ")),
         ));
     }
+    let payload = move_payload(&state, &project, &name, &application, &plan).await?;
+    let target = format!("{project}/{name}");
+    queue(&state, &p, &headers, "instance.move", &target, payload).await
+}
+
+/// The `instance.move` job payload for a plan that is not blocked: where it is and goes, whether
+/// it moves live, whether it was running (so it is started again), and its volumes on
+/// member-local pools. Also what an application's migration records for each of its instances.
+pub(super) async fn move_payload(
+    state: &AppState,
+    project: &str,
+    name: &str,
+    application: &str,
+    plan: &MovePlan,
+) -> Result<serde_json::Value, ApiError> {
     let start_after = state
         .provider
-        .instance(&project, &name)
+        .instance(project, name)
         .await?
         .is_some_and(|s| s.status == "Running");
-    let records: Vec<_> = apelora_persistence::instance_volumes(store(&state)?, &project, &name)
+    let records: Vec<_> = apelora_persistence::instance_volumes(store(state)?, project, name)
         .await?
         .into_iter()
         .filter(|v| !v.member.is_empty() && v.member != "none")
         .collect();
-    let payload = json!({
+    Ok(json!({
         "project": project, "name": name, "application": application,
         "from": plan.from, "target": plan.to, "live": plan.live, "startAfter": start_after,
         "volumes": records.iter().map(|v| json!({ "pool": v.storage_pool, "name": v.incus_name })).collect::<Vec<_>>(),
-    });
-    let target = format!("{project}/{name}");
-    queue(&state, &p, &headers, "instance.move", &target, payload).await
+    }))
 }

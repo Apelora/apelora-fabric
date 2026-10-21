@@ -18,11 +18,12 @@ const RUNTIME_TONE: Record<DeploymentStatus, string> = {
   failed: "badge-error",
   starting: "badge-info",
   stopping: "badge-info",
+  migrating: "badge-info",
   stopped: "badge-neutral",
   "not-deployed": "badge-ghost",
   unknown: "badge-ghost",
 };
-const DOT: Record<DeploymentStatus, string> = { running: "status-success", degraded: "status-warning", failed: "status-error", starting: "status-info animate-pulse", stopping: "status-info animate-pulse", stopped: "status-neutral", "not-deployed": "status-neutral", unknown: "status-neutral" };
+const DOT: Record<DeploymentStatus, string> = { running: "status-success", degraded: "status-warning", failed: "status-error", starting: "status-info animate-pulse", stopping: "status-info animate-pulse", migrating: "status-info animate-pulse", stopped: "status-neutral", "not-deployed": "status-neutral", unknown: "status-neutral" };
 
 /** Runtime status, always with its words so colour is never the only signal. */
 export function RuntimeBadge({ app, className = "" }: { app: AppView; className?: string }) {

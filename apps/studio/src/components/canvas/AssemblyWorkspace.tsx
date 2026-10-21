@@ -61,7 +61,7 @@ function orient(a: ApplicationAssembly, c: Pick<Connection, "source" | "target" 
   return { source: s, target: t };
 }
 
-export function AssemblyWorkspace() {
+export function AssemblyWorkspace({ renamable = true }: { renamable?: boolean } = {}) {
   const api = useStudioApi();
   const assembly = useStudio((s) => s.assembly);
   const selection = useStudio((s) => s.selection);
@@ -280,7 +280,7 @@ export function AssemblyWorkspace() {
 
   return (
     <section ref={frameRef} data-labels={showLabels ? "on" : "off"} data-tool={tool} data-cable={cableStyle} data-category={showCategory ? "on" : "off"} className="apl-canvas-frame flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Assembly canvas" data-testid="canvas-frame">
-      <CanvasStrip zoom={zoom} />
+      <CanvasStrip zoom={zoom} renamable={renamable} />
       <div className="relative min-h-0 flex-1" data-testid="canvas" onDragOver={onDragOver} onDrop={onDrop}>
         <ReactFlow<AnyFlowNode, CableFlowEdge>
           nodes={nodes}

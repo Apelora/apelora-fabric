@@ -1,10 +1,58 @@
+import { useEffect, useRef, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { canvasBridge } from "../../features/editor/bridge";
 import { IconCircle, IconLayout, IconMap, IconNote, IconRounded, IconSquare, IconTriangle, IconCursor, IconFit, IconFocus, IconGrid, IconHand, IconMagnet, IconMinus, IconPlus } from "../icons";
 import { ms } from "../../features/editor/motion";
 
-export function CanvasStrip({ zoom }: { zoom: number }) {
+/**
+ * The design's name. It reads as a label; double-click it (or press Enter or F2 while it has focus)
+ * to edit. Enter or leaving the field saves, Escape keeps the old name. An application's name is
+ * fixed, because its instances are named after it, so there double-click explains that instead.
+ */
+function NameLabel({ name, renamable, onRename, onFixed }: { name: string; renamable: boolean; onRename: (n: string) => void; onFixed: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const label = useRef<HTMLButtonElement>(null);
+  const cancelled = useRef(false);
+  useEffect(() => { if (editing) { input.current?.focus(); input.current?.select(); } }, [editing]);
+  const start = () => { if (renamable) { cancelled.current = false; setEditing(true); } else onFixed(); };
+  const finish = (save: boolean) => {
+    setEditing(false);
+    if (save) onRename(input.current?.value ?? name);
+    requestAnimationFrame(() => label.current?.focus());
+  };
+  if (editing) {
+    return (
+      <input
+        ref={input}
+        defaultValue={name}
+        aria-label="Name"
+        data-testid="assembly-name-input"
+        maxLength={80}
+        className="input input-xs h-6 w-48 min-w-0 flex-1 text-xs font-medium sm:flex-none"
+        onBlur={() => { if (!cancelled.current) finish(true); }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); finish(true); }
+          else if (e.key === "Escape") { e.preventDefault(); cancelled.current = true; finish(false); }
+        }}
+      />
+    );
+  }
+  return (
+    <button
+      ref={label}
+      type="button"
+      data-testid="assembly-name"
+      title={renamable ? "Double-click to rename" : "An application's name cannot change: its instances are named after it"}
+      className="h-6 max-w-48 min-w-0 flex-1 cursor-text truncate rounded px-2 text-left text-xs font-medium hover:bg-base-200 sm:flex-none"
+      onDoubleClick={start}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === "F2") { e.preventDefault(); start(); } }}
+    >{name}</button>
+  );
+}
+
+export function CanvasStrip({ zoom, renamable = true }: { zoom: number; renamable?: boolean }) {
   const api = useStudioApi();
   const name = useStudio((s) => s.assembly.metadata.name);
   const showGrid = useStudio((s) => s.showGrid);
@@ -28,15 +76,7 @@ export function CanvasStrip({ zoom }: { zoom: number }) {
         <button className={`btn btn-xs join-item ${tool === "select" ? "btn-active" : ""}`} aria-pressed={tool === "select"} title="Select tool (V): click, or drag a box to select several. Hold Space to pan." aria-label="Select tool" data-testid="tool-select" onClick={() => api.getState().setTool("select")}><IconCursor size={14} /></button>
         <button className={`btn btn-xs join-item ${tool === "pan" ? "btn-active" : ""}`} aria-pressed={tool === "pan"} title="Pan tool (H): drag to move the view" aria-label="Pan tool" data-testid="tool-pan" onClick={() => api.getState().setTool("pan")}><IconHand size={14} /></button>
       </div>
-      <input
-        key={name}
-        defaultValue={name}
-        aria-label="Assembly name"
-        data-testid="assembly-name"
-        className="input input-ghost input-xs h-6 w-48 min-w-0 flex-1 bg-transparent text-xs font-medium focus:bg-base-100 sm:flex-none"
-        onBlur={(e) => api.getState().renameAssembly(e.currentTarget.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
-      />
+      <NameLabel name={name} renamable={renamable} onRename={(n) => api.getState().renameAssembly(n)} onFixed={() => api.getState().toast("info", "An application's name cannot be changed: its instances are named after it. Create a new application to use another name.")} />
       {nSel > 0 && <span className="hidden text-[11px] text-base-content/75 md:inline" data-testid="selection-info" aria-live="polite">{nSel} selected</span>}
       <div className="dropdown" data-testid="shapes-dropdown">
         <button tabIndex={0} className="btn btn-xs" aria-label="Add zone or shape" title="Add a zone: a labelled shape behind modules" data-testid="shapes-button"><IconSquare size={14} /><span className="hidden sm:inline">Zones</span></button>

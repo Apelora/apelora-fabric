@@ -361,6 +361,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/applications/{name}/operations/{id}",
             get(manage::operation),
         )
+        .route(
+            "/api/v1/applications/{name}/migration",
+            get(manage::migration_preview),
+        )
         .route("/api/v1/applications/{name}/events", get(manage::events))
         .route("/api/v1/applications/{name}/volumes", get(volumes::list))
         .route(
@@ -1599,7 +1603,7 @@ impl Modify for BearerAuth {
         alerts::list, alerts::history, alerts::acknowledge, alerts::create_silence, alerts::end_silence,
         alerts::rules, alerts::update_rule, alerts::channels, alerts::create_channel, alerts::update_channel,
         alerts::delete_channel, alerts::test_channel,
-        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
+        manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::migration_preview, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,

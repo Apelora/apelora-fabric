@@ -25,7 +25,7 @@ Someone's deployment was refused with `409 quota_exceeded`: "nothing was deploye
 
    An empty field (or `null`) means no limit in that dimension; `{}` removes the quota.
 5. **Read the result.** The response (and the Console's notice) says, per environment beneath the scope, whether Incus has the new limits (`applied`, `unchanged`), was not asked (`skipped`: the project is not prepared yet, or there is no admin identity) or refused (`failed`, with Incus's message). The change is audited as `quota.set`; each mirror as `environment.incus_limits.apply`.
-6. **Deploy again.** The plan preview (Studio → Deploy…) shows quota use after the deployment.
+6. **Deploy again.** The plan preview (Studio → Applications → Deploy…) shows quota use after the deployment.
 
 Lowering a quota below what is in use is allowed in Apelora (it stops new deployments) but Incus refuses a project limit below use ("limits.cpu is too low"): the environment shows `failed` until enough is removed; then *Set quota…* again (or any later quota change) mirrors it.
 

@@ -1,7 +1,7 @@
 import { healthLine, type AppView } from "../../features/applications/model";
 import { onLinkClick, paths } from "../../features/router";
 import { AppIcon, DesignBadge, RuntimeBadge, timeAgo } from "./common";
-import { LifecycleActions } from "./LifecycleActions";
+import { ApplicationActions } from "./ApplicationActions";
 import { MoreMenu } from "./MoreMenu";
 
 export function ApplicationRow({ app }: { app: AppView }) {
@@ -25,8 +25,8 @@ export function ApplicationRow({ app }: { app: AppView }) {
       <td>
         <div className="flex items-center justify-end gap-2">
           <a href={paths.application(app.name)} onClick={onLinkClick} className="btn btn-xs btn-primary" data-testid="app-open">Open</a>
-          <LifecycleActions app={app} />
-          <MoreMenu name={app.name} />
+          <ApplicationActions app={app} />
+          <MoreMenu app={app} />
         </div>
       </td>
     </tr>

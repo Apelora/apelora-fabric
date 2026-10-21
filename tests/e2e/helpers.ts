@@ -108,3 +108,50 @@ export async function openProps(page: Page, id: string, tab?: "general" | "confi
   await expect(page.getByTestId("props-title")).toBeVisible();
   if (tab && tab !== "general") await page.getByTestId(`props-tab-${tab}`).click();
 }
+
+/**
+ * Deploying starts from the Applications list. This publishes the design held in the Assembly Library
+ * as version 1 of an application on the (already stubbed) control plane, goes to the list and opens
+ * that version's deploy review. Routes the test stubbed itself keep working; this adds the
+ * application, its detail, its version and its draft.
+ */
+export async function openDeploy(page: Page, opts: { name?: string; stopAt?: "list" | "review" } = {}) {
+  const name = opts.name ?? "commerce-stack";
+  const now = "2026-10-20T00:00:00Z";
+  // The application's version is exactly what is on the canvas once it is saved.
+  await expect(page.getByTestId("save-state")).toHaveText("All changes saved");
+  const doc = await assemblyState(page) as unknown as Record<string, unknown>;
+  const ok = { allowed: true, reason: null };
+  const info = {
+    name, description: "", icon: "generic-box", archived: false, createdAt: now, updatedAt: now, latestRevision: 1,
+    project: { id: "p1", name: "Shop", organizationId: "o1", organizationSlug: "acme", slug: "shop" },
+    environment: { id: "e1", name: "production", slug: "production", kind: "production", incusProject: "apelora" },
+    actions: { start: ok, restart: ok, stop: ok },
+    design: { status: "published", draftVersion: 1, publishedVersion: 1, hasUnpublishedChanges: false, validationErrors: 0, updatedAt: now },
+    deployment: { status: "not-deployed", modules: 6, replicas: { desired: 0, healthy: 0, running: 0, unhealthy: 0 }, observedAt: now, stale: false, source: "incus", lastActivityAt: now, deployedVersion: null, operation: null },
+  };
+  await page.route("**/api/v1/applications**", async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname.replace("/api/v1", "");
+    if (req.method() !== "GET") return route.fallback();
+    if (path === "/applications") return route.fulfill({ json: { items: [info], observedAt: now, stale: false } });
+    if (path === `/applications/${name}`) return route.fulfill({ json: { application: info, modules: [], operations: [], versions: [{ revision: 1, published: true, label: null, draftVersion: 1, createdBy: "alex", createdAt: now }] } });
+    if (path === `/applications/${name}/versions/1`) return route.fulfill({ json: { document: doc, published: true } });
+    if (path === `/applications/${name}/draft`) return route.fulfill({ json: { document: doc, version: 1, updatedAt: now, updatedBy: "alex", validationErrors: [] } });
+    return route.fallback();
+  });
+  await page.evaluate(() => sessionStorage.setItem("apelora.apiToken", "apl_test_token_for_stub"));
+  await page.getByTestId("library-exit").click();
+  const card = page.locator(`[data-testid=app-card][data-app=${name}]`);
+  await expect(card).toBeVisible();
+  if (opts.stopAt === "list") return;
+  await card.getByTestId("action-deploy").click();
+  await page.getByTestId("deploy-version-continue").click();
+  await expect(page.getByTestId("deploy-dialog")).toBeVisible();
+}
+
+/** Back from the Applications list to the Assembly Library canvas, whose design is kept in the browser. */
+export async function backToLibrary(page: Page) {
+  await page.getByTestId("nav-assembly-library").click();
+  await page.waitForSelector("[data-testid=module-node]");
+}

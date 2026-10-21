@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { expect, open, openProps } from "./helpers";
+import { backToLibrary, expect, open, openDeploy, openProps } from "./helpers";
 
 // Volumes in the Studio: a singleton module keeps data in volumes set in its Properties
 // window; every change is checked before it is kept, the deploy review lists them and the plan
@@ -62,7 +62,7 @@ test("a singleton module keeps volumes that are checked, reviewed and sent with 
   await expect(row).toHaveCount(1);
   await page.keyboard.press("Escape");
 
-  await page.getByTestId("deploy-open").click();
+  await openDeploy(page);
   const dialog = page.getByTestId("deploy-dialog");
   await expect(dialog.getByTestId("deploy-volumes")).toHaveText("Keeps data (2 GiB) at /var/lib/app");
   await dialog.getByTestId("deploy-preview").click();
@@ -87,7 +87,7 @@ test("a VM module can keep running when moved; the plan asks Incus for it", asyn
   await page.getByTestId("live-migration-toggle").check();
   await expect(page.getByTestId("live-migration")).toContainText("pause of under a second");
   await page.keyboard.press("Escape");
-  await page.getByTestId("deploy-open").click();
+  await openDeploy(page);
   const dialog = page.getByTestId("deploy-dialog");
   await expect(dialog.getByTestId("deploy-live-migration")).toHaveText("Keeps running when moved");
   await dialog.getByTestId("deploy-preview").click();
@@ -126,7 +126,7 @@ test("a module's volumes can live on the shared pool, all of them or none, and t
   await expect(page.getByTestId("volume-row")).toHaveCount(3);
   await page.keyboard.press("Escape");
 
-  await page.getByTestId("deploy-open").click();
+  await openDeploy(page);
   const dialog = page.getByTestId("deploy-dialog");
   await expect(dialog.getByTestId("deploy-volumes")).toContainText("(shared, 1 GiB)");
   await expect(dialog.getByTestId("deploy-volumes")).toContainText("Restarts on another server after its server fails and is fenced");
@@ -135,6 +135,7 @@ test("a module's volumes can live on the shared pool, all of them or none, and t
   const sent = planBody!.modules.find((a) => a.module === id)!.spec.volumes!;
   expect(sent.map((v) => v.class)).toEqual(["data-replicated", "data-replicated", "data-replicated"]);
   await page.keyboard.press("Escape");
+  await backToLibrary(page);
 
   // Back to local: the class is dropped from every volume, so the saved design stays as it was.
   await openProps(page, id);
@@ -176,7 +177,7 @@ test("a module can declare an application check: it is validated, reviewed and s
   await expect(page.getByTestId("readiness-timeout")).toHaveValue("3");
   await page.keyboard.press("Escape");
 
-  await page.getByTestId("deploy-open").click();
+  await openDeploy(page);
   const dialog = page.getByTestId("deploy-dialog");
   await expect(dialog.getByTestId("deploy-readiness")).toContainText("curl -fsS http://127.0.0.1/health");
   await dialog.getByTestId("deploy-preview").click();
@@ -184,6 +185,7 @@ test("a module can declare an application check: it is validated, reviewed and s
   expect(planBody!.modules.find((m) => m.module === "nginx-01")?.readiness).toEqual({ command: ["curl", "-fsS", "http://127.0.0.1/health"], timeoutSecs: 3 });
   expect(planBody!.modules.find((m) => m.module === "haproxy-01")?.readiness, "other modules have none").toBeUndefined();
   await page.keyboard.press("Escape");
+  await backToLibrary(page);
 
   // Clearing the field goes back to the class's (none): nothing stays in the design.
   await openProps(page, "nginx-01");

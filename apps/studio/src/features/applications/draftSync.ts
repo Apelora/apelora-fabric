@@ -12,7 +12,6 @@ export interface DesignerBinding {
   baseVersion: number;
   projectLabel: string;
   onPublish: () => void;
-  onDeploy: () => void;
 }
 
 export type SyncKind = "saved" | "dirty" | "saving" | "conflict" | "error";

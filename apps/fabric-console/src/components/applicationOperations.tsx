@@ -5,8 +5,15 @@ import { ApiRequestError, type ActionState, type OperationDto, type OperationKin
 import { client, idempotencyKey, messageOf } from "../lib/api";
 import { ConfirmDialog } from "./ui";
 
-const PRESENT: Record<OperationKind, string> = { start: "Starting", stop: "Stopping", restart: "Restarting" };
-const PAST: Record<OperationKind, string> = { start: "Started", stop: "Stopped", restart: "Restarted" };
+const PRESENT: Record<OperationKind, string> = { start: "Starting", stop: "Stopping", shutdown: "Shutting down", restart: "Restarting", migrate: "Migrating" };
+const PAST: Record<OperationKind, string> = { start: "Started", stop: "Stopped", shutdown: "Shut down", restart: "Restarted", migrate: "Migrated" };
+/** What each button is called, and what its dialog says. An older control plane has no `shutdown`: its `stop` is the graceful one. */
+const LABEL: Record<string, string> = { start: "Start", restart: "Restart", shutdown: "Shut down", stop: "Stop" };
+const WHAT: Partial<Record<OperationKind, string>> = {
+  shutdown: "Its instances are asked to shut down in dependency order, so what depends on a module stops first. Each gets time to finish. Data and volumes are kept.",
+  stop: "Every instance is powered off at once, in dependency order, without waiting for it to shut down. Anything held only in memory is lost; data on disks and volumes is kept.",
+  restart: "Its instances are stopped and started again in dependency order. Data and volumes are kept.",
+};
 const final = (o: OperationDto) => o.state === "succeeded" || o.state === "failed" || o.state === "cancelled";
 
 /** What the row says about the operation it started: in progress, done, or why it failed. */
@@ -22,8 +29,8 @@ const note = (o: OperationDto): OperationNote => ({
 });
 
 /**
- * Start, stop and restart of an application's instances, as the server allows them: a start goes
- * at once; a stop or restart asks first, and when the server says it will interrupt clients of a
+ * Start, restart, shut down and stop of an application's instances, as the server allows them: a
+ * start goes at once; the others ask first, and when the server says it will interrupt clients of a
  * single-instance or stateful module it says so in the same dialog and asks again. The row then
  * follows the operation until it ends. `onDone` runs when one ends, to read the state again.
  */
@@ -31,7 +38,7 @@ export function useApplicationOperations(onDone: () => void) {
   const [notes, setNotes] = useState<Record<string, OperationNote>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [ask, setAsk] = useState<{ name: string; kind: OperationKind; disruption: string | null } | null>(null);
+  const [ask, setAsk] = useState<{ name: string; kind: OperationKind; disruption: string | null; immediate: boolean } | null>(null);
   const following = useRef<Record<string, string>>({});
   const [tick, setTick] = useState(0);
   const done = useRef(onDone);
@@ -56,7 +63,7 @@ export function useApplicationOperations(onDone: () => void) {
     return () => clearTimeout(t);
   }, [tick, notes]);
 
-  const send = async (name: string, kind: OperationKind, confirmDisruption: boolean) => {
+  const send = async (name: string, kind: OperationKind, confirmDisruption: boolean, immediate = true) => {
     setBusy(name);
     setErrors((e) => { const { [name]: _, ...rest } = e; return rest; });
     try {
@@ -67,7 +74,7 @@ export function useApplicationOperations(onDone: () => void) {
       setTick((n) => n + 1);
     } catch (e) {
       if (e instanceof ApiRequestError && e.code === "confirmation_required") {
-        setAsk({ name, kind, disruption: e.message });
+        setAsk({ name, kind, disruption: e.message, immediate });
       } else {
         setAsk(null);
         setErrors((x) => ({ ...x, [name]: messageOf(e) }));
@@ -77,48 +84,53 @@ export function useApplicationOperations(onDone: () => void) {
     }
   };
 
-  const request = (name: string, kind: OperationKind) => (kind === "start" ? void send(name, kind, false) : setAsk({ name, kind, disruption: null }));
+  /** `immediate`: false for the `stop` of a control plane that has no `shutdown`, where `stop` is the graceful one. */
+  const request = (name: string, kind: OperationKind, immediate = true) => (kind === "start" ? void send(name, kind, false) : setAsk({ name, kind, disruption: null, immediate }));
 
   const dialog = (
     <ConfirmDialog
       open={!!ask}
-      title={ask ? `${ask.kind === "stop" ? "Stop" : "Restart"} ${ask.name}?` : ""}
+      title={ask ? `${ask.kind === "stop" && !ask.immediate ? "Stop" : ask.kind === "stop" ? "Stop now" : LABEL[ask.kind] ?? ask.kind} ${ask.name}?` : ""}
       body={ask && (
         <>
-          <p>{ask.disruption ?? (ask.kind === "stop"
+          <p>{ask.disruption ?? (ask.kind === "stop" && !ask.immediate
             ? "Its instances are stopped in dependency order, so what depends on a module stops first. Data and volumes are kept."
-            : "Its instances are stopped and started again in dependency order. Data and volumes are kept.")}</p>
+            : WHAT[ask.kind] ?? "")}</p>
         </>
       )}
-      action={ask?.disruption ? (ask.kind === "stop" ? "Stop and interrupt service" : "Restart and interrupt service") : ask?.kind === "stop" ? "Stop" : "Restart"}
+      action={`${LABEL[ask?.kind ?? "stop"] ?? "Continue"}${ask?.disruption ? " and interrupt service" : ""}`}
       dismiss="Keep it as it is"
       busy={busy === ask?.name}
       onCancel={() => setAsk(null)}
-      onConfirm={() => { if (ask) void send(ask.name, ask.kind, !!ask.disruption); }}
+      onConfirm={() => { if (ask) void send(ask.name, ask.kind, !!ask.disruption, ask.immediate); }}
     />
   );
 
   return { notes, errors, busy, request, dialog };
 }
 
-/** The Start, Restart and Stop buttons the server allows (with its reason when none is), and what the last one did. */
+/** The Start, Restart, Shut down and Stop buttons the server allows (with its reason when none is), and what the last one did. */
 export function ApplicationActions({ name, actions, control }: {
   name: string;
-  actions: { start: ActionState; stop: ActionState; restart: ActionState };
+  actions: { start: ActionState; stop: ActionState; restart: ActionState; shutdown?: ActionState };
   control: ReturnType<typeof useApplicationOperations>;
 }) {
   const running = !!control.notes[name] && control.notes[name]!.tone === "info";
-  const allowed = (["start", "restart", "stop"] as const).filter((k) => actions[k].allowed);
+  // An older control plane has no `shutdown`: its `stop` is the graceful one, so it is offered as it was.
+  const legacy = actions.shutdown === undefined;
+  const kinds = (legacy ? ["start", "restart", "stop"] : ["start", "restart", "shutdown", "stop"]) as ("start" | "restart" | "shutdown" | "stop")[];
+  const allowed = kinds.filter((k) => (actions[k] ?? actions.stop).allowed);
   const why = allowed.length === 0 ? actions.start.reason : null;
   const n = control.notes[name];
   const error = control.errors[name];
+  const label = (k: string) => (k === "start" ? "Start" : k === "restart" ? "Restart…" : k === "shutdown" ? "Shut down…" : "Stop…");
   return (
     <div className="flex flex-col items-end gap-1" data-testid="application-actions">
       <span className="inline-flex flex-wrap justify-end gap-1">
         {allowed.map((k) => (
           <button key={k} type="button" className={`btn btn-xs btn-ghost ${k === "stop" ? "text-error" : ""}`} disabled={running || control.busy === name}
-            aria-label={`${k === "start" ? "Start" : k === "stop" ? "Stop" : "Restart"} ${name}`} onClick={() => control.request(name, k)} data-testid={`application-${k}`}>
-            {k === "start" ? "Start" : k === "stop" ? "Stop…" : "Restart…"}
+            aria-label={`${LABEL[k]} ${name}`} onClick={() => control.request(name, k, !(legacy && k === "stop"))} data-testid={`application-${k}`}>
+            {label(k)}
           </button>
         ))}
       </span>

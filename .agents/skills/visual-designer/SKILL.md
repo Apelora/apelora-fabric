@@ -27,7 +27,7 @@ Stack: Vite, React, TypeScript (strict), React Flow (`@xyflow/react`).
 
 ## Deploying from the Studio (Phase 06)
 
-- "Deploy…" (header, secondary; Export stays the one primary button) opens `components/deploy/DeployDialog.tsx`: connect (health, `whoami`, sign-in with a token kept in `sessionStorage`), configure (application name from `applicationName(metadata.name)`, project from `whoami.deployProjects`), review the server's plan, apply, follow the jobs.
+- There is **no Deploy button in the canvas header**: deploying is done from the Applications list (`components/applications/DeployAction.tsx`, then `DeployVersionDialog`), which opens `components/deploy/DeployDialog.tsx` for a published version: connect (health, `whoami`, sign-in with a token kept in `sessionStorage`), configure (application name from `applicationName(metadata.name)`, project from `whoami.deployProjects`), review the server's plan, apply, follow the jobs.
 - What is deployed comes from `deploymentModules(assembly, lookupClass, project)` (`@apelora/assembly-model`): modules whose class has a runtime; everything else is listed as design-only with the reason. Never send design-only modules.
 - The plan shown is the server's (`POST /api/v1/applications/{name}/plan`); conflicts block applying. Applying sends the document, the deployable modules, `removeMissing` and an `Idempotency-Key`.
 - Live state lives in `features/deploy/live.ts` (polls `…/status` every 5 s, refreshed right after jobs finish) and is shown as a dot in the node header (`data-testid="live-status"`, `data-state`); the header badge says where it comes from ("Live · N running in Incus" or "Mock data"). The overlay never changes the document.

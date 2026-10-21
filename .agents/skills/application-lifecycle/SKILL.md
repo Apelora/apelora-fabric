@@ -30,14 +30,15 @@ Disabled buttons carry the reason as a title. Running exposes **Stop only** (the
 - One active operation per application (unique index). A second request gets `operation_in_progress`.
 - An operation is a coordinator job `application.operation` with phases in dependency order from the recorded connections (stop: dependents first; start/restart: providers first), and per-instance jobs `instance.start|stop`.
 - **Success is declared only when Incus confirms each instance.** The UI polls the operation and keeps buttons pending until the backend says it finished; a failure shows the real error and the real state afterwards.
-- Stop and Restart ask first; if clients would lose service the API answers `409 confirmation_required` and the dialog asks again with a stronger warning (`confirmDisruption: true`).
+- Verbs (ADR 0015): Start, Restart, **Shut down** (`shutdown`, graceful: the old `stop`), **Stop** (`stop`, immediate power-off: the instance jobs carry `force`; phase action `poweroff`) and **Migrate** (`migrate` with `target`, one `instance.move` per instance, checked by `GET /applications/{name}/migration` first; status `migrating`). Old operation rows saying `stop` were graceful. Studio: `LifecycleActions` and `MigrateDialog`; Console: Shut down… and Stop… (it falls back to the old graceful `stop` against a control plane without `shutdown`).
+- Shut down, Stop and Restart ask first; if clients would lose service the API answers `409 confirmation_required` and the dialog asks again with a stronger warning (`confirmDisruption: true`).
 - Authorisation is per application (`application.operate`); lifecycle requests are audited, including denials.
 - **Cancelling an operation** (`POST /api/v1/jobs/{coordinator}/cancel`, `application.operate`) is honoured between phases: the running phase's instance jobs finish, later phases are `skipped`, and the operation ends in state `cancelled` (migration 0023 added it) with `error` naming who cancelled and where. A coordinator is never cancelled "at once", even while it waits between polls, because it must close its operation record (and the one-active-operation index). Operations are **not retried** as jobs (`409 not_retryable`): start, stop or restart again, which plans anew. The Studio toasts a cancelled operation as a warning, not a failure.
 - **Single instances** in the Console use the same job path: Start, Stop and Restart on the instance page queue `instance.start|stop|restart` (`POST /api/v1/instances/{project}/{name}/state`, `instance.manage`); there is no separate restart route.
 
 ## Studio structure
 
-`features/applications/` (model, `apiBackend`, `localBackend`, `lifecycle` store, `draftSync`, `prefs`, `icons`), `components/applications/` (page, cards, rows, workspace tabs, dialogs), routes in `features/router.ts` (`/studio/applications[/:name[/:tab]]`; `/` stays the Assembly Library). The browser-only backend can design and publish but reports runtime `unknown` and offers no lifecycle action.
+`features/applications/` (model, `apiBackend`, `localBackend`, `lifecycle` store, `draftSync`, `prefs`, `icons`), `components/applications/` (page, cards, rows, `ApplicationActions` = `DeployAction` + `LifecycleActions`, workspace tabs, dialogs; Import on the list and Export in the row menu through `features/applications/transfer.ts`), routes in `features/router.ts` (`/studio/applications[/:name[/:tab]]`; `/` stays the Assembly Library). The browser-only backend can design and publish but reports runtime `unknown` and offers no lifecycle action.
 
 ## Testing
 

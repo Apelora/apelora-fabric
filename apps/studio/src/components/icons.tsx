@@ -47,3 +47,5 @@ export const IconList = mk(<><path d="M8 6h12M8 12h12M8 18h12" /><path d="M4 6h.
 export const IconMore = mk(<><circle cx="5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="19" cy="12" r="1.2" /></>);
 export const IconBack = mk(<path d="M15 6l-6 6 6 6" />);
 export const IconSpinner = mk(<path d="M12 3a9 9 0 109 9" />);
+export const IconPower = mk(<><path d="M12 3v9" /><path d="M6.3 7.3a8 8 0 1011.4 0" /></>);
+export const IconMove = mk(<><path d="M4 12h14M13 7l5 5-5 5" /><path d="M4 5v14" /></>);

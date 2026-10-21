@@ -62,7 +62,7 @@ Messages for a deleted or turned-off channel are dropped. Undelivered messages a
 `replica-unhealthy` · subject: `project/instance`. Its port check keeps failing. See [replica unhealthy](replica-unhealthy.md).
 
 ### An application is failed or degraded
-`application-status` · subject: application. Its last start, stop or restart failed, or fewer instances run than it should have. Open the application in the Console; start or restart it once the cause is fixed.
+`application-status` · subject: application. Its last start, shutdown, stop, restart or migration failed, or fewer instances run than it should have. Open the application in the Console; start or restart it once the cause is fixed.
 
 ### Incus cannot be reached
 `incus-unreachable`. The worker cannot read the cluster. Deployments, moves and recovery wait. Rules that read Incus keep their alerts as they were. See [member failure](member-failure.md), [quorum loss](quorum-loss.md) and the worker's `APELORA_INCUS_*` settings.

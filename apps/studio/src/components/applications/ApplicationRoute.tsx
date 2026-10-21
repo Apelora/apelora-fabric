@@ -12,7 +12,7 @@ import { APP_TABS, onLinkClick, paths, type AppTab } from "../../features/router
 import { EditorApp } from "../../EditorApp";
 import { AppShell } from "./AppShell";
 import { DeployVersionDialog } from "./DeployVersionDialog";
-import { LifecycleActions } from "./LifecycleActions";
+import { ApplicationActions } from "./ApplicationActions";
 import { PublishDialog } from "./PublishDialog";
 import { SessionHost } from "../sessions/SessionHost";
 import { AppIcon, DesignBadge, Empty, ErrorState, RuntimeBadge, Skeleton } from "./common";
@@ -45,7 +45,6 @@ function DesignerTab({ detail, onChanged }: { detail: AppDetailView; onChanged: 
   const latest = detail.application.latestRevision;
   const [load, setLoad] = useState<DraftLoad>({ kind: "loading" });
   const [publishing, setPublishing] = useState(false);
-  const [deploying, setDeploying] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
@@ -56,7 +55,7 @@ function DesignerTab({ detail, onChanged }: { detail: AppDetailView; onChanged: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend, name, attempt]);
   const binding = useMemo<DesignerBinding | undefined>(
-    () => (load.kind === "ready" ? { name, backend, baseVersion: load.version, projectLabel: detail.application.project.name, onPublish: () => setPublishing(true), onDeploy: () => setDeploying(true) } : undefined),
+    () => (load.kind === "ready" ? { name, backend, baseVersion: load.version, projectLabel: detail.application.project.name, onPublish: () => setPublishing(true) } : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [load, name, backend],
   );
@@ -73,7 +72,6 @@ function DesignerTab({ detail, onChanged }: { detail: AppDetailView; onChanged: 
     <>
       <EditorApp key={`${name}:${attempt}`} initial={load.assembly} binding={binding} />
       {publishing && <PublishDialog name={name} onClose={() => setPublishing(false)} onDone={onChanged} />}
-      {deploying && <DeployVersionDialog app={detail.application} versions={detail.versions} onClose={() => setDeploying(false)} onDone={onChanged} />}
     </>
   );
 }
@@ -112,7 +110,7 @@ function Workspace({ app: name, tab }: { app: string; tab: AppTab }) {
           <p className="truncate text-xs text-base-content/60">{a.description || "No description"}</p>
         </div>
         <div className="flex items-center gap-2"><DesignBadge app={a} /><RuntimeBadge app={a} /></div>
-        <LifecycleActions app={a} size="sm" />
+        <ApplicationActions app={a} size="sm" />
       </header>
       {a.archived && <div role="status" className="rounded-box border border-warning/50 bg-warning/10 px-3 py-2 text-xs" data-testid="archived-banner">This application is archived. Restore it in Settings to use it again.</div>}
       <div role="tablist" className="tabs tabs-border border-b border-base-300" aria-label="Application sections">

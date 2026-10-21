@@ -25,6 +25,8 @@ pub enum DeploymentStatus {
     /// Some instances are not running or are failing their health check.
     Degraded,
     Stopping,
+    /// A migration to another server is in progress.
+    Migrating,
     Stopped,
     /// The most recent start, stop or restart failed and the application has not been brought
     /// to a good state since.
@@ -38,8 +40,16 @@ pub enum DeploymentStatus {
 #[serde(rename_all = "kebab-case")]
 pub enum OperationKind {
     Start,
+    /// Immediate power-off of every instance, in dependency order. Nothing waits for the guests
+    /// to shut down, so unsaved data in memory is lost. Operations recorded before `Shutdown`
+    /// existed also say `stop`; they were graceful.
     Stop,
+    /// Graceful shutdown of every instance, in dependency order: each guest is asked to stop
+    /// and given time to (what `Stop` meant before ADR 0015).
+    Shutdown,
     Restart,
+    /// Moves every instance to another server, keeping what can run while it moves.
+    Migrate,
 }
 
 impl OperationKind {
@@ -47,14 +57,18 @@ impl OperationKind {
         match self {
             OperationKind::Start => "start",
             OperationKind::Stop => "stop",
+            OperationKind::Shutdown => "shutdown",
             OperationKind::Restart => "restart",
+            OperationKind::Migrate => "migrate",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
         [
             OperationKind::Start,
             OperationKind::Stop,
+            OperationKind::Shutdown,
             OperationKind::Restart,
+            OperationKind::Migrate,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
@@ -141,8 +155,9 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
         && a.state.is_active()
     {
         return match a.kind {
-            OperationKind::Stop => DeploymentStatus::Stopping,
+            OperationKind::Stop | OperationKind::Shutdown => DeploymentStatus::Stopping,
             OperationKind::Start | OperationKind::Restart => DeploymentStatus::Starting,
+            OperationKind::Migrate => DeploymentStatus::Migrating,
         };
     }
     if observed.iter().any(|o| o.unreachable) {
@@ -566,6 +581,23 @@ mod tests {
             ),
             DeploymentStatus::Starting
         );
+        // A graceful shutdown, an immediate stop and a migration each have their own label.
+        assert_eq!(
+            st(
+                &[("web", 1)],
+                Some(&run),
+                act(OperationKind::Shutdown, OperationState::Running)
+            ),
+            DeploymentStatus::Stopping
+        );
+        assert_eq!(
+            st(
+                &[("web", 1)],
+                Some(&run),
+                act(OperationKind::Migrate, OperationState::Running)
+            ),
+            DeploymentStatus::Migrating
+        );
         let stopped = [obs("web", "Stopped")];
         assert_eq!(
             st(
@@ -601,6 +633,20 @@ mod tests {
             ),
             DeploymentStatus::Stopped
         );
+    }
+
+    #[test]
+    fn every_operation_kind_round_trips_through_its_name() {
+        for k in [
+            OperationKind::Start,
+            OperationKind::Stop,
+            OperationKind::Shutdown,
+            OperationKind::Restart,
+            OperationKind::Migrate,
+        ] {
+            assert_eq!(OperationKind::parse(k.as_str()), Some(k));
+        }
+        assert_eq!(OperationKind::parse("reboot"), None);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Application management: the list and overview of applications with their derived status,
 //! creating and describing applications, server-side drafts, published versions, and the
-//! start / stop / restart operations.
+//! start / shut down / stop / restart / migrate operations.
 //!
 //! **Nothing here trusts the browser for state.** Design status comes from the stored draft and
 //! versions; runtime status is derived from the recorded deployment, what Incus reports, the
@@ -16,6 +16,7 @@ use apelora_domain::lifecycle::{
     Activity, DeploymentStatus, Observed, OperationKind, OperationState, StatusInput,
     derive_status, layers, needs_confirmation, observed_for, replicas_of,
 };
+use apelora_domain::mobility::MovePlan;
 use apelora_domain::plan::{Availability, DesiredModule};
 use apelora_domain::{Instance, ProviderMode, is_valid_name};
 use apelora_persistence::lifecycle as db;
@@ -30,7 +31,8 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::authz::{allow, audit_scoped, begin, commit, filter_for};
-use super::deploy::{bad_request, store};
+use super::deploy::{bad_request, ensure_project_allowed, store};
+use super::mobility;
 use super::{ApiError, AppState, AuditItem, AuditList, ErrorBody, Principal, document};
 
 type Res<T> = Result<T, ApiError>;
@@ -133,8 +135,25 @@ pub struct ActionState {
 #[derive(Serialize, ToSchema)]
 pub struct Actions {
     pub start: ActionState,
+    /// Immediate power-off: nothing waits for the guests to shut down.
     pub stop: ActionState,
+    /// Graceful: each guest is asked to shut down and given time to.
+    pub shutdown: ActionState,
     pub restart: ActionState,
+    /// Move every instance to another server.
+    pub migrate: ActionState,
+}
+
+impl Actions {
+    fn all(state: impl Fn() -> ActionState) -> Self {
+        Actions {
+            start: state(),
+            stop: state(),
+            shutdown: state(),
+            restart: state(),
+            migrate: state(),
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -256,71 +275,48 @@ fn action_states(
         reason: None,
     };
     if !may_operate {
-        let why = "you may not start or stop this application";
-        return Actions {
-            start: deny(why),
-            stop: deny(why),
-            restart: deny(why),
-        };
+        let why = "you may not operate this application";
+        return Actions::all(|| deny(why));
     }
     if !deployed || status == DeploymentStatus::NotDeployed {
-        let why = "deploy a published version first";
-        return Actions {
-            start: deny(why),
-            stop: deny(why),
-            restart: deny(why),
-        };
+        return Actions::all(|| deny("deploy a published version first"));
     }
     match status {
-        DeploymentStatus::Starting | DeploymentStatus::Stopping => {
-            let why = "an operation is in progress";
-            Actions {
-                start: deny(why),
-                stop: deny(why),
-                restart: deny(why),
-            }
+        DeploymentStatus::Starting | DeploymentStatus::Stopping | DeploymentStatus::Migrating => {
+            Actions::all(|| deny("an operation is in progress"))
         }
         DeploymentStatus::Unknown => {
-            let why = "the control plane cannot observe this application right now";
-            Actions {
-                start: deny(why),
-                stop: deny(why),
-                restart: deny(why),
-            }
+            Actions::all(|| deny("the control plane cannot observe this application right now"))
         }
-        // Everything up and healthy: only Stop.
+        // Everything up and healthy: stop it, or move it.
         DeploymentStatus::Running => Actions {
             start: deny("already running"),
             stop: ok(),
-            restart: deny("running normally; stop it first, or restart only when it is degraded"),
+            shutdown: ok(),
+            restart: deny(
+                "running normally; shut it down first, or restart only when it is degraded",
+            ),
+            migrate: ok(),
         },
-        // Some running, something wrong: Restart to recover, or Stop; not Start.
+        // Some running, something wrong: Restart to recover, or stop; not Start.
         DeploymentStatus::Degraded | DeploymentStatus::Failed if running > 0 => Actions {
             start: deny("some instances are already running; restart to recover"),
             stop: ok(),
+            shutdown: ok(),
             restart: ok(),
+            migrate: ok(),
         },
-        // Nothing running: only Start.
+        // Nothing running: Start, or move the stopped instances.
         DeploymentStatus::Stopped | DeploymentStatus::Degraded | DeploymentStatus::Failed => {
             Actions {
                 start: ok(),
                 stop: deny("nothing is running"),
+                shutdown: deny("nothing is running"),
                 restart: deny("nothing is running"),
+                migrate: ok(),
             }
         }
-        DeploymentStatus::NotDeployed => unreachable_actions(),
-    }
-}
-
-fn unreachable_actions() -> Actions {
-    let d = || ActionState {
-        allowed: false,
-        reason: Some("deploy a published version first".into()),
-    };
-    Actions {
-        start: d(),
-        stop: d(),
-        restart: d(),
+        DeploymentStatus::NotDeployed => Actions::all(|| deny("deploy a published version first")),
     }
 }
 
@@ -1230,6 +1226,9 @@ pub struct OperateRequest {
     /// modules: it acknowledges that their clients lose service meanwhile.
     #[serde(default)]
     pub confirm_disruption: bool,
+    /// The server to move the application to. Needed for `migrate`, ignored otherwise.
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1239,8 +1238,9 @@ pub struct OperationAccepted {
     pub created: bool,
 }
 
-/// Starts, stops or restarts the application's instances, in dependency order, as an
-/// asynchronous operation. Succeeds only when Incus confirms each instance's state. Needs
+/// Starts, shuts down (graceful), stops (immediate), restarts or migrates the application's
+/// instances, in dependency order where that matters, as an asynchronous operation. Succeeds
+/// only when Incus confirms each instance's state (and, for a migration, its new server). Needs
 /// `application.operate` on the application. It only touches instances this application owns;
 /// networks, volumes, data and other applications are left alone.
 #[utoipa::path(post, path = "/api/v1/applications/{name}/operations", tag = "applications", operation_id = "operate_application", request_body = OperateRequest,
@@ -1318,8 +1318,14 @@ pub(super) async fn operate(
                 "every instance is already running".into(),
             ));
         }
-        OperationKind::Stop | OperationKind::Restart if running == 0 => {
+        OperationKind::Stop | OperationKind::Shutdown | OperationKind::Restart if running == 0 => {
             return Err(conflict("already_stopped", "nothing is running".into()));
+        }
+        OperationKind::Migrate if mine.is_empty() => {
+            return Err(conflict(
+                "nothing_deployed",
+                "none of the application's instances exist in Incus; deploy it again".into(),
+            ));
         }
         _ => {}
     }
@@ -1345,7 +1351,9 @@ pub(super) async fn operate(
     let verdict = match req.action {
         OperationKind::Start => &info.actions.start,
         OperationKind::Stop => &info.actions.stop,
+        OperationKind::Shutdown => &info.actions.shutdown,
         OperationKind::Restart => &info.actions.restart,
+        OperationKind::Migrate => &info.actions.migrate,
     };
     if !verdict.allowed {
         return Err(conflict(
@@ -1359,7 +1367,10 @@ pub(super) async fn operate(
     }
 
     // Stopping interrupts clients of single-instance and stateful modules: ask for confirmation.
-    if matches!(req.action, OperationKind::Stop | OperationKind::Restart) && !req.confirm_disruption
+    if matches!(
+        req.action,
+        OperationKind::Stop | OperationKind::Shutdown | OperationKind::Restart
+    ) && !req.confirm_disruption
     {
         let at_risk: Vec<(String, Availability)> = needs_confirmation(&desired)
             .into_iter()
@@ -1393,6 +1404,41 @@ pub(super) async fn operate(
         }
     }
 
+    // A migration is planned instance by instance with the same rules as moving one instance.
+    let migration = if req.action == OperationKind::Migrate {
+        ensure_project_allowed(&state, &dep.project).await?;
+        let target = req
+            .target
+            .as_deref()
+            .ok_or_else(|| bad_request("name the server to move the application to (target)"))?;
+        let items = migration_items(&state, &dep.project, &name, &mine, target).await?;
+        if let Some(why) = items.blockers() {
+            return Err(conflict(
+                "migration_blocked",
+                format!("nothing was moved: {why}"),
+            ));
+        }
+        if items.moving().next().is_none() {
+            return Err(conflict(
+                "nothing_to_do",
+                format!("every instance already runs on {target}"),
+            ));
+        }
+        let stopping = items.stopping();
+        if !stopping.is_empty() && !req.confirm_disruption {
+            return Err(conflict(
+                "confirmation_required",
+                format!(
+                    "migrating will stop {} while they move, so their clients lose service. Send confirmDisruption to proceed; data is kept.",
+                    stopping.join(", ")
+                ),
+            ));
+        }
+        Some(items)
+    } else {
+        None
+    };
+
     // Phases: dependency order from the recorded connections.
     // Unreadable connections leave every module in one phase: noticeable, so logged.
     let connections: Vec<apelora_domain::network::Connection> = dep
@@ -1425,7 +1471,13 @@ pub(super) async fn operate(
     let down = |i: &Instance| i.status != "Running";
     let phases: Vec<Value> = match req.action {
         OperationKind::Start => phase("start", layers(&modules, &connections, true), &down),
-        OperationKind::Stop => phase("stop", layers(&modules, &connections, false), &up),
+        // Graceful: what `stop` did before ADR 0015; the worker reads the phase `stop` that way.
+        OperationKind::Shutdown => phase("stop", layers(&modules, &connections, false), &up),
+        OperationKind::Stop => phase("poweroff", layers(&modules, &connections, false), &up),
+        OperationKind::Migrate => migration
+            .as_ref()
+            .map(|m| vec![json!({ "action": "migrate", "state": "pending", "steps": m.steps() })])
+            .unwrap_or_default(),
         OperationKind::Restart => {
             let mut v = phase("stop", layers(&modules, &connections, false), &up);
             // Everything that was running comes back, providers first.
@@ -1482,6 +1534,200 @@ pub(super) async fn operate(
             created,
         }),
     ))
+}
+
+// ---- migration ----------------------------------------------------------------------------------
+
+/// One instance of an application in a migration: its own move plan, and the `instance.move`
+/// request recorded for it when it has to move.
+struct MigrationItem {
+    module: String,
+    plan: MovePlan,
+    /// It already runs on the target, so there is nothing to move.
+    already_there: bool,
+    payload: Option<Value>,
+}
+
+struct Migration {
+    target: String,
+    items: Vec<MigrationItem>,
+}
+
+impl Migration {
+    fn moving(&self) -> impl Iterator<Item = &MigrationItem> {
+        self.items.iter().filter(|i| !i.already_there)
+    }
+    /// Why some instance cannot move at all (not why it stops: that needs a confirmation).
+    fn blockers(&self) -> Option<String> {
+        let all: Vec<&str> = self
+            .moving()
+            .flat_map(|i| i.plan.blocked.iter().map(String::as_str))
+            .collect();
+        (!all.is_empty()).then(|| all.join("; "))
+    }
+    /// The instances that have to stop while they move.
+    fn stopping(&self) -> Vec<String> {
+        self.moving()
+            .filter(|i| i.plan.stops)
+            .map(|i| i.plan.instance.clone())
+            .collect()
+    }
+    /// The operation's steps: one per instance that moves, carrying its checked request.
+    fn steps(&self) -> Vec<Value> {
+        self.moving()
+            .map(|i| {
+                json!({
+                    "project": i.payload.as_ref().map(|p| p["project"].clone()).unwrap_or(Value::Null),
+                    "name": i.plan.instance,
+                    "module": i.module,
+                    "state": "pending",
+                    "payload": i.payload,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Plans moving every instance in `mine` to `target`, with a short stop allowed (whether to
+/// allow it is the caller's confirmation to ask for). Instances already on `target` stay.
+async fn migration_items(
+    state: &AppState,
+    project: &str,
+    application: &str,
+    mine: &[&Instance],
+    target: &str,
+) -> Res<Migration> {
+    if !is_valid_name(target) {
+        return Err(bad_request("the target is not a valid server name"));
+    }
+    let mut items = Vec::new();
+    for i in mine {
+        let (plan, _) = mobility::plan(state, project, &i.name, target, true).await?;
+        let already_there = i.location == target;
+        let payload = if already_there || !plan.blocked.is_empty() {
+            None
+        } else {
+            Some(mobility::move_payload(state, project, &i.name, application, &plan).await?)
+        };
+        items.push(MigrationItem {
+            module: i
+                .owner
+                .as_ref()
+                .map(|o| o.module.clone())
+                .unwrap_or_default(),
+            plan,
+            already_there,
+            payload,
+        });
+    }
+    items.sort_by(|a, b| a.plan.instance.cmp(&b.plan.instance));
+    Ok(Migration {
+        target: target.to_owned(),
+        items,
+    })
+}
+
+#[derive(Deserialize, IntoParams)]
+pub(super) struct MigrationQuery {
+    /// The server to move the application to.
+    target: String,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationItemDto {
+    pub module: String,
+    pub instance: String,
+    pub from: String,
+    /// Already on the target: nothing to move.
+    pub already_there: bool,
+    /// Moves while running.
+    pub live: bool,
+    /// Stops for the move and starts again on the target.
+    pub stops: bool,
+    pub copy_mib: u64,
+    /// Why this instance cannot move; empty when it can.
+    pub blocked: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrationPreview {
+    pub source: super::Source,
+    pub target: String,
+    pub items: Vec<MigrationItemDto>,
+    /// Whether a migration to the target can start (nothing blocks it and something moves).
+    pub possible: bool,
+    /// The instances that stop while they move: starting the migration then needs a confirmation.
+    pub stops: Vec<String>,
+}
+
+/// Dry run of migrating the application to another server: for each instance whether it keeps
+/// running, what is copied and what blocks it. Changes nothing. Needs `application.operate`.
+#[utoipa::path(get, path = "/api/v1/applications/{name}/migration", tag = "applications", operation_id = "preview_application_migration",
+    params(("name" = String, Path, description = "Application name"), MigrationQuery),
+    responses((status = 200, body = MigrationPreview), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, body = ErrorBody), (status = 409, body = ErrorBody), (status = 502, body = ErrorBody)))]
+pub(super) async fn migration_preview(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(name): Path<String>,
+    Query(q): Query<MigrationQuery>,
+) -> Res<Json<MigrationPreview>> {
+    let (row, res) = load(&state, &p, &name).await?;
+    allow(&p, "application.operate", &res)?;
+    let pool = store(&state)?;
+    let deployments = db::deployments_of(pool, row.id).await?;
+    let Some(dep) = pick_deployment(&row, &deployments) else {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "not_deployed",
+            "this application has no deployed version; deploy a published version first",
+        ));
+    };
+    ensure_project_allowed(&state, &dep.project).await?;
+    let all = state.provider.instances().await?;
+    let mine: Vec<&Instance> = all
+        .iter()
+        .filter(|i| {
+            i.managed
+                && i.project == dep.project
+                && i.owner.as_ref().is_some_and(|o| o.application == name)
+        })
+        .collect();
+    let m = migration_items(&state, &dep.project, &name, &mine, &q.target).await?;
+    let possible = m.blockers().is_none() && m.moving().next().is_some();
+    let stops = m.stopping();
+    Ok(Json(MigrationPreview {
+        source: super::source(state.provider.mode()),
+        target: m.target.clone(),
+        items: m
+            .items
+            .iter()
+            .map(|i| MigrationItemDto {
+                module: i.module.clone(),
+                instance: i.plan.instance.clone(),
+                from: i.plan.from.clone(),
+                already_there: i.already_there,
+                live: i.plan.live,
+                stops: i.plan.stops,
+                copy_mib: i.plan.copy_mib,
+                blocked: if i.already_there {
+                    Vec::new()
+                } else {
+                    i.plan.blocked.clone()
+                },
+                notes: if i.already_there {
+                    Vec::new()
+                } else {
+                    i.plan.notes.clone()
+                },
+            })
+            .collect(),
+        possible,
+        stops,
+    }))
 }
 
 #[derive(Serialize, ToSchema)]

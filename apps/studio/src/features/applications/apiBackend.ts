@@ -58,7 +58,7 @@ export function createApiBackend(): AppBackend {
     },
     publish: (name, label) => wrap(() => client.request("publish_application", { params: { name }, body: { label: label || undefined } })),
     versionDocument: (name, revision) => wrap(async () => (await client.request("application_version", { params: { name, revision: String(revision) } })).document),
-    operate: (name, action, confirmDisruption) => wrap(async () => (await client.request("operate_application", { params: { name }, body: { action, confirmDisruption }, idempotencyKey: newIdempotencyKey() })).operation),
+    operate: (name, action, confirmDisruption, target) => wrap(async () => (await client.request("operate_application", { params: { name }, body: { action, confirmDisruption, ...(action === "migrate" && target ? { target } : {}) }, idempotencyKey: newIdempotencyKey() })).operation),
     operation: (name, id) => wrap(() => client.request("application_operation", { params: { name, id } })),
     events: (name) => wrap(async () => (await client.request("application_events", { params: { name } })).items),
     archive: (name, archived) => wrap(async () => { await client.request(archived ? "archive_application" : "restore_application", { params: { name } }); }),

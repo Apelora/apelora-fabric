@@ -95,7 +95,7 @@ export function CapacityChip() {
             <h2 className="font-semibold">Capacity for this design</h2>
             {load.kind === "ok" && (mock
               ? <span className="badge badge-sm badge-ghost self-start whitespace-nowrap">Mock data</span>
-              : <span className="whitespace-nowrap text-xs text-base-content/60">From Incus, {new Date(load.report.source.observedAt).toLocaleTimeString()}</span>)}
+              : <span className="whitespace-nowrap text-xs text-base-content/60">From the cluster, {new Date(load.report.source.observedAt).toLocaleTimeString()}</span>)}
           </div>
           {load.kind === "local" && detecting && <p role="status">Looking for a control plane…</p>}
           {load.kind === "local" && !detecting && <p data-testid="capacity-local">Capacity unknown: this browser is not connected to a control plane. Connect to compare the design with the cluster.</p>}

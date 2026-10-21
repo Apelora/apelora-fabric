@@ -112,14 +112,19 @@ export function EditorApp({ initial, binding }: { initial?: ApplicationAssembly;
   useEffect(() => { if (loadError) store.getState().toast("warning", loadError); }, [store, loadError]);
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending = false;
     const unsub = store.subscribe((s, prev) => {
       if (s.showGrid !== prev.showGrid || s.showLabels !== prev.showLabels || s.cableStyle !== prev.cableStyle || s.routing !== prev.routing || s.showCategory !== prev.showCategory || s.snap !== prev.snap || s.minimap !== prev.minimap) saveView({ showGrid: s.showGrid, showLabels: s.showLabels, cableStyle: s.cableStyle, routing: s.routing, showCategory: s.showCategory, snap: s.snap, minimap: s.minimap });
       if (s.assembly === prev.assembly || binding) return;
       setSaved(false);
+      pending = true;
       clearTimeout(timer);
-      timer = setTimeout(() => { setSaved(saveAssembly(store.getState().assembly)); }, 400);
+      timer = setTimeout(() => { pending = false; setSaved(saveAssembly(store.getState().assembly)); }, 400);
     });
-    return () => { unsub(); clearTimeout(timer); };
+    // Leaving the page (closing the tab, going to the Applications list) never loses the last edit.
+    const flush = () => { if (!pending || binding) return; pending = false; clearTimeout(timer); saveAssembly(store.getState().assembly); };
+    window.addEventListener("pagehide", flush);
+    return () => { unsub(); window.removeEventListener("pagehide", flush); flush(); clearTimeout(timer); };
   }, [store, binding]);
 
   return (
@@ -132,7 +137,7 @@ export function EditorApp({ initial, binding }: { initial?: ApplicationAssembly;
           <div className="flex min-h-0 flex-1">
             <ModuleCatalog />
             <main className="flex min-w-0 flex-1 p-3">
-              <AssemblyWorkspace />
+              <AssemblyWorkspace renamable={!binding} />
             </main>
           </div>
         </div>

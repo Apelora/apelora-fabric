@@ -20,7 +20,7 @@ export function Overview({ detail, onPublish }: { detail: AppDetailView; onPubli
       <div className="grid gap-3 md:grid-cols-3">
         <Card title="Status" testId="card-status">
           <div className="flex items-center gap-2"><RuntimeBadge app={a} /><span className="text-sm" data-testid="overview-health">{healthLine(a)}</span></div>
-          <p className="text-xs text-base-content/60">{d.source === "none" ? "This browser cannot observe a cluster, so the runtime state is unknown." : `Observed ${timeAgo(d.observedAt)}${d.source === "mock" ? " from mock data, not a real cluster" : " from Incus"}.`}</p>
+          <p className="text-xs text-base-content/60">{d.source === "none" ? "This browser cannot observe a cluster, so the runtime state is unknown." : `Observed ${timeAgo(d.observedAt)}${d.source === "mock" ? " from mock data, not a real cluster" : " from the cluster"}.`}</p>
           {d.stale && d.source !== "none" && <p role="status" className="text-xs text-warning" data-testid="overview-stale">Could not refresh; this is not shown as healthy.</p>}
           {d.deployedVersion != null && <p className="text-xs">Deployed from version {d.deployedVersion}</p>}
         </Card>
@@ -41,7 +41,7 @@ export function Overview({ detail, onPublish }: { detail: AppDetailView; onPubli
             <dt className="text-base-content/60">Organisation</dt><dd>{a.project.organizationSlug}</dd>
             <dt className="text-base-content/60">Project</dt><dd>{a.project.name}</dd>
             <dt className="text-base-content/60">Environment</dt><dd>{a.environment ? `${a.environment.name} (${a.environment.kind})` : "—"}</dd>
-            <dt className="text-base-content/60">Incus project</dt><dd>{a.environment?.incusProject ?? "—"}</dd>
+            <dt className="text-base-content/60">Cluster project</dt><dd>{a.environment?.incusProject ?? "—"}</dd>
           </dl>
         </Card>
       </div>
