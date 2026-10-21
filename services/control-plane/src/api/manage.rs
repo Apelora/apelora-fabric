@@ -1454,6 +1454,7 @@ pub(super) async fn operate(
         ));
     }
     let key = super::deploy::idempotency_key(&headers, &p)?.map(|k| format!("{k}:{name}:operate"));
+    let request = super::requests::current();
     let (op, created) = db::create_operation(
         pool,
         &db::NewOperation {
@@ -1464,6 +1465,7 @@ pub(super) async fn operate(
             requested_by: &p.actor_ref(),
             confirmed: req.confirm_disruption,
             key: key.as_deref(),
+            request_id: request.as_deref(),
         },
     )
     .await

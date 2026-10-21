@@ -24,10 +24,10 @@ Eight rules hold at every size. The first three already hold; the rest is the pl
 1. **The plane calls in; nothing calls out to the plane.** Members, instances and SANs never open connections to Apelora (built). This keeps the attack surface to one direction and lets a plane restart without anything waiting on it.
 2. **Desired state in PostgreSQL, changes as jobs.** A request records intent and queues a job. Workers claim jobs with leases and fencing generations (built). This holds at every size, from one worker to hundreds sharded by sector.
 3. **Static stability.** When a higher level is down, a lower level keeps doing its job with what it last knew (built for the plane over Incus: instances keep running, ACLs keep enforcing, OVN keeps forwarding). The regional and global planes follow the same rule (ADR 0009).
-4. **Events for speed, a full re-check for correctness.** Today the supervisor and status views poll Incus every 30 seconds, and the worker checks for jobs every 2 seconds. Polling is cheap even at the global estimate: one list per sector every 30 s ≈ 1 request/s per region. The cost is **latency**, not load. The plan:
+4. **Events for speed, a full re-check for correctness.** Today the supervisor and status views poll Incus every 30 seconds; workers are woken when a job is queued and still check every 2 seconds. Polling is cheap even at the global estimate: one list per sector every 30 s ≈ 1 request/s per region. The cost is **latency**, not load. The plan:
    - subscribe to each sector's Incus event stream (instance and operation events) to react within a second;
    - keep the periodic re-check as the safety net that corrects anything an event missed, because events can be lost on a reconnect;
-   - wake workers through PostgreSQL `LISTEN/NOTIFY` when a job is queued, and keep the 2-second check as the fallback.
+   - wake workers through PostgreSQL `LISTEN/NOTIFY` when a job is queued, and keep the 2-second check as the fallback (built, 2026-10-21).
 5. **One transaction, then an outbox.** A change, its audit row and every message it must cause (a notification, a copy to the global plane, a webhook) are written **in the same transaction**. A relay then delivers the outbox rows at least once, and receivers ignore duplicates by id. One mechanism solves three problems at once:
    - audit integrity: no change without its audit row, gap S4;
    - replication between planes;
@@ -37,7 +37,7 @@ Eight rules hold at every size. The first three already hold; the rest is the pl
    - A person who needs detail is sent to the level that owns it.
    - Intent (a design, a policy, a role) flows down and is cached below with a version number.
 7. **Every call has a budget.** A timeout, retries with backoff and jitter, and a concurrency limit **per sector** (a bulkhead), so one slow or broken sector cannot use up the workers or connections the others need. After repeated failures a sector is marked *unreachable*: its jobs wait, they do not pile up as retries, and the Console says so.
-8. **One correlation id end to end.** The request id (built in the API) is stored on the job it queues, set on the job's log span, and recorded next to the Incus operation id and on the audit row. Then one id answers "what happened to my click", from the browser down to Incus. Across planes it travels as the standard `traceparent` header.
+8. **One correlation id end to end.** The request id (built in the API) is stored on the job it queues, set on the job's log span, and recorded next to the Incus operation id and on the audit row (built for jobs, 2026-10-21: `jobs.request_id`, `jobs.incus_operations`, `requestId` and `jobId` in the request's audit detail). Then one id answers "what happened to my click", from the browser down to Incus. Across planes it travels as the standard `traceparent` header.
 
 ## 3. Concern by concern
 
@@ -107,8 +107,8 @@ Each row says what holds at every size, what changes as the installation grows, 
 
 | Resource | Small | Large | Optimisation |
 |---|---|---|---|
-| API | 1 process, tens of requests/s | several processes per region | stateless processes. Move the remaining per-process state to PostgreSQL (sign-in settings reload, terminal tickets, the supervisor's leadership), see [scaling issues](CONNECTIONS-AND-SCALE.md#4-scaling-issues-found-and-the-fix-for-each) |
-| Worker | 1 | sharded by sector | per-sector bulkheads; `LISTEN/NOTIFY` wake-up; claim with `SKIP LOCKED` (built) |
+| API | 1 process, tens of requests/s | several processes per region | stateless processes. Move the remaining per-process state to PostgreSQL (sign-in settings reload, terminal tickets; the supervisor's leadership is built), see [scaling issues](CONNECTIONS-AND-SCALE.md#4-scaling-issues-found-and-the-fix-for-each) |
+| Worker | 1 | sharded by sector | per-sector bulkheads; `LISTEN/NOTIFY` wake-up (built); claim with `SKIP LOCKED` (built) |
 | PostgreSQL | tiny: designs and jobs are kilobytes | per region; a primary handles the global estimate's write rate (capacity estimate) | indexes on every filter the Console offers; partitions for audit and events; a connection pool per process, sized from the worker count |
 | Incus API | one sector | per sector, bounded by its database's write rate | events instead of tight polling; batch status reads (one list per project, not one call per instance); concurrency limit per sector |
 | Network | one site | between sites and regions | summaries up, not lists; image caches per region; incremental copies for moves and backups (`--refresh`) |
@@ -140,7 +140,7 @@ Each layer detects its own failures, and each layer has one owner of the decisio
 | What fails | Detected by | Within | Decided by | Action |
 |---|---|---|---|---|
 | A member | Incus heartbeats (`cluster.offline_threshold`, default 20 s) | ~20 s | Incus marks it offline; Apelora's supervisor acts on that | stateless replicas replaced on other members (built); stateful instances on shared storage restarted elsewhere **only after fencing** (slice B, not built) |
-| An instance | Apelora health checks (supervisor, every 30 s) | 30–60 s; seconds once events are used | supervisor (one leader per plane, planned) | restart, then replace (built) |
+| An instance | Apelora health checks (supervisor, every 30 s) | 30–60 s; seconds once events are used | supervisor (one leader per plane: a leader lease, built) | restart, then replace (built) |
 | A worker | its lease expires (30 s); heartbeats (in progress) | 30 s | any other worker | takes the job over; the fencing generation stops the old one writing (built) |
 | An API process | load-balancer health check | seconds | load balancer | traffic to the others |
 | PostgreSQL primary | the database's own failover tooling | seconds | that tooling, never Apelora | standby promoted; Apelora reconnects and retries |
@@ -203,11 +203,11 @@ A backup that has never been restored is not counted as a backup. The Console sh
 Each item is small enough to review on its own. **(N)** marks items needed now, at three servers.
 
 1. **(N)** Audit in the same transaction, `TRUNCATE` blocked, a test that every state-changing route audits (S4). Then the outbox table and relay, so the next items reuse it.
-2. **(N)** Correlation: `request_id` on jobs, carried into the job's span, the Incus operation id recorded beside it, both on the audit row.
+2. **(N)** Correlation: `request_id` on jobs, carried into the job's span, the Incus operation id recorded beside it, both on the audit row. **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): `jobs.request_id` from every API route that queues a job (instance requests, application deployments, application operations and the instance jobs they queue); the worker's `job` span has `request_id`; every Incus operation a lifecycle or move job started is kept in `jobs.incus_operations`; the request's audit row has `requestId` and `jobId`; `GET /api/v1/jobs` and the Console's Operations view show the request id. Not yet: operations an adapter call waits on internally (volume copies, backups), and `traceparent` across planes.
 3. **(N)** Backup and restore of Apelora's own database: a script, a restore drill, a runbook (built: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, [runbook](../runbooks/apelora-database-backup.md)), and the age of the last verified restore in the Console (not yet).
-4. **(N)** Supervisor leadership through a lease in PostgreSQL, so two workers can run (the first item before HA of the plane itself).
+4. **(N)** Supervisor leadership through a lease in PostgreSQL, so two workers can run (the first item before HA of the plane itself). **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): `leader_leases`, 15 s lease renewed every 5 s, every supervisor write in a transaction fenced by the lease generation; not yet run with two worker processes on the test cluster.
 5. `LISTEN/NOTIFY`:
-   - job wake-up;
+   - job wake-up (**built**, 2026-10-21, MOCK VERIFIED with a real PostgreSQL: a trigger notifies `apelora_jobs` in the inserting transaction; the worker listens, reconnects and keeps the 2 s check);
    - sign-in settings reload;
    - permission cache invalidation.
 6. Incus event subscription per sector, with the periodic re-check kept.

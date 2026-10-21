@@ -18,7 +18,9 @@ use apelora_domain::health::{HealthPolicy, HealthState, Probe, Tracker, probe_of
 use apelora_domain::network::network_name;
 use apelora_domain::plan::{Availability, DesiredModule, replica_name};
 use apelora_incus_adapter::Provider;
-use apelora_persistence::{DeploymentRecord, NewHealth, Pool, StoreError};
+use apelora_persistence::{
+    DeploymentRecord, Leadership, NewHealth, Pool, StoreError, begin_fenced,
+};
 use serde_json::json;
 use time::OffsetDateTime;
 
@@ -39,6 +41,11 @@ impl HealthWatch {
         }
     }
 
+    /// Forgets every tracker (a new leader starts from fresh observations).
+    pub fn forget(&mut self) {
+        self.trackers.clear();
+    }
+
     fn now(&self) -> f64 {
         self.epoch.elapsed().as_secs_f64()
     }
@@ -48,7 +55,9 @@ impl HealthWatch {
         OffsetDateTime::now_utc() - time::Duration::seconds_f64((self.now() - t).max(0.0))
     }
 
-    /// Observes one application; returns the instances it queued a restart for.
+    /// Observes one application; returns the instances it queued a restart for. Its writes are
+    /// fenced by `lease`, the supervisor's leader lease (`None` for one-shot passes).
+    #[allow(clippy::too_many_arguments)]
     pub async fn check(
         &mut self,
         pool: &Pool,
@@ -57,6 +66,7 @@ impl HealthWatch {
         desired: &[DesiredModule],
         observed: &[Instance],
         unavailable: &[String],
+        lease: Option<&Leadership>,
     ) -> Result<Vec<String>, StoreError> {
         let project = d.project.as_str();
         let app = d.application.as_str();
@@ -143,30 +153,36 @@ impl HealthWatch {
                 else {
                     continue;
                 };
-                let job = apelora_persistence::enqueue_job(
-                    pool,
+                let unhealthy_secs = (now - tracker.since).round();
+                // The restart and its audit row in one transaction, under the leader lease.
+                let mut tx = begin_fenced(pool, lease).await?;
+                let job = apelora_persistence::enqueue_job_in(
+                    &mut tx,
                     "instance.restart",
                     Some(d.application_id),
                     &json!({ "project": project, "name": name }),
                     None,
+                    None,
                 )
                 .await?
                 .id();
-                let unhealthy_secs = (now - tracker.since).round();
                 apelora_persistence::audit(
-                    pool,
+                    &mut *tx,
                     "supervisor",
                     "application.replica.restart-unhealthy",
                     &format!("{project}/{name}"),
                     &json!({ "application": app, "module": module, "unhealthySeconds": unhealthy_secs, "jobId": job }),
                 )
                 .await?;
+                tx.commit().await?;
                 tracing::warn!(application = app, instance = %name, unhealthy_secs, "health: restarting a replica that keeps failing its port check");
                 tracker.restarted(now);
                 restarted_now.push(name.clone());
                 break;
             }
         }
+        // The decided health of this application, written under the leader lease.
+        let mut tx = begin_fenced(pool, lease).await?;
         let mut checked = Vec::new();
         for (name, module, probe) in &seen {
             let Some(tracker) = self.trackers.get(&(project.to_owned(), name.clone())) else {
@@ -178,7 +194,7 @@ impl HealthWatch {
                 Probe::Unknown => "port check not reporting",
             };
             apelora_persistence::record_health(
-                pool,
+                &mut *tx,
                 &NewHealth {
                     application_id: d.application_id,
                     project,
@@ -197,7 +213,8 @@ impl HealthWatch {
         self.trackers.retain(|(p, name), _| {
             p != project || checked.contains(name) || !owned_by(observed, project, name, app)
         });
-        apelora_persistence::forget_health(pool, d.application_id, project, &checked).await?;
+        apelora_persistence::forget_health(&mut *tx, d.application_id, project, &checked).await?;
+        tx.commit().await?;
         Ok(restarted_now)
     }
 }

@@ -303,7 +303,7 @@ pub async fn recent_application_jobs(
 ) -> Result<Vec<crate::JobView>> {
     let (orgs, projects, apps) = arrays(f);
     Ok(sqlx::query_as(
-        "SELECT j.id, j.kind, j.application_id, j.status, j.attempts, j.max_attempts, j.last_error, j.external_operation, j.payload, j.created_at, j.updated_at
+        "SELECT j.id, j.kind, j.application_id, j.status, j.attempts, j.max_attempts, j.last_error, j.external_operation, j.request_id, j.incus_operations, j.payload, j.created_at, j.updated_at
          FROM jobs j JOIN applications a ON a.id = j.application_id JOIN projects p ON p.id = a.project_id
          WHERE $1 OR p.organization_id = ANY($2) OR a.project_id = ANY($3) OR a.id = ANY($4)
          ORDER BY j.created_at DESC, j.id LIMIT $5",

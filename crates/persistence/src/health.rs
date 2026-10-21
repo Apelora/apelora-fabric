@@ -31,7 +31,8 @@ pub struct NewHealth<'a> {
     pub restarted_at: Option<OffsetDateTime>,
 }
 
-pub async fn record_health(pool: &Pool, h: &NewHealth<'_>) -> Result<()> {
+/// Takes a pool or a transaction (the supervisor writes inside its fenced transaction).
+pub async fn record_health<'e>(db: impl sqlx::PgExecutor<'e>, h: &NewHealth<'_>) -> Result<()> {
     sqlx::query(
         "INSERT INTO instance_health
            (project, instance, application_id, module, health, since, detail, restarted_at)
@@ -50,7 +51,7 @@ pub async fn record_health(pool: &Pool, h: &NewHealth<'_>) -> Result<()> {
     .bind(h.since)
     .bind(h.detail)
     .bind(h.restarted_at)
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(())
 }
@@ -69,8 +70,8 @@ pub async fn application_health(pool: &Pool, application: &str) -> Result<Vec<He
 }
 
 /// Forgets the application's instances that are no longer checked.
-pub async fn forget_health(
-    pool: &Pool,
+pub async fn forget_health<'e>(
+    db: impl sqlx::PgExecutor<'e>,
     application_id: Uuid,
     project: &str,
     keep: &[String],
@@ -82,7 +83,7 @@ pub async fn forget_health(
     .bind(application_id)
     .bind(project)
     .bind(keep)
-    .execute(pool)
+    .execute(db)
     .await?
     .rows_affected())
 }

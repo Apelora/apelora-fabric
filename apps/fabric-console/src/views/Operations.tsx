@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import type { Job, JobList } from "@apelora/api-client";
 
@@ -26,6 +26,17 @@ const target = (j: Job): string => {
   const r = j.request as { project?: unknown; name?: unknown };
   return typeof r.project === "string" && typeof r.name === "string" ? `${r.project}/${r.name}` : "—";
 };
+
+/** The request that queued the job: the same id is in the request's audit rows and every log line about it. */
+function RequestId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-x-1 text-xs text-base-content/70" data-testid="job-request">
+      Request <code className="font-mono break-all">{id}</code>
+      <button type="button" className="btn btn-ghost btn-xs" aria-label={`Copy request id ${id}`} onClick={() => void navigator.clipboard.writeText(id).then(() => setCopied(true), () => setCopied(false))}>{copied ? "Copied" : "Copy"}</button>
+    </span>
+  );
+}
 
 /** Jobs that are still pending or running make the list refresh itself every few seconds. */
 const busy = (l: JobList) => l.items.some((j) => j.status === "pending" || j.status === "running");
@@ -58,7 +69,10 @@ export function OperationsView({ onAuth }: { onAuth: (m: string) => void }) {
                   return (
                     <tr key={j.id} data-testid="job-row">
                       <td className="whitespace-nowrap">{new Date(j.createdAt).toLocaleString()}</td>
-                      <td>{KIND[j.kind] ?? j.kind}</td>
+                      <td>
+                        {KIND[j.kind] ?? j.kind}
+                        {j.requestId && <RequestId id={j.requestId} />}
+                      </td>
                       <td className="font-mono text-xs">{target(j)}</td>
                       <td>
                         <span className={`status ${s.dot} mr-2`} aria-hidden="true" />{s.label}

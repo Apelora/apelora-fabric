@@ -19,6 +19,12 @@
 //!
 //! Each pass also observes the health of running service replicas ([`crate::health`]) and
 //! restarts a stateless replica that keeps failing its port check.
+//!
+//! Only one worker supervises at a time: the holder of the `replica-supervisor` leader lease in
+//! PostgreSQL ([`LeaderLease`], ADR 0011). The others skip their passes and take over within
+//! [`LEADER_LEASE_SECS`] once the holder stops renewing. Every write of a pass (a queued job
+//! with its audit row, a health record) runs in a transaction that first checks the lease is
+//! still held at its generation, so a leader that stalled past its lease writes nothing.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -30,8 +36,12 @@ use apelora_domain::plan::{
     Availability, DesiredModule, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
 };
 use apelora_incus_adapter::Provider;
-use apelora_persistence::{Pool, StoreError};
-use serde_json::json;
+use apelora_persistence::{
+    Leadership, Pool, StoreError, acquire_leadership, begin_fenced, renew_leadership,
+};
+use serde_json::{Value, json};
+use tokio::sync::watch;
+use uuid::Uuid;
 
 use crate::health::HealthWatch;
 
@@ -57,6 +67,86 @@ pub struct Supervisor {
     reported: HashMap<String, (String, Instant)>,
     /// The member list could not be read on the previous pass.
     members_unreadable: bool,
+    /// The leader lease the current pass writes under; `None` for one-shot passes (tests).
+    leadership: Option<Leadership>,
+}
+
+/// The leader lease the replica supervisor runs under.
+pub const LEADER_LEASE: &str = "replica-supervisor";
+/// How long the lease lasts unless renewed; a new leader takes over this long after the old one
+/// stopped renewing.
+pub const LEADER_LEASE_SECS: f64 = 15.0;
+/// How often the holder renews the lease and the others try to take it.
+pub const LEADER_RENEW_EVERY: Duration = Duration::from_secs(5);
+
+/// One process's view of a leader lease: renews it while held, tries to take it otherwise, and
+/// logs every change of leadership at info.
+#[derive(Debug)]
+pub struct LeaderLease {
+    name: String,
+    holder: String,
+    ttl_secs: f64,
+    held: Option<Leadership>,
+}
+
+impl LeaderLease {
+    pub fn new(name: &str, holder: &str, ttl_secs: f64) -> Self {
+        LeaderLease {
+            name: name.to_owned(),
+            holder: holder.to_owned(),
+            ttl_secs,
+            held: None,
+        }
+    }
+
+    /// Renews the lease if held, otherwise tries to take it. Returns the leadership now held.
+    /// When the database cannot be reached the lease is kept as it was: writes are fenced, so a
+    /// lease that expired meanwhile cannot be used to write.
+    pub async fn tick(&mut self, pool: &Pool) -> Option<Leadership> {
+        match self.held.take() {
+            Some(l) => match renew_leadership(pool, &l, self.ttl_secs).await {
+                Ok(()) => self.held = Some(l),
+                Err(StoreError::Conflict(_)) => {
+                    tracing::info!(lease = %l.name, holder = %l.holder, generation = l.generation, "leader: lease lost (it expired or another worker took it); no longer acting as the leader");
+                }
+                Err(e) => {
+                    tracing::warn!(lease = %l.name, error = %e, "leader: cannot renew the lease; writes stay fenced until it is renewed");
+                    self.held = Some(l);
+                }
+            },
+            None => match acquire_leadership(pool, &self.name, &self.holder, self.ttl_secs).await {
+                Ok(Some(l)) => {
+                    tracing::info!(lease = %l.name, holder = %l.holder, generation = l.generation, "leader: lease acquired; acting as the leader");
+                    self.held = Some(l);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(lease = %self.name, error = %e, "leader: cannot read the lease; not acting as the leader")
+                }
+            },
+        }
+        self.held.clone()
+    }
+}
+
+/// Queues a job and its audit row in one transaction, fenced by `lease` when one is held.
+/// `detail` gets the new job's id.
+async fn queue_audited(
+    pool: &Pool,
+    lease: Option<&Leadership>,
+    (kind, application_id, payload): (&str, Option<Uuid>, &Value),
+    action: &str,
+    target: &str,
+    detail: impl FnOnce(Uuid) -> Value,
+) -> Result<Uuid, StoreError> {
+    let mut tx = begin_fenced(pool, lease).await?;
+    let job =
+        apelora_persistence::enqueue_job_in(&mut tx, kind, application_id, payload, None, None)
+            .await?
+            .id();
+    apelora_persistence::audit(&mut *tx, "supervisor", action, target, &detail(job)).await?;
+    tx.commit().await?;
+    Ok(job)
 }
 
 /// One supervision pass with no memory: offline members count as failed at once, and one
@@ -76,7 +166,31 @@ impl Supervisor {
             health: HealthWatch::new(HealthPolicy::default()),
             reported: HashMap::new(),
             members_unreadable: false,
+            leadership: None,
         }
+    }
+
+    /// One pass as the holder of `lease`, or `None` without a pass when this process does not
+    /// lead. Leadership that is new (a takeover, or regained after losing it) starts from a clean
+    /// memory: what was observed under an earlier leadership may be stale.
+    pub async fn pass_if_leader(
+        &mut self,
+        pool: &Pool,
+        provider: &Provider,
+        lease: Option<Leadership>,
+    ) -> Result<Option<Vec<String>>, StoreError> {
+        let Some(lease) = lease else {
+            self.leadership = None;
+            return Ok(None);
+        };
+        if self.leadership.as_ref().map(|l| l.generation) != Some(lease.generation) {
+            self.offline_since.clear();
+            self.reported.clear();
+            self.health.forget();
+            self.members_unreadable = false;
+        }
+        self.leadership = Some(lease);
+        self.pass(pool, provider).await.map(Some)
     }
 
     /// Whether `condition` of `instance` should be logged now: it is new, it changed, or it was
@@ -250,27 +364,19 @@ impl Supervisor {
                         spec.name = name.clone();
                         let payload = serde_json::to_value(&spec)
                             .map_err(|e| StoreError::Conflict(e.to_string()))?;
-                        let job = apelora_persistence::enqueue_job(
-                            pool,
-                            "instance.create",
-                            Some(d.application_id),
-                            &payload,
-                            None,
-                        )
-                        .await?
-                        .id();
                         let stranded: Vec<String> = slot
                             .iter()
                             .map(|i| format!("{} on {}", i.name, i.location))
                             .collect();
-                        apelora_persistence::audit(
-                        pool,
-                        "supervisor",
-                        "application.replica.substitute",
-                        &format!("{}/{name}", d.project),
-                        &json!({ "application": d.application, "module": da.module, "replica": replica, "stranded": stranded, "jobId": job }),
-                    )
-                    .await?;
+                        queue_audited(
+                            pool,
+                            self.leadership.as_ref(),
+                            ("instance.create", Some(d.application_id), &payload),
+                            "application.replica.substitute",
+                            &format!("{}/{name}", d.project),
+                            |job| json!({ "application": d.application, "module": da.module, "replica": replica, "stranded": stranded, "jobId": job }),
+                        )
+                        .await?;
                         tracing::info!(application = %d.application, instance = %name, ?stranded, "supervisor: substituting a replica stranded on a failed member");
                         recreated.push(name);
                         queued_here += 1;
@@ -314,23 +420,15 @@ impl Supervisor {
                             {
                                 continue;
                             }
-                            let job = apelora_persistence::enqueue_job(
+                            queue_audited(
                                 pool,
-                                "instance.delete",
-                                Some(d.application_id),
-                                &json!({ "project": d.project, "name": other.name }),
-                                None,
+                                self.leadership.as_ref(),
+                                ("instance.delete", Some(d.application_id), &json!({ "project": d.project, "name": other.name })),
+                                "application.replica.retire",
+                                &format!("{}/{}", d.project, other.name),
+                                |job| json!({ "application": d.application, "module": da.module, "replica": replica, "kept": keep.name, "jobId": job }),
                             )
-                            .await?
-                            .id();
-                            apelora_persistence::audit(
-                            pool,
-                            "supervisor",
-                            "application.replica.retire",
-                            &format!("{}/{}", d.project, other.name),
-                            &json!({ "application": d.application, "module": da.module, "replica": replica, "kept": keep.name, "jobId": job }),
-                        )
-                        .await?;
+                            .await?;
                             tracing::info!(application = %d.application, instance = %other.name, kept = %keep.name, "supervisor: retiring a duplicate replica");
                             recreated.push(other.name.clone());
                             queued_here += 1;
@@ -411,28 +509,20 @@ impl Supervisor {
                     );
                     serde_json::to_value(&spec).map_err(|e| StoreError::Conflict(e.to_string()))?
                 };
-                let job = apelora_persistence::enqueue_job(
-                    pool,
-                    kind,
-                    Some(d.application_id),
-                    &payload,
-                    None,
-                )
-                .await?
-                .id();
                 let action = if stopped {
                     "application.replica.restart"
                 } else {
                     "application.replica.recreate"
                 };
-                apelora_persistence::audit(
-                pool,
-                "supervisor",
-                action,
-                &format!("{}/{}", d.project, item.instance),
-                &json!({ "application": d.application, "module": item.module, "replica": item.replica, "revision": d.revision, "jobId": job }),
-            )
-            .await?;
+                let job = queue_audited(
+                    pool,
+                    self.leadership.as_ref(),
+                    (kind, Some(d.application_id), &payload),
+                    action,
+                    &format!("{}/{}", d.project, item.instance),
+                    |job| json!({ "application": d.application, "module": item.module, "replica": item.replica, "revision": d.revision, "jobId": job }),
+                )
+                .await?;
                 tracing::info!(application = %d.application, instance = %item.instance, %job, kind, "supervisor: restoring a stateless replica");
                 recreated.push(item.instance.clone());
                 queued_here += 1;
@@ -471,18 +561,29 @@ impl Supervisor {
                     .with_published(&published),
                 )
                 .map_err(|e| StoreError::Conflict(e.to_string()))?;
-                apelora_persistence::enqueue_job(
-                    pool,
+                let mut tx = begin_fenced(pool, self.leadership.as_ref()).await?;
+                apelora_persistence::enqueue_job_in(
+                    &mut tx,
                     "network.sync",
                     Some(d.application_id),
                     &payload,
                     None,
+                    None,
                 )
                 .await?;
+                tx.commit().await?;
             }
             recreated.extend(
                 self.health
-                    .check(pool, provider, &d, &desired, &observed, &unavailable)
+                    .check(
+                        pool,
+                        provider,
+                        &d,
+                        &desired,
+                        &observed,
+                        &unavailable,
+                        self.leadership.as_ref(),
+                    )
                     .await?,
             );
         }
@@ -515,21 +616,52 @@ fn keeper<'a>(slot: &[&'a Instance], observed: &[Instance]) -> Option<&'a Instan
         .copied()
 }
 
-/// Runs supervision passes every `every` until the task is dropped; a member counts as failed
-/// once it has been offline for `recover_after`.
+/// Runs supervision passes every `every` while this worker (`holder`) holds the leader lease,
+/// until the task is dropped; a member counts as failed once it has been offline for
+/// `recover_after`. The lease is renewed on its own task, so a long pass does not let it lapse.
 pub async fn supervise(
     pool: Pool,
     provider: Provider,
     every: Duration,
     recover_after: Duration,
     health: HealthPolicy,
+    holder: String,
 ) {
+    let mut lease = LeaderLease::new(LEADER_LEASE, &holder, LEADER_LEASE_SECS);
+    let (tx, rx) = watch::channel(lease.tick(&pool).await);
+    let renewals = tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            loop {
+                tokio::time::sleep(LEADER_RENEW_EVERY).await;
+                tx.send_replace(lease.tick(&pool).await);
+            }
+        }
+    });
+    // Stop renewing when supervision stops (the task is aborted at shutdown).
+    let _renewals = AbortOnDrop(renewals);
     let mut supervisor = Supervisor::new(recover_after).with_health(health);
     loop {
-        if let Err(e) = supervisor.pass(&pool, &provider).await {
-            tracing::error!(error = %e, "supervisor pass failed");
+        let current = rx.borrow().clone();
+        match supervisor.pass_if_leader(&pool, &provider, current).await {
+            Ok(Some(_)) => {}
+            Ok(None) => tracing::debug!(
+                "supervisor: another worker holds the leader lease; skipping this pass"
+            ),
+            Err(StoreError::Conflict(msg)) => {
+                tracing::warn!(%msg, "supervisor: pass stopped by a refused write (the leader lease is no longer held, or a record could not be encoded)")
+            }
+            Err(e) => tracing::error!(error = %e, "supervisor pass failed"),
         }
         tokio::time::sleep(every).await;
+    }
+}
+
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -1190,6 +1322,151 @@ mod tests {
                 replica_name("shop", "web-01", 1),
                 replica_name("shop", "web-01", 2)
             ]
+        );
+    }
+
+    /// Jobs and audit rows the supervisor wrote for the lost replica `shop-web-01-r2`.
+    async fn actions(pool: &Pool) -> (usize, usize) {
+        let jobs = recent_jobs(pool, 50)
+            .await
+            .expect("jobs")
+            .into_iter()
+            .filter(|j| j.kind == "instance.create" && j.payload["name"] == "shop-web-01-r2")
+            .count();
+        let audit = recent_audit(pool, 50)
+            .await
+            .expect("audit")
+            .into_iter()
+            .filter(|e| e.action == "application.replica.recreate")
+            .count();
+        (jobs, audit)
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn two_supervisors_on_one_database_only_the_leader_acts(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        delete(&pool, &provider, "shop-web-01-r2").await;
+        let before = actions(&pool).await;
+
+        let (mut lease_a, mut lease_b) = (
+            LeaderLease::new(LEADER_LEASE, "worker-a", LEADER_LEASE_SECS),
+            LeaderLease::new(LEADER_LEASE, "worker-b", LEADER_LEASE_SECS),
+        );
+        let (mut a, mut b) = (
+            Supervisor::new(Duration::ZERO).with_health(HealthPolicy::immediate()),
+            Supervisor::new(Duration::ZERO).with_health(HealthPolicy::immediate()),
+        );
+        let (la, lb) = (lease_a.tick(&pool).await, lease_b.tick(&pool).await);
+        assert!(la.is_some() && lb.is_none(), "one leader: {la:?} {lb:?}");
+        // Both run their passes at the same time.
+        let (ra, rb) = tokio::join!(
+            a.pass_if_leader(&pool, &provider, la),
+            b.pass_if_leader(&pool, &provider, lb)
+        );
+        assert_eq!(
+            ra.expect("pass"),
+            Some(vec!["shop-web-01-r2".to_owned()]),
+            "the leader acts"
+        );
+        assert_eq!(rb.expect("pass"), None, "the other skips its pass");
+        assert_eq!(
+            actions(&pool).await,
+            (before.0 + 1, before.1 + 1),
+            "one job and one audit row"
+        );
+        // Renewing keeps the roles.
+        assert!(lease_a.tick(&pool).await.is_some());
+        assert!(lease_b.tick(&pool).await.is_none());
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_leader_that_stops_renewing_is_replaced_and_its_late_writes_are_refused(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        let mut lease_a = LeaderLease::new(LEADER_LEASE, "worker-a", 1.0);
+        let mut lease_b = LeaderLease::new(LEADER_LEASE, "worker-b", 1.0);
+        let stale = lease_a.tick(&pool).await.expect("worker-a leads");
+        assert!(lease_b.tick(&pool).await.is_none());
+
+        // worker-a stalls (stops renewing); worker-b takes over once the lease expired.
+        let started = std::time::Instant::now();
+        let current = loop {
+            if let Some(l) = lease_b.tick(&pool).await {
+                break l;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(5),
+                "never taken over"
+            );
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        assert!(started.elapsed() >= Duration::from_millis(800));
+        assert_eq!(current.generation, stale.generation + 1);
+
+        // worker-a wakes up with its old lease and finds a lost replica: its writes are refused.
+        delete(&pool, &provider, "shop-web-01-r2").await;
+        let before = actions(&pool).await;
+        let mut a = Supervisor::new(Duration::ZERO).with_health(HealthPolicy::immediate());
+        assert!(matches!(
+            a.pass_if_leader(&pool, &provider, Some(stale)).await,
+            Err(StoreError::Conflict(_))
+        ));
+        assert_eq!(
+            actions(&pool).await,
+            before,
+            "nothing written by the stale leader"
+        );
+        assert!(
+            lease_a.tick(&pool).await.is_none(),
+            "worker-a learns it lost the lease"
+        );
+
+        // The new leader acts.
+        let mut b = Supervisor::new(Duration::ZERO).with_health(HealthPolicy::immediate());
+        assert_eq!(
+            b.pass_if_leader(&pool, &provider, Some(current))
+                .await
+                .expect("pass"),
+            Some(vec!["shop-web-01-r2".to_owned()])
+        );
+        assert_eq!(actions(&pool).await, (before.0 + 1, before.1 + 1));
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn two_running_supervisors_elect_one_leader_and_restore_a_replica_once(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        delete(&pool, &provider, "shop-web-01-r2").await;
+        let before = actions(&pool).await;
+        let run = |holder: &str| {
+            tokio::spawn(supervise(
+                pool.clone(),
+                provider.clone(),
+                Duration::from_millis(50),
+                Duration::ZERO,
+                HealthPolicy::immediate(),
+                holder.to_owned(),
+            ))
+        };
+        let (a, b) = (run("worker-a"), run("worker-b"));
+        let started = std::time::Instant::now();
+        while actions(&pool).await == before {
+            assert!(started.elapsed() < Duration::from_secs(5), "nobody acted");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        // Several more passes of both.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        a.abort();
+        b.abort();
+        assert_eq!(actions(&pool).await, (before.0 + 1, before.1 + 1));
+        let (holder, generation, valid) = apelora_persistence::leader_of(&pool, LEADER_LEASE)
+            .await
+            .expect("read")
+            .expect("a leader");
+        assert!(
+            ["worker-a", "worker-b"].contains(&holder.as_str()) && generation == 1 && valid,
+            "{holder} {generation} {valid}"
         );
     }
 }

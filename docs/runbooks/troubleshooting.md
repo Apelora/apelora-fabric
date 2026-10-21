@@ -44,8 +44,34 @@ To follow one request: take the id from the browser's network panel (or the erro
 search the logs for it, e.g. `grep 'request_id=3f2a…'`, or `jq 'select(.span.request_id=="3f2a…")'`
 for JSON logs. Then look for the same id in the audit detail.
 
-Worker lines carry a `job` span instead: `job` (id), `kind` and `target` (`project/name` or the
-application). `GET /api/v1/jobs/{id}` shows the same job's status and last error.
+Worker lines carry a `job` span instead: `job` (id), `kind`, `target` (`project/name` or the
+application) and `request_id`, the id of the request that queued the job (`-` for jobs the
+supervisor or the scheduler queued). `GET /api/v1/jobs/{id}` shows the same job's status and
+last error.
+
+### From a request id to the job and the Incus operation
+
+**Evidence:** CONTRACT VERIFIED with the mock provider and a real PostgreSQL (2026-10-21,
+`one_request_id_links_the_request_its_audit_row_the_job_and_the_incus_operation`); not yet
+followed on a real cluster incident.
+
+1. **Request → job.** The audit row of the request (`<kind>.requested`, `application.deploy.requested`,
+   `application.<action>.requested`) has `requestId` and, for single jobs, `jobId` in its detail.
+   The job itself stores the id: `GET /api/v1/jobs/{id}` and `GET /api/v1/jobs` return
+   `requestId`, and the Console's Operations view shows it under the change, with a copy
+   button. In the database: `SELECT id, kind, status FROM jobs WHERE request_id = '3f2a…'`
+   (indexed). An application start, stop or restart queues a coordinating
+   `application.operation` job, and every instance job it queues carries the same request id.
+2. **Job → worker log lines.** Search for the job id or the request id: the worker's `job` span
+   has both, e.g. `jq 'select(.span.request_id=="3f2a…")'`.
+3. **Job → Incus operation.** `incusOperations` on the job lists every Incus operation it started,
+   oldest first; `incusOperation` is the one the current attempt is still waiting on. The worker
+   logs `started operation operation=…` (lifecycle jobs) or `move: waiting on the Incus operation
+   operation=…` (moves) inside the job span. On a member, `incus operation show <id>` shows what
+   Incus did while it still keeps the operation; Incus forgets finished operations after a
+   while, the id in Apelora stays. Operations an adapter call waits on internally (volume
+   copies, backups) are logged at debug as `incus: operation succeeded operation=…` in the job
+   span but are not yet listed on the job.
 
 ## Logged or audited
 
@@ -167,7 +193,34 @@ answering, `INFO health: Incus is reachable again` when it is back.
 - `WARN operation: cannot read the instance from Incus to confirm its state; looking again`:
   the phase waits instead of guessing.
 
+### Queued jobs start only after a delay
+
+Workers are woken by PostgreSQL `NOTIFY apelora_jobs` when a job is queued, and check every 2 s
+in any case. A job that starts about 2 s late means the wake-up is not working:
+
+- `WARN job wake-up: cannot listen for queued jobs; checking for work on the idle interval until it can`
+  (at start) or `WARN job wake-up: the listener failed; …`: the listening connection was refused
+  or lost; `INFO job wake-up: listening for queued jobs again` follows once it is back.
+- `WARN job wake-up: the listener's connection dropped and was re-established; checking for work now`:
+  a connection reaper or a database restart cut it; nothing to do unless it repeats.
+- A connection pooler in transaction mode between the worker and PostgreSQL does not deliver
+  notifications: connect the worker directly or in session mode.
+
 ### The supervisor does not restore something
+
+- Only one worker supervises: the holder of the `replica-supervisor` leader lease. Look for
+  `INFO leader: lease acquired; acting as the leader lease=replica-supervisor holder=<worker> generation=<n>`
+  and `INFO leader: lease lost …`. In the database: `SELECT holder, generation, expires_at FROM
+  leader_leases`. Workers that do not hold it skip their passes (debug: `another worker holds
+  the leader lease`). A holder that stops renewing is replaced 15 s after its last renewal; a
+  worker that stops cleanly gives the lease up by letting it expire, so expect up to 15 s plus
+  one supervision interval before the new leader acts. Set a distinct `APELORA_WORKER_ID` per
+  worker so the holder names the process.
+- `WARN supervisor: pass stopped by a refused write`: a leader that stalled past its lease
+  tried to write after another worker took over; nothing was written. Normal after a long pause
+  (a suspended VM, a database outage); the new leader's next pass acts instead.
+- `WARN leader: cannot renew the lease; writes stay fenced until it is renewed`: the database
+  is not reachable; the supervisor writes nothing until it is.
 
 - `WARN supervisor: instance is missing or stopped; only stateless replicas are restored automatically`
   (logged again when the state changes, at most every 10 minutes otherwise).

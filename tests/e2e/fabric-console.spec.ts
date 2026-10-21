@@ -790,22 +790,29 @@ test.describe("fabric console operations and administration", () => {
 
   test("operations lists jobs with their outcome and refreshes while some are in progress", async ({ page }) => {
     let finished = false;
-    const job = (id: string, kind: string, status: string, lastError: string | null, attempts = 1) =>
-      ({ id, kind, status, attempts, maxAttempts: 5, lastError, incusOperation: null, request: { project: "apelora", name: "web-01" }, createdAt: now, updatedAt: now });
+    const job = (id: string, kind: string, status: string, lastError: string | null, requestId: string | null = null) =>
+      ({ id, kind, status, attempts: 1, maxAttempts: 5, lastError, incusOperation: null, incusOperations: [], requestId, request: { project: "apelora", name: "web-01" }, createdAt: now, updatedAt: now });
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
       "GET /api/v1/jobs": () => ({ json: { items: [
         job("j2", "instance.stop", finished ? "succeeded" : "running", null),
-        job("j1", "instance.create", "failed", "no cluster member has a supported architecture (x86_64)"),
+        job("j1", "instance.create", "failed", "no cluster member has a supported architecture (x86_64)", "3f2b7c1e-5d4a-4e8f-9a61-0c2d8e7b4a15"),
       ] } }),
     });
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("/#/operations");
     const rows = page.getByTestId("job-row");
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(1)).toContainText("Create instance");
     await expect(rows.nth(1)).toContainText("apelora/web-01");
     await expect(rows.nth(1).getByTestId("job-error")).toContainText("supported architecture");
+    // The request that queued the job, to follow it into the audit log and the logs.
+    await expect(rows.nth(1).getByTestId("job-request")).toContainText("3f2b7c1e-5d4a-4e8f-9a61-0c2d8e7b4a15");
+    await expect(rows.nth(0).getByTestId("job-request")).toHaveCount(0);
+    await rows.nth(1).getByRole("button", { name: "Copy request id 3f2b7c1e-5d4a-4e8f-9a61-0c2d8e7b4a15" }).click();
+    await expect(rows.nth(1).getByTestId("job-request")).toContainText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("3f2b7c1e-5d4a-4e8f-9a61-0c2d8e7b4a15");
     await expect(rows.nth(0)).toContainText("Running");
     finished = true; // the page refreshes on its own while a job is in progress
     await expect(rows.nth(0)).toContainText("Done", { timeout: 8000 });

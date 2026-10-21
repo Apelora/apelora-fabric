@@ -10,6 +10,7 @@ pub mod network;
 pub mod operations;
 pub mod storage;
 pub mod supervisor;
+pub mod wake;
 
 use std::time::Duration;
 
@@ -37,7 +38,7 @@ async fn handle(
         return operations::run(pool, provider, job).await;
     }
     if job.kind == "instance.move" {
-        return mobility::run(pool, provider, &job.payload).await;
+        return mobility::run(pool, provider, job, worker).await;
     }
     if job.kind == "volume.backup" {
         return storage::run_backup_job(pool, provider, &job.payload).await;
@@ -75,9 +76,15 @@ pub async fn run_once(pool: &Pool, provider: &Provider, worker: &str) -> Result<
     let Some(job) = claim_job(pool, worker, LEASE_SECS).await? else {
         return Ok(false);
     };
-    // Every line logged while the job runs (lifecycle, moves, storage, networks) carries it.
-    let span =
-        tracing::error_span!("job", job = %job.id, kind = %job.kind, target = %target_of(&job));
+    // Every line logged while the job runs (lifecycle, moves, storage, networks) carries it,
+    // with the API request that queued the job ("-" when none did: supervisor, scheduler).
+    let span = tracing::error_span!(
+        "job",
+        job = %job.id,
+        kind = %job.kind,
+        target = %target_of(&job),
+        request_id = job.request_id.as_deref().unwrap_or("-"),
+    );
     let id = job.id;
     run_claimed(pool, provider, worker, job)
         .instrument(span)
@@ -152,7 +159,8 @@ fn log_outcome(job: &ClaimedJob, outcome: &Outcome) {
     }
 }
 
-/// Processes jobs until `shutdown` resolves, polling every `idle` when there is no work.
+/// Processes jobs until `shutdown` resolves. With no work it waits for a job to be queued
+/// (`LISTEN`, see [`wake`]) and checks again every `idle` in any case.
 pub async fn run(
     pool: Pool,
     provider: Provider,
@@ -163,6 +171,7 @@ pub async fn run(
     tokio::pin!(shutdown);
     // Says "alive" from its own task, so a long job never makes the worker look dead.
     let beats = tokio::spawn(heartbeat(pool.clone(), worker.clone(), HEARTBEAT));
+    let mut wake = wake::JobWake::listen(pool.clone()).await;
     loop {
         let worked = match run_once(&pool, &provider, &worker).await {
             Ok(w) => w,
@@ -174,7 +183,7 @@ pub async fn run(
         if !worked {
             tokio::select! {
                 _ = &mut shutdown => break,
-                _ = tokio::time::sleep(idle) => {}
+                _ = wake.wait(idle) => {}
             }
         }
     }
@@ -257,6 +266,7 @@ mod tests {
             max_attempts: 5,
             generation: 1,
             external_operation: None,
+            request_id: None,
         };
         assert_eq!(
             target_of(&job(json!({ "project": "apelora", "name": "web-01" }))),
@@ -715,6 +725,7 @@ mod tests {
                 requested_by: "tester",
                 confirmed: false,
                 key: None,
+                request_id: Some("req-operation"),
             },
         )
         .await
@@ -758,6 +769,17 @@ mod tests {
                 .await
                 .expect("count");
         assert_eq!(queued, 1, "only the first phase is queued");
+        let requests: Vec<Option<String>> = sqlx::query_scalar(
+            "SELECT request_id FROM jobs WHERE kind IN ('application.operation', 'instance.stop')",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("request ids");
+        assert_eq!(
+            requests,
+            vec![Some("req-operation".to_owned()); 2],
+            "the instance jobs carry the request that asked for the operation"
+        );
         assert_eq!(
             (
                 status_of(&provider, "web").await.as_str(),
@@ -944,6 +966,7 @@ mod tests {
                 requested_by: "t",
                 confirmed: false,
                 key: Some("k1"),
+                request_id: None,
             },
         )
         .await
@@ -959,6 +982,7 @@ mod tests {
                 requested_by: "t",
                 confirmed: false,
                 key: Some("k1"),
+                request_id: None,
             },
         )
         .await
@@ -978,6 +1002,7 @@ mod tests {
                 requested_by: "t",
                 confirmed: false,
                 key: None,
+                request_id: None,
             },
         )
         .await;
@@ -992,6 +1017,7 @@ mod tests {
                 requested_by: "t",
                 confirmed: false,
                 key: Some("k1"),
+                request_id: None,
             },
         )
         .await;

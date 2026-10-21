@@ -688,6 +688,18 @@ async fn a_running_application_offers_stop_only_and_a_stopped_one_offers_start_o
         (created, b["operation"]["state"].as_str()),
         (json!(true), Some("pending"))
     );
+    let traced: bool = sqlx::query_scalar(
+        "SELECT request_id IS NOT NULL FROM jobs
+         WHERE kind = 'application.operation' AND payload->>'operation' = $1",
+    )
+    .bind(&op_id)
+    .fetch_one(&l.pool)
+    .await
+    .expect("coordinating job");
+    assert!(
+        traced,
+        "the operation's job names the request that asked for it"
+    );
     // While it is in progress the application is "stopping", every action is disabled, and a second request is refused.
     let mid = info(&l, &s.owner).await;
     assert_eq!(mid["deployment"]["status"], "stopping");

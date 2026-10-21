@@ -13,6 +13,7 @@ pub use sqlx::PgPool as Pool;
 
 pub mod auth_settings;
 pub mod directories;
+pub mod coordination;
 mod health;
 pub mod identity;
 pub mod lifecycle;
@@ -23,10 +24,15 @@ pub use health::{HealthRecord, NewHealth, application_health, forget_health, rec
 mod tokens;
 pub mod user_sessions;
 mod volumes;
+pub use coordination::{
+    JOBS_CHANNEL, Leadership, acquire_leadership, begin_fenced, leader_of, listen_for_jobs,
+    release_leadership, renew_leadership,
+};
 pub use machines::{
     MachineRecord, admit_machine, approve_machine, machine, machines, register_machine,
     remove_machine, withdraw_approval,
 };
+pub use sqlx::postgres::PgListener;
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 pub use volumes::{
     BackupRecord, DueVolume, NewBackup, ScheduleKind, claim_due, forget_backup, instance_volumes,
@@ -514,6 +520,8 @@ pub struct ClaimedJob {
     pub generation: i64,
     /// Incus operation started by an earlier attempt, if any.
     pub external_operation: Option<String>,
+    /// The API request that queued the job (`x-request-id`), if a request did.
+    pub request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -531,6 +539,8 @@ impl Enqueued {
     }
 }
 
+/// Queues a job that no API request asked for (the supervisor, the scheduler, tests). Workers are
+/// notified when the insert commits (trigger `jobs_queued`).
 pub async fn enqueue_job(
     pool: &PgPool,
     kind: &str,
@@ -538,9 +548,44 @@ pub async fn enqueue_job(
     payload: &Value,
     idempotency_key: Option<&str>,
 ) -> Result<Enqueued> {
+    enqueue_job_for_request(pool, kind, application_id, payload, idempotency_key, None).await
+}
+
+/// Like [`enqueue_job`], recording the API request that asked for it (`x-request-id`), so the
+/// job, its log lines and the request's audit rows share one id.
+pub async fn enqueue_job_for_request(
+    pool: &PgPool,
+    kind: &str,
+    application_id: Option<Uuid>,
+    payload: &Value,
+    idempotency_key: Option<&str>,
+    request_id: Option<&str>,
+) -> Result<Enqueued> {
+    let mut conn = pool.acquire().await?;
+    enqueue_job_in(
+        &mut conn,
+        kind,
+        application_id,
+        payload,
+        idempotency_key,
+        request_id,
+    )
+    .await
+}
+
+/// Like [`enqueue_job_for_request`], on the caller's connection or inside its transaction
+/// (`&mut tx`): the job, and the notification that wakes workers, exist only if it commits.
+pub async fn enqueue_job_in(
+    conn: &mut sqlx::PgConnection,
+    kind: &str,
+    application_id: Option<Uuid>,
+    payload: &Value,
+    idempotency_key: Option<&str>,
+    request_id: Option<&str>,
+) -> Result<Enqueued> {
     let id = Uuid::new_v4();
     let inserted = sqlx::query(
-        "INSERT INTO jobs (id, kind, application_id, payload, idempotency_key) VALUES ($1, $2, $3, $4, $5)
+        "INSERT INTO jobs (id, kind, application_id, payload, idempotency_key, request_id) VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (idempotency_key) DO NOTHING RETURNING id",
     )
     .bind(id)
@@ -548,14 +593,15 @@ pub async fn enqueue_job(
     .bind(application_id)
     .bind(payload)
     .bind(idempotency_key)
-    .fetch_optional(pool)
+    .bind(request_id)
+    .fetch_optional(&mut *conn)
     .await?;
     if inserted.is_some() {
         return Ok(Enqueued::Created(id));
     }
     let existing: Uuid = sqlx::query_scalar("SELECT id FROM jobs WHERE idempotency_key = $1")
         .bind(idempotency_key)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
     Ok(Enqueued::Existing(existing))
 }
@@ -574,7 +620,7 @@ pub async fn claim_job(pool: &PgPool, worker: &str, lease_secs: i64) -> Result<O
              FOR UPDATE SKIP LOCKED
              LIMIT 1
          )
-         RETURNING id, kind, application_id, payload, attempts, max_attempts, generation, external_operation",
+         RETURNING id, kind, application_id, payload, attempts, max_attempts, generation, external_operation, request_id",
     )
     .bind(worker)
     .bind(lease_secs as f64)
@@ -675,7 +721,8 @@ pub async fn complete_job(
 }
 
 /// Records the Incus operation this attempt started, fenced like every other job write. Call it
-/// before waiting on the operation.
+/// before waiting on the operation; `None` clears the in-flight marker once the wait ended. A
+/// started operation is also appended to the job's history (`incus_operations`), which is kept.
 pub async fn record_operation(
     pool: &PgPool,
     job: &ClaimedJob,
@@ -683,7 +730,9 @@ pub async fn record_operation(
     operation: Option<&str>,
 ) -> Result<()> {
     let n = sqlx::query(
-        "UPDATE jobs SET external_operation = $4, updated_at = now()
+        "UPDATE jobs SET external_operation = $4, updated_at = now(),
+                incus_operations = CASE WHEN $4::text IS NULL OR $4 = ANY(incus_operations)
+                                        THEN incus_operations ELSE array_append(incus_operations, $4) END
          WHERE id = $1 AND lease_owner = $2 AND generation = $3 AND status = 'running'",
     )
     .bind(job.id)
@@ -707,6 +756,10 @@ pub struct JobView {
     pub max_attempts: i32,
     pub last_error: Option<String>,
     pub external_operation: Option<String>,
+    /// The API request that queued the job, if one did.
+    pub request_id: Option<String>,
+    /// Every Incus operation the job started, oldest first.
+    pub incus_operations: Vec<String>,
     pub payload: Value,
     pub created_at: time::OffsetDateTime,
     pub updated_at: time::OffsetDateTime,
@@ -714,8 +767,8 @@ pub struct JobView {
 
 pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
     sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, payload,
-                created_at, updated_at
+        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, request_id,
+                incus_operations, payload, created_at, updated_at
          FROM jobs WHERE id = $1",
     )
     .bind(id)
@@ -727,8 +780,8 @@ pub async fn get_job(pool: &PgPool, id: Uuid) -> Result<JobView> {
 /// The most recently created jobs, newest first.
 pub async fn recent_jobs(pool: &PgPool, limit: i64) -> Result<Vec<JobView>> {
     Ok(sqlx::query_as::<_, JobView>(
-        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, payload,
-                created_at, updated_at
+        "SELECT id, kind, application_id, status, attempts, max_attempts, last_error, external_operation, request_id,
+                incus_operations, payload, created_at, updated_at
          FROM jobs ORDER BY created_at DESC, id LIMIT $1",
     )
     .bind(limit.clamp(1, 500))
@@ -781,8 +834,9 @@ pub async fn recent_audit(pool: &PgPool, limit: i64) -> Result<Vec<AuditEvent>> 
     .await?)
 }
 
-pub async fn audit(
-    pool: &PgPool,
+/// Records an audit event; takes a pool or a transaction (`&mut *tx`).
+pub async fn audit<'e>(
+    db: impl sqlx::PgExecutor<'e>,
     actor: &str,
     action: &str,
     target: &str,
@@ -793,7 +847,7 @@ pub async fn audit(
         .bind(action)
         .bind(target)
         .bind(detail)
-        .execute(pool)
+        .execute(db)
         .await?;
     Ok(())
 }

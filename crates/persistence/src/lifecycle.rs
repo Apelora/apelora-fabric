@@ -330,6 +330,9 @@ pub struct NewOperation<'a> {
     pub requested_by: &'a str,
     pub confirmed: bool,
     pub key: Option<&'a str>,
+    /// The API request that asked for it; stored on the coordinating job (and inherited by the
+    /// jobs it queues).
+    pub request_id: Option<&'a str>,
 }
 
 /// Creates a pending operation and queues the job that carries it out, in one transaction.
@@ -344,6 +347,7 @@ pub async fn create_operation(pool: &PgPool, n: &NewOperation<'_>) -> Result<(Op
         requested_by,
         confirmed,
         key,
+        request_id,
     } = *n;
     let mut tx = pool.begin().await?;
     if let Some(k) = key
@@ -380,13 +384,15 @@ pub async fn create_operation(pool: &PgPool, n: &NewOperation<'_>) -> Result<(Op
         sqlx::Error::Database(d) if d.is_unique_violation() => StoreError::Conflict("another operation on this application is still in progress".into()),
         _ => StoreError::Database(e),
     })?;
-    sqlx::query("INSERT INTO jobs (id, kind, application_id, payload, idempotency_key) VALUES ($1, 'application.operation', $2, $3, $4)")
-        .bind(Uuid::new_v4())
-        .bind(application_id)
-        .bind(serde_json::json!({ "operation": id }))
-        .bind(format!("application.operation:{id}"))
-        .execute(&mut *tx)
-        .await?;
+    crate::enqueue_job_in(
+        &mut tx,
+        "application.operation",
+        Some(application_id),
+        &serde_json::json!({ "operation": id }),
+        Some(&format!("application.operation:{id}")),
+        request_id,
+    )
+    .await?;
     tx.commit().await?;
     Ok((row, true))
 }

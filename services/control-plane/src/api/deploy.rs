@@ -56,6 +56,11 @@ pub struct Job {
     pub last_error: Option<String>,
     /// The Incus operation the current attempt is waiting on, if any.
     pub incus_operation: Option<String>,
+    /// Every Incus operation the job started, oldest first (kept after they finish).
+    pub incus_operations: Vec<String>,
+    /// The `x-request-id` of the API request that queued the job; absent for jobs the
+    /// supervisor or the scheduler queued. The request's audit rows carry it as `requestId`.
+    pub request_id: Option<String>,
     #[schema(value_type = Object)]
     pub request: Value,
     /// RFC 3339.
@@ -79,6 +84,8 @@ impl From<JobView> for Job {
             max_attempts: j.max_attempts,
             last_error: j.last_error,
             incus_operation: j.external_operation,
+            incus_operations: j.incus_operations,
+            request_id: j.request_id,
             request: j.payload,
             created_at: rfc3339(j.created_at),
             updated_at: rfc3339(j.updated_at),
@@ -208,8 +215,16 @@ pub(super) async fn queue(
 ) -> Result<(StatusCode, Json<JobAccepted>), ApiError> {
     let pool = store(state)?;
     let key = idempotency_key(headers, p)?;
-    let enqueued =
-        apelora_persistence::enqueue_job(pool, kind, None, &payload, key.as_deref()).await?;
+    let request = super::requests::current();
+    let enqueued = apelora_persistence::enqueue_job_for_request(
+        pool,
+        kind,
+        None,
+        &payload,
+        key.as_deref(),
+        request.as_deref(),
+    )
+    .await?;
     let (job_id, created) = match enqueued {
         Enqueued::Created(id) => (id, true),
         Enqueued::Existing(id) => (id, false),

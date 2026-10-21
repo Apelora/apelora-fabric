@@ -11128,6 +11128,7 @@
           "status",
           "attempts",
           "maxAttempts",
+          "incusOperations",
           "request",
           "createdAt",
           "updatedAt"
@@ -11152,6 +11153,13 @@
             ],
             "description": "The Incus operation the current attempt is waiting on, if any."
           },
+          "incusOperations": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every Incus operation the job started, oldest first (kept after they finish)."
+          },
           "kind": {
             "type": "string",
             "description": "`instance.create`, `instance.start`, `instance.stop` or `instance.delete`."
@@ -11168,6 +11176,13 @@
           },
           "request": {
             "type": "object"
+          },
+          "requestId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The `x-request-id` of the API request that queued the job; absent for jobs the\nsupervisor or the scheduler queued. The request's audit rows carry it as `requestId`."
           },
           "status": {
             "type": "string",

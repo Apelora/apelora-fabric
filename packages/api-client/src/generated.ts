@@ -966,11 +966,15 @@ export type Job = {
   id: string;
   /** The Incus operation the current attempt is waiting on, if any. */
   incusOperation?: string | null;
+  /** Every Incus operation the job started, oldest first (kept after they finish). */
+  incusOperations: string[];
   /** `instance.create`, `instance.start`, `instance.stop` or `instance.delete`. */
   kind: string;
   lastError?: string | null;
   maxAttempts: number;
   request: Record<string, unknown>;
+  /** The `x-request-id` of the API request that queued the job; absent for jobs the supervisor or the scheduler queued. The request's audit rows carry it as `requestId`. */
+  requestId?: string | null;
   /** `pending`, `running`, `succeeded`, `failed` or `cancelled`. */
   status: string;
   /** RFC 3339. */

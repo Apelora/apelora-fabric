@@ -559,6 +559,70 @@ async fn deployment_requests_are_checked_queued_audited_and_carried_out(pool: Po
     );
 }
 
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn one_request_id_links_the_request_its_audit_row_the_job_and_the_incus_operation(
+    pool: Pool,
+) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
+    let (operator, _) = apelora_persistence::create_token(&pool, "operator", "operator", None)
+        .await
+        .expect("token");
+    let req = Request::post("/api/v1/instances")
+        .header(header::AUTHORIZATION, format!("Bearer {operator}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(requests::REQUEST_ID_HEADER, "trace-7.create")
+        .body(Body::from(web_spec("apelora", "web-01").to_string()))
+        .expect("request");
+    let res = router(state.clone()).oneshot(req).await.expect("response");
+    assert_eq!(res.status(), StatusCode::ACCEPTED);
+    let bytes = res.into_body().collect().await.expect("body").to_bytes();
+    let accepted: Value = serde_json::from_slice(&bytes).expect("json");
+    let job_id = accepted["jobId"].as_str().expect("job id").to_owned();
+
+    // The audit row of the request names the job and the request.
+    let (detail_job, detail_request): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT detail->>'jobId', detail->>'requestId' FROM audit_events
+         WHERE action = 'instance.create.requested'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit row");
+    assert_eq!(
+        (detail_job.as_deref(), detail_request.as_deref()),
+        (Some(job_id.as_str()), Some("trace-7.create"))
+    );
+
+    // The job carries the request id; once run, the Incus operation it started is kept.
+    while apelora_deployment_worker::run_once(&pool, &provider, "w")
+        .await
+        .expect("run")
+    {}
+    let (_, job) = send(
+        state.clone(),
+        "GET",
+        &format!("/api/v1/jobs/{job_id}"),
+        &operator,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(job["status"], "succeeded", "{job}");
+    assert_eq!(job["requestId"], "trace-7.create");
+    assert_eq!(
+        job["incusOperation"],
+        Value::Null,
+        "nothing is waited on now"
+    );
+    assert_eq!(
+        job["incusOperations"].as_array().map(Vec::len),
+        Some(1),
+        "{job}"
+    );
+    let (_, list) = send(state, "GET", "/api/v1/jobs", &operator, None, None).await;
+    assert_eq!(list["items"][0]["requestId"], "trace-7.create");
+}
+
 #[tokio::test]
 async fn deployments_need_a_database() {
     let state = AppState::new(
@@ -1182,6 +1246,11 @@ async fn connections_become_an_application_network_with_acls_on_both_sides(pool:
     .await;
     assert_eq!(status, StatusCode::ACCEPTED, "{d}");
     assert!(d["networkJob"].is_string());
+    let untraced: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE request_id IS NULL")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(untraced, 0, "every job of the deployment names its request");
     let create: Value = sqlx::query_scalar(
         "SELECT payload FROM jobs WHERE kind = 'instance.create' ORDER BY created_at LIMIT 1",
     )

@@ -5,13 +5,16 @@
 //! stopped. A live move is one Incus operation. Otherwise the instance is stopped, its volumes
 //! are copied to the new member, it is moved and started again if it was running; the old
 //! copies of the volumes are deleted only once it runs on the new member. When copying or
-//! moving fails, it is started again where it was.
+//! moving fails, it is started again where it was. Every Incus operation it waits on is
+//! recorded with the job (`incus_operations`) and logged in the job's span.
 
 use std::time::Duration;
 
 use apelora_domain::InstanceAction;
 use apelora_incus_adapter::{AdapterError, OperationOutcome, Provider};
-use apelora_persistence::{Outcome, Pool, StoreError, audit, set_volume_member};
+use apelora_persistence::{
+    ClaimedJob, Outcome, Pool, StoreError, audit, record_operation, set_volume_member,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -40,68 +43,119 @@ pub struct MoveRequest {
     pub volumes: Vec<VolumeRef>,
 }
 
-async fn wait(provider: &Provider, op: &str, what: &str) -> Result<(), AdapterError> {
-    match provider.wait_operation(op, BUDGET).await? {
-        OperationOutcome::Succeeded => Ok(()),
-        OperationOutcome::Failed(e) => Err(AdapterError::Api {
-            status: 500,
-            message: format!("{what}: {e}"),
-        }),
-        OperationOutcome::StillRunning => Err(AdapterError::Api {
-            status: 504,
-            message: format!("{what} is still running"),
-        }),
+/// Why a step stopped: Incus refused or failed (the attempt fails and is retried), or the job
+/// store did (the job was taken over by another worker, or the database is unavailable).
+#[derive(Debug)]
+enum Failure {
+    Incus(AdapterError),
+    Store(StoreError),
+}
+
+impl From<AdapterError> for Failure {
+    fn from(e: AdapterError) -> Self {
+        Failure::Incus(e)
     }
 }
 
-async fn change(
-    provider: &Provider,
-    r: &MoveRequest,
-    action: InstanceAction,
-) -> Result<(), AdapterError> {
-    let op = provider
-        .change_state(&r.project, &r.name, action, false)
-        .await?;
-    wait(provider, &op, &format!("{} {}", action.as_str(), r.name)).await
+impl From<StoreError> for Failure {
+    fn from(e: StoreError) -> Self {
+        Failure::Store(e)
+    }
 }
 
-/// Copies every volume to the target member (those already there are left), then moves the
-/// stopped instance.
-async fn relocate(provider: &Provider, r: &MoveRequest) -> Result<(), AdapterError> {
-    for v in &r.volumes {
-        if provider
-            .volume(&r.project, &v.pool, Some(&r.target), &v.name)
-            .await?
-            .is_none()
-        {
-            provider
-                .copy_volume(
-                    &r.project,
-                    &v.pool,
-                    Some(&r.from),
-                    &v.name,
-                    &r.application,
-                    None,
-                    &v.pool,
-                    Some(&r.target),
-                    &v.name,
-                    None,
-                )
-                .await?;
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Failure::Incus(e) => e.fmt(f),
+            Failure::Store(e) => e.fmt(f),
         }
     }
-    let op = provider
-        .move_instance(&r.project, &r.name, &r.target, false)
-        .await?;
-    wait(provider, &op, &format!("moving {}", r.name)).await
+}
+
+/// One attempt of a move job: what every step needs to call Incus and record its operations.
+struct Mover<'a> {
+    pool: &'a Pool,
+    provider: &'a Provider,
+    job: &'a ClaimedJob,
+    worker: &'a str,
+}
+
+impl Mover<'_> {
+    /// Waits on an operation this attempt started, recorded with the job first (fenced).
+    async fn wait(&self, op: &str, what: &str) -> Result<(), Failure> {
+        record_operation(self.pool, self.job, self.worker, Some(op)).await?;
+        tracing::info!(operation = %op, step = %what, "move: waiting on the Incus operation");
+        let outcome = self.provider.wait_operation(op, BUDGET).await?;
+        // Kept in the job's history; no longer the operation the attempt waits on.
+        record_operation(self.pool, self.job, self.worker, None).await?;
+        match outcome {
+            OperationOutcome::Succeeded => Ok(()),
+            OperationOutcome::Failed(e) => Err(Failure::Incus(AdapterError::Api {
+                status: 500,
+                message: format!("{what}: {e}"),
+            })),
+            OperationOutcome::StillRunning => Err(Failure::Incus(AdapterError::Api {
+                status: 504,
+                message: format!("{what} is still running"),
+            })),
+        }
+    }
+
+    async fn change(&self, r: &MoveRequest, action: InstanceAction) -> Result<(), Failure> {
+        let op = self
+            .provider
+            .change_state(&r.project, &r.name, action, false)
+            .await?;
+        self.wait(&op, &format!("{} {}", action.as_str(), r.name))
+            .await
+    }
+
+    /// Copies every volume to the target member (those already there are left), then moves the
+    /// stopped instance.
+    async fn relocate(&self, r: &MoveRequest) -> Result<(), Failure> {
+        let provider = self.provider;
+        for v in &r.volumes {
+            if provider
+                .volume(&r.project, &v.pool, Some(&r.target), &v.name)
+                .await?
+                .is_none()
+            {
+                provider
+                    .copy_volume(
+                        &r.project,
+                        &v.pool,
+                        Some(&r.from),
+                        &v.name,
+                        &r.application,
+                        None,
+                        &v.pool,
+                        Some(&r.target),
+                        &v.name,
+                        None,
+                    )
+                    .await?;
+            }
+        }
+        let op = provider
+            .move_instance(&r.project, &r.name, &r.target, false)
+            .await?;
+        self.wait(&op, &format!("moving {}", r.name)).await
+    }
 }
 
 pub async fn run(
     pool: &Pool,
     provider: &Provider,
-    payload: &serde_json::Value,
+    job: &ClaimedJob,
+    worker: &str,
 ) -> Result<Outcome, StoreError> {
-    let r: MoveRequest = match serde_json::from_value(payload.clone()) {
+    let mover = Mover {
+        pool,
+        provider,
+        job,
+        worker,
+    };
+    let r: MoveRequest = match serde_json::from_value(job.payload.clone()) {
         Ok(r) => r,
         Err(e) => return Ok(Outcome::Rejected(format!("invalid payload: {e}"))),
     };
@@ -124,7 +178,8 @@ pub async fn run(
         tracing::debug!(instance = %format!("{}/{}", r.project, r.name), member = %now.location, status = %now.status, from = %r.from, to = %r.target, live = r.live, "move: deciding the next step");
         if now.location == r.target {
             if r.start_after && now.status != "Running" {
-                if let Err(e) = change(provider, &r, InstanceAction::Start).await {
+                if let Err(e) = mover.change(&r, InstanceAction::Start).await {
+                    let e = incus_only(e)?;
                     return Ok(Outcome::Failed(format!(
                         "{} moved to {} but did not start: {e}; its old volumes are kept on {}",
                         r.name, r.target, r.from
@@ -148,7 +203,8 @@ pub async fn run(
             }
             tracing::info!(instance = %format!("{}/{}", r.project, r.name), from = %r.from, to = %r.target, live = r.live, volumes = r.volumes.len(), "move: finished");
             audit(pool, "worker", "instance.moved", &format!("{}/{}", r.project, r.name),
-                &json!({ "application": r.application, "from": r.from, "to": r.target, "live": r.live, "volumes": r.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>() }))
+                &json!({ "application": r.application, "from": r.from, "to": r.target, "live": r.live, "volumes": r.volumes.iter().map(|v| v.name.clone()).collect::<Vec<_>>(),
+                         "jobId": job.id, "requestId": job.request_id }))
                 .await?;
             return Ok(Outcome::Succeeded);
         }
@@ -163,25 +219,27 @@ pub async fn run(
                 let op = provider
                     .move_instance(&r.project, &r.name, &r.target, true)
                     .await?;
-                wait(provider, &op, &format!("moving {} live", r.name)).await
+                mover.wait(&op, &format!("moving {} live", r.name)).await
             }
             .await;
             if let Err(e) = moved {
-                return Ok(Outcome::Failed(e.to_string()));
+                return Ok(Outcome::Failed(incus_only(e)?.to_string()));
             }
             continue;
         }
         if now.status == "Running" {
-            if let Err(e) = change(provider, &r, InstanceAction::Stop).await {
-                return Ok(Outcome::Failed(e.to_string()));
+            if let Err(e) = mover.change(&r, InstanceAction::Stop).await {
+                return Ok(Outcome::Failed(incus_only(e)?.to_string()));
             }
             continue;
         }
-        if let Err(e) = relocate(provider, &r).await {
+        if let Err(e) = mover.relocate(&r).await {
+            let e = incus_only(e)?;
             // Back to where it was, running if it was.
             if r.start_after
-                && let Err(start) = change(provider, &r, InstanceAction::Start).await
+                && let Err(start) = mover.change(&r, InstanceAction::Start).await
             {
+                let start = incus_only(start)?;
                 tracing::warn!(instance = %r.name, error = %start, "move failed and the instance did not start again where it was");
             }
             tracing::warn!(instance = %format!("{}/{}", r.project, r.name), from = %r.from, to = %r.target, error = %e, "move: relocation failed; the instance stays where it was");
@@ -195,6 +253,14 @@ pub async fn run(
         "moving {} did not finish in {MAX_STEPS} steps",
         r.name
     )))
+}
+
+/// An Incus failure, to report as the attempt's outcome; a store failure ends the attempt.
+fn incus_only(f: Failure) -> Result<AdapterError, StoreError> {
+    match f {
+        Failure::Incus(e) => Ok(e),
+        Failure::Store(e) => Err(e),
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +307,13 @@ mod tests {
         drain(&pool, &provider).await;
         let j = get_job(&pool, id).await.expect("job");
         assert_eq!(j.status, "succeeded", "{:?}", j.last_error);
+        assert_eq!(
+            j.incus_operations.len(),
+            3,
+            "stop, move and start are recorded with the job: {:?}",
+            j.incus_operations
+        );
+        assert_eq!(j.external_operation, None, "nothing is waited on any more");
         let now = provider
             .instance("apelora", "shop-db-01")
             .await
@@ -270,7 +343,7 @@ mod tests {
                 .await
                 .expect("audit")
                 .iter()
-                .any(|e| e.action == "instance.moved")
+                .any(|e| e.action == "instance.moved" && e.detail["jobId"] == json!(id))
         );
     }
 

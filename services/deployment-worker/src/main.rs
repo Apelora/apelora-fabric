@@ -60,6 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_secs(every),
             Duration::from_secs(recover_after),
             health,
+            worker.clone(),
         ))
     });
     // Scheduled snapshots and backups of volumes, checked every minute; backups go to the pool

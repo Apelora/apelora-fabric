@@ -12,7 +12,9 @@
 
 use apelora_incus_adapter::Provider;
 use apelora_persistence::lifecycle::{get_operation, update_operation};
-use apelora_persistence::{ClaimedJob, Outcome, Pool, StoreError, enqueue_job, job_status};
+use apelora_persistence::{
+    ClaimedJob, Outcome, Pool, StoreError, enqueue_job_for_request, job_status,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -100,16 +102,18 @@ pub async fn run(
         "Stopped"
     };
 
-    // First look at this phase: queue the instance jobs.
+    // First look at this phase: queue the instance jobs, under the request that asked for the
+    // operation.
     if phases[at].state == "pending" {
         for (i, s) in phases[at].steps.iter_mut().enumerate() {
             let key = format!("application.operation:{op_id}:{at}:{i}");
-            let id = enqueue_job(
+            let id = enqueue_job_for_request(
                 pool,
                 kind,
                 Some(op.application_id),
                 &json!({ "project": s.project, "name": s.name }),
                 Some(&key),
+                job.request_id.as_deref(),
             )
             .await?
             .id();
