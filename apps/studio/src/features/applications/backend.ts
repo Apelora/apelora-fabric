@@ -81,6 +81,9 @@ export const useBackend = create<BackendState>((set, get) => ({
     }
   },
   disconnect: () => {
+    // Ends an Apelora session on the server (the request takes the token before it is forgotten
+    // here); other credentials are untouched there. The tab forgets the token either way.
+    void client.request("sign_out", {}).catch(() => undefined);
     writeToken(null);
     set({ backend: local, who: null, reason: "Signed out of the control plane.", status: "ready" });
   },

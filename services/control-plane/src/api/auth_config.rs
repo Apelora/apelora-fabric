@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Sign-in configured in the Fabric Console: the OpenID Connect identity providers whose tokens
-//! this control plane accepts, and whether API tokens are accepted.
+//! this control plane accepts, whether API tokens are accepted, and whether local accounts
+//! (username and password, see `sessions_auth`) are.
 //!
 //! Providers set by environment variables (`APELORA_OIDC_*`) keep working and are shown
 //! read-only; providers saved here are added to them and applied without a restart: every save
 //! reloads the verifiers. A token is checked by the provider that issued it (`iss`). Changing
-//! these settings needs `platform.security.manage` and is audited. Two guards stop an
-//! administrator from locking everyone out: API tokens are not turned off unless an identity
-//! provider that answers is enabled, and not by someone signed in with an API token.
+//! these settings needs `platform.security.manage` and is audited. Guards stop an administrator
+//! from locking everyone out: API tokens, the last answering provider and local accounts are
+//! not turned off unless another way in remains (an answering provider, API tokens, or local
+//! accounts that are on with at least one account set up), and not by someone signed in that way.
 
 use std::sync::Arc;
 
@@ -43,6 +45,8 @@ pub struct AuthRuntime {
     pub providers: Vec<RuntimeProvider>,
     /// `None` until someone saves the setting: API tokens are accepted.
     pub api_tokens: Option<bool>,
+    /// Sign-in with local accounts (default off).
+    pub local_accounts: bool,
 }
 
 impl AppState {
@@ -89,6 +93,21 @@ impl AppState {
     /// Whether API tokens are accepted: never when the environment turned them off.
     pub(super) fn api_tokens_accepted(&self) -> bool {
         self.legacy_tokens && self.runtime().api_tokens.unwrap_or(true)
+    }
+
+    /// Whether people may sign in with a local account (username and password).
+    pub(super) fn local_accounts_enabled(&self) -> bool {
+        self.runtime().local_accounts
+    }
+
+    /// Whether an identity provider other than `leaving` is enabled and answers.
+    fn providers_answer(&self, leaving: Option<Uuid>) -> bool {
+        self.oidc.is_some()
+            || self
+                .runtime()
+                .providers
+                .iter()
+                .any(|x| x.record.enabled && x.verifier.is_some() && Some(x.record.id) != leaving)
     }
 
     /// The providers people can sign in with from a browser.
@@ -170,9 +189,14 @@ pub async fn reload(state: &AppState) -> Result<(), ApiError> {
     let api_tokens = db::setting(pool, API_TOKENS)
         .await?
         .and_then(|v| v.as_bool());
+    let local_accounts = db::setting(pool, super::sessions_auth::LOCAL_ACCOUNTS)
+        .await?
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     tracing::info!(
         providers = providers.len(),
         api_tokens = ?api_tokens,
+        local_accounts,
         "sign-in settings loaded"
     );
     *state
@@ -181,6 +205,7 @@ pub async fn reload(state: &AppState) -> Result<(), ApiError> {
         .unwrap_or_else(|e| e.into_inner()) = Arc::new(AuthRuntime {
         providers,
         api_tokens,
+        local_accounts,
     });
     Ok(())
 }
@@ -250,6 +275,7 @@ pub struct ApiTokenSetting {
 pub struct SignInSettings {
     pub providers: Vec<ProviderView>,
     pub api_tokens: ApiTokenSetting,
+    pub local_accounts: super::sessions_auth::LocalAccountSetting,
     /// Directories (LDAP with TLS), each checked with a TLS connection now.
     pub directories: Vec<super::directories::DirectoryView>,
 }
@@ -395,7 +421,14 @@ fn view(p: &RuntimeProvider) -> ProviderView {
     }
 }
 
-fn settings(state: &AppState) -> SignInSettings {
+fn api_token_setting(state: &AppState) -> ApiTokenSetting {
+    ApiTokenSetting {
+        enabled: state.api_tokens_accepted(),
+        locked_by_environment: !state.legacy_tokens,
+    }
+}
+
+async fn settings(state: &AppState) -> Result<SignInSettings, ApiError> {
     let mut providers: Vec<ProviderView> = Vec::new();
     if let Some(v) = &state.oidc {
         let c = v.config();
@@ -420,20 +453,18 @@ fn settings(state: &AppState) -> SignInSettings {
         });
     }
     providers.extend(state.runtime().providers.iter().map(view));
-    SignInSettings {
+    Ok(SignInSettings {
         providers,
-        api_tokens: ApiTokenSetting {
-            enabled: state.api_tokens_accepted(),
-            locked_by_environment: !state.legacy_tokens,
-        },
+        api_tokens: api_token_setting(state),
+        local_accounts: super::sessions_auth::local_setting(state).await?,
         directories: Vec::new(),
-    }
+    })
 }
 
 const MANAGE: &str = "platform.security.manage";
 
-/// Sign-in settings: identity providers (saved and from the environment) and whether API
-/// tokens are accepted. Needs `platform.security.manage`.
+/// Sign-in settings: identity providers (saved and from the environment), whether API tokens
+/// are accepted, and local accounts. Needs `platform.security.manage`.
 #[utoipa::path(get, path = "/api/v1/identity/sign-in", tag = "identity", operation_id = "sign_in_settings",
     responses((status = 200, body = SignInSettings), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
 pub(super) async fn get_settings(
@@ -441,7 +472,7 @@ pub(super) async fn get_settings(
     Extension(p): Extension<Principal>,
 ) -> Result<Json<SignInSettings>, ApiError> {
     allow_platform(&p, MANAGE)?;
-    let mut s = settings(&state);
+    let mut s = settings(&state).await?;
     s.directories = super::directories::views(&state).await?;
     Ok(Json(s))
 }
@@ -596,7 +627,7 @@ pub(super) async fn update(
         )
     })?;
     if existing.enabled && !input.enabled {
-        lockout_guard(&state, &p, Some(id))?;
+        lockout_guard(&state, Some(id)).await?;
     }
     Ok(Json(save(&state, &p, &headers, Some(id), input).await?))
 }
@@ -637,7 +668,7 @@ pub(super) async fn delete(
         ));
     }
     if existing.enabled {
-        lockout_guard(&state, &p, Some(id))?;
+        lockout_guard(&state, Some(id)).await?;
     }
     let approval = guard(
         &state,
@@ -661,25 +692,32 @@ pub(super) async fn delete(
 }
 
 /// Refuses a change that would leave nobody able to sign in: removing or disabling `leaving`
-/// while API tokens are off and no other provider answers.
-fn lockout_guard(state: &AppState, p: &Principal, leaving: Option<Uuid>) -> Result<(), ApiError> {
-    if state.api_tokens_accepted() {
+/// while API tokens are off, no other provider answers and local accounts are no way in (off,
+/// or none set up).
+async fn lockout_guard(state: &AppState, leaving: Option<Uuid>) -> Result<(), ApiError> {
+    if state.api_tokens_accepted() || state.providers_answer(leaving) {
         return Ok(());
     }
-    let others = state.oidc.is_some()
-        || state
-            .runtime()
-            .providers
-            .iter()
-            .any(|x| x.record.enabled && x.verifier.is_some() && Some(x.record.id) != leaving);
-    if others {
+    if super::sessions_auth::local_way_in(state).await? {
         return Ok(());
     }
-    let _ = p;
     Err(ApiError::new(
         StatusCode::CONFLICT,
         "would_lock_out",
-        "nothing was changed: API tokens are off and no other identity provider answers, so nobody could sign in",
+        "nothing was changed: API tokens are off, no other identity provider answers and no local account can sign in, so nobody could sign in",
+    ))
+}
+
+/// Refuses turning local accounts off while they are the only way in: API tokens are off and no
+/// identity provider answers.
+pub(super) fn guard_leaving_local_accounts(state: &AppState) -> Result<(), ApiError> {
+    if state.api_tokens_accepted() || state.providers_answer(None) {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        StatusCode::CONFLICT,
+        "would_lock_out",
+        "nothing was changed: API tokens are off and no identity provider answers, so without local accounts nobody could sign in",
     ))
 }
 
@@ -688,9 +726,10 @@ pub struct ApiTokensRequest {
     pub enabled: bool,
 }
 
-/// Turns API tokens on or off. Turning them off is refused while no identity provider that
-/// answers is enabled, and for someone signed in with an API token (they would lock themselves
-/// out). Needs `platform.security.manage`; audited.
+/// Turns API tokens on or off. Turning them off is refused while no other way in remains (an
+/// identity provider that answers, or local accounts that are on with at least one account set
+/// up), and for someone signed in with an API token (they would lock themselves out). Needs
+/// `platform.security.manage`; audited.
 #[utoipa::path(put, path = "/api/v1/identity/sign-in/api-tokens", tag = "identity", operation_id = "set_api_tokens",
     request_body = ApiTokensRequest,
     responses((status = 200, body = ApiTokenSetting), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
@@ -717,17 +756,11 @@ pub(super) async fn set_api_tokens(
                 "you signed in with an API token: sign in with your identity provider first, then turn API tokens off",
             ));
         }
-        let answering = state.oidc.is_some()
-            || state
-                .runtime()
-                .providers
-                .iter()
-                .any(|x| x.record.enabled && x.verifier.is_some());
-        if !answering {
+        if !state.providers_answer(None) && !super::sessions_auth::local_way_in(&state).await? {
             return Err(ApiError::new(
                 StatusCode::CONFLICT,
                 "would_lock_out",
-                "nothing was changed: no identity provider that answers is enabled, so nobody could sign in",
+                "nothing was changed: no identity provider that answers is enabled and no local account can sign in, so nobody could sign in",
             ));
         }
     }
@@ -747,7 +780,7 @@ pub(super) async fn set_api_tokens(
         &json!({ "approval": approval }),
     )
     .await?;
-    Ok(Json(settings(&state).api_tokens))
+    Ok(Json(api_token_setting(&state)))
 }
 
 #[cfg(test)]

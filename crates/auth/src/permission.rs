@@ -246,7 +246,10 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         "platform.emergency_access",
         "Grant time-limited emergency access",
     ),
-    s("user.manage", "Disable users and see every user"),
+    s(
+        "user.manage",
+        "Create and reset local accounts, disable users and see every user",
+    ),
 ];
 
 pub fn permission(id: &str) -> Option<&'static PermissionDef> {

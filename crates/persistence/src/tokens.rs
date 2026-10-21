@@ -22,18 +22,24 @@ pub struct TokenRecord {
     pub last_used_at: Option<OffsetDateTime>,
 }
 
-fn hash(token: &str) -> Vec<u8> {
+/// SHA-256 of a token: what is stored for API tokens, sessions and setup links.
+pub(crate) fn hash(token: &str) -> Vec<u8> {
     Sha256::digest(token.as_bytes()).to_vec()
 }
 
-fn new_secret() -> Result<String> {
+/// `prefix` followed by 256 random bits as 64 hex characters.
+pub(crate) fn random_secret(prefix: &str) -> Result<String> {
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes)
         .map_err(|e| StoreError::Conflict(format!("no secure randomness available: {e}")))?;
     Ok(format!(
-        "{PREFIX}{}",
+        "{prefix}{}",
         bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
     ))
+}
+
+fn new_secret() -> Result<String> {
+    random_secret(PREFIX)
 }
 
 /// Creates a token and returns it with its record. The plaintext exists only in the return value.

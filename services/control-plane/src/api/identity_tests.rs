@@ -132,7 +132,7 @@ impl Lab {
     }
 }
 
-fn new_assignment(user: Uuid, role: Builtin, scope: Scope) -> db::NewAssignment {
+pub(super) fn new_assignment(user: Uuid, role: Builtin, scope: Scope) -> db::NewAssignment {
     db::NewAssignment {
         principal: PrincipalRef::User { id: user },
         role: RoleRef::Builtin {
@@ -472,7 +472,14 @@ async fn every_route_has_an_access_rule_so_a_new_route_is_denied_until_someone_d
     let mut seen = 0;
     for (path, item) in doc["paths"].as_object().expect("paths") {
         // Public: what any visitor needs before signing in.
-        if path == "/api/v1/health" || path == "/api/v1/openapi.json" || path == "/api/v1/sign-in" {
+        if matches!(
+            path.as_str(),
+            "/api/v1/health"
+                | "/api/v1/openapi.json"
+                | "/api/v1/sign-in"
+                | "/api/v1/sign-in/password"
+                | "/api/v1/sign-in/setup"
+        ) {
             continue;
         }
         for method in item.as_object().expect("item").keys() {

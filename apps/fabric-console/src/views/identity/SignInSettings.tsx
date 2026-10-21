@@ -133,7 +133,7 @@ function ProviderDialog({ open, editing, onAuth, onClose, onSaved }: { open: boo
 }
 
 /**
- * Identity & Access → Sign-in: the identity providers people sign in with, and whether API
+ * Identity & Access → Sign-in: the identity providers people sign in with, local accounts, and whether API
  * tokens are accepted. Changes apply at once; the server refuses any that would lock everyone out.
  */
 export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) {
@@ -141,7 +141,14 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
   const [dialog, setDialog] = useState<{ editing: ProviderView | null } | null>(null);
   const [toDelete, setToDelete] = useState<ProviderView | null>(null);
   const [tokensOff, setTokensOff] = useState(false);
+  const [localOff, setLocalOff] = useState(false);
   const action = useRun(onAuth);
+  const local = useRun(onAuth);
+
+  const setLocal = (enabled: boolean) => void local.run(async () => {
+    await client.request("set_local_accounts", { body: { enabled } });
+    reload();
+  });
 
   const setTokens = (enabled: boolean) => void action.run(async () => {
     await client.request("set_api_tokens", { body: { enabled } });
@@ -197,6 +204,25 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
             </TableFrame>
           )}
 
+          {/* An older control plane does not report local accounts: leave the section out. */}
+          {s.localAccounts && ((la) => (
+            <section className="flex flex-col gap-2 rounded-box border border-base-300 p-4" aria-labelledby="local-accounts-title" data-testid="local-accounts-setting">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="local-accounts-title" className="text-sm font-semibold">Local accounts</h2>
+                {la.enabled ? <Badge tone="ok">On</Badge> : <Badge tone="neutral">Off</Badge>}
+              </div>
+              <p className="text-sm text-base-content/70" data-testid="local-accounts-summary">
+                {la.enabled
+                  ? `People sign in with a username and password kept by Apelora. ${la.ready} ${la.ready === 1 ? "account can" : "accounts can"} sign in${la.pending ? `; ${la.pending} ${la.pending === 1 ? "is" : "are"} waiting for setup` : ""}.`
+                  : "Off. Turn this on to let people sign in with a username and password kept by Apelora. You create their accounts under Users."}
+              </p>
+              {local.error && <ErrorPanel message={local.error} testId="local-accounts-error" />}
+              <button type="button" className="btn btn-sm btn-outline self-start" disabled={local.busy} onClick={() => (la.enabled ? setLocalOff(true) : setLocal(true))} data-testid="local-accounts-toggle">
+                {local.busy && <span className="loading loading-spinner loading-xs" aria-hidden="true" />}
+                {la.enabled ? "Turn off local accounts…" : "Turn on local accounts"}
+              </button>
+            </section>
+          ))(s.localAccounts)}
           <DirectoriesSection directories={s.directories ?? []} onAuth={onAuth} reload={reload} />
 
           <section className="flex flex-col gap-2 rounded-box border border-base-300 p-4" data-testid="api-tokens-setting">
@@ -206,7 +232,7 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
                 ? "Turned off by the control plane's environment (APELORA_LEGACY_TOKENS=disabled)."
                 : s.apiTokens.enabled
                   ? "Accepted. Once people sign in with a provider, turn them off; automation uses a service identity."
-                  : "Turned off. People sign in with a provider; automation uses a service identity."}
+                  : "Turned off. People sign in with a provider or a local account; automation uses a service identity."}
             </p>
             {!s.apiTokens.lockedByEnvironment && (
               <button type="button" className="btn btn-sm btn-outline self-start" disabled={action.busy} onClick={() => (s.apiTokens.enabled ? setTokensOff(true) : setTokens(true))} data-testid="api-tokens-toggle">
@@ -228,10 +254,18 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
           <ConfirmDialog
             open={tokensOff}
             title="Turn off API tokens?"
-            body={<p>Every API token stops working at once. Only someone signed in with a provider can do this.</p>}
+            body={<p>Every API token stops working at once. Only someone signed in with a provider or a local account can do this.</p>}
             action="Turn off API tokens"
             onCancel={() => setTokensOff(false)}
             onConfirm={() => { setTokensOff(false); setTokens(false); }}
+          />
+          <ConfirmDialog
+            open={localOff}
+            title="Turn off local accounts?"
+            body={<p>Nobody can sign in with a username and password, and everyone signed in that way is signed out at once. The accounts stay; turn this on again to use them.</p>}
+            action="Turn off local accounts"
+            onCancel={() => setLocalOff(false)}
+            onConfirm={() => { setLocalOff(false); setLocal(false); }}
           />
         </>
       )}

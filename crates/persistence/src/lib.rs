@@ -16,9 +16,11 @@ pub mod directories;
 mod health;
 pub mod identity;
 pub mod lifecycle;
+pub mod local_accounts;
 mod machines;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
+pub mod user_sessions;
 mod volumes;
 pub use machines::{
     MachineRecord, admit_machine, approve_machine, machine, machines, register_machine,

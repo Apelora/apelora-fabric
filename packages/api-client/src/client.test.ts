@@ -194,6 +194,8 @@ describe("api client", () => {
       "POST /api/v1/identity/assignments/preview",
       "POST /api/v1/identity/emergency-access",
       "POST /api/v1/identity/groups",
+      "POST /api/v1/identity/local-accounts",
+      "POST /api/v1/identity/local-accounts/{id}/reset",
       "POST /api/v1/identity/organizations",
       "POST /api/v1/identity/organizations/{org}/projects",
       "POST /api/v1/identity/projects/{project}/environments",
@@ -213,13 +215,18 @@ describe("api client", () => {
       "POST /api/v1/machines",
       "POST /api/v1/machines/{name}/admit",
       "POST /api/v1/machines/{name}/approve",
+      "POST /api/v1/sign-in/password",
+      "POST /api/v1/sign-in/setup",
+      "POST /api/v1/sign-out",
       "POST /api/v1/tokens",
       "PUT /api/v1/applications/{name}/draft",
       "PUT /api/v1/identity/groups/{group}/members/{user}",
       "PUT /api/v1/identity/policies",
       "PUT /api/v1/identity/sign-in/api-tokens",
       "PUT /api/v1/identity/sign-in/directories/{id}",
+      "PUT /api/v1/identity/sign-in/local-accounts",
       "PUT /api/v1/identity/sign-in/providers/{id}",
+      "PUT /api/v1/me/password",
     ]);
   });
 });

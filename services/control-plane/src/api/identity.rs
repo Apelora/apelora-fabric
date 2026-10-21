@@ -234,7 +234,7 @@ pub struct UserDto {
 pub struct UserList {
     pub items: Vec<UserDto>,
 }
-fn user_dto(u: db::UserRow) -> UserDto {
+pub(super) fn user_dto(u: db::UserRow) -> UserDto {
     UserDto {
         id: u.id,
         username: u.username,
@@ -881,7 +881,7 @@ async fn set_disabled(
             "you cannot disable your own account",
         ));
     }
-    db::set_user_disabled(pool, id, disabled).await?;
+    let revoked = db::set_user_disabled(pool, id, disabled).await?;
     audit_scoped(
         pool,
         p,
@@ -893,13 +893,18 @@ async fn set_disabled(
         &id.to_string(),
         "success",
         None,
-        &json!({}),
+        &if disabled {
+            json!({ "revokedSessions": revoked })
+        } else {
+            json!({})
+        },
     )
     .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Disables a person: their tokens stop working at once. Needs `user.manage`.
+/// Disables a person: their tokens and Apelora sessions stop working at once. Needs
+/// `user.manage`.
 #[utoipa::path(post, path = "/api/v1/identity/users/{user}/disable", tag = "identity", operation_id = "disable_user",
     params(("user" = Uuid, Path, description = "User id")),
     responses((status = 204), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]

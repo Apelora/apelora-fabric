@@ -144,7 +144,7 @@ export type AuditItem = {
   action: string;
   /** Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`. */
   actor: string;
-  /** `user`, `service`, `token`, `development`, `cli` or `system`. */
+  /** `user`, `service`, `token`, `development`, `cli`, `system`, or `anonymous` (a failed password sign-in for an unknown username). */
   actorType: string;
   /** RFC 3339 timestamp. */
   at: string;
@@ -766,6 +766,41 @@ export type KindAccess = {
 /** How wide a scope is. Lower is wider. `Pool` is a separate branch under the platform. */
 export type Level = "platform" | "organization" | "project" | "application" | "pool";
 
+export type LocalAccountCreated = {
+  /** RFC 3339. */
+  setupExpiresAt: string;
+  /** The one-time setup token; put it in the link `#/set-password?token=…`. Shown only here. */
+  setupToken: string;
+  user: UserDto;
+};
+
+export type LocalAccountInput = {
+  displayName?: string | null;
+  email?: string | null;
+  /** 2 to 64 of `a-z 0-9 . _ -` (stored lowercase). */
+  username: string;
+};
+
+export type LocalAccountSetting = {
+  /** Whether people may sign in with a local account (default off). */
+  enabled: boolean;
+  /** Local accounts whose setup link has not been used yet. */
+  pending: number;
+  /** Local accounts with a password that are not disabled: they can sign in. */
+  ready: number;
+};
+
+export type LocalAccountSetupLink = {
+  /** RFC 3339. */
+  setupExpiresAt: string;
+  /** The one-time setup token. Shown only here. */
+  setupToken: string;
+};
+
+export type LocalAccountsRequest = {
+  enabled: boolean;
+};
+
 export type Machine = {
   admittedAt?: string | null;
   admittedBy?: string | null;
@@ -1020,6 +1055,33 @@ export type Owner = {
   application: string;
   module: string;
   replica?: number;
+};
+
+export type PasswordChangeRequest = {
+  current: string;
+  new: string;
+};
+
+export type PasswordSetupRequest = {
+  password: string;
+  /** The token from the setup link. */
+  token: string;
+};
+
+export type PasswordSignInRequest = {
+  /** Sign in against this directory instead of a local account. */
+  directory?: string | null;
+  password: string;
+  username: string;
+};
+
+export type PasswordSignInResult = {
+  /** RFC 3339; the session also ends after an hour without use. */
+  expiresAt: string;
+  /** The person's display name, or their username. */
+  name: string;
+  /** The session token (`apu_…`), sent as `Authorization: Bearer`. Shown only here. */
+  token: string;
 };
 
 /** A join token that has been issued and not yet used, revoked or expired (no secret). */
@@ -1403,6 +1465,8 @@ export type SignInOptions = {
   apiTokens: boolean;
   /** Directories people can sign in with (username and password), enabled ones only. */
   directories: DirectoryOption[];
+  /** Whether people can sign in with a local account (username and password). */
+  localAccounts: boolean;
   /** The organisation's identity providers people can sign in with, in order. */
   providers: OidcSignIn[];
 };
@@ -1411,6 +1475,7 @@ export type SignInSettings = {
   apiTokens: ApiTokenSetting;
   /** Directories (LDAP with TLS), each checked with a TLS connection now. */
   directories: DirectoryView[];
+  localAccounts: LocalAccountSetting;
   providers: ProviderView[];
 };
 
@@ -1588,6 +1653,8 @@ export type WhoAmI = {
   id?: string | null;
   /** `user` (OIDC sign-in), `service` (automation identity), `legacy-token` or `development`. */
   kind: string;
+  /** Signed in with a local account (username and password): may change their password here. */
+  localAccount: boolean;
   name: string;
   /** What the older, coarse permissions amount to for this caller at platform level. */
   permissions: Permission[];
@@ -1654,6 +1721,8 @@ export const operations = {
   group_members: { method: "GET", path: "/api/v1/identity/groups/{group}/members", params: ["group"], public: false },
   add_group_member: { method: "PUT", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
   remove_group_member: { method: "DELETE", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
+  create_local_account: { method: "POST", path: "/api/v1/identity/local-accounts", params: [], public: false },
+  reset_local_account: { method: "POST", path: "/api/v1/identity/local-accounts/{id}/reset", params: ["id"], public: false },
   organizations: { method: "GET", path: "/api/v1/identity/organizations", params: [], public: false },
   create_organization: { method: "POST", path: "/api/v1/identity/organizations", params: [], public: false },
   create_project: { method: "POST", path: "/api/v1/identity/organizations/{org}/projects", params: ["org"], public: false },
@@ -1679,6 +1748,7 @@ export const operations = {
   check_directory: { method: "POST", path: "/api/v1/identity/sign-in/directories/check", params: [], public: false },
   update_directory: { method: "PUT", path: "/api/v1/identity/sign-in/directories/{id}", params: ["id"], public: false },
   delete_directory: { method: "DELETE", path: "/api/v1/identity/sign-in/directories/{id}", params: ["id"], public: false },
+  set_local_accounts: { method: "PUT", path: "/api/v1/identity/sign-in/local-accounts", params: [], public: false },
   create_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/providers", params: [], public: false },
   update_identity_provider: { method: "PUT", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
   delete_identity_provider: { method: "DELETE", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
@@ -1701,12 +1771,16 @@ export const operations = {
   admit_machine: { method: "POST", path: "/api/v1/machines/{name}/admit", params: ["name"], public: false },
   withdraw_machine_approval: { method: "DELETE", path: "/api/v1/machines/{name}/approval", params: ["name"], public: false },
   approve_machine: { method: "POST", path: "/api/v1/machines/{name}/approve", params: ["name"], public: false },
+  change_password: { method: "PUT", path: "/api/v1/me/password", params: [], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   sign_in_options: { method: "GET", path: "/api/v1/sign-in", params: [], public: true },
+  sign_in_with_password: { method: "POST", path: "/api/v1/sign-in/password", params: [], public: true },
+  complete_password_setup: { method: "POST", path: "/api/v1/sign-in/setup", params: [], public: true },
+  sign_out: { method: "POST", path: "/api/v1/sign-out", params: [], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
   system: { method: "GET", path: "/api/v1/system", params: [], public: false },
   tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
@@ -1825,6 +1899,10 @@ export type Responses = {
   add_group_member: null;
   /** Removes a person from a group; their access through it ends on their next request. Needs `group.manage`. */
   remove_group_member: null;
+  /** Creates a local account and returns its one-time setup link, valid for 24 hours. The person chooses their password with it; nobody else ever knows it. Needs `user.manage`. */
+  create_local_account: LocalAccountCreated;
+  /** Takes a local account's password away, revokes every session of theirs and returns a new one-time setup link (24 hours). Not for your own account (use Change password). Needs `user.manage`. */
+  reset_local_account: LocalAccountSetupLink;
   /** Organisations the caller may see. Needs `organization.view` (or a grant below that reaches them). */
   organizations: OrganizationList;
   /** Creates an organisation. Needs `organization.create` (platform). */
@@ -1859,9 +1937,9 @@ export type Responses = {
   disable_service_identity: null;
   /** Re-enables a service identity. Needs `service_identity.manage`. */
   enable_service_identity: null;
-  /** Sign-in settings: identity providers (saved and from the environment) and whether API tokens are accepted. Needs `platform.security.manage`. */
+  /** Sign-in settings: identity providers (saved and from the environment), whether API tokens are accepted, and local accounts. Needs `platform.security.manage`. */
   sign_in_settings: SignInSettings;
-  /** Turns API tokens on or off. Turning them off is refused while no identity provider that answers is enabled, and for someone signed in with an API token (they would lock themselves out). Needs `platform.security.manage`; audited. */
+  /** Turns API tokens on or off. Turning them off is refused while no other way in remains (an identity provider that answers, or local accounts that are on with at least one account set up), and for someone signed in with an API token (they would lock themselves out). Needs `platform.security.manage`; audited. */
   set_api_tokens: ApiTokenSetting;
   /** Reads a provider's discovery document and key set, without saving anything: what an administrator checks before saving. Needs `platform.security.manage`. */
   check_identity_provider: ProviderCheck;
@@ -1875,6 +1953,8 @@ export type Responses = {
   update_directory: DirectoryView;
   /** Removes a directory: its people can no longer sign in with it; their accounts and roles in Apelora stay. Its name must be typed again. Needs `platform.security.manage`; audited. */
   delete_directory: null;
+  /** Turns sign-in with local accounts on or off. Turning it off is refused while nothing else would let people sign in, and for someone signed in with a local account. Turning it off also ends every password session. Needs `platform.security.manage`; audited. */
+  set_local_accounts: LocalAccountSetting;
   /** Adds an identity provider; it is checked and applied at once. Needs `platform.security.manage` (and an approval where the policy asks for one); audited. */
   create_identity_provider: ProviderView;
   /** Changes a provider saved in the Console. Needs `platform.security.manage`; audited. */
@@ -1885,7 +1965,7 @@ export type Responses = {
   users: UserList;
   /** Finds one person by exact user name or e-mail so a role can be given to them. Someone who has never signed in does not exist yet. Needs `role.assign` or `group.manage`. */
   lookup_user: UserList;
-  /** Disables a person: their tokens stop working at once. Needs `user.manage`. */
+  /** Disables a person: their tokens and Apelora sessions stop working at once. Needs `user.manage`. */
   disable_user: null;
   /** Re-enables a person. Needs `user.manage`. */
   enable_user: null;
@@ -1919,6 +1999,8 @@ export type Responses = {
   withdraw_machine_approval: null;
   /** Approves a machine: asks Incus for its single-use join token, returned only in this response with the command to run on the server. Needs `manage-infrastructure`; audited without the token. */
   approve_machine: MachineApproved;
+  /** Changes the caller's own password (local accounts only). Every other session of theirs is revoked; the one making the request stays. Counts towards the account's lock like a sign-in. */
+  change_password: null;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
   /** Read-only readiness checks of the Incus server or cluster and of the projects Apelora deploys into. Changes nothing. Needs `read-inventory`. */
@@ -1931,6 +2013,12 @@ export type Responses = {
   terminate_session: null;
   /** Public. How people can sign in to this control plane. */
   sign_in_options: SignInOptions;
+  /** Public. Signs a person in with a username and password and returns an Apelora session. Every refusal answers `invalid_credentials` (unknown, wrong, locked or disabled alike). Limited to 10 attempts a minute per client address. */
+  sign_in_with_password: PasswordSignInResult;
+  /** Public. Sets a local account's password with its one-time setup link (24 hours, single use). `setup_invalid` when the link was used, expired or is unknown; `weak_password` with the rule when the password does not follow it. */
+  complete_password_setup: null;
+  /** Ends the Apelora session the request was made with. With any other credential (an identity-provider or API token) there is nothing to end here: 204. */
+  sign_out: null;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
   /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
@@ -2001,6 +2089,8 @@ export type Bodies = {
   group_members: never;
   add_group_member: never;
   remove_group_member: never;
+  create_local_account: LocalAccountInput;
+  reset_local_account: never;
   organizations: never;
   create_organization: NewOrganization;
   create_project: NewProject;
@@ -2026,6 +2116,7 @@ export type Bodies = {
   check_directory: DirectoryCheckRequest;
   update_directory: DirectoryInput;
   delete_directory: ConfirmDirectory;
+  set_local_accounts: LocalAccountsRequest;
   create_identity_provider: ProviderInput;
   update_identity_provider: ProviderInput;
   delete_identity_provider: ConfirmProvider;
@@ -2048,12 +2139,16 @@ export type Bodies = {
   admit_machine: never;
   withdraw_machine_approval: never;
   approve_machine: never;
+  change_password: PasswordChangeRequest;
   networks: never;
   preflight: never;
   projects: never;
   sessions: never;
   terminate_session: never;
   sign_in_options: never;
+  sign_in_with_password: PasswordSignInRequest;
+  complete_password_setup: PasswordSetupRequest;
+  sign_out: never;
   storage_pools: never;
   system: never;
   tokens: never;

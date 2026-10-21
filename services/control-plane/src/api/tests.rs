@@ -2974,7 +2974,7 @@ async fn sign_in_options_are_public_and_name_the_identity_provider_only_when_set
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         body,
-        json!({ "providers": [], "apiTokens": true, "directories": [] })
+        json!({ "providers": [], "apiTokens": true, "localAccounts": false, "directories": [] })
     );
 
     let with_oidc = AppState::new(provider, Auth::Tokens(pool))

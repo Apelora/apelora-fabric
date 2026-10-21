@@ -66,3 +66,45 @@ test("a provider token the control plane refuses says why; a token can still be 
   await dialog.getByTestId("connect-submit").click();
   await expect(dialog.getByTestId("connect-error")).toHaveText("Paste an access token first.");
 });
+
+test("with local accounts on, the Studio signs in with a username and password", async ({ page }) => {
+  const session = `apu_${"c".repeat(64)}`;
+  let signIns = 0;
+  await page.route("**/api/**", async (route) => {
+    const req = route.request();
+    const p = new URL(req.url()).pathname;
+    if (p === "/api/v1/health") return route.fulfill({ json: { status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7" } } });
+    if (p === "/api/v1/sign-in") return route.fulfill({ json: { providers: [], apiTokens: true, localAccounts: true, directories: [] } });
+    if (p === "/api/v1/sign-in/password") {
+      signIns += 1;
+      await new Promise((r) => setTimeout(r, 300)); // hashing a password takes a moment
+      const b = JSON.parse(req.postData() ?? "{}") as { username: string; password: string };
+      return b.password === "right password here"
+        ? route.fulfill({ json: { token: session, expiresAt: "2026-10-21T08:00:00Z", name: "Rita" } })
+        : route.fulfill({ status: 401, json: { error: { code: "invalid_credentials", message: "The username or password is incorrect." } } });
+    }
+    if (p === "/api/v1/whoami") {
+      return req.headers()["authorization"] === `Bearer ${session}`
+        ? route.fulfill({ json: { name: "rita", role: null, permissions: [], deployProjects: [], capabilities: [], platformPermissions: [], localAccount: true } })
+        : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "a bearer token is required" } } });
+    }
+    if (p === "/api/v1/applications") return route.fulfill({ json: { items: [], observedAt: "2026-10-21T00:00:00Z", stale: false } });
+    return route.fulfill({ status: 404, json: { error: { code: "not_found", message: `no stub for ${p}` } } });
+  });
+  await page.goto("/studio/applications");
+  await page.getByTestId("source-chip").click();
+  const dialog = page.getByTestId("connect-dialog");
+  await expect(dialog.getByTestId("connect-username")).toBeFocused();
+  await expect(dialog.getByTestId("connect-token")).toHaveCount(0);
+  await expect(dialog.getByTestId("connect-use-token")).toBeVisible();
+  await dialog.getByTestId("connect-username").fill("rita");
+  await dialog.getByTestId("connect-password").fill("wrong password");
+  await dialog.getByTestId("connect-password-submit").click();
+  await expect(dialog.getByTestId("connect-error")).toHaveText("The username or password is incorrect.");
+  await dialog.getByTestId("connect-password").fill("right password here");
+  await dialog.getByTestId("connect-password").press("Enter");
+  await expect(page.getByTestId("source-chip")).toHaveAttribute("data-source", "api");
+  await expect(page.getByTestId("source-chip")).toContainText("Control plane · rita");
+  expect(signIns).toBe(2);
+  expect(await page.evaluate(() => sessionStorage.getItem("apelora.apiToken"))).toBe(session);
+});

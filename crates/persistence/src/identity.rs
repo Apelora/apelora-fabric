@@ -426,13 +426,21 @@ pub async fn find_user(pool: &PgPool, query: &str) -> Result<Option<UserRow>> {
     Ok(sqlx::query_as(&format!("SELECT {USER_COLS} FROM users WHERE lower(username) = lower($1) OR lower(email) = lower($1) ORDER BY created_at LIMIT 1")).bind(query).fetch_optional(pool).await?)
 }
 
-pub async fn set_user_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<()> {
-    let n = sqlx::query("UPDATE users SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(pool).await?.rows_affected();
+/// Disables or re-enables a person. Disabling also revokes every Apelora session they hold
+/// (password and directory sign-ins), in the same transaction; returns how many.
+pub async fn set_user_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<u64> {
+    let mut tx = pool.begin().await?;
+    let n = sqlx::query("UPDATE users SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(&mut *tx).await?.rows_affected();
     if n == 0 {
-        Err(StoreError::NotFound(format!("user {id}")))
-    } else {
-        Ok(())
+        return Err(StoreError::NotFound(format!("user {id}")));
     }
+    let revoked = if disabled {
+        crate::user_sessions::revoke_all_in(&mut tx, id, None).await?
+    } else {
+        0
+    };
+    tx.commit().await?;
+    Ok(revoked)
 }
 
 /// Users visible under the filter: everyone for a platform-wide grant, otherwise people who

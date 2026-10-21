@@ -20,7 +20,7 @@ const LAB = {
 };
 const DOWN = { ...LAB, id: uid(301), name: "Branch office", url: "ldap://ldap.branch.example.org:389", startTls: true, groupAttribute: null, groupBaseDn: "ou=groups,dc=branch", groupFilter: "(member={dn})", reachable: false, problem: "certificate-untrusted", error: "the directory's certificate is not trusted: add the certificate authority that signed it (PEM)" };
 const OLD = { ...LAB, id: uid(302), name: "Old forest", url: "ldaps://old.example.org", enabled: false, reachable: false, groupAttribute: null };
-const settings = (directories: unknown[]) => ({ json: { providers: [], apiTokens: { enabled: true, lockedByEnvironment: false }, directories } });
+const settings = (directories: unknown[]) => ({ json: { providers: [], apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: { enabled: false, ready: 0, pending: 0 }, directories } });
 const CHECK_OK = { json: { ok: true, problem: null, message: "signed in as ada and read the entry with 2 groups", entry: { dn: "uid=ada,ou=people,dc=example,dc=org", subject: "0b6a7c1e-1111-4c1a-9f00-000000000001", username: "ada", email: "ada@example.org", displayName: "Ada Admin", groups: ["dev-admins", "dev-operators"], mappedGroups: ["Platform admins"] } }, delayMs: 300 };
 
 test("lists directories with their status in words", async ({ page }) => {

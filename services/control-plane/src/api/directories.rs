@@ -634,13 +634,6 @@ pub(super) async fn check(
 
 /// A person the directory vouched for. `groups` are the directory's group names: they become
 /// the session's external groups and map onto Apelora groups by external name.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "called by POST /api/v1/sign-in/password, wired when local-account sessions land (ADR 0007)"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryIdentity {
     pub directory_id: Uuid,
@@ -657,13 +650,6 @@ pub struct DirectoryIdentity {
 
 /// The answer to a wrong username or password (and to an empty one): the same words as for
 /// local accounts, so the form does not reveal which part was wrong.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "called by POST /api/v1/sign-in/password, wired when local-account sessions land (ADR 0007)"
-    )
-)]
 pub(super) fn invalid_credentials() -> ApiError {
     ApiError::new(
         StatusCode::UNAUTHORIZED,
@@ -710,13 +696,6 @@ async fn audit_sign_in(
 /// a refused bind (or an empty password) is `401 invalid_credentials`; a directory that cannot
 /// be reached, or whose certificate fails its checks, is `503 directory_unreachable`; an entry
 /// that cannot be read after a good bind is `502 directory_entry_unreadable`.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "called by POST /api/v1/sign-in/password, wired when local-account sessions land (ADR 0007)"
-    )
-)]
 pub async fn verify_directory_sign_in(
     state: &AppState,
     directory_id: Uuid,
@@ -812,13 +791,6 @@ pub(super) async fn verify_within(
 /// Creates the person on their first directory sign-in (issuer: the directory's URL, subject:
 /// the entry's stable id) and refreshes their profile later. A disabled person is refused
 /// (`403 account_disabled`). Success is audited as `auth.directory.succeeded`.
-#[cfg_attr(
-    not(test),
-    allow(
-        dead_code,
-        reason = "called by POST /api/v1/sign-in/password, wired when local-account sessions land (ADR 0007)"
-    )
-)]
 pub async fn upsert_directory_user(
     state: &AppState,
     identity: &DirectoryIdentity,

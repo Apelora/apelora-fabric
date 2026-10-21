@@ -1,8 +1,16 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { FormDialog, Notice } from "./ui";
 
-export type OneTimeSecret = { title: string; what: string; value: string };
+export type OneTimeSecret = {
+  title: string;
+  what: string;
+  value: string;
+  /** Replaces the default advice (keep it in your secret store), e.g. for a link sent to a person. */
+  note?: ReactNode;
+  /** The closing button's label (default "I have stored it"). */
+  closeLabel?: string;
+};
 
 /**
  * Shows a secret the API returns exactly once. The value exists only in the parent's state while
@@ -17,7 +25,7 @@ export function SecretOnceDialog({ secret, onClose }: { secret: OneTimeSecret | 
       {secret && (
         <div className="flex flex-col gap-3">
           <Notice tone="warn" title="Shown only once">
-            Copy the {secret.what} now and keep it in your secret store. Apelora cannot show it again; if it is lost, create a new one.
+            {secret.note ?? <>Copy the {secret.what} now and keep it in your secret store. Apelora cannot show it again; if it is lost, create a new one.</>}
           </Notice>
           <label className="flex flex-col gap-1 text-sm">
             <span>{secret.what.charAt(0).toUpperCase() + secret.what.slice(1)}</span>
@@ -26,7 +34,7 @@ export function SecretOnceDialog({ secret, onClose }: { secret: OneTimeSecret | 
           {copied === "no" && <Notice tone="error">Your browser did not allow copying. Select the text above and copy it yourself.</Notice>}
           <div className="modal-action mt-0">
             <button type="button" className="btn btn-sm btn-outline" onClick={() => void navigator.clipboard.writeText(secret.value).then(() => setCopied("yes"), () => setCopied("no"))} data-testid="secret-copy">{copied === "yes" ? "Copied" : `Copy ${secret.what}`}</button>
-            <button type="button" className="btn btn-sm btn-primary" onClick={close} data-testid="secret-close">I have stored it</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={close} data-testid="secret-close">{secret.closeLabel ?? "I have stored it"}</button>
           </div>
         </div>
       )}

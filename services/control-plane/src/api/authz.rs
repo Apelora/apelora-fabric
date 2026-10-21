@@ -2,7 +2,8 @@
 //! Authentication results and authorisation checks for the API.
 //!
 //! Three kinds of caller reach the API:
-//! - a **person** with an OIDC access token (`Caller` of kind `User`),
+//! - a **person** with an OIDC access token or an Apelora session after a password sign-in
+//!   (`apu_…`, see `sessions_auth`) (`Caller` of kind `User`),
 //! - an **automation** service identity with an `aps_…` token (`Caller` of kind `Service`),
 //! - a **legacy API token** (`apl_…`), platform-wide and role-based, kept so existing set-ups
 //!   keep working until `APELORA_LEGACY_TOKENS=disabled`.
@@ -239,6 +240,21 @@ pub(super) fn holds_anywhere(p: &Principal, permission: &str) -> bool {
 /// refused.** Legacy tokens are checked by their handlers as before.
 pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/whoami", &[]),
+    // Ends the caller's own session; changes the caller's own password (local accounts only,
+    // checked by the handler).
+    ("POST", "/api/v1/sign-out", &[]),
+    ("PUT", "/api/v1/me/password", &[]),
+    ("POST", "/api/v1/identity/local-accounts", &["user.manage"]),
+    (
+        "POST",
+        "/api/v1/identity/local-accounts/{id}/reset",
+        &["user.manage"],
+    ),
+    (
+        "PUT",
+        "/api/v1/identity/sign-in/local-accounts",
+        &["platform.security.manage"],
+    ),
     (
         "GET",
         "/api/v1/applications/{name}/access",

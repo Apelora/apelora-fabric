@@ -184,7 +184,7 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await stub(page, {
       ...base(),
       "GET /api/v1/health": { json: consoleHealth },
-      "GET /api/v1/identity/sign-in": { json: { providers: PROVIDERS, apiTokens: { enabled: true, lockedByEnvironment: false } } },
+      "GET /api/v1/identity/sign-in": { json: { providers: PROVIDERS, apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: { enabled: false, ready: 0, pending: 0 } } },
       "POST /api/v1/identity/sign-in/check": { json: { authorizationEndpoint: `${EXAMPLE_CORP.issuer}/auth`, tokenEndpoint: `${EXAMPLE_CORP.issuer}/token`, jwksUri: `${EXAMPLE_CORP.issuer}/keys`, keys: 2 } },
     });
     await page.goto(`${CONSOLE}/#/identity/sign-in`);

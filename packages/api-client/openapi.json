@@ -3682,6 +3682,130 @@
         }
       }
     },
+    "/api/v1/identity/local-accounts": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Creates a local account and returns its one-time setup link, valid for 24 hours. The\nperson chooses their password with it; nobody else ever knows it. Needs `user.manage`.",
+        "operationId": "create_local_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalAccountInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalAccountCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/local-accounts/{id}/reset": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Takes a local account's password away, revokes every session of theirs and returns a new\none-time setup link (24 hours). Not for your own account (use Change password). Needs\n`user.manage`.",
+        "operationId": "reset_local_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "User id of the local account",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalAccountSetupLink"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/organizations": {
       "get": {
         "tags": [
@@ -4544,7 +4668,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Sign-in settings: identity providers (saved and from the environment) and whether API\ntokens are accepted. Needs `platform.security.manage`.",
+        "summary": "Sign-in settings: identity providers (saved and from the environment), whether API tokens\nare accepted, and local accounts. Needs `platform.security.manage`.",
         "operationId": "sign_in_settings",
         "responses": {
           "200": {
@@ -4585,7 +4709,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Turns API tokens on or off. Turning them off is refused while no identity provider that\nanswers is enabled, and for someone signed in with an API token (they would lock themselves\nout). Needs `platform.security.manage`; audited.",
+        "summary": "Turns API tokens on or off. Turning them off is refused while no other way in remains (an\nidentity provider that answers, or local accounts that are on with at least one account set\nup), and for someone signed in with an API token (they would lock themselves out). Needs\n`platform.security.manage`; audited.",
         "operationId": "set_api_tokens",
         "requestBody": {
           "content": {
@@ -5000,6 +5124,67 @@
         }
       }
     },
+    "/api/v1/identity/sign-in/local-accounts": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Turns sign-in with local accounts on or off. Turning it off is refused while nothing else\nwould let people sign in, and for someone signed in with a local account. Turning it off\nalso ends every password session. Needs `platform.security.manage`; audited.",
+        "operationId": "set_local_accounts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocalAccountsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocalAccountSetting"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/sign-in/providers": {
       "post": {
         "tags": [
@@ -5306,7 +5491,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Disables a person: their tokens stop working at once. Needs `user.manage`.",
+        "summary": "Disables a person: their tokens and Apelora sessions stop working at once. Needs\n`user.manage`.",
         "operationId": "disable_user",
         "parameters": [
           {
@@ -6713,6 +6898,70 @@
         }
       }
     },
+    "/api/v1/me/password": {
+      "put": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Changes the caller's own password (local accounts only). Every other session of theirs is\nrevoked; the one making the request stays. Counts towards the account's lock like a sign-in.",
+        "operationId": "change_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/networks": {
       "get": {
         "tags": [
@@ -6945,6 +7194,161 @@
         "security": [
           {}
         ]
+      }
+    },
+    "/api/v1/sign-in/password": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Public. Signs a person in with a username and password and returns an Apelora session.\nEvery refusal answers `invalid_credentials` (unknown, wrong, locked or disabled alike).\nLimited to 10 attempts a minute per client address.",
+        "operationId": "sign_in_with_password",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordSignInResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/sign-in/setup": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Public. Sets a local account's password with its one-time setup link (24 hours, single\nuse). `setup_invalid` when the link was used, expired or is unknown; `weak_password` with\nthe rule when the password does not follow it.",
+        "operationId": "complete_password_setup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/v1/sign-out": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Ends the Apelora session the request was made with. With any other credential (an\nidentity-provider or API token) there is nothing to end here: 204.",
+        "operationId": "sign_out",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/storage-pools": {
@@ -7775,7 +8179,7 @@
           },
           "actorType": {
             "type": "string",
-            "description": "`user`, `service`, `token`, `development`, `cli` or `system`."
+            "description": "`user`, `service`, `token`, `development`, `cli`, `system`, or `anonymous` (a failed\npassword sign-in for an unknown username)."
           },
           "at": {
             "type": "string",
@@ -9815,6 +10219,103 @@
           "pool"
         ]
       },
+      "LocalAccountCreated": {
+        "type": "object",
+        "required": [
+          "user",
+          "setupToken",
+          "setupExpiresAt"
+        ],
+        "properties": {
+          "setupExpiresAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "setupToken": {
+            "type": "string",
+            "description": "The one-time setup token; put it in the link `#/set-password?token=…`. Shown only here."
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserDto"
+          }
+        }
+      },
+      "LocalAccountInput": {
+        "type": "object",
+        "required": [
+          "username"
+        ],
+        "properties": {
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "username": {
+            "type": "string",
+            "description": "2 to 64 of `a-z 0-9 . _ -` (stored lowercase)."
+          }
+        }
+      },
+      "LocalAccountSetting": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "ready",
+          "pending"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether people may sign in with a local account (default off)."
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Local accounts whose setup link has not been used yet."
+          },
+          "ready": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Local accounts with a password that are not disabled: they can sign in."
+          }
+        }
+      },
+      "LocalAccountSetupLink": {
+        "type": "object",
+        "required": [
+          "setupToken",
+          "setupExpiresAt"
+        ],
+        "properties": {
+          "setupExpiresAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "setupToken": {
+            "type": "string",
+            "description": "The one-time setup token. Shown only here."
+          }
+        }
+      },
+      "LocalAccountsRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "Machine": {
         "type": "object",
         "required": [
@@ -10684,6 +11185,82 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "PasswordChangeRequest": {
+        "type": "object",
+        "required": [
+          "current",
+          "new"
+        ],
+        "properties": {
+          "current": {
+            "type": "string"
+          },
+          "new": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordSetupRequest": {
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "The token from the setup link."
+          }
+        }
+      },
+      "PasswordSignInRequest": {
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Sign in against this directory instead of a local account."
+          },
+          "password": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "PasswordSignInResult": {
+        "type": "object",
+        "required": [
+          "token",
+          "expiresAt",
+          "name"
+        ],
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "description": "RFC 3339; the session also ends after an hour without use."
+          },
+          "name": {
+            "type": "string",
+            "description": "The person's display name, or their username."
+          },
+          "token": {
+            "type": "string",
+            "description": "The session token (`apu_…`), sent as `Authorization: Bearer`. Shown only here."
           }
         }
       },
@@ -12086,6 +12663,7 @@
         "required": [
           "providers",
           "apiTokens",
+          "localAccounts",
           "directories"
         ],
         "properties": {
@@ -12099,6 +12677,10 @@
               "$ref": "#/components/schemas/DirectoryOption"
             },
             "description": "Directories people can sign in with (username and password), enabled ones only."
+          },
+          "localAccounts": {
+            "type": "boolean",
+            "description": "Whether people can sign in with a local account (username and password)."
           },
           "providers": {
             "type": "array",
@@ -12114,6 +12696,7 @@
         "required": [
           "providers",
           "apiTokens",
+          "localAccounts",
           "directories"
         ],
         "properties": {
@@ -12126,6 +12709,9 @@
               "$ref": "#/components/schemas/DirectoryView"
             },
             "description": "Directories (LDAP with TLS), each checked with a TLS connection now."
+          },
+          "localAccounts": {
+            "$ref": "#/components/schemas/LocalAccountSetting"
           },
           "providers": {
             "type": "array",
@@ -12680,7 +13266,8 @@
           "capabilities",
           "platformPermissions",
           "roles",
-          "deployProjects"
+          "deployProjects",
+          "localAccount"
         ],
         "properties": {
           "capabilities": {
@@ -12708,6 +13295,10 @@
           "kind": {
             "type": "string",
             "description": "`user` (OIDC sign-in), `service` (automation identity), `legacy-token` or `development`."
+          },
+          "localAccount": {
+            "type": "boolean",
+            "description": "Signed in with a local account (username and password): may change their password here."
           },
           "name": {
             "type": "string"
@@ -12751,7 +13342,7 @@
       "bearer": {
         "type": "http",
         "scheme": "bearer",
-        "description": "An OIDC access token from the identity provider, an automation service token (`aps_…`) or a legacy API token (`apl_…`)."
+        "description": "An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."
       }
     }
   },

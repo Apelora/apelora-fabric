@@ -64,6 +64,8 @@ pub struct AppState {
     console: Arc<sessions::ConsoleSettings>,
     /// Tickets and running interactive sessions (in this process's memory).
     sessions: Arc<sessions::Sessions>,
+    /// Password sign-in attempts per client address (in this process's memory).
+    sign_in_attempts: Arc<sessions_auth::Attempts>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -85,6 +87,7 @@ impl AppState {
             legacy_tokens: true,
             console: Arc::new(sessions::ConsoleSettings::default()),
             sessions: Arc::new(sessions::Sessions::default()),
+            sign_in_attempts: Arc::new(sessions_auth::Attempts::default()),
         }
     }
 
@@ -142,11 +145,27 @@ pub struct Principal {
     /// whose permissions come only from their role assignments (`caller`).
     pub role: Option<Role>,
     pub caller: Option<Arc<authz::Caller>>,
+    /// The Apelora session (password or directory sign-in) the request was made with.
+    pub session: Option<sessions_auth::SessionRef>,
 }
 
 pub fn router(state: AppState) -> Router {
     let protected = Router::new()
         .route("/api/v1/whoami", get(whoami))
+        .route("/api/v1/sign-out", post(sessions_auth::sign_out))
+        .route("/api/v1/me/password", put(sessions_auth::change_password))
+        .route(
+            "/api/v1/identity/local-accounts",
+            post(sessions_auth::create_local_account),
+        )
+        .route(
+            "/api/v1/identity/local-accounts/{id}/reset",
+            post(sessions_auth::reset_local_account),
+        )
+        .route(
+            "/api/v1/identity/sign-in/local-accounts",
+            put(sessions_auth::set_local_accounts),
+        )
         .route("/api/v1/cluster", get(cluster))
         .route(
             "/api/v1/instances",
@@ -418,6 +437,12 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
         .route("/api/v1/sign-in", get(sign_in))
+        // Public, limited per client address: how a person gets an Apelora session.
+        .route(
+            "/api/v1/sign-in/password",
+            post(sessions_auth::sign_in_password),
+        )
+        .route("/api/v1/sign-in/setup", post(sessions_auth::complete_setup))
         .route("/api/v1/openapi.json", get(openapi))
         // Authenticated by its single-use ticket instead of a bearer token (browsers cannot set
         // headers on a websocket); see `sessions`.
@@ -429,6 +454,7 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// API errors with a stable machine code and a readable message.
+#[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
     code: &'static str,
@@ -644,7 +670,11 @@ async fn resolve_principal(
             name,
             role: None,
             caller: Some(caller),
+            session: None,
         });
+    }
+    if token.starts_with(apelora_persistence::user_sessions::PREFIX) {
+        return sessions_auth::principal_for_session(state, pool, token).await;
     }
     if token.starts_with("aps_") {
         return match apelora_persistence::identity::authenticate_service(pool, token).await {
@@ -662,6 +692,7 @@ async fn resolve_principal(
                     name: svc.name,
                     role: None,
                     caller: Some(caller),
+                    session: None,
                 })
             }
             Ok(None) => Err(unauthenticated(
@@ -681,6 +712,7 @@ async fn resolve_principal(
                 name: rec.name,
                 role: Some(role),
                 caller: None,
+                session: None,
             }),
             None => Err(ApiError::new(
                 StatusCode::FORBIDDEN,
@@ -699,6 +731,8 @@ async fn resolve_principal(
 fn credential_kind(token: &str) -> &'static str {
     if apelora_identity::looks_like_jwt(token) {
         "identity-provider token"
+    } else if token.starts_with(apelora_persistence::user_sessions::PREFIX) {
+        "Apelora session"
     } else if token.starts_with("aps_") {
         "service token"
     } else if token.starts_with("apl_") {
@@ -714,6 +748,7 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
             name: "development".into(),
             role: Some(Role::FabricAdmin),
             caller: None,
+            session: None,
         },
         Auth::Tokens(pool) => {
             let presented = req
@@ -861,6 +896,8 @@ pub struct WhoAmI {
     pub roles: Vec<RoleGrant>,
     /// Incus projects this control plane deploys into (`APELORA_DEPLOY_PROJECTS`).
     pub deploy_projects: Vec<String>,
+    /// Signed in with a local account (username and password): may change their password here.
+    pub local_account: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -947,7 +984,8 @@ pub struct AuditItem {
     pub at: String,
     /// Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`.
     pub actor: String,
-    /// `user`, `service`, `token`, `development`, `cli` or `system`.
+    /// `user`, `service`, `token`, `development`, `cli`, `system`, or `anonymous` (a failed
+    /// password sign-in for an unknown username).
     pub actor_type: String,
     pub action: String,
     pub target: String,
@@ -1041,6 +1079,8 @@ pub struct SignInOptions {
     pub providers: Vec<OidcSignIn>,
     /// Whether API tokens are accepted (legacy platform-wide tokens).
     pub api_tokens: bool,
+    /// Whether people can sign in with a local account (username and password).
+    pub local_accounts: bool,
     /// Directories people can sign in with (username and password), enabled ones only.
     pub directories: Vec<directories::DirectoryOption>,
 }
@@ -1052,6 +1092,7 @@ async fn sign_in(State(state): State<AppState>) -> Json<SignInOptions> {
     Json(SignInOptions {
         providers: state.sign_in_providers(),
         api_tokens: state.api_tokens_accepted(),
+        local_accounts: state.local_accounts_enabled(),
         directories: directories::sign_in_options(&state).await,
     })
 }
@@ -1087,6 +1128,9 @@ async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal
             .map(str::to_owned)
             .collect(),
     };
+    let local = p
+        .session
+        .is_some_and(|s| s.method == sessions_auth::SessionMethod::Password);
     let now = authz::now();
     let roles = p
         .caller
@@ -1130,6 +1174,7 @@ async fn whoami(State(state): State<AppState>, Extension(p): Extension<Principal
         platform_permissions,
         roles,
         deploy_projects: state.deploy_projects.to_vec(),
+        local_account: local,
     })
 }
 
@@ -1259,7 +1304,7 @@ impl Modify for BearerAuth {
                 SecurityScheme::Http(
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
-                        .description(Some("An OIDC access token from the identity provider, an automation service token (`aps_…`) or a legacy API token (`apl_…`)."))
+                        .description(Some("An OIDC access token from the identity provider, an Apelora session (`apu_…`, after a password sign-in), an automation service token (`aps_…`) or a legacy API token (`apl_…`)."))
                         .build(),
                 ),
             );
@@ -1271,7 +1316,7 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, sign_in, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
+    paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         admin::list, admin::create, admin::revoke, admin::system,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
@@ -1289,6 +1334,7 @@ impl Modify for BearerAuth {
         identity::emergency_access, identity::service_identities, identity::create_service_identity,
         identity::disable_service, identity::enable_service, identity::policies, identity::save_policy,
         identity::delete_policy, auth_config::get_settings, auth_config::check, auth_config::create, auth_config::update, auth_config::delete, auth_config::set_api_tokens,
+        sessions_auth::create_local_account, sessions_auth::reset_local_account, sessions_auth::set_local_accounts,
         directories::list, directories::create, directories::update, directories::delete, directories::check,
         identity::audit_history, identity::approvals, identity::request_approval,
         identity::approve_request, identity::reject_request, identity::cancel_request,
@@ -1329,6 +1375,7 @@ mod manage;
 mod mobility;
 pub mod requests;
 pub mod sessions;
+pub mod sessions_auth;
 mod volumes;
 
 #[cfg(test)]
@@ -1337,6 +1384,8 @@ mod directories_tests;
 mod identity_tests;
 #[cfg(test)]
 mod manage_tests;
+#[cfg(test)]
+mod sessions_auth_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]

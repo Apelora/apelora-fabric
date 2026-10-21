@@ -786,7 +786,7 @@ test.describe("service identities", () => {
 test.describe("sign-in settings", () => {
   const ENV = { id: null, source: "environment", name: "Example Corp", issuer: "https://login.example.org/realms/apelora", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null };
   const MAIN = { ...ENV, id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", clientId: null, updatedBy: `user:${ME}` };
-  const settings = (providers: unknown[], apiTokens = { enabled: true, lockedByEnvironment: false }) => ({ json: { providers, apiTokens } });
+  const settings = (providers: unknown[], apiTokens = { enabled: true, lockedByEnvironment: false }, localAccounts = { enabled: false, ready: 0, pending: 0 }) => ({ json: { providers, apiTokens, localAccounts } });
 
   test("lists providers in words; the environment's is read-only", async ({ page }) => {
     await stub(page, { ...base(), "GET /api/v1/identity/sign-in": settings([ENV, { ...MAIN, reachable: false, error: "the provider's keys could not be read" }]) });

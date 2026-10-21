@@ -2,11 +2,13 @@ import { useState } from "react";
 
 import type { UserDto, WhoAmI } from "@apelora/api-client";
 
+import { SecretOnceDialog, type OneTimeSecret } from "../../components/SecretOnce";
 import { Badge, ConfirmDialog, ErrorPanel, Notice, Section, SectionHeader, TableFrame } from "../../components/ui";
 import { client, useLoad } from "../../lib/api";
 import { fmtTime, holds, holdsPlatform, personName, useRun } from "../../lib/identity";
 import { AssignmentDialog, type AssignPreset } from "./AssignmentDialog";
 import { EmergencyAccessDialog } from "./EmergencyAccessDialog";
+import { CreateLocalAccountDialog, isLocal, setupSecret } from "./LocalAccounts";
 import { PersonLookup } from "./PersonLookup";
 
 export function UsersView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
@@ -14,8 +16,20 @@ export function UsersView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: strin
   const [assign, setAssign] = useState<AssignPreset | null>(null);
   const [emergency, setEmergency] = useState(false);
   const [toggle, setToggle] = useState<{ user: UserDto; disable: boolean } | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState<UserDto | null>(null);
+  const [secret, setSecret] = useState<OneTimeSecret | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const { error, run } = useRun(onAuth);
+
+  const reset = (u: UserDto) => {
+    setNotice(null);
+    void run(async () => {
+      const r = await client.request("reset_local_account", { params: { id: u.id } });
+      setSecret(setupSecret(personName(u), r.setupToken, r.setupExpiresAt));
+      setNotice(`${personName(u)}'s password was removed and they were signed out everywhere. They choose a new one with the setup link.`);
+    });
+  };
 
   const canAssign = holds(me, "role.assign");
   const canManage = holdsPlatform(me, "user.manage");
@@ -39,8 +53,9 @@ export function UsersView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: strin
             <SectionHeader title="Users" level={1} count={list.length}>
               <button type="button" className="btn btn-sm btn-ghost" onClick={reload}>Refresh</button>
               {canEmergency && <button type="button" className="btn btn-sm btn-outline" onClick={() => setEmergency(true)} data-testid="emergency-open">Emergency access…</button>}
+              {canManage && <button type="button" className="btn btn-sm btn-outline" onClick={() => setCreating(true)} data-testid="local-account-open">Create local account…</button>}
             </SectionHeader>
-            <p className="text-sm text-base-content/70">People who have signed in{canManage ? "" : ", as far as your roles let you see them"}. A person appears here after their first sign-in.</p>
+            <p className="text-sm text-base-content/70">People who have signed in{canManage ? "" : ", as far as your roles let you see them"}. A person appears here after their first sign-in, or when you create a local account for them.</p>
             {notice && <Notice tone="ok" testId="users-notice">{notice}</Notice>}
             {error && <ErrorPanel message={error} testId="users-action-error" />}
 
@@ -58,17 +73,23 @@ export function UsersView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: strin
                     <tr key={u.id} data-testid="user-row" className={u.disabled ? "text-base-content/60" : undefined}>
                       <td className="font-medium">
                         {personName(u)}{me?.id === u.id && <span className="ml-1 font-normal text-base-content/60">(you)</span>}
+                        {isLocal(u) && <span className="badge badge-sm badge-outline ml-2 align-middle font-normal" data-testid="local-badge">Local account</span>}
                         {u.username && u.username !== personName(u) && <span className="block text-xs font-normal text-base-content/60">{u.username}</span>}
                       </td>
                       <td className="max-sm:hidden">{u.email ?? "—"}</td>
                       <td className="max-sm:hidden"><span className="block max-w-[14rem] truncate font-mono text-xs" title={u.issuer}>{u.issuer}</span></td>
                       <td className="whitespace-nowrap max-md:hidden">{fmtTime(u.lastSeenAt)}</td>
                       <td>{u.disabled ? <Badge tone="error">Disabled</Badge> : <Badge tone="ok">Active</Badge>}</td>
-                      <td className="whitespace-nowrap text-right">
-                        {canAssign && !u.disabled && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Assign a role to ${personName(u)}`} onClick={() => assignTo(u)}>Assign role…</button>}
-                        {canManage && me?.id !== u.id && (
-                          <button type="button" className={`btn btn-xs btn-ghost ${u.disabled ? "" : "text-error"}`} aria-label={`${u.disabled ? "Enable" : "Disable"} ${personName(u)}`} onClick={() => setToggle({ user: u, disable: !u.disabled })}>{u.disabled ? "Enable…" : "Disable…"}</button>
-                        )}
+                      <td className="text-right">
+                        <span className="inline-flex flex-wrap justify-end gap-1">
+                          {canAssign && !u.disabled && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Assign a role to ${personName(u)}`} onClick={() => assignTo(u)}>Assign role…</button>}
+                          {canManage && isLocal(u) && me?.id !== u.id && (
+                            <button type="button" className="btn btn-xs btn-ghost" aria-label={`Reset the password of ${personName(u)}`} onClick={() => setResetting(u)} data-testid="local-reset">Reset password…</button>
+                          )}
+                          {canManage && me?.id !== u.id && (
+                            <button type="button" className={`btn btn-xs btn-ghost ${u.disabled ? "" : "text-error"}`} aria-label={`${u.disabled ? "Enable" : "Disable"} ${personName(u)}`} onClick={() => setToggle({ user: u, disable: !u.disabled })}>{u.disabled ? "Enable…" : "Disable…"}</button>
+                          )}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -85,13 +106,27 @@ export function UsersView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: strin
         open={!!toggle}
         title={toggle?.disable ? `Disable ${toggle ? personName(toggle.user) : ""}?` : `Enable ${toggle ? personName(toggle.user) : ""}?`}
         body={toggle?.disable
-          ? <p>Their tokens stop working at once. You can enable the account again later.</p>
+          ? <p>Their tokens stop working at once and they are signed out. You can enable the account again later.</p>
           : <p>They can sign in and use their tokens again.</p>}
         action={toggle?.disable ? "Disable account" : "Enable account"}
         danger={!!toggle?.disable}
         onCancel={() => setToggle(null)}
         onConfirm={() => { const t = toggle; setToggle(null); if (t) change(t.user, t.disable); }}
       />
+      <ConfirmDialog
+        open={!!resetting}
+        title={`Reset the password of ${resetting ? personName(resetting) : ""}?`}
+        body={<p>Their password stops working and they are signed out everywhere. You get a new setup link to send them, valid for 24 hours.</p>}
+        action="Reset password"
+        typeToConfirm={resetting?.username ?? undefined}
+        onCancel={() => setResetting(null)}
+        onConfirm={() => { const u = resetting; setResetting(null); if (u) reset(u); }}
+      />
+      <CreateLocalAccountDialog
+        open={creating} onAuth={onAuth} onClose={() => setCreating(false)}
+        onCreated={(u, s) => { setCreating(false); setSecret(s); setNotice(`${personName(u)} was created. They can sign in once they have chosen a password with the setup link.`); reload(); }}
+      />
+      <SecretOnceDialog secret={secret} onClose={() => setSecret(null)} />
     </>
   );
 }

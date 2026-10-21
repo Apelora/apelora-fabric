@@ -12,6 +12,8 @@ import { InstancesView } from "./views/Instances";
 import { MembershipView } from "./views/Membership";
 import { OperationsView } from "./views/Operations";
 import { PreflightView } from "./views/Preflight";
+import { UserMenu } from "./views/Account";
+import { SetPasswordPage, setupTokenFromHash } from "./views/SetPassword";
 import { SignInPage, type SignInReason } from "./views/SignIn";
 import { IdentityPage } from "./views/identity";
 import { IDENTITY_PAGES, isIdentityPage, type IdentityPageId } from "./views/identity/pages";
@@ -90,10 +92,12 @@ export function App() {
   const fromProvider = useRef(false);
   const [me, setMe] = useState<WhoAmI | null>(null);
   const [view, setView] = useState<ViewId>(viewFromHash);
+  // `#/set-password?token=…`: a person choosing their password from a setup link.
+  const [setupToken, setSetupToken] = useState(() => setupTokenFromHash(window.location.hash));
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const onHash = () => setView(viewFromHash());
+    const onHash = () => { setView(viewFromHash()); setSetupToken(setupTokenFromHash(window.location.hash)); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -144,6 +148,18 @@ export function App() {
       });
   }, [returning, check]);
 
+  // Ends the session on the server first (a password session is revoked there), then forgets
+  // the token in this tab whatever the answer.
+  const signOut = useCallback(async () => {
+    let failed: string | null = null;
+    try { await client.request("sign_out", {}); } catch (e) {
+      if (!(e instanceof ApiRequestError && e.unauthenticated)) failed = messageOf(e);
+    }
+    writeToken(null);
+    setMe(null);
+    setAuthNeeded(failed ? { error: `You are signed out in this tab, but the control plane could not be told (${failed}). Your session ends on its own within an hour.` } : "signed-out");
+  }, []);
+
   const up = api.kind === "up" ? api.health : null;
   const controlPlane =
     api.kind === "checking"
@@ -164,6 +180,14 @@ export function App() {
   const identityViews = me ? IDENTITY_PAGES.filter((p) => holds(me, ...p.any)) : [];
   const current: ViewId = views.some((v) => v.id === view) || identityViews.some((p) => p.id === view) ? view : "overview";
 
+  if (setupToken !== null) {
+    return (
+      <div className="h-full overflow-auto bg-base-100 text-base-content">
+        <SetPasswordPage token={setupToken} health={up} onDone={() => { window.location.hash = "#/"; }} />
+      </div>
+    );
+  }
+
   if (authNeeded && api.kind !== "down") {
     return (
       <div className="h-full overflow-auto bg-base-100 text-base-content">
@@ -180,7 +204,7 @@ export function App() {
           <span className="whitespace-nowrap text-sm font-semibold">Apelora Fabric Console</span>
           <span className="badge badge-sm badge-ghost" data-testid="mock-badge" title="Shows whether the data below comes from a real Incus cluster.">{badge}</span>
         </div>
-        {me && <span className="hidden truncate text-xs text-base-content/60 sm:inline" data-testid="whoami">{me.role ? `${me.name} · ${me.role}` : me.name}</span>}
+        {me && <UserMenu me={me} onAuth={onAuth} onSignOut={() => void signOut()} />}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">

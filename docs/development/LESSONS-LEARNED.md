@@ -31,6 +31,8 @@ Read these first. Most entries below come from one of four causes:
 - **The Studio showed the generic "saved sign-in was not accepted" after a refused provider token** (2026-10-21) → two places ran the same detection, and the one that did not do the exchange reported last. → Keep facts about the page load (which token the provider issued) at module level, not in one call's local variable (`providerToken` in `apps/studio/src/features/applications/backend.ts`).
 - **A docs agent captured screenshots while the same page was being redesigned in the main checkout** (2026-10-21) → parallel work on one surface. → Do not run screenshot work for a page while it is being changed; regenerate shots after the design settles, in the same change as the design.
 - **Tests broke when a fixture list grew** (permission catalogue counts) → expected when you add to a shared fixture: update the counts in the same change.
+- **"One primary button" tests failed after adding dialogs** (2026-10-21) → `FormDialog` renders its children while closed, so a closed dialog's primary button counts. → Render a dialog's form only while it is open (`{open && <form>…}`), which also makes `autoFocus` work on opening.
+- **A new field in an API response broke stubbed pages** (2026-10-21) → the stubs in `tests/e2e/identity-fixtures.ts` (and `screenshots.spec.ts`) return the old shape, so the page read `undefined`. → When a response gains a field the UI reads, add it to every stub of that route in the same change.
 
 ## Control plane and identity
 
@@ -40,7 +42,9 @@ Read these first. Most entries below come from one of four causes:
 - **An LDAP bind with an empty password succeeds** (2026-10-21) → it is an anonymous ("unauthenticated") bind, not a failed one. → Refuse an empty password before connecting (`ldap::sign_in`; guarded by `an_empty_password_is_refused_before_anything_is_sent`).
 - **`ldaps://LDAP.Example` kept its capitals after URL parsing** (2026-10-21) → the `url` crate lowercases hosts only for special schemes (http, https, …), not `ldap`/`ldaps`. → Lowercase the host ourselves (`directories::validate`): the directory URL is its people's issuer, so its spelling must be stable.
 - **The development directory's `memberOf` was empty** (2026-10-21) → the `memberof` overlay does not run for offline `slapadd`. → The seed lists `memberOf` explicitly (`infra/dev/directory/seed.ldif`).
-- **Any change to sign-in settings can lock everyone out** → the API enforces the guards, not just the UI (`lockout_guard`, `set_api_tokens`). Keep both guards when changing sign-in.
+- **Any change to sign-in settings can lock everyone out** → the API enforces the guards, not just the UI (`lockout_guard`, `set_api_tokens`, `guard_leaving_local_accounts`). Every new way in (local accounts, directories) must be counted by all of them.
+- **`extract(epoch …)` came back as NUMERIC and failed to decode as `f64`** (2026-10-21) → PostgreSQL 14+ returns numeric. → Cast to `::float8` in queries that sqlx reads into floats.
+- **A real control plane on the shared development database would have broken other checkouts** (2026-10-21) → sqlx refuses to start when the database has a migration the binary does not know, and parallel sessions share `apelora` on port 15432. → For real end-to-end runs of a branch with a new migration, create a separate database on the same server (`docker exec apelora-dev-db psql -U apelora -c "CREATE DATABASE …"`), point `DATABASE_URL` at it, and drop it afterwards.
 
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)
 

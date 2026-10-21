@@ -9,7 +9,7 @@ The screenshots on this page were taken against a stubbed control plane (`tests/
 | The control plane runs… | Fabric Console | Studio |
 |---|---|---|
 | without a database (development mode) | No sign-in; the Overview shows *Authentication: Disabled (development only)* | Connect with any text as the token (nothing is checked) |
-| with a database (normal) | Sign-in page: your organisation's identity provider, or an API token | *Connect to a control plane*: your identity provider, or an access token |
+| with a database (normal) | Sign-in page: your organisation's identity provider, a username and password (local accounts), or an API token | *Connect to a control plane*: your identity provider, a username and password, or an access token |
 
 ## 1. Development mode: no sign-in
 
@@ -66,6 +66,19 @@ Once an administrator has added your organisation's identity provider (section 4
 
 The Studio starts with designs kept in the browser; the header chip says *This browser · not connected*. To work with the control plane, choose that chip. *Connect to a control plane* offers the same identity providers as the Console (**Continue with …**); after signing in at the provider you come back to the Studio page you were on. Or choose *Use an access token instead* (or, without a provider, paste one straight away) and **Connect**. The token stays in that tab only; *Sign out* in the same dialog forgets it. If Apelora refuses the provider's token, the chip's tooltip says why. The designer's deploy dialog also asks for an API token when the control plane refuses the request.
 
+### Signing in with a username and password (local accounts)
+
+When an administrator has turned local accounts on, the sign-in page shows **Username** and **Password** (first when there is no identity provider, otherwise below the provider button after *or*). The Studio's *Connect to a control plane* shows the same fields.
+
+- **Your first password.** An administrator creates your account and sends you a one-time **setup link**. Open it, type your new password twice and choose **Set password**, then **Go to sign-in**. The link works once and for 24 hours; if it says *This setup link does not work*, ask for a new one. The token in the link stays in the part of the address after `#`, which the browser never sends to a server.
+- **The password rule.** 12 to 128 characters, and not your username. Length counts, not symbols: a few unrelated words make a good password.
+- **Wrong password.** The page always says *The username or password is incorrect.*, whether the username exists or not. After five wrong passwords in a row the account is locked for 15 minutes (the message stays the same). One address may try at most 10 times a minute (*Too many attempts from this address*).
+- **Your session.** Signing in gives you an Apelora session for this browser tab. It ends after one hour without use, eight hours after sign-in, when you sign out, when an administrator resets your password or disables you, or when local accounts are turned off.
+- **Change password, Sign out.** Your name at the top right opens a menu. **Change password** (local accounts only) asks for the current password and the new one twice; you stay signed in in that tab and are signed out everywhere else. **Sign out** ends the session on the server, then forgets it in the tab. Anyone can use *Sign out*; for identity-provider and API-token sign-ins it only forgets the token in the tab.
+- **Forgot your password?** Ask an administrator for a new setup link (*Reset password…*).
+
+Local accounts have no multi-factor yet, so access policies that require multi-factor refuse them.
+
 ## 4. For administrators: setting up sign-in
 
 You need the permission `platform.security.manage` (the *Platform Super Admin* role, or a `fabric-admin` API token). Open **Identity & Access → Sign-in**. Changes apply at once, without a restart, and are recorded in the audit history.
@@ -113,15 +126,30 @@ At the provider, for the browser client:
 
 Alternatively, on the server: `DATABASE_URL=… cargo run -p apelora-control-plane -- identity bootstrap --issuer <issuer> --subject <sub> [--username <u>]` grants Platform Super Admin to the person with that `sub` claim, only while no platform super admin exists.
 
+### Local accounts
+
+For installations without an identity provider (a lab, a small site), or as a second way in. Local accounts are **off** by default.
+
+1. **Create the accounts first.** Identity & Access → Users → **Create local account…** (needs `user.manage`). Enter a username (2 to 64 lowercase letters, digits, dots, hyphens or underscores; nobody else may already have it), and optionally a display name and e-mail. The dialog shows the **setup link once**: copy it and send it over a channel you trust, then choose *I have sent it*. Apelora never shows it again and never learns the password. The account gets no role; give it one with *Assign role…*.
+2. **Turn local accounts on.** Identity & Access → Sign-in → **Local accounts → Turn on local accounts** (needs `platform.security.manage`). The section says how many accounts can sign in and how many still wait for setup. People can complete setup while the setting is off, so you can prepare accounts before turning it on.
+3. **Reset a password.** Users → **Reset password…** on a local account (type the username to confirm). The password stops working, every session of that person ends, and you get a new setup link (24 hours). You cannot reset your own account; use *Change password*.
+4. **Disable a person** (Users → *Disable…*): their sessions end at once and the password is refused.
+
+Local accounts are marked *Local account* in the Users list; their issuer is `apelora:local`.
+
+**Turning local accounts off** ends every password session at once. It is refused while it would leave no way in (API tokens off and no provider answers), and for someone signed in with a local account.
+
 ### Turning API tokens off
 
-Once people sign in with a provider, turn API tokens off under **API tokens → Turn off API tokens…**. Every API token stops working at once; automation uses a service identity instead. The server refuses changes that would lock everyone out and changes nothing:
+Once people sign in with a provider or a local account, turn API tokens off under **API tokens → Turn off API tokens…**. Every API token stops working at once; automation uses a service identity instead. The server refuses changes that would lock everyone out and changes nothing. Local accounts count as a way in when they are on and at least one account has a password and is not disabled:
 
 | You try to… | The server answers |
 |---|---|
 | turn API tokens off while signed in with one | *you signed in with an API token: sign in with your identity provider first, then turn API tokens off* |
-| turn API tokens off while no provider answers | *nothing was changed: no identity provider that answers is enabled, so nobody could sign in* |
-| turn off or remove the last answering provider while API tokens are off | *nothing was changed: API tokens are off and no other identity provider answers, so nobody could sign in* |
+| turn API tokens off while no provider answers and no local account can sign in | *nothing was changed: no identity provider that answers is enabled and no local account can sign in, so nobody could sign in* |
+| turn off or remove the last answering provider while API tokens are off and no local account can sign in | *nothing was changed: API tokens are off, no other identity provider answers and no local account can sign in, so nobody could sign in* |
+| turn local accounts off while API tokens are off and no provider answers | *nothing was changed: API tokens are off and no identity provider answers, so without local accounts nobody could sign in* |
+| turn local accounts off while signed in with a local account | *you signed in with a local account: sign in another way first, then turn local accounts off* |
 | turn API tokens on when the environment turned them off | *API tokens are turned off by APELORA_LEGACY_TOKENS=disabled; change it there* |
 
 `APELORA_LEGACY_TOKENS=disabled` in the control plane's environment turns API tokens off for good; the Console then shows the setting without a button.
@@ -164,6 +192,10 @@ Stop it with `docker compose -f infra/dev/compose.yaml --profile oidc down`.
 | The identity provider did not sign you in: … | The provider reported an error, for example you cancelled |
 | The identity provider did not answer (…) / names a different issuer than this control plane expects | The browser could not read the provider's discovery document, or it names another issuer; check the issuer URL and cross-origin settings |
 | No way to sign in is turned on for this control plane. | No provider has a browser client ID and API tokens are off. An administrator must fix it on the server |
+| The username or password is incorrect. | Wrong username or password, the account is locked for 15 minutes after five failures, it is disabled, or its setup link was not used yet. The page does not say which; an administrator sees the reason in the audit history (`auth.password.failed`) |
+| Too many attempts from this address. Try again in … seconds. | More than 10 password attempts a minute came from your address (behind a shared proxy, everyone shares it) |
+| This setup link does not work | The setup link was used, is older than 24 hours, or was replaced by a reset. Ask an administrator for a new one |
+| You signed out. | You chose *Sign out*. Sign in again to continue |
 
 ### A provider shows *Not reachable*
 
@@ -176,11 +208,11 @@ Every refused token is logged at `warn` level as `credential refused`, never wit
 | Field | Content |
 |---|---|
 | `method`, `path` | The request that was refused |
-| `credential` | `identity-provider token`, `service token`, `API token` or `unrecognised` |
+| `credential` | `identity-provider token`, `Apelora session`, `service token`, `API token` or `unrecognised` |
 | `issuer` | The token's issuer for identity-provider tokens, otherwise `-` |
 | `code`, `reason` | The error code (for example `invalid_token`) and the reason in words, the same as on the sign-in page |
 
-Refusals are not written to the audit history (anyone could fill it with bad requests). A disabled account that signs in is recorded there as `auth.refused`. For more detail, run the control plane with `RUST_LOG=apelora_control_plane=debug,info`.
+Refusals are not written to the audit history (anyone could fill it with bad requests). A disabled account that signs in is recorded there as `auth.refused`. Password sign-ins are the exception, because they are limited per address: every attempt is audited (`auth.password.succeeded`, `auth.password.failed` with the username, the reason `unknown`, `wrong`, `locked` or `disabled`, and the client address; never the password), as are lockouts (`auth.locked`), setup (`auth.setup.completed`), password changes (`auth.password.changed`), sign-outs (`auth.signed_out`), and the administrator actions `identity.local_account.created`, `identity.local_account.reset` and `identity.local_accounts.enabled|disabled`. The server log has `password sign-in refused` with the username and reason, and `session issued` with the person's id. For more detail, run the control plane with `RUST_LOG=apelora_control_plane=debug,info`.
 
 ## 7. Directories (LDAP over TLS)
 

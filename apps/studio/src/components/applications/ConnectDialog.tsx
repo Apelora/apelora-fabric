@@ -9,17 +9,22 @@ type Provider = SignInOptions["providers"][number];
 
 /**
  * Connects the Studio to a control plane: with the organisation's identity provider when the
- * control plane offers one, or with an access token. The token is kept only for this browser tab.
+ * control plane offers one, with a username and password when local accounts are on, or with an
+ * access token. The token is kept only for this browser tab.
  */
 export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const { connect, backend, who, disconnect } = useBackend();
   const [options, setOptions] = useState<SignInOptions | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [token, setToken] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tokenInput = useRef<HTMLInputElement>(null);
+  const userInput = useRef<HTMLInputElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const on = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -29,12 +34,14 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (backend.kind === "api") return;
     // Without the options a token still works: the control plane decides.
-    client.get("sign_in_options").then(setOptions, () => setOptions({ providers: [], apiTokens: true, directories: [] }));
+    client.get("sign_in_options").then(setOptions, () => setOptions({ providers: [], apiTokens: true, localAccounts: false, directories: [] }));
   }, [backend.kind]);
   useEffect(() => { if (showToken) tokenInput.current?.focus(); }, [showToken]);
 
   const providers = options?.providers ?? [];
-  const tokenOpen = options !== null && (providers.length === 0 || showToken);
+  const local = !!options?.localAccounts;
+  const tokenFirst = providers.length === 0 && !local;
+  const tokenOpen = options !== null && (tokenFirst || showToken);
 
   const startOidc = async (p: Provider) => {
     setOpening(p.issuer);
@@ -42,17 +49,34 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     const here = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     try { await startOidcSignIn(p, `${window.location.origin}/`, here); } catch (e) { setError(messageOf(e)); setOpening(null); }
   };
-  const submit = async (e: React.FormEvent) => {
+  const submitToken = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token.trim()) { setError("Paste an access token first."); tokenInput.current?.focus(); return; }
     setBusy(true);
     setError(null);
     try { await connect(token); onClose(); } catch (err) { setError(messageOf(err)); setBusy(false); }
   };
+  const submitPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username.trim()) { setError("Enter your username."); userInput.current?.focus(); return; }
+    if (!password) { setError("Enter your password."); passwordInput.current?.focus(); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await client.request("sign_in_with_password", { body: { username: username.trim(), password } });
+      await connect(r.token);
+      onClose();
+    } catch (err) {
+      setError(messageOf(err));
+      setPassword("");
+      setBusy(false);
+      passwordInput.current?.focus();
+    }
+  };
 
   return (
     <dialog className="modal modal-open" aria-labelledby="connect-title" data-testid="connect-dialog">
-      <form className="modal-box flex max-w-md flex-col gap-3" noValidate onSubmit={(e) => void submit(e)}>
+      <div className="modal-box flex max-w-md flex-col gap-3">
         <h3 id="connect-title" className="text-base font-semibold">{backend.kind === "api" ? "Control plane" : "Connect to a control plane"}</h3>
         {backend.kind === "api" ? (
           <>
@@ -81,26 +105,45 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             )}
-            {providers.length > 0 && options?.apiTokens && !showToken && (
+            {local && (
+              <form className="flex flex-col gap-2" noValidate onSubmit={(e) => void submitPassword(e)} data-testid="connect-password-form">
+                {providers.length > 0 && <p className="text-xs text-base-content/60">Or with your Apelora account:</p>}
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Username</span>
+                  <input ref={userInput} type="text" name="username" className="input input-sm w-full" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} data-testid="connect-username" autoFocus={providers.length === 0} />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <span>Password</span>
+                  <input ref={passwordInput} type="password" name="password" className="input input-sm w-full" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="connect-password" />
+                </label>
+                <button type="submit" className={`btn btn-sm self-end ${providers.length === 0 ? "btn-primary" : "btn-outline"}`} disabled={busy} aria-busy={busy || undefined} data-testid="connect-password-submit">
+                  {busy && <span className="loading loading-spinner loading-xs" aria-hidden="true" />}
+                  Sign in
+                </button>
+              </form>
+            )}
+            {!tokenFirst && options?.apiTokens && !showToken && (
               <button type="button" className="link link-hover self-start text-sm text-base-content/70" onClick={() => setShowToken(true)} data-testid="connect-use-token">Use an access token instead</button>
             )}
             {tokenOpen && (
-              <label className="flex flex-col gap-1 text-sm">
-                <span>Access token</span>
-                <input ref={tokenInput} type="password" className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} data-testid="connect-token" autoFocus={providers.length === 0} />
+              <form id="connect-token-form" className="flex flex-col gap-1 text-sm" noValidate onSubmit={(e) => void submitToken(e)}>
+                <label className="flex flex-col gap-1">
+                  <span>Access token</span>
+                  <input ref={tokenInput} type="password" className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={token} onChange={(e) => setToken(e.target.value)} data-testid="connect-token" autoFocus={tokenFirst} />
+                </label>
                 <span className="text-xs text-base-content/60">An API token or an identity-provider access token. It stays in this tab only.</span>
-              </label>
+              </form>
             )}
             {error && <p role="alert" className="text-sm text-error" data-testid="connect-error">{error}</p>}
             <div className="modal-action mt-0">
               <button type="button" className="btn btn-sm" onClick={onClose}>Cancel</button>
               {tokenOpen && (
-                <button type="submit" className={`btn btn-sm ${providers.length === 0 ? "btn-primary" : "btn-outline"}`} disabled={busy} data-testid="connect-submit">{busy ? "Connecting…" : "Connect"}</button>
+                <button type="submit" form="connect-token-form" className={`btn btn-sm ${tokenFirst ? "btn-primary" : "btn-outline"}`} disabled={busy} data-testid="connect-submit">{busy ? "Connecting…" : "Connect"}</button>
               )}
             </div>
           </>
         )}
-      </form>
+      </div>
       <div className="modal-backdrop" onClick={onClose} />
     </dialog>
   );

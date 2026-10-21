@@ -51,7 +51,7 @@ export const PERMISSIONS = [
   perm("service_identity.manage", "security", "platform", "Register and disable service identities"),
   perm("access_policy.manage", "security", "platform", "Change access policies"),
   perm("platform.emergency_access", "security", "platform", "Grant time-limited emergency access"),
-  perm("user.manage", "security", "platform", "Disable users and see every user"),
+  perm("user.manage", "security", "platform", "Create and reset local accounts, disable users and see every user"),
   perm("platform.security.manage", "security", "platform", "Configure sign-in: identity providers and API tokens"),
 ];
 export const ALL_PERMISSION_IDS = PERMISSIONS.map((p) => p.id);
@@ -98,6 +98,9 @@ export type Result = { status?: number; json?: unknown; delayMs?: number };
 export type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
 export type Handler = (call: Call) => Result | Promise<Result>;
 
+/** The local-accounts setting when nobody has turned it on. */
+export const LOCAL_OFF = { enabled: false, ready: 0, pending: 0 };
+
 export const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "mock", auth: "disabled-development", incus: { connected: false, apiVersion: "1.0", serverVersion: null } };
 
 /** `kind: "user"` callers with the given permissions; `platform` ones hold them across the platform. */
@@ -139,7 +142,7 @@ export function base(me: unknown = SUPER): Record<string, Handler | Result> {
     "GET /api/v1/identity/groups": items([GROUP_PLATFORM, GROUP_ACME]),
     "GET /api/v1/identity/users": items([ALEX, SAM, OFF]),
     "GET /api/v1/identity/service-identities": items([SVC_AUTO, SVC_INCUS]),
-    "GET /api/v1/identity/sign-in": { json: { providers: [{ id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null }], apiTokens: { enabled: true, lockedByEnvironment: false } } },
+    "GET /api/v1/identity/sign-in": { json: { providers: [{ id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null }], apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: LOCAL_OFF } },
     "GET /api/v1/identity/policies": items([]),
     "GET /api/v1/approvals": items([]),
     "GET /api/v1/identity/audit": items([]),

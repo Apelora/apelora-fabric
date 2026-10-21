@@ -844,7 +844,7 @@ pub(super) async fn terminate(
 // ---- GET /sessions/connect (websocket) --------------------------------------------------------
 
 /// The address of the peer, when the server was started with connection information.
-pub(super) struct Peer(Option<SocketAddr>);
+pub(super) struct Peer(pub(super) Option<SocketAddr>);
 
 impl<S: Send + Sync> FromRequestParts<S> for Peer {
     type Rejection = std::convert::Infallible;
@@ -1348,6 +1348,7 @@ mod tests {
             name: "alice".into(),
             role: None,
             caller: None,
+            session: None,
         };
         let make = |actor: &str| Ticket {
             id: Uuid::new_v4(),
