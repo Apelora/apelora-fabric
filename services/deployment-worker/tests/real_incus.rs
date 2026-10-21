@@ -1052,3 +1052,124 @@ async fn a_volume_is_restored_from_its_backup_with_a_safety_backup_first(pool: P
         .delete_volume(&project, "local", member, &volume, &app)
         .await;
 }
+
+/// The instance detail and logs the Console shows, read from a real running container: facts,
+/// addresses and disks, the log files Incus keeps, a bounded tail of each and the console log.
+#[ignore = "needs a disposable Incus: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_real_instance_has_a_detail_log_files_and_a_bounded_console_log(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let name = unique("apl-logs");
+    let target = json!({ "project": project, "name": name });
+    let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "config": { "limits.cpu": "1", "limits.memory": "512MiB" } });
+    converge(&pool, &provider, "instance.create", &spec).await;
+
+    let view = provider
+        .instance_view(&project, &name)
+        .await
+        .expect("detail")
+        .expect("exists");
+    assert_eq!(
+        (view.name.as_str(), view.status.as_str()),
+        (name.as_str(), "Running")
+    );
+    assert_eq!(view.limits.cpu.as_deref(), Some("1"));
+    assert_eq!(view.limits.memory.as_deref(), Some("512MiB"));
+    assert!(
+        view.usage.is_some(),
+        "a running container reports its usage"
+    );
+    assert!(!view.disks.is_empty(), "the root disk is listed");
+
+    let files = provider
+        .instance_logs(&project, &name)
+        .await
+        .expect("log files");
+    eprintln!("log files: {files:?}");
+    assert!(!files.is_empty(), "Incus keeps log files for a container");
+    for f in &files {
+        let tail = provider
+            .instance_log(&project, &name, f, 1024)
+            .await
+            .expect("a log file");
+        assert!(tail.content.len() <= 1024, "{f}: a tail is bounded");
+        assert!(
+            !tail.truncated || tail.size > 1024,
+            "{f}: truncated only when larger"
+        );
+    }
+    // A name that is not one of the listed files is refused before it reaches Incus.
+    assert!(
+        provider
+            .instance_log(&project, &name, "../../etc/passwd", 1024)
+            .await
+            .is_err()
+    );
+    let console = provider.console_log(&project, &name, 1024).await;
+    eprintln!(
+        "console: {:?}",
+        console.as_ref().map(|c| (c.size, c.truncated))
+    );
+    assert!(console.is_ok(), "{console:?}");
+
+    converge(&pool, &provider, "instance.delete", &target).await;
+}
+
+/// A cluster setting is changed through the administrator identity and put back exactly as it
+/// was (set or unset), as the Console's change does after its review and approval. The
+/// project-restricted deploy identity must not be able to change it.
+#[ignore = "needs a disposable Incus with the admin identity: scripts/test-cluster/up.sh"]
+#[tokio::test]
+async fn a_cluster_setting_is_changed_by_the_admin_identity_and_restored() {
+    use apelora_incus_adapter::config::admin_provider_from_env;
+    use std::collections::BTreeMap;
+    let deploy = real_incus();
+    let admin = admin_provider_from_env(|k| std::env::var(k).ok(), &deploy)
+        .expect("admin configuration")
+        .expect("APELORA_INCUS_ADMIN_CLIENT_CERT/KEY are set");
+    let key = "cluster.max_standby";
+    let before = admin
+        .server_config(&[key])
+        .await
+        .expect("read")
+        .get(key)
+        .cloned();
+    let wanted = if before.as_deref() == Some("1") {
+        "2"
+    } else {
+        "1"
+    };
+    let change = |v: Option<&str>| BTreeMap::from([(key.to_owned(), v.map(str::to_owned))]);
+    assert!(
+        deploy
+            .set_server_config(&change(Some(wanted)))
+            .await
+            .is_err(),
+        "the project-restricted identity must not change cluster settings"
+    );
+    admin
+        .set_server_config(&change(Some(wanted)))
+        .await
+        .expect("changed");
+    let now = admin.server_config(&[key]).await.expect("read");
+    assert_eq!(now.get(key).map(String::as_str), Some(wanted));
+    admin
+        .set_server_config(&change(before.as_deref()))
+        .await
+        .expect("restored");
+    let after = admin.server_config(&[key]).await.expect("read");
+    assert_eq!(after.get(key), before.as_ref(), "put back as it was");
+    // A key outside the allowed list never reaches Incus.
+    assert!(
+        admin
+            .set_server_config(&BTreeMap::from([(
+                "core.https_address".to_owned(),
+                Some(":8443".to_owned())
+            )]))
+            .await
+            .is_err()
+    );
+}
