@@ -83,6 +83,8 @@ async fn plan(
         apelora_persistence::instance_volumes(store(state)?, project, name)
             .await?
             .into_iter()
+            // Volumes on the shared pool are reachable from every member: nothing to copy.
+            .filter(|v| !v.member.is_empty() && v.member != "none")
             .map(|v| (v.incus_name, u32::try_from(v.size_mib).unwrap_or(0)))
             .collect();
     let plan = plan_move(
@@ -163,7 +165,11 @@ pub(super) async fn request(
         .instance(&project, &name)
         .await?
         .is_some_and(|s| s.status == "Running");
-    let records = apelora_persistence::instance_volumes(store(&state)?, &project, &name).await?;
+    let records: Vec<_> = apelora_persistence::instance_volumes(store(&state)?, &project, &name)
+        .await?
+        .into_iter()
+        .filter(|v| !v.member.is_empty() && v.member != "none")
+        .collect();
     let payload = json!({
         "project": project, "name": name, "application": application,
         "from": plan.from, "target": plan.to, "live": plan.live, "startAfter": start_after,

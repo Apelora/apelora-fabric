@@ -352,8 +352,14 @@ async fn converge(
                     .iter()
                     .filter(|v| !now.volume_devices.contains(&v.device()))
                 {
+                    // A volume on the shared pool belongs to no member (ADR 0013).
+                    let member = if v.class.shared() {
+                        ""
+                    } else {
+                        now.location.as_str()
+                    };
                     provider
-                        .ensure_volume(project, &now.location, name, v, owner)
+                        .ensure_volume(project, member, name, v, owner)
                         .await?;
                     // Recorded as soon as it exists: data is never forgotten, attached or not.
                     apelora_persistence::record_volume(
@@ -366,7 +372,7 @@ async fn converge(
                             name: &v.name,
                             incus_name: &apelora_domain::storage::volume_name(name, &v.name),
                             storage_pool: v.pool.as_deref().unwrap_or_default(),
-                            member: now.location.as_str(),
+                            member,
                             size_mib: v.size_mib,
                             content: v.content.as_str(),
                             class: v.class.as_str(),
@@ -431,6 +437,7 @@ mod tests {
             owner: None,
             network: None,
             volumes: Vec::new(),
+            root_pool: None,
         }))
     }
     fn t() -> Target {

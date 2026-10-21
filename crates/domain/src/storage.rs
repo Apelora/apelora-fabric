@@ -43,22 +43,61 @@ impl VolumeContent {
     }
 }
 
-/// The policy a volume is created under. Only `data-local` exists so far: persistent, one
-/// writer, on the member's own pool; moving it means stopping the instance.
+/// The policy a volume is created under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "kebab-case")]
 pub enum VolumeClass {
+    /// Persistent, one writer, on the member's own pool; moving it means stopping the instance,
+    /// and a failed member's data waits for the member or a restore.
     #[default]
     DataLocal,
+    /// Persistent, one writer, on a shared pool every member reaches (clustered LVM on a SAN,
+    /// distributed storage). The module's root disk goes there too, so after its member fails
+    /// and is fenced it restarts on another member (ADR 0013).
+    DataReplicated,
 }
 
 impl VolumeClass {
     pub fn as_str(self) -> &'static str {
         match self {
             VolumeClass::DataLocal => "data-local",
+            VolumeClass::DataReplicated => "data-replicated",
         }
     }
+
+    /// Whether volumes of this class live on a shared pool (created without a member).
+    pub fn shared(self) -> bool {
+        self == VolumeClass::DataReplicated
+    }
+}
+
+/// Incus storage drivers whose pools every member reaches (Incus calls them remote): an
+/// instance on them can start on another member without copying data.
+pub const SHARED_DRIVERS: &[&str] = &["lvmcluster", "ceph"];
+
+/// Whether a pool with this Incus driver is shared by all members.
+pub fn is_shared_driver(driver: &str) -> bool {
+    SHARED_DRIVERS.contains(&driver)
+}
+
+/// Checks that a module's volumes do not mix classes: a module restarts on another member only
+/// when everything it stores is on the shared pool, so `data-local` and `data-replicated`
+/// together would promise what cannot happen.
+pub fn validate_classes(module: &str, volumes: &[VolumeMount]) -> Result<(), String> {
+    let shared = volumes.iter().filter(|v| v.class.shared()).count();
+    if shared > 0 && shared < volumes.len() {
+        return Err(format!(
+            "{module}: volumes of class data-replicated and data-local cannot be mixed (a data-local volume cannot follow the module to another server)"
+        ));
+    }
+    Ok(())
+}
+
+/// Whether a module restarts on another member after its member fails: every volume (at least
+/// one) is `data-replicated`.
+pub fn restarts_elsewhere(volumes: &[VolumeMount]) -> bool {
+    !volumes.is_empty() && volumes.iter().all(|v| v.class.shared())
 }
 
 /// A volume a module asks for.
@@ -178,7 +217,7 @@ pub fn validate_volumes(
             ));
         }
     }
-    Ok(())
+    validate_classes(instance, volumes)
 }
 
 /// Resize is grow-only: Incus accepts a shrink, which can destroy data.
@@ -425,6 +464,32 @@ mod tests {
             safety_pool: Some("backup"),
             safety_backup: true,
         }
+    }
+
+    #[test]
+    fn data_replicated_volumes_are_shared_and_cannot_be_mixed_with_local_ones() {
+        let mut a = fs("data", "/data");
+        a.class = VolumeClass::DataReplicated;
+        let mut b = fs("logs", "/logs");
+        assert!(restarts_elsewhere(std::slice::from_ref(&a)));
+        assert!(!restarts_elsewhere(&[]), "nothing on the shared pool");
+        assert!(!restarts_elsewhere(std::slice::from_ref(&b)));
+        let mixed = validate_volumes(
+            "shop-db-01",
+            InstanceKind::Container,
+            &[a.clone(), b.clone()],
+        )
+        .expect_err("mixed");
+        assert!(mixed.contains("cannot be mixed"), "{mixed}");
+        b.class = VolumeClass::DataReplicated;
+        assert!(validate_volumes("shop-db-01", InstanceKind::Container, &[a, b.clone()]).is_ok());
+        assert!(restarts_elsewhere(&[b]));
+        assert!(is_shared_driver("lvmcluster") && is_shared_driver("ceph"));
+        assert!(!is_shared_driver("btrfs") && !is_shared_driver("lvm"));
+        assert_eq!(
+            serde_json::to_value(VolumeClass::DataReplicated).expect("json"),
+            serde_json::json!("data-replicated")
+        );
     }
 
     #[test]

@@ -357,6 +357,7 @@ mod tests {
                 owner: None,
                 network: None,
                 volumes: Vec::new(),
+                root_pool: None,
             },
             replicas: 1,
             availability: Availability::Singleton,

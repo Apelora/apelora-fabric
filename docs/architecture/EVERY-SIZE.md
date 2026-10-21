@@ -162,7 +162,7 @@ Each layer detects its own failures, and each layer has one owner of the decisio
 
 | What fails | Detected by | Within | Decided by | Action |
 |---|---|---|---|---|
-| A member | Incus heartbeats (`cluster.offline_threshold`, default 20 s) | ~20 s | Incus marks it offline; Apelora's supervisor acts on that | stateless replicas replaced on other members (built); stateful instances on shared storage restarted elsewhere **only after fencing** (slice B, not built) |
+| A member | Incus heartbeats (`cluster.offline_threshold`, default 20 s) | ~20 s | Incus marks it offline; Apelora's supervisor acts on that | stateless replicas replaced on other members (built); stateful instances on shared storage restarted elsewhere **only after fencing**: the member's storage lease is dead (~140 s after its last renewal) or a person confirmed it is off (built, ADR 0013) |
 | An instance | Apelora health checks (supervisor, every 30 s) | 30–60 s; seconds once events are used | supervisor (one leader per plane: a leader lease, built) | restart, then replace (built) |
 | A worker | its lease expires (30 s); heartbeats (in progress) | 30 s | any other worker | takes the job over; the fencing generation stops the old one writing (built) |
 | An API process | load-balancer health check | seconds | load balancer | traffic to the others |
@@ -171,7 +171,7 @@ Each layer detects its own failures, and each layer has one owner of the decisio
 | A site or region | the level above stops receiving its summaries | minutes | people, with a runbook | no automatic move of workloads across sites: a wrong guess over a wide-area network is worse than waiting |
 
 Two rules prevent false alarms:
-- one missed signal is never enough: a member is acted on only when Incus has marked it offline;
+- one missed signal is never enough: a member is acted on only when Incus has marked it offline, and nothing on shared storage moves on Incus's word alone (on the lab Incus briefly reported every member Offline while one was force-stopped);
 - an instance is replaced only after consecutive failed checks.
 
 Two rules prevent split brain:
@@ -183,7 +183,7 @@ Two rules prevent split brain:
 - **Small (three servers):**
   - Incus keeps working with one member down (quorum two of three);
   - replicas are spread by anti-affinity (built);
-  - stateful modules on the shared pool restart after fencing (slice B);
+  - stateful modules on the shared pool restart after fencing (built, ADR 0013);
   - the plane itself can be two processes on two members with a database standby;
   - if the whole plane is down, workloads keep running and only changes wait (§2.3).
 - **Large:**

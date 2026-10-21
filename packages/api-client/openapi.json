@@ -4505,6 +4505,118 @@
         }
       }
     },
+    "/api/v1/cluster/members/{member}/fencing": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Confirms that a failed server is powered off (or cut off from the shared storage). This\nfences it: Apelora then restarts its modules on shared storage on other servers. Refused\nunless Incus reports the member Offline. Needs `cluster.fence_confirm` and another person's\napproval; the member's name typed again; audited.",
+        "operationId": "confirm_fenced",
+        "parameters": [
+          {
+            "name": "member",
+            "in": "path",
+            "description": "Cluster member name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FenceConfirmation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryMember"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cluster/members/{member}/removal": {
       "get": {
         "tags": [
@@ -4782,6 +4894,57 @@
             }
           },
           "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/recovery": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Failed members: whether each is fenced (and the evidence), or why Apelora waits; and per\ninstance whether it restarts on another server (and where) or waits (and why). Read-only;\nneeds `cluster.view`.",
+        "operationId": "cluster_recovery",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "",
             "content": {
               "application/json": {
@@ -15113,6 +15276,164 @@
           }
         }
       },
+      "FenceCondition": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "fenced"
+        ]
+      },
+      "FenceConfirmation": {
+        "type": "object",
+        "description": "A person's confirmation that a failed server is powered off.",
+        "required": [
+          "confirm",
+          "poweredOff"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The member's name again, typed by the person."
+          },
+          "poweredOff": {
+            "type": "boolean",
+            "description": "Must be `true`: the server is switched off (or cut off from the shared storage)."
+          }
+        }
+      },
+      "FenceEvidence": {
+        "type": "object",
+        "description": "The evidence a fencing decision rests on; recorded and audited with it.",
+        "required": [
+          "kind",
+          "at",
+          "summary"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "When it was observed or confirmed (Unix seconds)."
+          },
+          "confirmedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who confirmed (confirmation)."
+          },
+          "generation": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "hostId": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FenceKind"
+          },
+          "lockspace": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The member whose sanlock reported the lease (storage lease)."
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "FenceKind": {
+        "type": "string",
+        "description": "How the failed member was fenced.",
+        "enum": [
+          "storage-lease",
+          "confirmed"
+        ]
+      },
+      "FenceLeaseState": {
+        "type": "string",
+        "description": "How a remote host's lease looks to sanlock on the member that was asked.",
+        "enum": [
+          "free",
+          "live",
+          "fail",
+          "dead",
+          "unknown"
+        ]
+      },
+      "FenceView": {
+        "type": "object",
+        "description": "A failed member's fencing state, with the reason and what a person can do.",
+        "required": [
+          "condition",
+          "reason"
+        ],
+        "properties": {
+          "condition": {
+            "$ref": "#/components/schemas/FenceCondition"
+          },
+          "evidence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FenceEvidence"
+              }
+            ]
+          },
+          "leaseState": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FenceLeaseState",
+                "description": "The latest reading of the member's lease, when there is one."
+              }
+            ]
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observedAt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "observedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "Grant": {
         "type": "object",
         "required": [
@@ -16591,6 +16912,13 @@
           },
           "project": {
             "type": "string"
+          },
+          "rootPool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pool of the root disk when it is not the one the project's profile gives: the shared\npool for a module that restarts on another member after a failure (ADR 0013). Set by the\ncontrol plane from the module's volume classes, never by a caller."
           },
           "source": {
             "$ref": "#/components/schemas/ImageSource"
@@ -20264,6 +20592,156 @@
           }
         }
       },
+      "RecoveryAction": {
+        "type": "string",
+        "description": "What becomes of one instance of a failed member.",
+        "enum": [
+          "restart",
+          "after-fencing",
+          "substitute",
+          "wait"
+        ]
+      },
+      "RecoveryItem": {
+        "type": "object",
+        "required": [
+          "project",
+          "instance",
+          "action",
+          "reason"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/RecoveryAction"
+          },
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance": {
+            "type": "string"
+          },
+          "module": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The member it restarts on (as chosen now; the job chooses again when it runs)."
+          }
+        }
+      },
+      "RecoveryMember": {
+        "type": "object",
+        "description": "One failed member: its fencing and what happens to each of its instances.",
+        "required": [
+          "member",
+          "status",
+          "fencing",
+          "items"
+        ],
+        "properties": {
+          "confirmedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who confirmed the server is powered off, when someone did."
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the recovery decision was recorded (once per failure)."
+          },
+          "detectedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When Apelora noticed (RFC 3339)."
+          },
+          "evidence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FenceEvidence"
+              }
+            ]
+          },
+          "failure": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The failure record; `None` until the supervisor has seen it."
+          },
+          "fencedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fencing": {
+            "$ref": "#/components/schemas/FenceView"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryItem"
+            }
+          },
+          "lastHeartbeat": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Incus's last heartbeat from it (RFC 3339), when its message gives one."
+          },
+          "member": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "description": "Incus's status (`Offline` while it is failed)."
+          }
+        }
+      },
+      "RecoveryReport": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecoveryMember"
+            },
+            "description": "Failed members, by name."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "RegisterMachine": {
         "type": "object",
         "required": [
@@ -22421,9 +22899,10 @@
       },
       "VolumeClass": {
         "type": "string",
-        "description": "The policy a volume is created under. Only `data-local` exists so far: persistent, one\nwriter, on the member's own pool; moving it means stopping the instance.",
+        "description": "The policy a volume is created under.",
         "enum": [
-          "data-local"
+          "data-local",
+          "data-replicated"
         ]
       },
       "VolumeContent": {

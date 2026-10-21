@@ -127,6 +127,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         "cluster.manage"
         | "cluster.evacuate"
         | "cluster.evacuate_unsafe"
+        | "cluster.fence_confirm"
         | "cluster.sensitive_change"
         | "network.manage"
         | "storage.manage"
@@ -342,6 +343,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/cluster/members", &["cluster.view"]),
     ("GET", "/api/v1/cluster/groups", &["cluster.view"]),
     ("GET", "/api/v1/cluster/settings", &["cluster.view"]),
+    ("GET", "/api/v1/cluster/recovery", &["cluster.view"]),
     ("GET", "/api/v1/health/components", &["cluster.view"]),
     ("GET", "/api/v1/health/servers", &["cluster.view"]),
     // Server names only with cluster.view; capacity.view sees numbered servers (the handler decides).
@@ -657,6 +659,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "POST",
         "/api/v1/cluster/members/{member}/restore",
         &["cluster.evacuate", "cluster.evacuate_unsafe"],
+    ),
+    (
+        "POST",
+        "/api/v1/cluster/members/{member}/fencing",
+        &["cluster.fence_confirm"],
     ),
     (
         "GET",

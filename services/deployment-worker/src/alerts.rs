@@ -133,6 +133,24 @@ async fn queue(pool: &Pool) -> Result<(Vec<Observation>, Vec<Observation>), Stor
     ))
 }
 
+async fn unfenced_members(pool: &Pool) -> Result<Vec<Observation>, StoreError> {
+    Ok(apelora_persistence::recovery::unfenced(pool)
+        .await?
+        .into_iter()
+        .map(|(member, waiting, secs)| {
+            Observation::new(
+                &member,
+                1.0,
+                format!(
+                    "member {member} failed {} s ago and is not fenced; {} wait to restart on another server",
+                    secs.floor(),
+                    plural(f64::from(waiting), "module", "modules")
+                ),
+            )
+        })
+        .collect())
+}
+
 async fn silent_workers(pool: &Pool) -> Result<Vec<Observation>, StoreError> {
     Ok(apelora_persistence::status::workers(pool)
         .await?
@@ -434,6 +452,7 @@ pub async fn gather(
             Err(_) => unavailable("the instance list"),
         },
     );
+    out.insert("member-unfenced", observed(unfenced_members(pool).await));
     out.insert("certificate-expiry", certificates(provider, now));
     match volume_schedules(pool).await {
         Ok((failed, age)) => {

@@ -514,6 +514,7 @@ fn oci_spec() -> InstanceSpec {
         owner: None,
         network: None,
         volumes: Vec::new(),
+        root_pool: None,
     }
 }
 

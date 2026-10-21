@@ -1025,6 +1025,48 @@ export type EvacuationPreview = {
   source: Source;
 };
 
+export type FenceCondition = "waiting" | "fenced";
+
+/** A person's confirmation that a failed server is powered off. */
+export type FenceConfirmation = {
+  /** The member's name again, typed by the person. */
+  confirm: string;
+  /** Must be `true`: the server is switched off (or cut off from the shared storage). */
+  poweredOff: boolean;
+};
+
+/** The evidence a fencing decision rests on; recorded and audited with it. */
+export type FenceEvidence = {
+  /** When it was observed or confirmed (Unix seconds). */
+  at: number;
+  /** Who confirmed (confirmation). */
+  confirmedBy?: string | null;
+  generation?: number | null;
+  hostId?: number | null;
+  kind: FenceKind;
+  lockspace?: string | null;
+  /** The member whose sanlock reported the lease (storage lease). */
+  observedBy?: string | null;
+  summary: string;
+};
+
+/** How the failed member was fenced. */
+export type FenceKind = "storage-lease" | "confirmed";
+
+/** How a remote host's lease looks to sanlock on the member that was asked. */
+export type FenceLeaseState = "free" | "live" | "fail" | "dead" | "unknown";
+
+/** A failed member's fencing state, with the reason and what a person can do. */
+export type FenceView = {
+  condition: FenceCondition;
+  evidence?: null | FenceEvidence;
+  leaseState?: null | FenceLeaseState;
+  nextStep?: string | null;
+  observedAt?: number | null;
+  observedBy?: string | null;
+  reason: string;
+};
+
 export type Grant = {
   assignment: string;
   emergency: boolean;
@@ -1452,6 +1494,8 @@ export type InstanceSpec = {
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
+  /** The pool of the root disk when it is not the one the project's profile gives: the shared pool for a module that restarts on another member after a failure (ADR 0013). Set by the control plane from the module's volume classes, never by a caller. */
+  rootPool?: string | null;
   source: ImageSource;
   /** Start the instance once created. */
   start?: boolean;
@@ -2529,6 +2573,47 @@ export type QuotaView = {
   usageError?: string | null;
 };
 
+/** What becomes of one instance of a failed member. */
+export type RecoveryAction = "restart" | "after-fencing" | "substitute" | "wait";
+
+export type RecoveryItem = {
+  action: RecoveryAction;
+  application?: string | null;
+  instance: string;
+  module?: string | null;
+  project: string;
+  reason: string;
+  /** The member it restarts on (as chosen now; the job chooses again when it runs). */
+  target?: string | null;
+};
+
+/** One failed member: its fencing and what happens to each of its instances. */
+export type RecoveryMember = {
+  /** Who confirmed the server is powered off, when someone did. */
+  confirmedBy?: string | null;
+  /** When the recovery decision was recorded (once per failure). */
+  decidedAt?: string | null;
+  /** When Apelora noticed (RFC 3339). */
+  detectedAt?: string | null;
+  evidence?: null | FenceEvidence;
+  /** The failure record; `None` until the supervisor has seen it. */
+  failure?: string | null;
+  fencedAt?: string | null;
+  fencing: FenceView;
+  items: RecoveryItem[];
+  /** Incus's last heartbeat from it (RFC 3339), when its message gives one. */
+  lastHeartbeat?: string | null;
+  member: string;
+  /** Incus's status (`Offline` while it is failed). */
+  status: string;
+};
+
+export type RecoveryReport = {
+  /** Failed members, by name. */
+  items: RecoveryMember[];
+  source: Source;
+};
+
 export type RegisterMachine = {
   description?: string;
   /** The name it will have as a cluster member. */
@@ -3127,8 +3212,8 @@ export type VolumeBackupList = {
   source: Source;
 };
 
-/** The policy a volume is created under. Only `data-local` exists so far: persistent, one writer, on the member's own pool; moving it means stopping the instance. */
-export type VolumeClass = "data-local";
+/** The policy a volume is created under. */
+export type VolumeClass = "data-local" | "data-replicated";
 
 /** What the volume holds: a mounted filesystem or a raw disk (virtual machines only). */
 export type VolumeContent = "filesystem" | "block";
@@ -3258,9 +3343,11 @@ export const operations = {
   cluster_members: { method: "GET", path: "/api/v1/cluster/members", params: [], public: false },
   evacuate_member: { method: "POST", path: "/api/v1/cluster/members/{member}/evacuate", params: ["member"], public: false },
   preview_evacuation: { method: "GET", path: "/api/v1/cluster/members/{member}/evacuation", params: ["member"], public: false },
+  confirm_fenced: { method: "POST", path: "/api/v1/cluster/members/{member}/fencing", params: ["member"], public: false },
   preview_member_removal: { method: "GET", path: "/api/v1/cluster/members/{member}/removal", params: ["member"], public: false },
   remove_member: { method: "POST", path: "/api/v1/cluster/members/{member}/remove", params: ["member"], public: false },
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
+  cluster_recovery: { method: "GET", path: "/api/v1/cluster/recovery", params: [], public: false },
   cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
@@ -3497,12 +3584,16 @@ export type Responses = {
   evacuate_member: MemberStateStarted;
   /** Dry run of evacuating a cluster member: per instance, what Incus will do and what it means for the application; what blocks it; what to accept. Changes nothing. */
   preview_evacuation: EvacuationPreview;
+  /** Confirms that a failed server is powered off (or cut off from the shared storage). This fences it: Apelora then restarts its modules on shared storage on other servers. Refused unless Incus reports the member Offline. Needs `cluster.fence_confirm` and another person's approval; the member's name typed again; audited. */
+  confirm_fenced: RecoveryMember;
   /** Dry run of removing a cluster member for good: what is still on it, what blocks it and what to accept. Changes nothing. */
   preview_member_removal: RemovalPreview;
   /** Removes an evacuated, empty member from the cluster for good, after the check runs again: refused while anything blocks it. Needs `cluster.manage`, the admin identity and the member's name typed again; audited. */
   remove_member: null;
   /** Restores an evacuated member: Incus moves its instances back and starts them. Needs `manage-infrastructure` and the admin identity; audited. */
   restore_member: MemberStateStarted;
+  /** Failed members: whether each is fenced (and the evidence), or why Apelora waits; and per instance whether it restarts on another server (and where) or waits (and why). Read-only; needs `cluster.view`. */
+  cluster_recovery: RecoveryReport;
   /** Cluster-wide settings (offline and healing thresholds, database voters and stand-bys, join-token lifetime, image replication and updates): the value set, Incus's default and whether the default applies. Read with the admin identity, since Incus shows its configuration only to an unrestricted one (503 `cluster_admin_not_configured` without it); only these keys are returned. Read-only; needs `cluster.view`. */
   cluster_settings: ClusterSettingsReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
@@ -3791,9 +3882,11 @@ export type Bodies = {
   cluster_members: never;
   evacuate_member: ConfirmMember;
   preview_evacuation: never;
+  confirm_fenced: FenceConfirmation;
   preview_member_removal: never;
   remove_member: ConfirmMember;
   restore_member: ConfirmMember;
+  cluster_recovery: never;
   cluster_settings: never;
   health: never;
   health_components: never;

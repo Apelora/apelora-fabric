@@ -849,6 +849,7 @@ mod tests {
             owner: None,
             network: None,
             volumes: Vec::new(),
+            root_pool: None,
         };
         let with = with_discovery(spec.clone(), &env);
         assert_eq!(

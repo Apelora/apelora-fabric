@@ -760,3 +760,125 @@ async fn instances_move_with_their_volumes_and_vms_move_live(pool: Pool) {
     )
     .await;
 }
+
+/// HA slice B, the instance part (ADR 0013): a module whose root disk and volume are on the
+/// shared pool is created with both there, its volume belongs to no member, and it moves to
+/// another member without anything being copied. Killing a member is not done here: that is
+/// `scripts/test-cluster/ha-drill.sh` (plan first). Needs the clustered LVM pool
+/// (`scripts/test-cluster/shared-storage.sh`, `APELORA_TEST_SHARED_POOL`, default `shared`) and
+/// member targeting allowed.
+#[ignore = "needs a disposable Incus with the shared pool: scripts/test-cluster/shared-storage.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn shared_pool_instances_keep_their_disks_on_it_and_move_without_copying(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let shared = std::env::var("APELORA_TEST_SHARED_POOL").unwrap_or_else(|_| "shared".into());
+    let driver = provider
+        .storage_pools()
+        .await
+        .expect("pools")
+        .into_iter()
+        .find(|p| p.name == shared)
+        .map(|p| p.driver)
+        .expect("the shared pool exists");
+    assert!(
+        apelora_domain::storage::is_shared_driver(&driver),
+        "{shared} uses {driver}"
+    );
+    let app = "apelora-ha-test";
+    apelora_persistence::ensure_application(&pool, app)
+        .await
+        .expect("application");
+    let name = unique("apelora-ha-test");
+    let volume = format!("{name}-data");
+    converge(&pool, &provider, "instance.create", &json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "owner": { "application": app, "module": "db", "replica": 1 }, "rootPool": shared,
+        "volumes": [{ "name": "data", "sizeMib": 256, "path": "/srv/data", "class": "data-replicated", "pool": shared }] })).await;
+    let created = status(&provider, &project, &name).await.expect("created");
+    assert_eq!(created.status, "Running");
+    assert_eq!(created.volume_devices, vec!["vol-data".to_owned()]);
+    let view = provider
+        .instance_view(&project, &name)
+        .await
+        .expect("view")
+        .expect("exists");
+    let root = view
+        .disks
+        .iter()
+        .find(|d| d.path.as_deref() == Some("/"))
+        .expect("root disk");
+    assert_eq!(
+        root.pool.as_deref(),
+        Some(shared.as_str()),
+        "{:?}",
+        view.disks
+    );
+    let v = provider
+        .volume(&project, &shared, None, &volume)
+        .await
+        .expect("read volume")
+        .expect("the volume is on the shared pool, without a member");
+    assert!(v.managed && v.used_by.len() == 1, "{v:?}");
+    let recorded = apelora_persistence::application_volumes(&pool, app)
+        .await
+        .expect("volumes");
+    assert_eq!(
+        (
+            recorded[0].storage_pool.as_str(),
+            recorded[0].member.as_str()
+        ),
+        (shared.as_str(), "")
+    );
+
+    // A cold move: nothing to copy, it runs on the other member with the same disks.
+    let to = provider
+        .cluster_members()
+        .await
+        .expect("members")
+        .into_iter()
+        .find(|m| m.status == "Online" && m.name != created.location)
+        .map(|m| m.name)
+        .expect("another online member");
+    let started = std::time::Instant::now();
+    converge(
+        &pool,
+        &provider,
+        "instance.move",
+        &json!({ "project": project, "name": name, "application": app,
+        "from": created.location, "target": to, "live": false, "startAfter": true, "volumes": [] }),
+    )
+    .await;
+    let moved = status(&provider, &project, &name).await.expect("exists");
+    assert_eq!(
+        (moved.location.as_str(), moved.status.as_str()),
+        (to.as_str(), "Running")
+    );
+    eprintln!(
+        "{project}/{name}: moved from {} to {to} on {shared} in {:.1} s (stop, relink, start)",
+        created.location,
+        started.elapsed().as_secs_f64()
+    );
+    assert!(
+        provider
+            .volume(&project, &shared, None, &volume)
+            .await
+            .expect("read volume")
+            .is_some_and(|v| v.used_by.len() == 1),
+        "the same volume, still attached"
+    );
+
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    assert_eq!(
+        provider
+            .delete_volume(&project, &shared, None, &volume, app)
+            .await,
+        Ok(true)
+    );
+}

@@ -69,6 +69,8 @@ pub struct Supervisor {
     members_unreadable: bool,
     /// The leader lease the current pass writes under; `None` for one-shot passes (tests).
     leadership: Option<Leadership>,
+    /// Failed members: fencing and restarts on shared storage (HA slice B, ADR 0013).
+    recovery: crate::recovery::Recovery,
 }
 
 /// The leader lease the replica supervisor runs under.
@@ -173,7 +175,14 @@ impl Supervisor {
             reported: HashMap::new(),
             members_unreadable: false,
             leadership: None,
+            recovery: crate::recovery::Recovery::default(),
         }
+    }
+
+    /// Restarts on shared storage after fencing, with this fence probe (ADR 0013).
+    pub fn with_recovery(mut self, recovery: crate::recovery::Recovery) -> Self {
+        self.recovery = recovery;
+        self
     }
 
     /// One pass as the holder of `lease`, or `None` without a pass when this process does not
@@ -193,6 +202,7 @@ impl Supervisor {
             self.offline_since.clear();
             self.reported.clear();
             self.health.forget();
+            self.recovery.forget();
             self.members_unreadable = false;
         }
         self.leadership = Some(lease);
@@ -224,9 +234,15 @@ impl Supervisor {
         pool: &Pool,
         provider: &Provider,
     ) -> Result<Vec<String>, StoreError> {
+        // Failed members first: fencing and restarts on shared storage are decided before
+        // anything else, and recorded even when no application is deployed.
+        let mut recovered = self
+            .recovery
+            .pass(pool, provider, self.leadership.as_ref())
+            .await?;
         let deployments = apelora_persistence::list_deployments(pool).await?;
         if deployments.is_empty() {
-            return Ok(Vec::new());
+            return Ok(recovered);
         }
         let observed = match provider.instances().await {
             Ok(o) => o,
@@ -288,7 +304,7 @@ impl Supervisor {
             .filter(|(_, since)| now.duration_since(**since) >= self.recover_after)
             .map(|(name, _)| name.clone())
             .collect();
-        let mut recreated = Vec::new();
+        let mut recreated = std::mem::take(&mut recovered);
         for d in deployments {
             let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone())
             else {
@@ -637,6 +653,7 @@ pub async fn supervise(
     recover_after: Duration,
     health: HealthPolicy,
     holder: String,
+    recovery: crate::recovery::Recovery,
 ) {
     let mut lease = LeaderLease::new(LEADER_LEASE, &holder, LEADER_LEASE_SECS);
     let (tx, rx) = watch::channel(lease.tick(&pool).await);
@@ -651,7 +668,9 @@ pub async fn supervise(
     });
     // Stop renewing when supervision stops (the task is aborted at shutdown).
     let _renewals = AbortOnDrop(renewals);
-    let mut supervisor = Supervisor::new(recover_after).with_health(health);
+    let mut supervisor = Supervisor::new(recover_after)
+        .with_health(health)
+        .with_recovery(recovery);
     loop {
         let current = rx.borrow().clone();
         let started = std::time::Instant::now();
@@ -729,6 +748,7 @@ mod tests {
                 owner: None,
                 network: None,
                 volumes: Vec::new(),
+                root_pool: None,
             },
             replicas,
             availability,
@@ -1467,6 +1487,7 @@ mod tests {
                 Duration::ZERO,
                 HealthPolicy::immediate(),
                 holder.to_owned(),
+                crate::recovery::Recovery::default(),
             ))
         };
         let (a, b) = (run("worker-a"), run("worker-b"));

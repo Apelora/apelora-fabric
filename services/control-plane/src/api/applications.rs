@@ -320,27 +320,68 @@ async fn resolve_volume_pools(
     state: &AppState,
     modules: &mut [DesiredModule],
 ) -> Result<(), ApiError> {
+    use apelora_domain::storage::{VolumeClass, is_shared_driver, restarts_elsewhere};
     if modules.iter().all(|d| d.spec.volumes.is_empty()) {
         return Ok(());
     }
-    let Some(pool) = state.volume_pool.as_deref() else {
-        return Err(bad_request(
-            "this design has volumes, but no storage pool is configured for volume class data-local (APELORA_VOLUME_POOL)",
-        ));
+    let pools = state.provider.storage_pools().await?;
+    let wants = |class: VolumeClass| {
+        modules
+            .iter()
+            .flat_map(|d| d.spec.volumes.iter())
+            .any(|v| v.class == class)
     };
-    if !state
-        .provider
-        .storage_pools()
-        .await?
-        .iter()
-        .any(|p| p.name == pool)
-    {
-        return Err(bad_request(format!(
-            "volume class data-local: storage pool {pool} does not exist in Incus"
-        )));
-    }
-    for v in modules.iter_mut().flat_map(|d| d.spec.volumes.iter_mut()) {
-        v.pool = Some(pool.to_owned());
+    let local = if wants(VolumeClass::DataLocal) {
+        let Some(pool) = state.volume_pool.as_deref() else {
+            return Err(bad_request(
+                "this design has volumes, but no storage pool is configured for volume class data-local (APELORA_VOLUME_POOL)",
+            ));
+        };
+        if !pools.iter().any(|p| p.name == pool) {
+            return Err(bad_request(format!(
+                "volume class data-local: storage pool {pool} does not exist in Incus"
+            )));
+        }
+        Some(pool)
+    } else {
+        None
+    };
+    let shared = if wants(VolumeClass::DataReplicated) {
+        let Some(pool) = state.shared_pool.as_deref() else {
+            return Err(bad_request(
+                "this design has data-replicated volumes, but no shared storage pool is configured (APELORA_SHARED_POOL)",
+            ));
+        };
+        match pools.iter().find(|p| p.name == pool) {
+            None => {
+                return Err(bad_request(format!(
+                    "volume class data-replicated: storage pool {pool} does not exist in Incus"
+                )));
+            }
+            Some(p) if !is_shared_driver(&p.driver) => {
+                return Err(bad_request(format!(
+                    "volume class data-replicated: storage pool {pool} uses driver {}, which is not shared by all servers",
+                    p.driver
+                )));
+            }
+            Some(_) => Some(pool),
+        }
+    } else {
+        None
+    };
+    for d in modules.iter_mut() {
+        for v in d.spec.volumes.iter_mut() {
+            v.pool = match v.class {
+                VolumeClass::DataLocal => local,
+                VolumeClass::DataReplicated => shared,
+            }
+            .map(str::to_owned);
+        }
+        // Everything on the shared pool: the root disk goes there too, so the module can
+        // restart on another server after a failure (ADR 0013).
+        if restarts_elsewhere(&d.spec.volumes) {
+            d.spec.root_pool = shared.map(str::to_owned);
+        }
     }
     Ok(())
 }

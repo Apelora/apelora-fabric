@@ -443,6 +443,37 @@ fn incus_down(provider: ProviderMode, reason: String) -> IncusReading {
     }
 }
 
+/// One sentence per failed server about its fencing (HA slice B), from the worker's records.
+async fn fencing_note(state: &AppState) -> Option<String> {
+    let super::Auth::Tokens(pool) = &state.auth else {
+        return None;
+    };
+    let failures = apelora_persistence::recovery::open_failures(pool)
+        .await
+        .map_err(|e| tracing::debug!(error = %e, "health: failed servers not readable"))
+        .ok()?;
+    let parts: Vec<String> = failures
+        .iter()
+        .map(|f| {
+            if f.fenced_at.is_some() {
+                format!(
+                    "{} is fenced; its modules on shared storage restart on other servers",
+                    f.member
+                )
+            } else {
+                let why = f
+                    .fencing
+                    .as_ref()
+                    .and_then(|v| v.get("reason"))
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("the supervisor has not looked at it yet");
+                format!("{} is not fenced yet: {why}", f.member)
+            }
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(". "))
+}
+
 async fn incus(state: &AppState) -> IncusReading {
     let pr = &state.provider;
     let mode = pr.mode();
@@ -491,14 +522,23 @@ async fn incus(state: &AppState) -> IncusReading {
             .filter(|m| m.status != "Online")
             .map(|m| format!("{} is {}", m.name, m.status))
             .collect();
+        let fencing = fencing_note(state).await;
         (
             HealthCondition::Degraded,
             Some(format!(
-                "{not_online} of {} servers not online: {}",
+                "{not_online} of {} servers not online: {}{}",
                 counts.total,
-                names.join(", ")
+                names.join(", "),
+                fencing
+                    .as_deref()
+                    .map(|f| format!(". {f}"))
+                    .unwrap_or_default()
             )),
-            Some("See the servers below; Servers → Members has evacuate and restore".into()),
+            Some(if counts.offline > 0 {
+                "Servers → Members shows whether each failed server is fenced and which modules restart on other servers; check its power and network".into()
+            } else {
+                "See the servers below; Servers → Members has evacuate and restore".into()
+            }),
         )
     } else {
         (HealthCondition::Healthy, None, None)

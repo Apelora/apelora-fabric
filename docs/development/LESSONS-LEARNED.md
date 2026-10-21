@@ -89,6 +89,11 @@ Read these first. Most entries below come from one of four causes:
 - **A project's state comes back as `Limit`/`Usage`, capitalised** (2026-10-21) → Incus's `ProjectStateResource` has no JSON tags, unlike the rest of the API. → Decode both spellings (`WireResource` in `crates/incus-adapter/src/tenancy.rs`); read wire shapes from the pinned source, not from the YAML example.
 - **A stand-by reports `database: true`** (2026-10-21, REAL INCUS TESTED read) → the flag means "holds a copy", not "votes". → Voters are members with the `database` role (`clustering::database_role`).
 
+- **"The SAN's lock stops a second writer" is only half true on clustered LVM** (2026-10-21, read in the Incus 7.0.2 source) → `lvmcluster` activates container file systems exclusively but VM disks and block volumes *shared* (so they can move live); a shared lock does not exclude another host. → Fence on the failed host's sanlock lease being DEAD (its watchdog has fired), never on time or on a lock refusal (ADR 0013, `apelora_domain::fencing`).
+- **The restart failed with "LV locked by other host" right after a member reported the failed host DEAD** (2026-10-21, REAL INCUS TESTED) → each member's sanlock judges a lease dead from its own readings, up to about 10 s apart, and the target member had not yet. → The `instance.recover` job waits (`Outcome::Waiting`, no attempt used) for up to 120 s after fencing; the lock refusal is the storage protecting the data, not an error to escalate.
+- **Incus reported all four members Offline for 10 s while only one VM was stopped** (2026-10-21, REAL INCUS TESTED) → the heartbeat round was held up by the dead member. → Nothing on shared storage moves on Incus's status alone; the lease check kept every healthy member unfenced.
+- **An offline member's instances cannot be read and cannot be moved to a group** (2026-10-21) → Incus lists them without config, and with the source offline the move request is forwarded to the target, which must be a member. → Recovery policy comes from Apelora's deployment records, and Apelora names the target member (`recovery::choose_target`); the placement scriptlet still validates it.
+
 ## Lab, shell and tooling
 
 - **`npm run lint` failed with "multiple candidate TSConfigRootDirs"** (2026-10-21) → agent worktrees live under `.claude/worktrees/` inside the repository, and ESLint scanned their copies. → `.claude/**` is in the ESLint ignores; any new repo-wide tool must ignore it too.
@@ -106,6 +111,8 @@ Read these first. Most entries below come from one of four causes:
 - **The Incus CLI attach failed** → it needs a device name.
 - **A design-review tool refused SVGs with text** → review illustrations by rendering them and looking at screenshots instead.
 - **Another agent overwrote a helper script in the shared scratchpad mid-task** (2026-10-21) → parallel sessions share the scratchpad directory. → Keep your helpers in your own subfolder of the scratchpad, named after your worktree.
+- **The fence probe stopped working on a member after its VM was restarted** (2026-10-21) → Lima gives a VM new SSH host keys at every boot, and the probe pins host keys (as it must). → After restarting a lab VM run `scripts/test-cluster/fence-probe.sh apply` again; `ha-drill.sh` does it after the drill and its plan refuses a lab where a probe fails.
+- **Commands with a `cd`, a loop or a heredoc were refused in an isolated worktree** (2026-10-21) → the worktree guard cannot prove such commands stay inside the worktree. → Put multi-step shell work in a script file in your scratchpad subfolder (absolute paths) and run that one file; keep direct commands plain.
 - **A spacing measurement reported a 92 px gap that did not exist** (2026-10-21) → the snapshot had been trimmed to fit the tool call and lost a sibling. → Trim whole subtrees (e.g. keep `<main>`), never single siblings, and re-check any finding against the full capture.
 
 ## Git and collaboration

@@ -190,6 +190,12 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         "Evacuate a member although some workload would lose service",
     ),
     i(
+        "cluster.fence_confirm",
+        Plat,
+        true,
+        "Confirm that a failed server is powered off, so its modules on shared storage restart on other servers",
+    ),
+    i(
         "cluster.sensitive_change",
         Plat,
         true,
@@ -365,6 +371,7 @@ mod tests {
             "hardware.delete",
             "hardware.power",
             "cluster.evacuate_unsafe",
+            "cluster.fence_confirm",
             "cluster.sensitive_change",
             "token.create_admin",
         ] {

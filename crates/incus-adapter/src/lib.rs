@@ -510,6 +510,22 @@ impl Provider {
                 if action == InstanceAction::Restart {
                     m.net().restarts.push(name.to_owned());
                 }
+                if action == InstanceAction::Start
+                    && let Some(n) = m
+                        .lock_refusals
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_mut(name)
+                        .filter(|n| **n > 0)
+                {
+                    *n -= 1;
+                    return Err(AdapterError::Api {
+                        status: 500,
+                        message: format!(
+                            "Failed to activate LVM logical volume: exit status 5 (LV locked by other host: {name})"
+                        ),
+                    });
+                }
                 m.set_status(project, name, action.target_status())
             }
             Provider::Incus(c) => c.change_state(project, name, action, force).await,
@@ -784,11 +800,58 @@ impl Provider {
         valid_member(target)?;
         match self {
             Provider::Mock(m) => {
+                let offline: Vec<String> = m
+                    .members
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .filter(|x| x.status == "Offline")
+                    .map(|x| x.name.clone())
+                    .collect();
+                let shared = |pool: &str| {
+                    m.pools.iter().any(|p| {
+                        p.name == pool && apelora_domain::storage::is_shared_driver(&p.driver)
+                    })
+                };
+                let user = format!("/1.0/instances/{name}?project={project}");
+                let local_volume = m
+                    .storage()
+                    .volumes
+                    .iter()
+                    .find(|(k, v)| {
+                        v.used_by.contains(&user)
+                            && !shared(k.split('/').nth(1).unwrap_or_default())
+                    })
+                    .map(|(k, _)| k.clone());
                 let mut all = m.lock();
                 let i = all
                     .iter_mut()
                     .find(|i| i.instance.project == project && i.instance.name == name)
                     .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                if offline.contains(&i.instance.location) {
+                    // Like Incus: away from an offline member only on shared storage, and only
+                    // its records move (it is not running anywhere afterwards).
+                    if !i.root_pool.as_deref().is_some_and(shared) || local_volume.is_some() {
+                        return Err(AdapterError::Api {
+                            status: 500,
+                            message: format!(
+                                "Failed to migrate instance {name}: the member {} is offline and its storage is not shared",
+                                i.instance.location
+                            ),
+                        });
+                    }
+                    if live || offline.iter().any(|o| o == target) {
+                        return Err(AdapterError::Api {
+                            status: 400,
+                            message: "Target cluster member is offline or a live move was asked"
+                                .into(),
+                        });
+                    }
+                    i.instance.location = target.to_owned();
+                    i.instance.status = "Stopped".into();
+                    drop(all);
+                    return Ok(m.op());
+                }
                 let running = i.instance.status == "Running";
                 if running
                     && !(live && i.stateful && i.instance.kind == InstanceKind::VirtualMachine)
@@ -1862,6 +1925,9 @@ pub struct MockIncus {
     /// Projects Apelora created or changed, profiles, the trust store and project use
     /// (`tenancy.rs`, ADR 0012).
     pub tenancy: Arc<Mutex<tenancy::MockTenancy>>,
+    /// Starts of an instance (by name) refused as Incus does while the shared storage's lock is
+    /// still held by another host, this many times (tests).
+    pub lock_refusals: Arc<Mutex<std::collections::BTreeMap<String, u32>>>,
     next_op: Arc<Mutex<u64>>,
 }
 
@@ -1994,6 +2060,8 @@ pub struct MockInstance {
     pub stateful: bool,
     /// New for every created instance, like Incus's `volatile.uuid`.
     pub uuid: String,
+    /// The root disk's pool when the spec chose one (`rootPool`); `None`: the profile's.
+    pub root_pool: Option<String>,
 }
 
 /// The mock's one log file per instance, named like Incus's for its kind.
@@ -2148,6 +2216,7 @@ impl MockIncus {
                 .config
                 .get("migration.stateful")
                 .is_some_and(|v| v == "true"),
+            root_pool: spec.root_pool.clone(),
         });
         Ok(self.op())
     }
@@ -2206,8 +2275,14 @@ impl MockIncus {
             .iter_mut()
             .find(|i| i.instance.project == project && i.instance.name == instance)
             .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{instance}")))?;
-        // Like Incus: the volume must be on the instance's member.
-        let key = mock_key(project, pool, Some(&i.instance.location), name);
+        // Like Incus: the volume must be on the instance's member, unless the pool is shared
+        // (then it belongs to no member).
+        let shared = self
+            .pools
+            .iter()
+            .any(|p| p.name == pool && apelora_domain::storage::is_shared_driver(&p.driver));
+        let at = (!shared).then_some(i.instance.location.as_str());
+        let key = mock_key(project, pool, at, name);
         let v = st.volumes.get_mut(&key).ok_or_else(|| AdapterError::Api {
             status: 404,
             message: "Storage volume not found".into(),
@@ -2492,6 +2567,7 @@ impl Default for MockIncus {
                     base_image: None,
                     volume_devices: Vec::new(),
                     stateful: false,
+                    root_pool: None,
                 })
                 .collect(),
             )),
@@ -2505,6 +2581,7 @@ impl Default for MockIncus {
             )),
             member_versions: Arc::default(),
             tenancy: Arc::new(Mutex::new(tenancy::MockTenancy::seeded())),
+            lock_refusals: Arc::default(),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
             storage: Arc::default(),

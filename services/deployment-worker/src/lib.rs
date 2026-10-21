@@ -4,6 +4,7 @@
 //! [`Provider`]; see [`lifecycle`].
 
 pub mod alerts;
+pub mod fencing;
 pub mod health;
 pub mod lifecycle;
 pub mod metrics;
@@ -11,6 +12,7 @@ pub mod mobility;
 pub mod network;
 pub mod operations;
 pub mod outbox;
+pub mod recovery;
 pub mod storage;
 pub mod supervisor;
 pub mod wake;
@@ -43,6 +45,9 @@ async fn handle(
     }
     if job.kind == "instance.move" {
         return mobility::run(pool, provider, job, worker).await;
+    }
+    if job.kind == "instance.recover" {
+        return recovery::run(pool, provider, job, worker).await;
     }
     if job.kind == "volume.backup" {
         return storage::run_backup_job(pool, provider, &job.payload).await;
@@ -181,6 +186,8 @@ async fn run_claimed(
 ///   is started, so a cancelled create never leaves a half-built instance;
 /// - `instance.move`: while the instance is still on its original member (started again there
 ///   if the move had stopped it); once on the new member the move is finished;
+/// - `instance.recover`: while the instance is still on the failed member; once relinked to
+///   another member it is started there;
 /// - `application.operation`: between phases; the running phase's instance jobs finish;
 /// - `network.sync`, `volume.backup`: none after the start (each is one idempotent pass);
 /// - `volume.restore`: after the safety backup, before the backup is copied over the volume

@@ -6,6 +6,10 @@
 //! replicas on a member offline for `APELORA_RECOVER_AFTER_SECS` (default 120) are substituted;
 //! a stateless replica failing its port check for `APELORA_HEALTH_FAIL_AFTER_SECS` (default 20)
 //! is unhealthy, and restarted once unhealthy for `APELORA_HEALTH_RESTART_AFTER_SECS` (60).
+//! The supervisor also restarts a failed member's instances on shared storage on another member
+//! once that member is fenced (ADR 0013): `APELORA_FENCE_PROBE` (`off` or `ssh`) with
+//! `APELORA_FENCE_PROBE_KEY`, `APELORA_FENCE_PROBE_KNOWN_HOSTS`, `APELORA_FENCE_PROBE_USER`,
+//! `APELORA_FENCE_PROBE_TARGETS` and `APELORA_FENCE_LOCKSPACE` (see `fencing`).
 //! Metrics and a liveness probe are served on `APELORA_WORKER_METRICS_ADDR` (default
 //! `127.0.0.1:9471`, `off` turns it off; no authentication, so loopback or a management network).
 //! Alerts are evaluated every `APELORA_ALERT_EVALUATE_SECS` (default 30; 0 turns it off) by the
@@ -80,6 +84,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
+    // Fencing before restarts on shared storage (ADR 0013): APELORA_FENCE_PROBE (off | ssh) and
+    // its settings, APELORA_FENCE_LOCKSPACE.
+    let (probe, lockspace) =
+        apelora_deployment_worker::fencing::probe_from_env(|k| std::env::var(k).ok())?;
+    tracing::info!(
+        probe = if probe.configured() { "ssh" } else { "off" },
+        lockspace = lockspace.as_deref().unwrap_or("-"),
+        "fence probe"
+    );
+    let recovery = apelora_deployment_worker::recovery::Recovery::new(probe, lockspace);
     let supervisor = (every > 0).then(|| {
         tracing::info!(every_secs = every, "replica supervisor started");
         tokio::spawn(apelora_deployment_worker::supervisor::supervise(
@@ -89,6 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_secs(recover_after),
             health,
             worker.clone(),
+            recovery,
         ))
     });
     // Scheduled snapshots and backups of volumes, checked every minute; backups go to the pool

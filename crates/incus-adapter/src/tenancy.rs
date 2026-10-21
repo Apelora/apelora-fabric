@@ -968,6 +968,7 @@ mod tests {
             owner: None,
             network: None,
             volumes: vec![],
+            root_pool: None,
         };
         p.create_instance(&spec).await.expect("first fits");
         spec.name = "two".into();

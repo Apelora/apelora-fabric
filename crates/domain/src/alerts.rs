@@ -246,6 +246,15 @@ pub const RULES: &[AlertRule] = &[
         "Incus members",
         "alerts.md#a-cluster-member-is-not-online",
     ),
+    state_rule(
+        "member-unfenced",
+        "A failed server is waiting for fencing",
+        "A server Incus reports Offline holds modules on shared storage that restart on another server only once it is fenced: its storage lease expired, or a person confirmed it is off. Normally about 140 s after it stopped.",
+        300,
+        Critical,
+        "Failed servers",
+        "alerts.md#a-failed-server-is-waiting-for-fencing",
+    ),
     AlertRule {
         comparison: AlertComparison::AtMost,
         ..rule(
@@ -497,7 +506,7 @@ mod tests {
             assert_eq!(r.check(&r.defaults()), Ok(()), "{}", r.id);
             assert!(r.threshold_min <= r.threshold && r.threshold <= r.threshold_max);
         }
-        assert_eq!(RULES.len(), 15);
+        assert_eq!(RULES.len(), 16);
         assert!(alert_rule("job-failures").is_some());
         assert!(alert_rule("nope").is_none());
     }

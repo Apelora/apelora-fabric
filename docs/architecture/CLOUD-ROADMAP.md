@@ -22,7 +22,7 @@ Status: ✅ built · 🟡 partly · ⬜ planned.
 | **Compute** | System containers, OCI containers, VMs per module class | ✅ |
 | | Replicas, health checks, restart and replacement of failed instances | ✅ |
 | | Live migration of VMs; planned moves; evacuation | ✅ |
-| | Restart on another server after a failure (shared storage, fencing) | 🟡 lab pool ready (HA slice B) |
+| | Restart on another server after a failure (shared storage, fencing) | ✅ built, lab drill passed (HA slice B, ADR 0013) |
 | | GPUs and other devices per module class; SR-IOV and offloaded NICs | ⬜ |
 | | Bare-metal servers as a resource (install, power, re-image) | ⬜ ADR 0002 |
 | | Autoscaling replicas from metrics | ⬜ |

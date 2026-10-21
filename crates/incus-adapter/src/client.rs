@@ -737,6 +737,10 @@ impl IncusClient {
             source["fingerprint"] = json!(fp);
         }
         let mut devices = json!({});
+        // The root disk on a chosen pool (the shared one, ADR 0013) instead of the profile's.
+        if let Some(pool) = &spec.root_pool {
+            devices["root"] = json!({ "type": "disk", "path": "/", "pool": pool });
+        }
         if let Some(n) = &spec.network {
             devices["eth0"] = json!({
                 "type": "nic", "name": "eth0", "network": n.network,

@@ -53,6 +53,9 @@ pub struct AppState {
     /// Pool behind the `data-local` volume class (`APELORA_VOLUME_POOL`); `None`: designs with
     /// volumes are refused.
     volume_pool: Option<Arc<str>>,
+    /// Shared pool behind the `data-replicated` volume class (`APELORA_SHARED_POOL`); modules
+    /// whose volumes use it get their root disk there too (ADR 0013). `None`: refused.
+    shared_pool: Option<Arc<str>>,
     /// Pool that receives volume backups (`APELORA_BACKUP_POOL`, also read by the worker);
     /// `None`: backups cannot be asked for and restores take no safety backup.
     backup_pool: Option<Arc<str>>,
@@ -105,6 +108,7 @@ impl AppState {
             network_uplink: None,
             service_range: None,
             volume_pool: None,
+            shared_pool: None,
             backup_pool: None,
             oidc: None,
             sign_in: None,
@@ -183,6 +187,11 @@ impl AppState {
 
     pub fn with_volume_pool(mut self, pool: Option<String>) -> Self {
         self.volume_pool = pool.map(Arc::from);
+        self
+    }
+
+    pub fn with_shared_pool(mut self, pool: Option<String>) -> Self {
+        self.shared_pool = pool.map(Arc::from);
         self
     }
 
@@ -269,6 +278,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/cluster/members", get(clustering::members))
         .route("/api/v1/cluster/groups", get(clustering::groups))
         .route("/api/v1/cluster/settings", get(clustering::settings))
+        .route("/api/v1/cluster/recovery", get(recovery::recovery))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
         .route("/api/v1/capacity", get(fabric_health::capacity))
@@ -394,6 +404,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/cluster/members/{member}/restore",
             post(cluster_admin::restore),
+        )
+        .route(
+            "/api/v1/cluster/members/{member}/fencing",
+            post(recovery::confirm),
         )
         .route(
             "/api/v1/cluster/members/{member}/removal",
@@ -1561,6 +1575,7 @@ impl Modify for BearerAuth {
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
         clustering::members, clustering::groups, clustering::settings,
+        recovery::recovery, recovery::confirm,
         machines::list, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
@@ -1632,6 +1647,7 @@ mod mirrors;
 mod mobility;
 mod networks;
 pub mod rate_limit;
+mod recovery;
 pub mod requests;
 pub mod sessions;
 pub mod sessions_auth;
@@ -1661,6 +1677,8 @@ mod jobs_tests;
 mod manage_tests;
 #[cfg(test)]
 mod metrics_tests;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod sessions_auth_tests;
 #[cfg(test)]

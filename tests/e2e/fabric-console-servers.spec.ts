@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
 
 import { servers as healthServers, server as healthServer } from "./health-fixtures";
-import { NOW, atRiskQuorum, groups, member, members, mixedBlocked, settings, system } from "./servers-fixtures";
+import { NOW, atRiskQuorum, groups, member, members, mixedBlocked, noRecovery, recovery, settings, system } from "./servers-fixtures";
 
 // The Servers area against a stubbed control plane: database roles and majority, members with
 // their releases and capacity, groups, settings with their defaults, certificates, upgrades and
@@ -31,6 +31,7 @@ const base = (who: unknown = admin) => ({
   "/api/v1/whoami": { json: who },
   "/api/v1/cluster/members": { json: members() },
   "/api/v1/cluster/groups": { json: groups() },
+  "/api/v1/cluster/recovery": { json: noRecovery() },
   "/api/v1/health/servers": { json: healthServers("incus", [healthServer("node-1"), healthServer("node-2"), healthServer("node-3"), healthServer("node-4")]) },
 });
 
@@ -209,6 +210,64 @@ test("upgrades: skew against the pin, what blocks the next member, and the rolli
   await expect(page.getByTestId("upgrade-ready")).toHaveCount(0);
 });
 
+test("a failed server: fencing state, what restarts where, and confirming it is off", async ({ page }) => {
+  let fenced = false;
+  let confirmed: unknown = null;
+  const offline = members({ members: [member("node-1", { leader: true }), member("node-2"), member("node-3", { status: "Offline", message: "No heartbeat for 2m10s" })], quorum: atRiskQuorum });
+  await page.route("**/api/**", async (route: Route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    await new Promise((res) => setTimeout(res, 60));
+    if (path === "/api/v1/cluster/members/node-3/fencing" && req.method() === "POST") {
+      confirmed = req.postDataJSON();
+      fenced = true;
+      return route.fulfill({ json: recovery(true).items[0] });
+    }
+    const replies: Record<string, unknown> = {
+      "/api/v1/health": health, "/api/v1/whoami": admin, "/api/v1/cluster/members": offline, "/api/v1/cluster/groups": groups(),
+      "/api/v1/cluster/recovery": recovery(fenced),
+      "/api/v1/health/servers": healthServers("incus", [healthServer("node-1"), healthServer("node-2")]),
+    };
+    return path in replies ? route.fulfill({ json: replies[path] }) : route.abort();
+  });
+  await page.goto("/#/servers/members");
+  const failed = page.getByTestId("failed-server");
+  await expect(failed).toHaveCount(1);
+  await expect(failed.getByRole("heading", { name: "node-3 is offline" })).toBeVisible();
+  await expect(failed.getByTestId("fencing-state")).toHaveText("Waiting for fencing");
+  await expect(failed.getByTestId("fencing-reason")).toContainText("Its storage lease stopped being renewed (FAIL)");
+  await expect(failed.getByTestId("fencing-next-step")).toContainText("Apelora restarts its modules once the lease is dead");
+  const items = failed.getByTestId("recovery-item");
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText("Restarts on node-2 once fenced");
+  await expect(items.nth(1)).toContainText("Waits for its server");
+  await expect(items.nth(1)).toContainText("Volume data is on member-local pool local");
+  expect(await serious(page)).toEqual([]);
+
+  // Confirming needs the name typed; Cancel leaves everything as it was.
+  await failed.getByTestId("confirm-powered-off").click();
+  const dialog = page.locator("dialog[open]");
+  await expect(dialog).toContainText("two copies would write the same disks");
+  const go = dialog.getByRole("button", { name: "Confirm powered off" });
+  await expect(go).toBeDisabled();
+  await dialog.getByRole("textbox").fill("node-3");
+  await go.click();
+  await expect.poll(() => confirmed).toEqual({ confirm: "node-3", poweredOff: true });
+  await expect(page.getByTestId("recovery-notice")).toContainText("node-3 is recorded as powered off");
+  await expect(failed.getByTestId("fencing-state")).toHaveText("Fenced");
+  await expect(failed.getByTestId("fencing-reason")).toContainText("Sanlock on node-1 reported host 3");
+  await expect(items.nth(0)).toContainText("Restarts on node-2");
+  await expect(failed.getByTestId("confirm-powered-off")).toHaveCount(0);
+});
+
+test("a viewer sees failed servers without the confirm action", async ({ page }) => {
+  const offline = members({ members: [member("node-1", { leader: true }), member("node-3", { status: "Offline" })] });
+  await stub(page, { ...base(viewer), "/api/v1/cluster/members": { json: offline }, "/api/v1/cluster/recovery": { json: recovery(false) } });
+  await page.goto("/#/servers/members");
+  await expect(page.getByTestId("failed-server")).toHaveCount(1);
+  await expect(page.getByTestId("confirm-powered-off")).toHaveCount(0);
+});
+
 test("preflight lives under Servers and its old address still works", async ({ page }) => {
   await stub(page, { ...base(), "/api/v1/preflight": { json: { source: { provider: "incus", observedAt: NOW }, overall: "pass", checks: [{ id: "incus-version", title: "Incus version", status: "pass", detail: "Incus 7.0.1" }] } } });
   await page.goto("/#/preflight");
@@ -241,6 +300,18 @@ test.describe("phone", () => {
     const evacuate = (await page.getByTestId("evacuate-member").first().boundingBox())!;
     expect(evacuate.height).toBeGreaterThanOrEqual(44);
     expect(evacuate.x + evacuate.width).toBeLessThanOrEqual(390);
+    expect(await serious(page)).toEqual([]);
+  });
+
+  test("a failed server's panel fits a phone", async ({ page }) => {
+    const offline = members({ members: [member("node-1", { leader: true }), member("node-3", { status: "Offline" })] });
+    await stub(page, { ...base(), "/api/v1/cluster/members": { json: offline }, "/api/v1/cluster/recovery": { json: recovery(false) } });
+    await page.goto("/#/servers/members");
+    await expect(page.getByTestId("recovery-item")).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    const confirm = (await page.getByTestId("confirm-powered-off").boundingBox())!;
+    expect(confirm.height).toBeGreaterThanOrEqual(44);
+    expect(confirm.x + confirm.width).toBeLessThanOrEqual(390);
     expect(await serious(page)).toEqual([]);
   });
 

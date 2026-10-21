@@ -297,6 +297,21 @@ pub fn topic_label(topic: &str) -> &str {
 
 // ---- alerts -----------------------------------------------------------------------------------
 
+pub static MEMBER_FAILURES: Gauge = Gauge::new(
+    "apelora_member_failures",
+    "Failed members (Incus reports them Offline) by fencing state (waiting, fenced). Set each pass by the worker holding the replica-supervisor lease; the others report none.",
+    &["state"],
+);
+pub static FENCE_PROBES: Counter = Counter::new(
+    "apelora_fence_probes",
+    "Reads of the shared storage's lease state on a member (sanlock, through the fence probe), by outcome (ok, failed).",
+    &["outcome"],
+);
+pub static RECOVERIES: Counter = Counter::new(
+    "apelora_recoveries",
+    "Instances of a failed member restarted on another member after fencing, by outcome (queued, succeeded, failed).",
+    &["outcome"],
+);
 pub static ALERTS_FIRING: Gauge = Gauge::new(
     "apelora_alerts_firing",
     "Open firing alerts by severity (critical, warning, info), silenced ones included. Set each pass by the worker holding the alert-evaluator lease; the others report none.",
@@ -436,6 +451,9 @@ pub static FAMILIES: &[&dyn Family] = &[
     &OUTBOX_OLDEST_PENDING_AGE,
     &OUTBOX_FAILING,
     &OUTBOX_DELIVERIES,
+    &MEMBER_FAILURES,
+    &FENCE_PROBES,
+    &RECOVERIES,
     &ALERTS_FIRING,
     &ALERT_EVALUATION,
     &INCUS_REQUESTS,

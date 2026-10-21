@@ -234,6 +234,12 @@ pub const SETTINGS: &[Setting] = &[
         "Storage pool behind the data-local volume class",
     ),
     s(
+        "APELORA_SHARED_POOL",
+        Cp,
+        None,
+        "Shared storage pool behind the data-replicated volume class (modules that restart on another server after fencing)",
+    ),
+    s(
         "APELORA_IMAGE_MIRRORS",
         Both,
         None,
@@ -414,6 +420,40 @@ pub const SETTINGS: &[Setting] = &[
         Worker,
         Some("60"),
         "Unhealthy for this long: restarted",
+    ),
+    s(
+        "APELORA_FENCE_PROBE",
+        Worker,
+        Some("off"),
+        "How the worker reads the shared storage's leases to fence a failed server (off or ssh)",
+    ),
+    hidden(
+        "APELORA_FENCE_PROBE_KEY",
+        Worker,
+        "Private key of the fence probe's forced SSH command",
+    ),
+    hidden(
+        "APELORA_FENCE_PROBE_KNOWN_HOSTS",
+        Worker,
+        "Pinned host keys of the members the fence probe reads",
+    ),
+    s(
+        "APELORA_FENCE_PROBE_USER",
+        Worker,
+        Some("apelora-fence"),
+        "Account of the fence probe on each member",
+    ),
+    s(
+        "APELORA_FENCE_PROBE_TARGETS",
+        Worker,
+        None,
+        "Where the fence probe reaches each member (member=host[:port]); default the member's address, port 22",
+    ),
+    s(
+        "APELORA_FENCE_LOCKSPACE",
+        Worker,
+        None,
+        "The shared volume group's lockspace the fence probe reads; default the only one joined",
     ),
     s(
         "APELORA_BACKUP_POOL",

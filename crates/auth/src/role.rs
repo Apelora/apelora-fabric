@@ -141,6 +141,7 @@ impl Builtin {
                 "cluster.manage",
                 "cluster.evacuate",
                 "cluster.evacuate_unsafe",
+                "cluster.fence_confirm",
                 "cluster.sensitive_change",
                 "network.manage",
                 "storage.manage",

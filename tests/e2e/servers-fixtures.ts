@@ -1,6 +1,6 @@
 // Stubbed responses for the Console's Servers area. Shapes follow the generated API types; the
 // four-member layout mirrors the test cluster (three voters, one stand-by), the numbers are made up.
-import type { ClusterGroupList, ClusterMemberDetail, ClusterMembersReport, ClusterQuorum, ClusterSettingsReport, ClusterVersions, SystemInfo } from "@apelora/api-client";
+import type { ClusterGroupList, ClusterMemberDetail, ClusterMembersReport, ClusterQuorum, ClusterSettingsReport, ClusterVersions, RecoveryReport, SystemInfo } from "@apelora/api-client";
 
 export const NOW = "2026-10-21T10:00:00Z";
 const source = { provider: "incus" as const, observedAt: NOW };
@@ -64,3 +64,26 @@ export const system = (certificates: SystemInfo["certificates"]): SystemInfo => 
   version: "0.1.0", apiVersion: "v1", incusPinned: "v7.0.2", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.1",
   incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true }, certificates,
 });
+
+/** Failed servers (HA slice B): `node-3` offline, waiting for fencing or fenced. */
+export const recovery = (fenced: boolean): RecoveryReport => ({
+  source,
+  items: [{
+    member: "node-3", status: "Offline", failure: "6f1c2a4e-0000-4000-8000-000000000001",
+    detectedAt: "2026-10-21T09:58:10Z", lastHeartbeat: "2026-10-21T09:57:50Z",
+    fencing: fenced
+      ? { condition: "fenced", reason: "its storage lease expired: node-1 reports host 3 DEAD in lvm_shared" }
+      : { condition: "waiting", reason: "its storage lease stopped being renewed (FAIL); sanlock declares it dead 140 s after the last renewal, once its watchdog has reset it", nextStep: "Nothing to do: Apelora restarts its modules once the lease is dead", leaseState: "fail", observedBy: "node-1", observedAt: 1792576800 },
+    fencedAt: fenced ? "2026-10-21T10:00:20Z" : null,
+    evidence: fenced ? { kind: "storage-lease", at: 1792576820, observedBy: "node-1", lockspace: "lvm_shared", hostId: 3, generation: 1, summary: "sanlock on node-1 reported host 3 (generation 1) of node-3 DEAD in lvm_shared: its lease was not renewed for 140 s, so it is off or its watchdog reset it" } : null,
+    confirmedBy: null, decidedAt: fenced ? "2026-10-21T10:00:20Z" : null,
+    items: [
+      { project: "apelora", instance: "shop-db", application: "shop", module: "db", action: fenced ? "restart" : "after-fencing", target: "node-2",
+        reason: "all its disks are on the shared pool" },
+      { project: "apelora", instance: "shop-files", application: "shop", module: "files", action: "wait",
+        reason: "volume data is on member-local pool local" },
+    ],
+  }],
+});
+
+export const noRecovery = (): RecoveryReport => ({ source, items: [] });

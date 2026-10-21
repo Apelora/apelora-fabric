@@ -70,6 +70,9 @@ Messages for a deleted or turned-off channel are dropped. Undelivered messages a
 ### A cluster member is not online
 `member-offline` · subject: member. See [member failure](member-failure.md); two of three members offline puts quorum at risk ([quorum loss](quorum-loss.md)).
 
+### A failed server is waiting for fencing
+`member-unfenced` · subject: member. The server is Offline and holds modules on shared storage that Apelora restarts elsewhere only once it is fenced (ADR 0013). Normally fenced about 140 s after it stopped (its storage lease expires). Servers → Members says why it waits: the lease is still renewed (the server may be cut off from the others but still running), the probe cannot reach a healthy server, or no probe is configured. See [member failure](member-failure.md#modules-on-shared-storage).
+
 ### A certificate expires soon
 `certificate-expiry` · subject: `deploy` (Apelora's Incus identity) or `server` (the pinned Incus server certificate). See [certificates](certificates.md). The admin identity's certificate is loaded only by the control plane; watch it with the `apelora_certificate_expiry_timestamp_seconds` metric.
 

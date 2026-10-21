@@ -1153,6 +1153,33 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         "cluster.member.remove",
     )
     .await;
+    // A person confirms a failed server is off (HA slice B): recorded with its audit row.
+    s.mock
+        .members
+        .lock()
+        .expect("lock")
+        .iter_mut()
+        .find(|m| m.name == "mock-member-02")
+        .expect("member")
+        .status = "Offline".into();
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/cluster/members/{member}/fencing",
+        "/api/v1/cluster/members/mock-member-02/fencing",
+        r,
+        json!({ "confirm": "mock-member-02", "poweredOff": true }),
+        "cluster.member.fence.confirmed",
+    )
+    .await;
+    s.mock
+        .members
+        .lock()
+        .expect("lock")
+        .iter_mut()
+        .find(|m| m.name == "mock-member-02")
+        .expect("member")
+        .status = "Online".into();
 
     s.step(
         Atomic,

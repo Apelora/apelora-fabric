@@ -157,7 +157,7 @@ Separate detectors, each with source, timestamp and freshness: member (Incus hea
 | Database (single writer) | 1 | **Blocked** on ambiguous failure until fencing + storage ownership proven; operator decides |
 | Replicated database | By design | Application-specific failover adapter |
 
-Replicas follow the class's availability, not its instance kind: a VM is not limited to one, and a container is not stateless by default. A VM with live migration on moves running in planned moves (`instance.move`, evacuation); after a member failure, only instances on shared storage can restart elsewhere, after fencing ([moving modules](../design/mobility-and-ha.md), slice B, not built).
+Replicas follow the class's availability, not its instance kind: a VM is not limited to one, and a container is not stateless by default. A VM with live migration on moves running in planned moves (`instance.move`, evacuation); after a member failure, only instances on shared storage can restart elsewhere, after fencing ([moving modules](../design/mobility-and-ha.md), slice B, built; [ADR 0013](../adr/0013-fencing-before-restart.md)).
 
 **Relocating stateless modules (replace, then retire):** plan (policy + capacity) → start replacement on another member → wait for readiness → switch the service name's routing → drain and retire the old instance. No container live migration is needed; downtime depends on replica count, draining, sessions and ingress, and is measured, not promised.
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { ClusterGroupList, ClusterMemberDetail, ClusterMembersReport, ClusterQuorum, ClusterQuorumState, HealthServer, HealthServers, WhoAmI } from "@apelora/api-client";
+import type { ClusterGroupList, ClusterMemberDetail, ClusterMembersReport, ClusterQuorum, ClusterQuorumState, HealthServer, HealthServers, RecoveryReport, WhoAmI } from "@apelora/api-client";
 
 import { Badge, ConfirmDialog, ErrorPanel, Section, SectionHeader, TableFrame, sentence, type Tone } from "../../components/ui";
 import { client, messageOf, useLoad, type Load } from "../../lib/api";
@@ -8,6 +8,7 @@ import { holdsPlatform } from "../../lib/identity";
 import { bytes } from "../Health";
 import { useWide } from "../Machines";
 import { EvacuateDialog, RemoveMemberDialog } from "../Membership";
+import { FailedServers } from "./FailedServers";
 
 const QUORUM: Record<ClusterQuorumState, { label: string; tone: Tone }> = {
   healthy: { label: "Majority safe", tone: "ok" },
@@ -175,10 +176,12 @@ function Groups({ onAuth }: { onAuth: (m: string) => void }) {
 export function MembersTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   const [report, reload] = useLoad<ClusterMembersReport>(() => client.get("cluster_members"), onAuth);
   const [capacity] = useLoad<HealthServers>(() => client.get("health_servers"), onAuth);
+  const [recovery, reloadRecovery] = useLoad<RecoveryReport>(() => client.get("cluster_recovery"), onAuth);
   const legacyAdmin = !!me?.permissions.includes("manage-infrastructure");
   const actions = {
     evacuate: legacyAdmin || holdsPlatform(me, "cluster.evacuate", "cluster.evacuate_unsafe"),
     remove: legacyAdmin || holdsPlatform(me, "cluster.manage"),
+    confirmFenced: legacyAdmin || holdsPlatform(me, "cluster.fence_confirm"),
   };
   const [toEvacuate, setToEvacuate] = useState<string | null>(null);
   const [toRestore, setToRestore] = useState<string | null>(null);
@@ -202,6 +205,7 @@ export function MembersTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: stri
         {(r) => (
           <div className="flex flex-col gap-6">
             <QuorumPanel q={r.quorum} />
+            <FailedServers report={recovery} anyOffline={r.members.some((m) => m.status === "Offline")} canConfirm={actions.confirmFenced} onChanged={() => { reloadRecovery(); reload(); }} />
             <div className="flex flex-col gap-2">
               <SectionHeader title="Members" count={r.members.length} source={r.source} />
               {(actions.evacuate || actions.remove) && r.members.length > 0 && (

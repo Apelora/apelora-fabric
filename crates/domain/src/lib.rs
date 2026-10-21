@@ -9,6 +9,7 @@ pub mod capacity;
 pub mod clustering;
 pub mod enrolment;
 pub mod evacuation;
+pub mod fencing;
 pub mod health;
 pub mod images;
 pub mod inspect;
@@ -17,6 +18,7 @@ pub mod mobility;
 pub mod network;
 pub mod plan;
 pub mod preflight;
+pub mod recovery;
 pub mod removal;
 pub mod storage;
 pub mod tenancy;
@@ -330,6 +332,11 @@ pub struct InstanceSpec {
     /// Persistent volumes, each created for this instance on the member it runs on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes: Vec<storage::VolumeMount>,
+    /// The pool of the root disk when it is not the one the project's profile gives: the shared
+    /// pool for a module that restarts on another member after a failure (ADR 0013). Set by the
+    /// control plane from the module's volume classes, never by a caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_pool: Option<String>,
 }
 
 impl InstanceSpec {
@@ -393,6 +400,11 @@ impl InstanceSpec {
         if let Some(k) = self.config.keys().find(|k| k.starts_with("user.apelora.")) {
             return Err(format!("config key {k} is reserved for Apelora"));
         }
+        if let Some(p) = &self.root_pool
+            && !is_valid_name(p)
+        {
+            return Err(format!("invalid root disk pool name {p:?}"));
+        }
         storage::validate_volumes(&self.name, self.kind, &self.volumes)
     }
 
@@ -412,6 +424,12 @@ impl InstanceSpec {
                 "volume {}: the pool is chosen by Apelora from the volume class",
                 v.name
             ));
+        }
+        if self.root_pool.is_some() {
+            return Err(
+                "the root disk's pool is chosen by Apelora from the volume classes (rootPool)"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -641,6 +659,7 @@ mod tests {
             owner: None,
             network: None,
             volumes: Vec::new(),
+            root_pool: None,
         }
     }
 

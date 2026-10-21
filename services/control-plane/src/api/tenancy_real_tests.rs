@@ -45,6 +45,7 @@ fn spec(project: &str, config: &[(&str, &str)]) -> InstanceSpec {
         owner: None,
         network: None,
         volumes: vec![],
+        root_pool: None,
     }
 }
 

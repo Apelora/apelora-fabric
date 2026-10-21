@@ -82,6 +82,7 @@ Measure at three levels:
 - **Evaluator:** the worker holding the `alert-evaluator` lease, every `APELORA_ALERT_EVALUATE_SECS` (30). Facts are gathered first, then one fenced transaction writes every transition (`transition()` in the domain: pending → firing after the duration, firing → resolved after staying clear for the duration), one outbox message (topic `alert`) per enabled channel for fired/resolved outside a silence, and the evaluator row. Alert states are not audit rows (mutable observations); people's actions on them are audited.
 - **Delivery:** `webhook::Routed` sends `alert` messages to `WebhookSink` (HTTPS only, no redirects, 3/5 s timeouts, `Apelora-Signature: v1=` HMAC-SHA256 over `timestamp.body`, secret read from the `APELORA_ALERT_SECRET_*` variable the channel names), everything else to the configured sink. Errors never carry the URL (`without_url()`) or the response body. A channel's state is read from its outbox rows (`channel_deliveries`), not written by the relay.
 - **Metrics:** `apelora_alerts_firing{severity}` (leader only; `replace([])` on others), `apelora_alert_evaluation_duration_seconds{result}`; deliveries in `apelora_outbox_deliveries{topic="alert"}`.
+- **Failed members (ADR 0013):** `apelora_member_failures{state=waiting|fenced}` (supervisor leader, `replace`), `apelora_fence_probes{outcome}`, `apelora_recoveries{outcome=queued|succeeded|failed}`; rule `member-unfenced` (open failure, not fenced, instances waiting, 300 s); log prefix `recovery:`.
 
 ## Health, SLOs, alerts
 
