@@ -1414,8 +1414,12 @@ mod tests {
 
     #[test]
     fn tickets_are_long_random_and_never_repeat() {
-        let a = random_ticket().ok().expect("randomness");
-        let b = random_ticket().ok().expect("randomness");
+        let Ok(a) = random_ticket() else {
+            panic!("randomness")
+        };
+        let Ok(b) = random_ticket() else {
+            panic!("randomness")
+        };
         assert_ne!(a, b);
         for t in [&a, &b] {
             assert_eq!(t.len(), 64, "256 bits as hex");
