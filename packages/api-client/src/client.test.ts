@@ -158,6 +158,7 @@ describe("api client", () => {
       "GET /api/v1/identity/sign-in/directories",
       "GET /api/v1/identity/users",
       "GET /api/v1/identity/users/lookup",
+      "GET /api/v1/image-mirrors",
       "GET /api/v1/instances",
       "GET /api/v1/instances/{project}/{name}/move",
       "GET /api/v1/jobs",

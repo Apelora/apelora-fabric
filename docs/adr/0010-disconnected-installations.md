@@ -1,6 +1,6 @@
 # ADR 0010 — Installations without internet access (air-gapped and disconnected)
 
-Status: **accepted; image mirrors implemented, release bundle and update path planned** · Date: 2026-10-21 · Checklist: [disconnected installations](../architecture/DISCONNECTED.md)
+Status: **accepted; image mirrors, their preflight and Console page, the signed release bundle, the offline-update runbook and the blocked-egress lab profile built; the lab run with egress blocked is still to do** · Date: 2026-10-21 · Checklist: [disconnected installations](../architecture/DISCONNECTED.md)
 
 ## Context
 
@@ -51,12 +51,15 @@ Apelora must install, run, update and recover in all of these, with every featur
 - Operators set up mirrors before the first deployment. The Console's preflight checks that every image server the catalog uses is reachable through a mirror and that mirrors-only mode is on when the installation says it is disconnected.
 - Module classes keep naming their upstream image servers (so designs are portable); each installation decides where images actually come from.
 - Some features depend on what the operator mirrors: a new module class needs its image in the mirror first.
+- Built (2026-10-21):
+  - the preflight check: every image server the catalog's deployable classes use (from the generated `packages/module-catalog/catalog-images.json`), whether a mirror covers it or mirrors-only would refuse it, and whether each mirror answers (probed over HTTPS at most once a minute; upstream servers are never contacted); `GET /api/v1/image-mirrors` (`cluster.view`). CONTRACT VERIFIED.
+  - Fabric Console → Administration → Image mirrors (read-only). MOCK VERIFIED.
+  - the release bundle and its signature: `scripts/release/bundle.sh` (OpenSSH signature with a key the operator provides; it refuses to sign without one) and `scripts/release/verify.sh` (offline). Built, signed and verified locally with a throwaway key.
+  - the [offline-update runbook](../runbooks/offline-update.md). Not yet carried out on an installation.
+  - the blocked-egress lab profile: `scripts/test-cluster/egress.sh`. Its rules pass `nft --check` on the four members.
 - Work left:
-  - the preflight check;
-  - the release bundle and its signature;
-  - the blocked-egress lab profile;
-  - a Console page listing mirrors, their reachability and the images each class needs;
-  - an offline-update runbook.
+  - run the real-Incus tests with egress blocked and a mirror in the lab (point 7);
+  - a published release made this way (no tag or release yet).
 
 ## Alternatives considered
 

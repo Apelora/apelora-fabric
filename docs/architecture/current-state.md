@@ -92,6 +92,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | Runbooks (join, maintenance, failure, deploy identity, revocation, outage); test cluster grown to three members (four since Phase 09) | Done (partly verified, labelled per step) | 10 |
 | Secret scanning in CI; release workflow (draft releases; `v0.1.0-alpha.1` built); end-to-end demonstration (`demo.sh`); certificate rotation; path-aware CI | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
 | Staged upgrades with rollback, remaining runbooks | Missing | 10 |
+| Installations without internet access (ADR 0010): image mirrors and mirrors-only mode where every instance is created; preflight checks for mirrors and `GET /api/v1/image-mirrors` (catalog servers from the generated `packages/module-catalog/catalog-images.json`, mirrors probed at most once a minute, upstream servers never); Fabric Console Administration → Image mirrors; signed offline release bundle (`scripts/release/bundle.sh`, `verify.sh`) and [offline-update runbook](../runbooks/offline-update.md); blocked-egress lab profile (`scripts/test-cluster/egress.sh`) | Mirrors and the preflight/API CONTRACT VERIFIED (unit and API tests, probes against local test servers); Console MOCK VERIFIED (Playwright, stubbed API); bundle built, signed and verified locally (tampering refused); egress rules accepted by `nft --check` on all four members, `block` not run; nothing REAL INCUS TESTED with egress blocked or with a mirror | 10 |
 
 ## Known limitations
 

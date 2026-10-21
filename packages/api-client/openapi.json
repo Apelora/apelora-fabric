@@ -8712,6 +8712,35 @@
           "security"
         ]
       },
+      "ClassImage": {
+        "type": "object",
+        "description": "An image a class uses, by setting.",
+        "required": [
+          "class",
+          "displayName",
+          "alias"
+        ],
+        "properties": {
+          "alias": {
+            "type": "string",
+            "description": "Alias, or repository with its pinned digest."
+          },
+          "class": {
+            "type": "string",
+            "description": "Class id, e.g. `nginx`."
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "setting": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The image-selecting setting, e.g. `channel = stable`."
+          }
+        }
+      },
       "ClusterMember": {
         "type": "object",
         "description": "Observed state of an Incus cluster member (a server in the UI).",
@@ -8901,6 +8930,15 @@
             "description": "`tcp` or `udp`."
           }
         }
+      },
+      "CoverageKind": {
+        "type": "string",
+        "description": "What happens to images from a server here.",
+        "enum": [
+          "mirrored",
+          "upstream",
+          "refused"
+        ]
       },
       "CreateApplication": {
         "type": "object",
@@ -10771,6 +10809,46 @@
           }
         }
       },
+      "ImageMirrorsReport": {
+        "type": "object",
+        "required": [
+          "mode",
+          "mirrors",
+          "servers",
+          "checks",
+          "overall"
+        ],
+        "properties": {
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "description": "The same checks Preflight shows."
+          },
+          "mirrors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MirrorStatus"
+            },
+            "description": "`APELORA_IMAGE_MIRRORS` as this control plane read it at start. The worker reads its own\nenvironment, which must say the same."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ImageServerMode",
+            "description": "`mirrors-only` when `APELORA_IMAGE_SERVERS=mirrors-only`."
+          },
+          "overall": {
+            "$ref": "#/components/schemas/CheckStatus",
+            "description": "The worst status among the checks."
+          },
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImageServerUse"
+            }
+          }
+        }
+      },
       "ImageProtocol": {
         "type": "string",
         "description": "How Incus fetches an image.",
@@ -10778,6 +10856,48 @@
           "simplestreams",
           "oci"
         ]
+      },
+      "ImageServerMode": {
+        "type": "string",
+        "description": "Whether every image server may be used, or only the mirrors.",
+        "enum": [
+          "any",
+          "mirrors-only"
+        ]
+      },
+      "ImageServerUse": {
+        "type": "object",
+        "description": "An image server the catalog's deployable classes use, and how this installation covers it.",
+        "required": [
+          "server",
+          "protocol",
+          "coverage",
+          "images"
+        ],
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageKind"
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClassImage"
+            }
+          },
+          "mirror": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The mirror that serves it, when mirrored."
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/ImageProtocol"
+          },
+          "server": {
+            "type": "string"
+          }
+        }
       },
       "ImageSource": {
         "type": "object",
@@ -11576,6 +11696,34 @@
           "operation": {
             "type": "string",
             "description": "Incus operation carrying out the evacuation or restore."
+          }
+        }
+      },
+      "MirrorStatus": {
+        "type": "object",
+        "description": "One configured mirror and whether it answered.",
+        "required": [
+          "upstream",
+          "mirror",
+          "probe"
+        ],
+        "properties": {
+          "checkedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "RFC 3339: when the probe ran (results are reused for a minute)."
+          },
+          "mirror": {
+            "type": "string"
+          },
+          "probe": {
+            "$ref": "#/components/schemas/Probe"
+          },
+          "upstream": {
+            "type": "string",
+            "description": "The upstream image server it stands in for."
           }
         }
       },
@@ -12682,6 +12830,32 @@
           }
         ],
         "description": "Who an assignment is for."
+      },
+      "Probe": {
+        "type": "object",
+        "description": "The result of probing one mirror: its state and a short reason, never internals.",
+        "required": [
+          "state",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "e.g. `HTTP 200`, `no answer within 3 s`."
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProbeState"
+          }
+        }
+      },
+      "ProbeState": {
+        "type": "string",
+        "description": "Whether a mirror answered its probe.",
+        "enum": [
+          "answers",
+          "fails",
+          "not-checked"
+        ]
       },
       "Project": {
         "type": "object",

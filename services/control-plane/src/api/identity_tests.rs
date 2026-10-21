@@ -431,6 +431,7 @@ async fn a_person_with_no_role_is_denied_everywhere(pool: Pool) {
         ("GET", "/api/v1/audit"),
         ("GET", "/api/v1/system"),
         ("GET", "/api/v1/preflight"),
+        ("GET", "/api/v1/image-mirrors"),
         ("GET", "/api/v1/identity/organizations"),
         ("GET", "/api/v1/identity/users"),
         ("GET", "/api/v1/identity/assignments"),

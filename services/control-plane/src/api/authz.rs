@@ -570,6 +570,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     ("POST", "/api/v1/machines/{name}/admit", &["machine.enrol"]),
     ("GET", "/api/v1/preflight", &["cluster.view"]),
+    ("GET", "/api/v1/image-mirrors", &["cluster.view"]),
     ("GET", "/api/v1/projects", &["cluster.view"]),
     ("GET", "/api/v1/networks", &["cluster.view"]),
     ("GET", "/api/v1/storage-pools", &["cluster.view"]),

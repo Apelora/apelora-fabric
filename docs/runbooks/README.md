@@ -29,3 +29,4 @@ previews and audits.
 | Read the Health page (components, servers, what each state means) | [health-page.md](health-page.md) |
 | Rotate Apelora's Incus certificates | [certificates.md](certificates.md) |
 | Back up Apelora's own database, drill a restore, restore the plane onto a new host | [apelora-database-backup.md](apelora-database-backup.md) |
+| Update Apelora without internet access | [offline-update.md](offline-update.md) |

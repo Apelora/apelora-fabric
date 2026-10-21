@@ -85,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "images come from this installation's mirrors"
         );
     }
-    apelora_incus_adapter::set_image_mirrors(mirrors);
+    apelora_incus_adapter::set_image_mirrors(mirrors.clone());
     let admin = apelora_incus_adapter::config::admin_provider_from_env(
         |k| std::env::var(k).ok(),
         &provider,
@@ -175,7 +175,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_service_range(services)
         .with_volume_pool(volume_pool)
         .with_rate_limits(rate_limits)
-        .with_tls(listening.tls());
+        .with_tls(listening.tls())
+        .with_image_mirrors(mirrors);
     // Identity providers saved in the Fabric Console (on top of the environment's).
     if let Err(e) = api::auth_config::reload(&state).await {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");

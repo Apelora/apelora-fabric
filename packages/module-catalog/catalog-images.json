@@ -1,0 +1,44 @@
+{
+  "generatedBy": "npm run catalog:doc (packages/module-catalog/src/images.ts); do not edit by hand",
+  "images": [
+    {
+      "class": "nginx",
+      "displayName": "NGINX",
+      "setting": "channel = stable",
+      "protocol": "oci",
+      "server": "https://docker.io",
+      "alias": "library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e"
+    },
+    {
+      "class": "nginx",
+      "displayName": "NGINX",
+      "setting": "channel = mainline",
+      "protocol": "oci",
+      "server": "https://docker.io",
+      "alias": "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724"
+    },
+    {
+      "class": "linux-base",
+      "displayName": "Linux base",
+      "protocol": "simplestreams",
+      "server": "https://images.linuxcontainers.org",
+      "alias": "debian/13"
+    },
+    {
+      "class": "debian",
+      "displayName": "Debian",
+      "setting": "version = 12",
+      "protocol": "simplestreams",
+      "server": "https://images.linuxcontainers.org",
+      "alias": "debian/12"
+    },
+    {
+      "class": "debian",
+      "displayName": "Debian",
+      "setting": "version = 13",
+      "protocol": "simplestreams",
+      "server": "https://images.linuxcontainers.org",
+      "alias": "debian/13"
+    }
+  ]
+}

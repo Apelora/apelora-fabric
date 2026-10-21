@@ -47,6 +47,7 @@ dependencies = [
  "jsonwebtoken",
  "ldap3",
  "rcgen",
+ "reqwest",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",

@@ -16,8 +16,8 @@ What an air-gapped or disconnected installation needs, what Apelora already does
 | Time | NTP servers inside the site | provided by you |
 | Names | DNS inside the site | provided by you |
 | Certificates | an internal certificate authority for the API, Incus and OVN | provided by you; expiry shown in the Console |
-| Apelora itself | the release bundle (binaries, web apps, migrations, SBOM, licence notices, checksums, signature, documentation) carried in on approved media | planned |
-| Updates | the next release bundle, verified, then installed; migrations run on start | planned (runbook) |
+| Apelora itself | the release bundle (binaries, web apps, migrations, software inventory, licence notices, checksums, signature, documentation) carried in on approved media; `scripts/release/bundle.sh`, checked offline with `scripts/release/verify.sh` | **built** (built and verified locally; no release published yet) |
+| Updates | the next release bundle, verified, then installed; migrations run on start | **runbook** ([offline-update.md](../runbooks/offline-update.md), not yet carried out on an installation) |
 
 ## What Apelora never does
 
@@ -40,13 +40,25 @@ What an air-gapped or disconnected installation needs, what Apelora already does
    ```
 
    At start, each service logs `images come from this installation's mirrors` with the number of mirrors and the mode.
-4. Deploy a module. If its image server has no mirror, the deployment fails with *image server … is not one of this installation's mirrors (only mirrors may be used)*. Add the mirror and retry.
+4. Check: **Preflight** and **Administration → Image mirrors** in the Fabric Console (`GET /api/v1/image-mirrors`, needs `cluster.view`) show:
+   - the mode, and a warning when mirrors are set but other servers are still allowed, or when none are set (fine with internet access);
+   - each upstream → mirror pair and whether the mirror answers, with the time it was checked: an HTTPS GET of `/streams/v1/index.json` (simplestreams) or `/v2/` (OCI registry; 200 or 401 both count as answering), 3 s timeout, redirects not followed, certificates checked against the system's trust store (install your internal certificate authority there);
+   - each image server the catalog's deployable classes use, the classes and settings that need it, and whether it is mirrored, pulled directly, or refused.
+
+   Each mirror is probed at most once a minute, however often the page or Preflight is opened, and upstream servers are never contacted. The view shows what the control plane read at start; the worker reads its own environment, so set both the same.
+5. Deploy a module. If its image server has no mirror, the deployment fails with *image server … is not one of this installation's mirrors (only mirrors may be used)*. Add the mirror and retry.
 
 Pins are kept: a mirror that serves a different image than the pinned fingerprint or digest is refused by Incus.
 
-## Still to build
+Evidence: the mirror rules and the checks are CONTRACT VERIFIED (unit and API tests, probes against local test servers); the Console page is MOCK VERIFIED (Playwright with a stubbed API). Nothing here has run against a real mirror yet.
 
-- A preflight check that every image server the catalog uses has a mirror and that the mirror answers.
-- A Console page listing mirrors, their reachability, and the images each class needs.
-- The signed release bundle and an offline-update runbook.
-- A lab profile with outbound traffic blocked, in which the real-Incus tests must pass.
+## Releases and updates
+
+- `scripts/release/bundle.sh` builds `dist/apelora-<version>.tar.gz` on a connected system: the two services, the two web apps, the migrations, the documentation, licence notices, a software inventory (`inventory/cargo.json`, `inventory/npm.json`), `BUILD-INFO`, `SHA256SUMS`, and `SHA256SUMS.sig`, an OpenSSH signature (`ssh-keygen -Y sign`, namespace `apelora-release`) made with the key in `APELORA_RELEASE_SIGNING_KEY`. It refuses to sign without a key and refuses a key inside the repository; it never creates one.
+- `scripts/release/verify.sh <bundle> <allowed_signers>` checks the signature against the release keys you trust, every checksum, and that the bundle holds nothing unlisted; it needs only OpenSSH, `tar` and `sha256sum`/`shasum`.
+- Install and update: [offline-update.md](../runbooks/offline-update.md).
+
+## Still to do
+
+- Run the real-Incus tests in the lab with outbound traffic blocked (`scripts/test-cluster/egress.sh`, [TEST-CLUSTER.md](../development/TEST-CLUSTER.md)) and a mirror inside; the profile is built and its rules are checked, but it has not been run.
+- Carry out the offline update on an installation and record the result in the runbook.

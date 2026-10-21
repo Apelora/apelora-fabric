@@ -59,7 +59,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 - Keep changes focused; prefer the smallest change that fits the current design.
 - New dependencies (npm or Cargo), new public Rust items and new crates are architectural decisions: justify them, check their licence (`license-compliance`), and prefer what is already in the tree.
 - For a bug, first reproduce it with the smallest failing test, then fix it.
-- Generated files (`docs/architecture/CATALOG.md`, `packages/assembly-model/schema/*.json`, `packages/api-client/openapi.json`, `packages/api-client/src/generated.ts`) are regenerated with their scripts, never edited by hand.
+- Generated files (`docs/architecture/CATALOG.md`, `packages/module-catalog/catalog-images.json`, `packages/assembly-model/schema/*.json`, `packages/api-client/openapi.json`, `packages/api-client/src/generated.ts`) are regenerated with their scripts, never edited by hand.
 
 ## Definition of done
 

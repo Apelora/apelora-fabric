@@ -254,6 +254,17 @@ export type CheckedEntry = {
 /** What kind of power a permission is. Only `Tenant` permissions can be granted below the platform level, so an organisation or project role can never reach physical servers, the Incus cluster or the platform's own security settings. */
 export type Class = "tenant" | "infrastructure" | "security";
 
+/** An image a class uses, by setting. */
+export type ClassImage = {
+  /** Alias, or repository with its pinned digest. */
+  alias: string;
+  /** Class id, e.g. `nginx`. */
+  class: string;
+  displayName: string;
+  /** The image-selecting setting, e.g. `channel = stable`. */
+  setting?: string | null;
+};
+
 /** Observed state of an Incus cluster member (a server in the UI). */
 export type ClusterMember = {
   architecture: string;
@@ -319,6 +330,9 @@ export type Connection = {
   /** `tcp` or `udp`. */
   transport: string;
 };
+
+/** What happens to images from a server here. */
+export type CoverageKind = "mirrored" | "upstream" | "refused";
 
 export type CreateApplication = {
   description?: string;
@@ -851,8 +865,33 @@ export type IdentityProjectList = {
   items: ProjectDto[];
 };
 
+export type ImageMirrorsReport = {
+  /** The same checks Preflight shows. */
+  checks: Check[];
+  /** `APELORA_IMAGE_MIRRORS` as this control plane read it at start. The worker reads its own environment, which must say the same. */
+  mirrors: MirrorStatus[];
+  /** `mirrors-only` when `APELORA_IMAGE_SERVERS=mirrors-only`. */
+  mode: ImageServerMode;
+  /** The worst status among the checks. */
+  overall: CheckStatus;
+  servers: ImageServerUse[];
+};
+
 /** How Incus fetches an image. */
 export type ImageProtocol = "simplestreams" | "oci";
+
+/** Whether every image server may be used, or only the mirrors. */
+export type ImageServerMode = "any" | "mirrors-only";
+
+/** An image server the catalog's deployable classes use, and how this installation covers it. */
+export type ImageServerUse = {
+  coverage: CoverageKind;
+  images: ClassImage[];
+  /** The mirror that serves it, when mirrored. */
+  mirror?: string | null;
+  protocol: ImageProtocol;
+  server: string;
+};
 
 /** Where an instance's root image comes from. */
 export type ImageSource = {
@@ -1100,6 +1139,16 @@ export type MemberStateStarted = {
   member: string;
   /** Incus operation carrying out the evacuation or restore. */
   operation: string;
+};
+
+/** One configured mirror and whether it answered. */
+export type MirrorStatus = {
+  /** RFC 3339: when the probe ran (results are reused for a minute). */
+  checkedAt?: string | null;
+  mirror: string;
+  probe: Probe;
+  /** The upstream image server it stands in for. */
+  upstream: string;
 };
 
 export type ModuleDetail = {
@@ -1427,6 +1476,16 @@ export type PrincipalRef = {
   id: string;
   type: "service";
 };
+
+/** The result of probing one mirror: its state and a short reason, never internals. */
+export type Probe = {
+  /** e.g. `HTTP 200`, `no answer within 3 s`. */
+  detail: string;
+  state: ProbeState;
+};
+
+/** Whether a mirror answered its probe. */
+export type ProbeState = "answers" | "fails" | "not-checked";
 
 export type Project = {
   description: string;
@@ -2014,6 +2073,7 @@ export const operations = {
   lookup_user: { method: "GET", path: "/api/v1/identity/users/lookup", params: [], public: false },
   disable_user: { method: "POST", path: "/api/v1/identity/users/{user}/disable", params: ["user"], public: false },
   enable_user: { method: "POST", path: "/api/v1/identity/users/{user}/enable", params: ["user"], public: false },
+  image_mirrors: { method: "GET", path: "/api/v1/image-mirrors", params: [], public: false },
   instances: { method: "GET", path: "/api/v1/instances", params: [], public: false },
   create_instance: { method: "POST", path: "/api/v1/instances", params: [], public: false },
   delete_instance: { method: "DELETE", path: "/api/v1/instances/{project}/{name}", params: ["project","name"], public: false },
@@ -2233,6 +2293,8 @@ export type Responses = {
   disable_user: null;
   /** Re-enables a person. Needs `user.manage`. */
   enable_user: null;
+  /** Image mirrors: the configuration this control plane runs with (upstream → mirror pairs and whether only mirrors may be used; URLs, not secrets), whether each mirror answers (probed at most once a minute), and the image servers each deployable catalog class needs with whether it is covered. Read-only: configuration stays in the environment. Needs `read-inventory`. */
+  image_mirrors: ImageMirrorsReport;
   /** Instances in all projects. Needs `read-inventory`. */
   instances: InstanceList;
   /** Queues creation of an instance. Needs `deploy`. Apelora marks it as its own; only such instances can later be stopped or deleted through Apelora. */
@@ -2267,7 +2329,7 @@ export type Responses = {
   change_password: null;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
-  /** Read-only readiness checks of the Incus server or cluster and of the projects Apelora deploys into. Changes nothing. Needs `read-inventory`. */
+  /** Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys into, and of the image mirrors (whether each image server the catalog uses is mirrored and whether the mirrors answer). Changes nothing. Needs `read-inventory`. */
   preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
   projects: ProjectList;
@@ -2391,6 +2453,7 @@ export type Bodies = {
   lookup_user: never;
   disable_user: never;
   enable_user: never;
+  image_mirrors: never;
   instances: never;
   create_instance: InstanceSpec;
   delete_instance: never;

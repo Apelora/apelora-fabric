@@ -1,6 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { CATEGORIES } from "@apelora/assembly-model";
 import { MODULE_CLASSES } from "../src/classes";
+import { catalogImagesJson } from "../src/images";
 
 const by = (cat: string) => MODULE_CLASSES.filter((c) => c.category === cat);
 const fmt = (c: (typeof MODULE_CLASSES)[number], dir: "input" | "output") =>
@@ -44,3 +45,6 @@ for (const c of deployable) {
 md += "\n";
 writeFileSync(new URL("../../../docs/architecture/CATALOG.md", import.meta.url), md);
 console.log(`catalog doc written (${MODULE_CLASSES.length} modules)`);
+// The images the deployable classes use, for the control plane's image-mirror check (ADR 0010).
+writeFileSync(new URL("../catalog-images.json", import.meta.url), catalogImagesJson());
+console.log("catalog-images.json written");

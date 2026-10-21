@@ -93,6 +93,21 @@ bash scripts/test-cluster/shared-storage.sh status   # iSCSI sessions, locks, vo
 
 On every member it installs the iSCSI initiator, the LVM lock daemon and sanlock, loads a software watchdog, logs in to the target (also at boot) and sets a unique `host_id`; then it creates the shared volume group `apelora-shared` on the LUN and the Incus pool `shared` (`lvmcluster`) on all members. `APELORA_SAN_IP` (default `192.168.104.6`, the SAN VM's `user-v2` address), `APELORA_SAN_IQN`, `APELORA_SHARED_VG` and `APELORA_SHARED_POOL` override the defaults. REAL INCUS TESTED (2026-10-21): the pool exists on all four members. Apelora places nothing on it yet. `down.sh` leaves the SAN VM alone: remove it with `limactl delete --force apelora-san`.
 
+Blocked egress (ADR 0010: an installation without internet access). Outbound traffic from the members, and from the instances they run, is dropped except to the lab's own networks (the members' directly connected subnets, which include the host and `incusbr0`), the members' DNS resolvers, and the mirror you declare:
+
+```sh
+APELORA_LAB_MIRROR=192.168.104.20:443 scripts/test-cluster/egress.sh plan     # default: print and nft --check the rules, change nothing
+APELORA_LAB_MIRROR=192.168.104.20:443 scripts/test-cluster/egress.sh block    # load them on every member
+scripts/test-cluster/egress.sh status    # table loaded or not, drop counters, whether an upstream image server answers
+scripts/test-cluster/egress.sh unblock   # remove them
+```
+
+- The rules are one nftables table, `inet apelora_egress`, per member: an output chain (the member itself) with policy drop, and a forward chain that drops what instances send out through the member's default-route interfaces (`eth0`, `lima0`). The lab subnets, the resolvers and the default-route interfaces are read from each member at run time; `plan` prints the result and has nft validate it without loading it.
+- `APELORA_LAB_MIRROR` is `IPv4[/prefix][:port]`, comma separated, or `none`; `block` refuses to run without it. `APELORA_LAB_ALLOW` adds destinations (for example an NTP server: outside NTP is blocked too). `APELORA_LAB_PROBE` changes the URL `status` tries.
+- Names still resolve through the host's resolver, so a lookup can leave the lab; only connections cannot. A VM restart clears the rules (they are not saved). The SAN VM is left alone.
+- Then point both services at the mirror (`APELORA_IMAGE_MIRRORS`, `APELORA_IMAGE_SERVERS=mirrors-only`) and run the real-Incus tests; ADR 0010 asks for them to pass like this before a release is called ready for installations without internet access.
+- Evidence so far (2026-10-21): `plan` produced rules that `nft --check` accepted on all four members, and `status` showed egress open (the upstream simplestreams index answered HTTP 200). `block` and `unblock` have **not** been run, no mirror runs in the lab yet, and the real-Incus tests have not been run with egress blocked.
+
 Remove everything (the VMs and the credentials):
 
 ```sh

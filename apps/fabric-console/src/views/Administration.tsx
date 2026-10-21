@@ -4,6 +4,7 @@ import type { CertificateStatus, Role, SystemInfo, TokenCreated, TokenInfo, Toke
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
+import { ImageMirrorsSection } from "./ImageMirrors";
 
 const ROLES: { value: Role; label: string; what: string }[] = [
   { value: "auditor", label: "Auditor", what: "reads inventory and the audit log" },
@@ -193,6 +194,7 @@ export function AdministrationView({ me, onAuth }: { me: WhoAmI | null; onAuth: 
     <div className="flex flex-col gap-8">
       {me?.permissions.includes("manage-tokens") && <TokensSection onAuth={onAuth} />}
       <SystemSection onAuth={onAuth} />
+      <ImageMirrorsSection onAuth={onAuth} />
     </div>
   );
 }

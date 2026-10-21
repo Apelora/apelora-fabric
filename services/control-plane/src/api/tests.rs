@@ -305,6 +305,7 @@ async fn openapi_document_is_public_and_lists_every_route() {
         "/api/v1/audit",
         "/api/v1/jobs/{id}",
         "/api/v1/preflight",
+        "/api/v1/image-mirrors",
     ] {
         assert!(doc["paths"][route]["get"].is_object(), "{route} missing");
     }
@@ -670,6 +671,73 @@ async fn preflight_reports_checks_without_claiming_unmeasured_ones() {
         assert_eq!(status_of(id), Some(json!("not-checked")), "{id}");
     }
     assert_eq!(body["overall"], "warn");
+    // No mirrors configured: one informational warning, nothing probed.
+    assert_eq!(status_of("image-mirrors"), Some(json!("warn")));
+}
+
+#[tokio::test]
+async fn image_mirrors_show_the_configuration_and_coverage_per_catalog_server() {
+    let mirrors = apelora_domain::images::ImageMirrors::parse(
+        "https://images.linuxcontainers.org=https://127.0.0.1:1",
+        true,
+    )
+    .expect("valid");
+    let state = dev(Provider::Mock(MockIncus::default())).with_image_mirrors(mirrors);
+    let (status, body, _) = call(state.clone(), "/api/v1/image-mirrors", None).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["mode"], "mirrors-only");
+    assert_eq!(
+        body["mirrors"][0]["upstream"],
+        "https://images.linuxcontainers.org"
+    );
+    assert_eq!(body["mirrors"][0]["mirror"], "https://127.0.0.1:1");
+    assert_eq!(body["mirrors"][0]["probe"]["state"], "fails");
+    assert!(body["mirrors"][0]["checkedAt"].is_string());
+    let server = |s: &str| {
+        body["servers"]
+            .as_array()
+            .and_then(|a| a.iter().find(|x| x["server"] == s))
+            .cloned()
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        server("https://images.linuxcontainers.org")["coverage"],
+        "mirrored"
+    );
+    assert_eq!(server("https://docker.io")["coverage"], "refused");
+    assert_eq!(server("https://docker.io")["protocol"], "oci");
+    assert_eq!(server("https://docker.io")["images"][0]["class"], "nginx");
+    assert_eq!(body["overall"], "fail");
+    // Preflight shows the same checks.
+    let (_, pre, _) = call(state, "/api/v1/preflight", None).await;
+    let ids: Vec<&str> = pre["checks"]
+        .as_array()
+        .map(|c| c.iter().filter_map(|c| c["id"].as_str()).collect())
+        .unwrap_or_default();
+    for id in [
+        "image-mirrors",
+        "image-server-images.linuxcontainers.org",
+        "image-server-docker.io",
+    ] {
+        assert!(ids.contains(&id), "{id} missing from {ids:?}");
+    }
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn image_mirrors_need_read_inventory(pool: Pool) {
+    let state = AppState::new(
+        Provider::Mock(MockIncus::default()),
+        Auth::Tokens(pool.clone()),
+    );
+    let (status, _, _) = call(state.clone(), "/api/v1/image-mirrors", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let auditor = apelora_persistence::create_token(&pool, "aud", "auditor", None)
+        .await
+        .expect("token")
+        .0;
+    let (status, body, _) = call(state, "/api/v1/image-mirrors", Some(&auditor)).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["mode"], "any");
 }
 
 // ---- Cluster membership --------------------------------------------------------------------

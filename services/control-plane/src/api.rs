@@ -74,6 +74,10 @@ pub struct AppState {
     headers: headers::HeaderPolicy,
     /// The public health summary, refreshed at most every 15 s.
     health: Arc<health_cache::HealthCache>,
+    /// Image mirrors from the environment (ADR 0010), shown read-only and checked by preflight.
+    image_mirrors: Arc<apelora_domain::images::ImageMirrors>,
+    /// Probes mirrors, at most once a minute each.
+    prober: Arc<mirrors::Prober>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -100,6 +104,8 @@ impl AppState {
             rate_limits: Arc::default(),
             headers: headers::HeaderPolicy::default(),
             health: Arc::default(),
+            image_mirrors: Arc::default(),
+            prober: Arc::default(),
         }
     }
 
@@ -111,6 +117,11 @@ impl AppState {
     /// This process terminates TLS itself: responses carry `Strict-Transport-Security`.
     pub fn with_tls(mut self, tls: bool) -> Self {
         self.headers.hsts = tls;
+        self
+    }
+
+    pub fn with_image_mirrors(mut self, m: apelora_domain::images::ImageMirrors) -> Self {
+        self.image_mirrors = Arc::new(m);
         self
     }
 
@@ -325,6 +336,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/machines/{name}/admit", post(machines::admit))
         .route("/api/v1/preflight", get(preflight))
+        .route("/api/v1/image-mirrors", get(mirrors::image_mirrors))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
@@ -1015,8 +1027,9 @@ pub struct PreflightReport {
     pub checks: Vec<Check>,
 }
 
-/// Read-only readiness checks of the Incus server or cluster and of the projects Apelora
-/// deploys into. Changes nothing. Needs `read-inventory`.
+/// Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys
+/// into, and of the image mirrors (whether each image server the catalog uses is mirrored and
+/// whether the mirrors answer). Changes nothing. Needs `read-inventory`.
 #[utoipa::path(get, path = "/api/v1/preflight", tag = "inventory", responses(
     (status = 200, body = PreflightReport), (status = 401, body = ErrorBody),
     (status = 403, body = ErrorBody), (status = 502, body = ErrorBody)))]
@@ -1033,7 +1046,7 @@ async fn preflight(
         pr.storage_pools(),
         pr.networks()
     )?;
-    let checks = apelora_domain::preflight::evaluate(&apelora_domain::preflight::Observed {
+    let mut checks = apelora_domain::preflight::evaluate(&apelora_domain::preflight::Observed {
         server: &server,
         members: &members,
         projects: &projects,
@@ -1042,6 +1055,7 @@ async fn preflight(
         deploy_projects: &state.deploy_projects,
         volume_pool: state.volume_pool.as_deref(),
     });
+    checks.extend(mirrors::report(&state).await.checks);
     Ok(Json(PreflightReport {
         source: source(pr.mode()),
         overall: apelora_domain::preflight::overall(&checks),
@@ -1379,7 +1393,7 @@ impl Modify for BearerAuth {
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
-        admin::list, admin::create, admin::revoke, admin::system,
+        admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
@@ -1438,6 +1452,7 @@ mod identity;
 mod ldap;
 mod machines;
 mod manage;
+mod mirrors;
 mod mobility;
 pub mod rate_limit;
 pub mod requests;

@@ -783,6 +783,20 @@ test.describe("fabric console on a phone", () => {
     const box = (await page.getByTestId("application-toggle").boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
   });
+
+  test("image mirrors fit a phone: long addresses wrap and the button is touch-sized", async ({ page }) => {
+    await page.route("**/api/**", (route) => route.abort());
+    await page.route("**/api/v1/health", (route) => route.fulfill({ json: health("incus", true) }));
+    await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "auditor", permissions: ["read-inventory"], deployProjects: ["apelora"] } }));
+    await page.route("**/api/v1/system", (route) => route.fulfill({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }));
+    await page.route("**/api/v1/image-mirrors", (route) => route.fulfill({ json: imageMirrors }));
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("image-server-row")).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    const box = (await page.getByTestId("mirrors-recheck").boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+  });
 });
 
 test.describe("fabric console operations and administration", () => {
@@ -860,4 +874,90 @@ test.describe("fabric console operations and administration", () => {
     await expect(page.getByTestId("token-row").nth(1)).toContainText("Revoked");
     expect(revoked).toBe("t2");
   });
+
+  test("image mirrors show the mode, whether each mirror answers, and which catalog servers are covered", async ({ page }) => {
+    let loads = 0;
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory", "read-audit"]) }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/image-mirrors": () => { loads += 1; return { json: imageMirrors }; },
+    });
+    await page.goto("/#/administration");
+    const section = page.getByTestId("image-mirrors");
+    await expect(section.getByRole("heading", { name: "Image mirrors" })).toBeVisible();
+    await expect(page.getByTestId("mirrors-mode")).toHaveText("Only mirrors may be used.");
+    const mirrors = page.getByTestId("mirror-row");
+    await expect(mirrors).toHaveCount(2);
+    await expect(mirrors.nth(0)).toContainText("https://images.mirror.internal");
+    await expect(mirrors.nth(0)).toContainText("for https://images.linuxcontainers.org");
+    await expect(mirrors.nth(0)).toContainText("Answers");
+    await expect(mirrors.nth(0)).toContainText(`checked ${new Date(now).toLocaleTimeString()}`);
+    await expect(mirrors.nth(1)).toContainText("Does not answer");
+    await expect(mirrors.nth(1)).toContainText("no answer within 3 s");
+    const servers = page.getByTestId("image-server-row");
+    await expect(servers).toHaveCount(2);
+    await expect(servers.nth(0)).toContainText("OCI images for NGINX (channel stable, mainline)");
+    await expect(servers.nth(0)).toContainText("Refused");
+    await expect(servers.nth(1)).toContainText("system and VM images for Linux base, Debian (version 12, 13)");
+    await expect(servers.nth(1)).toContainText("Mirrored");
+    await expect(servers.nth(1)).toContainText("from https://images.mirror.internal");
+    // Read-only: nothing on the section changes configuration, and no primary action is added.
+    await expect(section.locator(".btn-primary")).toHaveCount(0);
+    await expect(section.getByRole("button")).toHaveText(["Check again"]);
+    const before = loads; // development builds mount twice (StrictMode), so count from here
+    await section.getByRole("button", { name: "Check again" }).click();
+    await expect.poll(() => loads).toBe(before + 1);
+  });
+
+  test("image mirrors not configured: says that images come from upstream, no mirror list", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("mock", false) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory"]) }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/image-mirrors": () => ({ json: { mode: "any", mirrors: [], overall: "warn", checks: [], servers: imageMirrors.servers.map((s) => ({ ...s, coverage: "upstream", mirror: null })) } }),
+    });
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("mirrors-mode")).toContainText("No mirrors: images come from their upstream servers.");
+    await expect(page.getByTestId("mirror-row")).toHaveCount(0);
+    await expect(page.getByTestId("image-server-row")).toHaveCount(2);
+    await expect(page.getByTestId("image-server-row").first()).toContainText("From upstream");
+  });
+
+  test("an image-mirror error stays in its section and can be retried", async ({ page }) => {
+    let fail = true;
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory"]) }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/image-mirrors": () => (fail ? { status: 403, json: { error: { code: "forbidden", message: "not allowed: cluster.view" } } } : { json: imageMirrors }),
+    });
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("image-mirrors-error")).toContainText("cluster.view");
+    await expect(page.getByTestId("system")).toContainText("7.0.3");
+    fail = false;
+    await page.getByTestId("image-mirrors").getByRole("button", { name: "Try again" }).click();
+    await expect(page.getByTestId("mirror-row")).toHaveCount(2);
+  });
 });
+
+const imageMirrors = {
+  mode: "mirrors-only",
+  overall: "fail",
+  checks: [],
+  mirrors: [
+    { upstream: "https://images.linuxcontainers.org", mirror: "https://images.mirror.internal", probe: { state: "answers", detail: "HTTP 200 from /streams/v1/index.json" }, checkedAt: now },
+    { upstream: "https://registry.example.org", mirror: "https://registry.mirror.internal", probe: { state: "fails", detail: "no answer within 3 s" }, checkedAt: now },
+  ],
+  servers: [
+    { server: "https://docker.io", protocol: "oci", coverage: "refused", mirror: null, images: [
+      { class: "nginx", displayName: "NGINX", setting: "channel = stable", alias: "library/nginx@sha256:aaaa" },
+      { class: "nginx", displayName: "NGINX", setting: "channel = mainline", alias: "library/nginx@sha256:bbbb" },
+    ] },
+    { server: "https://images.linuxcontainers.org", protocol: "simplestreams", coverage: "mirrored", mirror: "https://images.mirror.internal", images: [
+      { class: "linux-base", displayName: "Linux base", setting: null, alias: "debian/13" },
+      { class: "debian", displayName: "Debian", setting: "version = 12", alias: "debian/12" },
+      { class: "debian", displayName: "Debian", setting: "version = 13", alias: "debian/13" },
+    ] },
+  ],
+};

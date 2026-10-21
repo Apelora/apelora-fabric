@@ -65,7 +65,8 @@ Status: ✅ built · 🟡 partly · ⬜ planned.
 | | Importing workloads from other virtualisation platforms (disk images, VM definitions) | ⬜ |
 | | Partner program: certified hardware, modules and integrations | ⬜ |
 | **Disconnected** | Image mirrors, mirrors-only mode | ✅ |
-| | Preflight for mirrors; signed offline release bundles; blocked-egress lab profile | ⬜ ADR 0010 |
+| | Preflight and Console page for mirrors; signed offline release bundles and update runbook | ✅ not yet run on an installation without internet |
+| | Blocked-egress lab profile; real-Incus tests passing with egress blocked | 🟡 profile built (`egress.sh`), not yet run |
 | **Scale** | One sector | ✅ |
 | | Sectors, sites, regions, global plane | ⬜ ADR 0008, ADR 0009 |
 

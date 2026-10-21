@@ -55,7 +55,7 @@ jobs:
           npm run schema
           npm run catalog:doc
           npm run generate -w @apelora/api-client
-          git diff --exit-code -- packages/assembly-model/schema docs/architecture/CATALOG.md packages/api-client/src/generated.ts \
+          git diff --exit-code -- packages/assembly-model/schema docs/architecture/CATALOG.md packages/module-catalog/catalog-images.json packages/api-client/src/generated.ts \
             || { echo "::error::Generated files are stale. Run 'npm run schema', 'npm run catalog:doc' and 'npm run api:generate' and commit the result."; exit 1; }
 
   dependencies:
