@@ -23,9 +23,11 @@ previews and audits.
 | OVN or the uplink fails | [network-incident.md](network-incident.md) |
 | A replica fails its health check | [replica-unhealthy.md](replica-unhealthy.md) |
 | A volume is kept, missing or to be deleted | [volumes.md](volumes.md) |
+| A pool is filling up or down, or backups stop | [storage-incident.md](storage-incident.md) |
 | The deploy identity cannot see its project | [deploy-identity.md](deploy-identity.md) |
 | Raise a quota; an environment's Incus project is not prepared | [tenancy-quotas.md](tenancy-quotas.md) |
 | Revoke access (people, automation, servers) | [access-revocation.md](access-revocation.md) |
+| A credential is stolen or an account or session is misused | [security-incident.md](security-incident.md) |
 | The control plane or worker is down | [api-outage.md](api-outage.md) |
 | Find out why something failed (logs, request ids, audit) | [troubleshooting.md](troubleshooting.md) |
 | Read the Health page (components, servers, what each state means) | [health-page.md](health-page.md) |
