@@ -15,10 +15,10 @@ The parts of an application are called **modules** (formerly *appliances*; [ADR 
 | Control plane | `services/control-plane` | Axum API (OpenAPI 3 document, generated TypeScript client), API tokens and roles, inventory, preflight, instances, applications (plan, deploy, revisions, status with services), cluster administration (machine enrolment, join tokens, evacuation) through a separate admin identity, audit log. |
 | Deployment worker | `services/deployment-worker` | Job queue with leases and fencing; instance lifecycle; `network.sync` (OVN networks, ACLs, address sets, load balancers with health-check repair, publishing, internet access); replica supervisor (recreate, restart, substitute on failed members, retire, sync retry, health with hysteresis and restart of failing replicas). |
 | Domain, persistence, Incus adapter | `crates/` | Pure planning (replica slots, evacuation dry run, network rules), PostgreSQL 18 with migrations 0001–0009, Incus REST client with TLS pinning and a mock provider. |
-| Catalog and model | `packages/` | 83 original module classes (NGINX and Debian deployable), zod schemas and generated JSON Schema, network intent compiler. |
+| Catalog and model | `packages/` | 83 original module classes, three deployable: NGINX (OCI container), Debian (system container), Linux base (VM, for live migration); zod schemas and generated JSON Schema, network intent compiler. |
 | Tests | Rust, `packages/*/src/*.test.ts`, `tests/e2e`, `services/deployment-worker/tests/real_incus.rs` | 131 Rust tests, 76 unit tests, 88 Playwright tests (2 skipped) pass; 9 real Incus tests pass on the four-member test cluster. |
 | CI | `.github/workflows/` | Frontend, Rust, generated-file drift, Playwright (pull requests run only the areas they change), dependencies and secrets (`cargo deny`, npm licences and audit, secret scan), dependency review, weekly upstream check; release workflow (draft releases with checksums). |
-| Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs with Incus 7.0.1 (three database voters, one standby), OVN, placement scriptlet; `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
+| Test cluster and drills | `scripts/test-cluster/`, `scripts/enrol/` | Four Lima VMs standing in for physical servers, with Incus 7.0.1 (three database voters, one standby), plus a Lima VM `apelora-san` standing in for a SAN (iSCSI target); OVN, placement scriptlet; pools `local` (btrfs), `backup` (dir) and `shared` (clustered LVM on the SAN, `shared-storage.sh`, 2026-10-21, not used by Apelora yet); `demo.sh` runs the end-to-end demonstration; `enrol-member.sh` enrols a server by hand. |
 | Logs and troubleshooting | both services | `RUST_LOG` levels per crate, `APELORA_LOG_FORMAT=json`, an `x-request-id` on every API response that is on every log line of the request and in its audit detail, a `job` span on every worker line, refusals (403, spent approvals) audited with their code, audit write failures logged as errors (MOCK VERIFIED). [Troubleshooting runbook](../runbooks/troubleshooting.md). |
 
 ## Identity and application management (2026-10-20)
@@ -51,7 +51,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | PostgreSQL persistence and worker job loop (leases, fencing) | Done, tested on real PostgreSQL 18 | 03 |
 | Instance lifecycle (create/start/stop/delete), ownership marker, project allow-list | Done; REAL INCUS TESTED for LXC, OCI and VM (one member) | 04 |
 | Read-only preflight (`/api/v1/preflight`) | Done; REAL INCUS TESTED; clock and latency not measurable via the API | 04 |
-| Disposable test cluster (`scripts/test-cluster`, Lima VMs) | Done; three members, OVN, placement scriptlet, see `docs/development/TEST-CLUSTER.md` | 04 |
+| Disposable test cluster (`scripts/test-cluster`, Lima VMs) | Done; four members (Lima VMs standing in for physical servers) and a SAN VM, OVN, placement scriptlet, see `docs/development/TEST-CLUSTER.md` | 04 |
 | Image pinning (fingerprint / OCI digest) and architecture checks | Done; REAL INCUS TESTED on one member (mixed-architecture and offline-member paths unit-tested only) | 04 |
 | Catalog runtime fields (`runtime`, `instanceRequestFor`); NGINX and Debian deployable | Done; REAL INCUS TESTED | 04 |
 | Cluster join tokens with approval (ADR 0003), second test member | Done; REAL INCUS TESTED (two members) | 04 |
@@ -81,13 +81,13 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | Scheduled snapshots (kept to what the schedule says; manual ones never pruned) and backups copied into a backup pool on another member, scheduled or on request (worker) | Done; REAL INCUS TESTED (backup copy across pools and members) | 06 |
 | Backup API and console, restore from a backup | Missing | 06 |
 | Moving an instance to another member (`instance.move` job; dry run, typed name): VMs with live migration move running; containers and VMs with `data-local` volumes stop, their volumes are copied and the old copies deleted once it runs there; Studio *Keep running when moved* for VM modules; Fabric Console *Move…* | Done; REAL INCUS TESTED (container with a volume; VM live, 0.26 s longest pause, no reboot, from the console in a real browser) | 08 |
-| Restart of VMs on shared storage after a failed member is fenced; rebalancing | Missing (design: docs/design/mobility-and-ha.md) | 08 |
+| Restart of instances on shared storage (containers or VMs) on another member once the failed one is fenced; rebalancing | Missing (design: docs/design/mobility-and-ha.md, slice B); the lab's `shared` pool exists on all four members (REAL INCUS TESTED, 2026-10-21), Apelora places nothing on it yet | 08 |
 | Resizing existing instances | Missing | 06 |
 | Machine enrolment (manual provider): register, approve, enrolment script, held until admitted after checks; console | Done; REAL INCUS TESTED (fourth member) and verified in a real browser | 09 |
 | Member removal: check (evacuated, nothing left on it, recorded volumes, cluster keeps running), typed confirmation, admin identity, audited; Fabric Console *Remove…* | Done; REAL INCUS TESTED (member 4 removed and enrolled again) | 09 |
 | MAAS adapter (discovery, installation, power) | Missing; ADR 0002 accepted | 09 |
 | CI: frontend, Rust, generated-file drift, Playwright, dependency licences/advisories (`cargo deny`, npm), upstream check | Done | 10 |
-| Runbooks (join, maintenance, failure, deploy identity, revocation, outage); three-member test cluster | Done (partly verified, labelled per step) | 10 |
+| Runbooks (join, maintenance, failure, deploy identity, revocation, outage); test cluster grown to three members (four since Phase 09) | Done (partly verified, labelled per step) | 10 |
 | Secret scanning in CI; release workflow (draft releases; `v0.1.0-alpha.1` built); end-to-end demonstration (`demo.sh`); certificate rotation; path-aware CI | Done; demonstration and rotation REAL INCUS TESTED (three members, three runs) | 10 |
 | Staged upgrades with rollback, remaining runbooks | Missing | 10 |
 

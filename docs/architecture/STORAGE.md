@@ -1,6 +1,6 @@
 # Storage: how Incus does it, and how Apelora abstracts it
 
-Status: **target design.** What exists: a read-only list of storage pools (`GET /api/v1/storage-pools`, shown in the Fabric Console) and modules whose root disk comes from the project's default profile on the test cluster's btrfs pool. Persistent volumes, snapshots, backups and storage policy are **not built** (Phase 06 remainder, Phase 08 M3). Every statement about Incus below comes from its documentation and is **NOT YET VERIFIED** on the pinned release (7.0.1); each build step must verify it on the disposable test cluster and record the result. Date: 2026-10-20. Related: [platform architecture](PLATFORM-ARCHITECTURE.md) §8, [ADR 0001](../adr/0001-incus-first.md), skills `storage-recovery` and `storage-volumes`.
+Status: **target design, partly built** (2026-10-21; the authoritative list is [current state](current-state.md)). Built and REAL INCUS TESTED: the storage pool list (`GET /api/v1/storage-pools`, Fabric Console); root disks from the project's default profile on the member's `local` pool (btrfs in the lab); `data-local` volumes (`<instance>-<volume>` on the pool in `APELORA_VOLUME_POOL`, on the instance's member), with records, listing, grow and explicit delete; snapshots (manual and scheduled, restore); backups copied into the `backup` pool on another member (scheduled or on request); moving an instance with its volumes (`instance.move`). **Not built:** the backup API and console and restore from a backup, volume classes other than `data-local`, the Console view for classes and orphans, and `data-replicated` recovery on shared storage (Phase 08 M3, [moving modules](../design/mobility-and-ha.md) slice B). The lab's `shared` pool (clustered LVM on an iSCSI SAN, `scripts/test-cluster/shared-storage.sh`) exists on all four members since 2026-10-21; Apelora places nothing on it yet. How a module's volumes fit the rest of the chain: [platform architecture §4.1](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances). Statements about Incus below come from its documentation unless §10 records them as REAL INCUS TESTED on the pinned release (7.0.1); each build step verifies what it relies on, on the disposable test cluster, and records the result. Date: 2026-10-20. Related: [platform architecture](PLATFORM-ARCHITECTURE.md) §8, [ADR 0001](../adr/0001-incus-first.md), skills `storage-recovery` and `storage-volumes`.
 
 ## 1. How Incus models storage
 
@@ -25,8 +25,8 @@ flowchart LR
     INST["Instance<br/>web-01"]
     CV["Custom volume<br/>data-db-01"]
   end
-  POOL1["Pool: local<br/>driver: zfs / btrfs<br/>one copy per member"]
-  POOL2["Pool: shared<br/>driver: Ceph RBD or similar<br/>visible to all members"]
+  POOL1["Pool: local<br/>driver: btrfs in the lab (zfs, lvm, dir possible)<br/>one copy per member"]
+  POOL2["Pool: shared<br/>driver: lvmcluster on a SAN, or distributed storage<br/>visible to all members"]
 
   INST -- "root disk device" --> POOL1
   PROF -- "supplies defaults" --> INST
@@ -44,7 +44,7 @@ flowchart LR
 
 ![Where module data can live](../assets/diagrams/storage-options.svg)
 
-| | Local pool (directory, btrfs, LVM, ZFS) | Shared pool (Ceph RBD, CephFS, other remote drivers) |
+| | Local pool (directory, btrfs, LVM, ZFS) | Shared pool (clustered LVM on a SAN; distributed storage such as Ceph RBD or CephFS) |
 |---|---|---|
 | Where data is | On **one member's** disks. In a cluster the pool exists on every member under the same name, each with its own storage. | In a storage system **outside** Incus that every member reaches over the network |
 | Move an instance to another member | Data must be **copied**: planned stop, copy, start | The instance can start elsewhere **without copying data**; live migration depends on instance type and is never assumed |
@@ -52,6 +52,8 @@ flowchart LR
 | Cost / complexity | Low, fast, simple | A separate system to deploy, monitor and upgrade |
 
 Rule from the architecture: *a local pool across several members is not shared data.* Apelora must say so in plans instead of implying failover that cannot happen.
+
+Two kinds of shared pool, side by side: **clustered LVM on a SAN** (`lvmcluster`: every member logs in to the same block device over iSCSI, Fibre Channel or NVMe over fabrics, and a lock manager coordinates the volume group; thick volumes, no snapshots of shared custom volumes) and **distributed storage** (a separate cluster of storage machines that replicates data). The lab runs the first: pool `shared` on an iSCSI LUN from the `apelora-san` VM ([test cluster](../development/TEST-CLUSTER.md)). Apelora does not use either yet; restarting instances from a shared pool after a member is fenced is slice B of [moving modules](../design/mobility-and-ha.md).
 
 ## 2. Where Apelora fits: one authority per piece of state
 

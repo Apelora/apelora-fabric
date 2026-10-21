@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 940" width="1200" height="940" role="img" aria-labelledby="pl-title pl-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 990" width="1200" height="990" role="img" aria-labelledby="pl-title pl-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
   <title id="pl-title">Apelora on Incus, layer by layer</title>
-  <desc id="pl-desc">People use Apelora Studio and the Fabric Console. Both talk to the Apelora control plane: a REST API, PostgreSQL and the deployment worker. The control plane drives an Incus cluster over the Incus REST API. Each server in the cluster runs containers and virtual machines for modules and keeps their volumes in a local storage pool. OVN gives each application its own network with access rules and service addresses. Underneath are the physical servers and their network.</desc>
+  <desc id="pl-desc">People use Apelora Studio and the Fabric Console. Both talk to the Apelora control plane: a REST API, PostgreSQL and the deployment worker. The control plane drives an Incus cluster over the Incus REST API. Each server in the cluster runs the instances of modules: system containers by default, OCI application containers (NGINX) and virtual machines where a module's class says so. A stateless module's replicas are named shop-web, shop-web-r2 and shop-web-r3 and run on different servers. Each server keeps root disks and volumes in its local pool and backup copies in a backup pool; a shared pool, clustered LVM on a SAN reached by every server, runs in the lab but Apelora places nothing on it yet. OVN gives each application its own network with access rules and service addresses. Underneath are the physical servers and their network; in the lab, Lima VMs stand in for them.</desc>
   <!-- SPDX-License-Identifier: AGPL-3.0-only -->
   <defs>
     <linearGradient id="pl-teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6FAF7"/><stop offset="1" stop-color="#CDEFEA"/></linearGradient>
@@ -28,7 +28,7 @@
     .line { stroke: #8C959F; stroke-width: 1.5; fill: none; }
   </style>
 
-  <rect width="1200" height="940" fill="#FFFFFF"/>
+  <rect width="1200" height="990" fill="#FFFFFF"/>
   <text x="600" y="46" text-anchor="middle" class="t h1">Apelora on Incus, layer by layer</text>
 
   <!-- People -->
@@ -83,25 +83,35 @@
 
   <!-- Incus cluster -->
   <g id="pl-cluster">
-    <rect x="120" y="484" width="960" height="300" rx="12" fill="#FBFBFC" stroke="#B9C0C9" stroke-dasharray="6 5"/>
+    <rect x="120" y="484" width="960" height="346" rx="12" fill="#FBFBFC" stroke="#B9C0C9" stroke-dasharray="6 5"/>
     <text x="144" y="510" class="t h2">Incus cluster</text>
-    <text x="1056" y="510" text-anchor="end" class="m s">membership, placement, containers and VMs</text>
+    <text x="1056" y="510" text-anchor="end" class="m s">membership, placement; system containers by default, OCI containers and VMs where a class says</text>
 
-    <!-- Server columns -->
     <g id="pl-server-1">
       <rect x="144" y="524" width="290" height="186" rx="10" fill="url(#pl-amber)" stroke="#EDC27E"/>
       <rect x="144" y="524" width="290" height="30" rx="10" fill="url(#pl-amber-strong)"/>
       <rect x="144" y="544" width="290" height="10" fill="#D98A1C"/>
       <text x="289" y="544" text-anchor="middle" class="w h2">Server 1</text>
       <rect x="162" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="201" y="591" text-anchor="middle" class="t s">web-01</text>
-      <text x="201" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="201" y="586" text-anchor="middle" class="t s">shop-web</text>
+      <text x="201" y="602" text-anchor="middle" class="m s">OCI</text>
+      <text x="201" y="615" text-anchor="middle" class="m s">container</text>
       <rect x="250" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="289" y="591" text-anchor="middle" class="t s">db-01</text>
-      <text x="289" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="289" y="586" text-anchor="middle" class="t s">shop-db</text>
+      <text x="289" y="602" text-anchor="middle" class="m s">system</text>
+      <text x="289" y="615" text-anchor="middle" class="m s">container</text>
       <rect x="338" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="377" y="591" text-anchor="middle" class="t s">build-01</text>
-      <text x="377" y="609" text-anchor="middle" class="m s">VM</text>
+      <text x="377" y="586" text-anchor="middle" class="t s">shop-build</text>
+      <text x="377" y="602" text-anchor="middle" class="m s">virtual</text>
+      <text x="377" y="615" text-anchor="middle" class="m s">machine</text>
+      <rect x="162" y="642" width="150" height="38" fill="url(#pl-green-body)"/>
+      <ellipse cx="237" cy="680" rx="75" ry="8" fill="#2F8A57"/>
+      <ellipse cx="237" cy="642" rx="75" ry="8" fill="#9BDAB4"/>
+      <text x="237" y="667" text-anchor="middle" class="w s">local: disks, volumes</text>
+      <rect x="328" y="642" width="88" height="38" fill="url(#pl-green-body)" fill-opacity="0.75"/>
+      <ellipse cx="372" cy="680" rx="44" ry="8" fill="#2F8A57" fill-opacity="0.75"/>
+      <ellipse cx="372" cy="642" rx="44" ry="8" fill="#9BDAB4"/>
+      <text x="372" y="667" text-anchor="middle" class="w s">backup</text>
     </g>
     <g id="pl-server-2">
       <rect x="455" y="524" width="290" height="186" rx="10" fill="url(#pl-amber)" stroke="#EDC27E"/>
@@ -109,14 +119,23 @@
       <rect x="455" y="544" width="290" height="10" fill="#D98A1C"/>
       <text x="600" y="544" text-anchor="middle" class="w h2">Server 2</text>
       <rect x="473" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="512" y="591" text-anchor="middle" class="t s">web-01-r2</text>
-      <text x="512" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="512" y="586" text-anchor="middle" class="t s">shop-web-r2</text>
+      <text x="512" y="602" text-anchor="middle" class="m s">OCI</text>
+      <text x="512" y="615" text-anchor="middle" class="m s">container</text>
       <rect x="561" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="600" y="591" text-anchor="middle" class="t s">gateway</text>
-      <text x="600" y="609" text-anchor="middle" class="m s">container</text>
-      <rect x="649" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="688" y="591" text-anchor="middle" class="t s">cache-01</text>
-      <text x="688" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="600" y="586" text-anchor="middle" class="t s">shop-cache</text>
+      <text x="600" y="602" text-anchor="middle" class="m s">system</text>
+      <text x="600" y="615" text-anchor="middle" class="m s">container</text>
+      <rect x="649" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A" stroke-dasharray="4 3"/>
+      <text x="688" y="599" text-anchor="middle" class="m s">free</text>
+      <rect x="473" y="642" width="150" height="38" fill="url(#pl-green-body)"/>
+      <ellipse cx="548" cy="680" rx="75" ry="8" fill="#2F8A57"/>
+      <ellipse cx="548" cy="642" rx="75" ry="8" fill="#9BDAB4"/>
+      <text x="548" y="667" text-anchor="middle" class="w s">local: disks, volumes</text>
+      <rect x="639" y="642" width="88" height="38" fill="url(#pl-green-body)" fill-opacity="0.75"/>
+      <ellipse cx="683" cy="680" rx="44" ry="8" fill="#2F8A57" fill-opacity="0.75"/>
+      <ellipse cx="683" cy="642" rx="44" ry="8" fill="#9BDAB4"/>
+      <text x="683" y="667" text-anchor="middle" class="w s">backup</text>
     </g>
     <g id="pl-server-3">
       <rect x="766" y="524" width="290" height="186" rx="10" fill="url(#pl-amber)" stroke="#EDC27E"/>
@@ -124,63 +143,63 @@
       <rect x="766" y="544" width="290" height="10" fill="#D98A1C"/>
       <text x="911" y="544" text-anchor="middle" class="w h2">Server 3</text>
       <rect x="784" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="823" y="591" text-anchor="middle" class="t s">web-01-r3</text>
-      <text x="823" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="823" y="586" text-anchor="middle" class="t s">shop-web-r3</text>
+      <text x="823" y="602" text-anchor="middle" class="m s">OCI</text>
+      <text x="823" y="615" text-anchor="middle" class="m s">container</text>
       <rect x="872" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="911" y="591" text-anchor="middle" class="t s">metrics</text>
-      <text x="911" y="609" text-anchor="middle" class="m s">container</text>
+      <text x="911" y="586" text-anchor="middle" class="t s">shop-queue</text>
+      <text x="911" y="602" text-anchor="middle" class="m s">system</text>
+      <text x="911" y="615" text-anchor="middle" class="m s">container</text>
       <rect x="960" y="568" width="78" height="54" rx="6" fill="#FFFFFF" stroke="#E2C08A" stroke-dasharray="4 3"/>
       <text x="999" y="599" text-anchor="middle" class="m s">free</text>
+      <rect x="784" y="642" width="150" height="38" fill="url(#pl-green-body)"/>
+      <ellipse cx="859" cy="680" rx="75" ry="8" fill="#2F8A57"/>
+      <ellipse cx="859" cy="642" rx="75" ry="8" fill="#9BDAB4"/>
+      <text x="859" y="667" text-anchor="middle" class="w s">local: disks, volumes</text>
+      <rect x="950" y="642" width="88" height="38" fill="url(#pl-green-body)" fill-opacity="0.75"/>
+      <ellipse cx="994" cy="680" rx="44" ry="8" fill="#2F8A57" fill-opacity="0.75"/>
+      <ellipse cx="994" cy="642" rx="44" ry="8" fill="#9BDAB4"/>
+      <text x="994" y="667" text-anchor="middle" class="w s">backup</text>
     </g>
 
-    <!-- Local pools, one per server -->
-    <g id="pl-pools">
-      <rect x="219" y="642" width="140" height="40" fill="url(#pl-green-body)"/>
-      <ellipse cx="289" cy="682" rx="70" ry="9" fill="#2F8A57"/>
-      <ellipse cx="289" cy="642" rx="70" ry="9" fill="#9BDAB4"/>
-      <text x="289" y="668" text-anchor="middle" class="w s">local pool, volumes</text>
-      <rect x="530" y="642" width="140" height="40" fill="url(#pl-green-body)"/>
-      <ellipse cx="600" cy="682" rx="70" ry="9" fill="#2F8A57"/>
-      <ellipse cx="600" cy="642" rx="70" ry="9" fill="#9BDAB4"/>
-      <text x="600" y="668" text-anchor="middle" class="w s">local pool, volumes</text>
-      <rect x="841" y="642" width="140" height="40" fill="url(#pl-green-body)"/>
-      <ellipse cx="911" cy="682" rx="70" ry="9" fill="#2F8A57"/>
-      <ellipse cx="911" cy="642" rx="70" ry="9" fill="#9BDAB4"/>
-      <text x="911" y="668" text-anchor="middle" class="w s">local pool, volumes</text>
+    <!-- Shared pool across the servers -->
+    <g id="pl-shared">
+      <rect x="144" y="722" width="912" height="38" rx="10" fill="#F0FAF4" stroke="#8FD0AA" stroke-dasharray="5 4"/>
+      <text x="600" y="746" text-anchor="middle" class="t s">shared pool: clustered LVM on a SAN, reached by every server (running in the lab; Apelora places nothing on it yet)</text>
     </g>
 
     <!-- OVN across the servers -->
     <g id="pl-ovn">
-      <rect x="144" y="726" width="912" height="40" rx="20" fill="url(#pl-blue)"/>
-      <text x="600" y="751" text-anchor="middle" class="w b">OVN: a network per application, access rules between modules, service addresses</text>
+      <rect x="144" y="774" width="912" height="40" rx="20" fill="url(#pl-blue)"/>
+      <text x="600" y="799" text-anchor="middle" class="w b">OVN: a network per application, access rules between modules, service addresses</text>
     </g>
   </g>
 
   <!-- Physical servers -->
   <g id="pl-hardware">
-    <path class="line" d="M289 784 V808 M600 784 V808 M911 784 V808"/>
+    <path class="line" d="M289 830 V854 M600 830 V854 M911 830 V854"/>
     <g>
-      <ellipse cx="289" cy="858" rx="110" ry="8" fill="url(#pl-floor)"/>
-      <rect x="199" y="808" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
-      <rect x="211" y="818" width="112" height="24" rx="2" fill="#4B5563"/>
-      <path d="M223 822 V838 M235 822 V838 M247 822 V838 M259 822 V838 M271 822 V838 M283 822 V838 M295 822 V838 M307 822 V838" stroke="#9AA2AE" stroke-width="4"/>
-      <circle cx="355" cy="830" r="4" fill="#3FB27F"/>
+      <ellipse cx="289" cy="904" rx="110" ry="8" fill="url(#pl-floor)"/>
+      <rect x="199" y="854" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
+      <rect x="211" y="864" width="112" height="24" rx="2" fill="#4B5563"/>
+      <path d="M223 868 V884 M235 868 V884 M247 868 V884 M259 868 V884 M271 868 V884 M283 868 V884 M295 868 V884 M307 868 V884" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="355" cy="876" r="4" fill="#3FB27F"/>
     </g>
     <g>
-      <ellipse cx="600" cy="858" rx="110" ry="8" fill="url(#pl-floor)"/>
-      <rect x="510" y="808" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
-      <rect x="522" y="818" width="112" height="24" rx="2" fill="#4B5563"/>
-      <path d="M534 822 V838 M546 822 V838 M558 822 V838 M570 822 V838 M582 822 V838 M594 822 V838 M606 822 V838 M618 822 V838" stroke="#9AA2AE" stroke-width="4"/>
-      <circle cx="666" cy="830" r="4" fill="#3FB27F"/>
+      <ellipse cx="600" cy="904" rx="110" ry="8" fill="url(#pl-floor)"/>
+      <rect x="510" y="854" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
+      <rect x="522" y="864" width="112" height="24" rx="2" fill="#4B5563"/>
+      <path d="M534 868 V884 M546 868 V884 M558 868 V884 M570 868 V884 M582 868 V884 M594 868 V884 M606 868 V884 M618 868 V884" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="666" cy="876" r="4" fill="#3FB27F"/>
     </g>
     <g>
-      <ellipse cx="911" cy="858" rx="110" ry="8" fill="url(#pl-floor)"/>
-      <rect x="821" y="808" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
-      <rect x="833" y="818" width="112" height="24" rx="2" fill="#4B5563"/>
-      <path d="M845 822 V838 M857 822 V838 M869 822 V838 M881 822 V838 M893 822 V838 M905 822 V838 M917 822 V838 M929 822 V838" stroke="#9AA2AE" stroke-width="4"/>
-      <circle cx="977" cy="830" r="4" fill="#3FB27F"/>
+      <ellipse cx="911" cy="904" rx="110" ry="8" fill="url(#pl-floor)"/>
+      <rect x="821" y="854" width="180" height="44" rx="5" fill="url(#pl-metal)" stroke="#7C8592"/>
+      <rect x="833" y="864" width="112" height="24" rx="2" fill="#4B5563"/>
+      <path d="M845 868 V884 M857 868 V884 M869 868 V884 M881 868 V884 M893 868 V884 M905 868 V884 M917 868 V884 M929 868 V884" stroke="#9AA2AE" stroke-width="4"/>
+      <circle cx="977" cy="876" r="4" fill="#3FB27F"/>
     </g>
-    <path class="line" d="M289 866 V896 H911 V866 M600 866 V896"/>
-    <text x="600" y="920" text-anchor="middle" class="m b">Linux servers on your network: the uplink, the cluster links and the service address range</text>
+    <path class="line" d="M289 912 V942 H911 V912 M600 912 V942"/>
+    <text x="600" y="966" text-anchor="middle" class="m b">Physical Linux servers on your network (Lima VMs stand in for them in the lab): the uplink, the cluster links, the service address range</text>
   </g>
 </svg>

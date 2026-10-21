@@ -23,11 +23,11 @@ tests/e2e/              Playwright specs (+ on-demand screenshots)
 
 | Layer | Type | Contains |
 |---|---|---|
-| Catalog | `ModuleClass` | id, version, category, ports (stable ids), resources, icon, runtime image placeholder |
-| Instance | `ModuleInstance` | id, name, `classRef`, resources, own copy of ports (editable) |
+| Catalog | `ModuleClass` | id, version, category, ports (stable ids), resources, icon, optional `runtime` (instance kind, image, availability, volumes; absent: design-only) |
+| Module on the canvas | `ModuleInstance` | id, name, `classRef`, resources, own copy of ports (editable), replicas, volumes, internet access, live migration |
 | Assembly | `ApplicationAssembly` | `spec` (modules, connections) + `editor` (layout, density) |
 
-`spec` is deployment-relevant; `editor` is view-only (positions, sizes, density) so resizing never changes semantics. The JSON Schema is generated from the zod schemas into `packages/assembly-model/schema/` for future Rust consumers.
+A `ModuleInstance` is a module placed on the canvas, not an Incus instance: when deployed it becomes one Incus instance per replica ([platform architecture §4.1](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances)). `spec` is deployment-relevant; `editor` is view-only (positions, sizes, density) so resizing never changes semantics. The JSON Schema is generated from the zod schemas into `packages/assembly-model/schema/` for future Rust consumers.
 
 ## State and history
 

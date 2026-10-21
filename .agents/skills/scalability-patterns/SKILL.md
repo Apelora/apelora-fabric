@@ -9,7 +9,7 @@ Scaling is iterative. Start with the simplest design that meets the estimate (`c
 
 **Detailed guides (read the one you need):**
 - [rate-limiter](references/rate-limiter.md) — algorithms, placement, distributed counters
-- [consistent-hashing](references/consistent-hashing.md) — ring, virtual nodes, placement of assemblies/volumes
+- [consistent-hashing](references/consistent-hashing.md) — ring, virtual nodes, partitioning work across workers (not instance placement)
 - [kv-store](references/kv-store.md) — replication, quorum, versioning, failure handling for the state store
 - [unique-ids](references/unique-ids.md) — ID schemes without coordination
 - [jobs-and-notifications](references/jobs-and-notifications.md) — queues, retries, delivery of events to users and nodes
@@ -23,7 +23,7 @@ Scaling is iterative. Start with the simplest design that meets the estimate (`c
 | Repeated expensive reads | **Cache** | Catalog manifests, validation results, resolved nested assemblies |
 | Slow, bursty, or failure-prone work | **Queue + workers** | Deploys, image pulls, snapshots, notification delivery |
 | Dataset or write rate exceeds one store | **Sharding** | Last resort; key by tenant or assembly |
-| Nodes join and leave often | **Consistent hashing** | Placing assemblies, volumes, or work partitions on nodes |
+| Workers join and leave often | **Consistent hashing** | Partitioning work (reconcile partitions, job queues) across control-plane workers. Never instance placement: Incus places instances, and Apelora adds only replica anti-affinity through Incus's placement scriptlet |
 | Abusive or runaway callers | **Rate limiting** | API per token and per IP; node RPC per caller |
 | IDs minted on many machines | **Unique ID scheme** | Time-ordered UUIDs for resources, jobs, events |
 | Datacenter or region failure must be survived | **Multi-site** | Geo-routing, async replication, tested failover |

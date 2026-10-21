@@ -7,7 +7,7 @@
 # and removes everything again.
 # Every check prints PASS or FAIL; the first FAIL stops the run (cleanup still happens).
 #
-# Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (three members), the dev
+# Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (at least three members), the dev
 # PostgreSQL (infra/dev/compose.yaml) and jq. Mutates only the test cluster.
 #   bash scripts/test-cluster/demo.sh            # log in a new temporary directory
 set -euo pipefail

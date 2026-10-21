@@ -7639,7 +7639,7 @@
       },
       "ClusterMember": {
         "type": "object",
-        "description": "Observed state of an Incus cluster member (\"minion\" in the UI).",
+        "description": "Observed state of an Incus cluster member (a server in the UI).",
         "required": [
           "name",
           "url",

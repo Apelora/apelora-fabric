@@ -30,24 +30,24 @@
   <img src="docs/screenshots/15-networked-stack-link-tags-1440x900.png" alt="Apelora Studio: a gateway, a load balancer, two web servers, a PostgreSQL database and Grafana connected on the canvas" width="900">
 </p>
 
-For teams that run their own servers and would rather connect parts than hand-write container, network and firewall configuration. You connect modules such as a gateway, NGINX and PostgreSQL in a visual designer. Apelora turns each connection into a private network, an access rule and a service address. It keeps the replicas you asked for running on [Incus](https://linuxcontainers.org/incus/).
+For teams that run their own servers and would rather connect parts than hand-write container, network and firewall configuration. You connect modules such as a gateway, NGINX and PostgreSQL in a visual designer. Apelora turns each connection into an access rule and a service address on the application's private network. It keeps the replicas you asked for running on [Incus](https://linuxcontainers.org/incus/).
 
-> **Status: early development.** Core paths are tested on a disposable four-server Incus cluster. It is not ready for production. See [what works today](docs/architecture/current-state.md) and the [known limitations](docs/architecture/current-state.md#known-limitations).
+> **Status: early development.** Core paths are tested on a disposable four-member Incus cluster, Lima VMs standing in for physical servers. It is not ready for production. See [what works today](docs/architecture/current-state.md) and the [known limitations](docs/architecture/current-state.md#known-limitations).
 
 ## How it works
 
 Three steps, from drawing to running application:
 
 1. **Design.** In Apelora Studio, drag modules onto the canvas and connect their typed ports. The designer refuses connections that cannot work, such as HTTP into a database port.
-2. **Deploy.** The control plane checks the design against the cluster. The deployment worker then creates each container or VM in Incus as a durable job, so a crash or a repeated request never creates duplicates.
+2. **Deploy.** The control plane checks the design against the cluster. The deployment worker then creates each module's instances in Incus (a system container, OCI container or VM, as its class says; one per replica) as durable jobs, so a crash or a repeated request never creates duplicates.
 3. **Operate.** Only the connections you drew are allowed through. Replicas are spread across servers, unhealthy ones are restarted, and lost ones are replaced when a server fails.
 
 <p align="center">
-  <img src="docs/assets/diagrams/design-to-cluster.svg" alt="A Studio design with a gateway, three web replicas and a database with a volume, deployed onto three Incus servers that share the application's OVN network" width="900">
+  <img src="docs/assets/diagrams/design-to-cluster.svg" alt="A Studio design with a gateway, a web module with three replicas and a database with a volume. On three Incus servers the web replicas run apart on the application's OVN network behind a service address the gateway publishes; the database stays in the design until PostgreSQL has a runtime" width="900">
 </p>
 
 <p align="center">
-  <img src="docs/assets/diagrams/platform-layers.svg" alt="Apelora's layers: people, Studio and Fabric Console, the control plane, the Incus cluster with containers, VMs and local storage pools, OVN, and the physical servers" width="900">
+  <img src="docs/assets/diagrams/platform-layers.svg" alt="Apelora's layers: people, Studio and Fabric Console, the control plane, the Incus cluster with OCI containers, system containers and VMs, the local, backup and shared storage pools, OVN, and the physical servers" width="900">
 </p>
 
 Apelora owns the application: its design, desired state, connections, replicas and health. Incus owns the servers: membership, placement and the instances themselves. Apelora talks to Incus only through its documented REST API.
@@ -59,7 +59,7 @@ Apelora owns the application: its design, desired state, connections, replicas a
 </p>
 
 <p align="center">
-  <img src="docs/assets/diagrams/storage-options.svg" alt="Storage: local disks used today; SAN shared block and distributed storage planned for restarting VMs after a failure; NAS shares over NFS or SMB/CIFS for backups and files a module mounts" width="900">
+  <img src="docs/assets/diagrams/storage-options.svg" alt="Storage: local disks used today; clustered LVM on a SAN running in the lab, not used by Apelora yet; distributed storage planned; both would let instances restart on another server after a failure; NAS shares over NFS or SMB/CIFS for backups and files a module mounts" width="900">
 </p>
 
 ## What is in this repository
@@ -84,7 +84,7 @@ npm install
 npm run dev          # Studio at http://127.0.0.1:5173
 ```
 
-To deploy for real, start PostgreSQL, the control plane and a disposable Incus cluster (Lima VMs on your workstation):
+To deploy for real, start PostgreSQL, the control plane and a disposable Incus cluster (Lima VMs on your workstation, standing in for physical servers):
 
 ```sh
 docker compose -f infra/dev/compose.yaml up -d       # PostgreSQL on 127.0.0.1:15432

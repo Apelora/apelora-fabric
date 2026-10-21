@@ -1,16 +1,20 @@
 # Disposable Incus test cluster
 
-The **only** Incus that Apelora's tests may change. It runs in a local VM on a developer workstation, holds nothing of value, and is deleted and recreated at will. Results produced against it are labelled **REAL INCUS TESTED**.
+The **only** Incus that Apelora's tests may change. It runs in local VMs on a developer workstation, holds nothing of value, and is deleted and recreated at will. Results produced against it are labelled **REAL INCUS TESTED**.
+
+Four Lima VMs (`apelora-incus`, `apelora-incus-2`, `-3`, `-4`; Incus members `apelora-test-1` … `-4`) stand in for the physical servers a production cluster has, and a fifth Lima VM (`apelora-san`) stands in for a SAN. Where a result depends on real hardware (disk speed, network latency, fencing through a BMC), the lab says nothing about it.
 
 ## What it is
 
 | Part | Choice | Why |
 |---|---|---|
-| VM | [Lima](https://lima-vm.io) (`brew install lima`), Apple Virtualization (`vz`), 4 CPU, 8 GiB, 40 GiB | Local, scriptable, deleted with one command |
+| Member VMs | [Lima](https://lima-vm.io) (`brew install lima`), Apple Virtualization (`vz`), 4 CPU, 8 GiB, 40 GiB each (`incus-vm.yaml`) | Local, scriptable, deleted with one command; each stands in for a physical server |
+| SAN VM | `apelora-san` (`san-vm.yaml`): 2 CPU, 2 GiB, 40 GiB, on the members' `user-v2` network, exporting one iSCSI LUN without authentication | Stands in for a SAN, so the clustered LVM pool can be tried; throwaway only |
 | Guest | Debian 13 cloud image, digest-pinned by Lima's template | Kernel 6.12, the Incus 7.0 minimum |
 | Incus | 7.0 LTS from the packaging repository named in Incus's installation guide; the signing key's fingerprint is checked before use | Our pinned series (`upstream.lock.yaml`) |
-| Topology | One member with clustering enabled | Exercises the cluster API paths; more members come with Phase 08 |
-| Storage / network | `local` (btrfs, 20 GiB loop file), `incusbr0` (NAT bridge) | Defaults that need no host setup |
+| Topology | Four members: three database voters and a standby (the fourth enrolled through Apelora) | Quorum survives the loss of one member; enough members to keep replicas apart |
+| Storage pools | `local` (btrfs, 20 GiB loop file per member: root disks and `data-local` volumes), `backup` (dir per member, `backup-pool.sh`: backup copies), `shared` (`lvmcluster` on the SAN VM's LUN, `shared-storage.sh`, created 2026-10-21) | Local pools need no host setup; `shared` is there for failure recovery on shared storage, which Apelora does not use yet |
+| Network | `incusbr0` (NAT bridge per member) as the uplink only; module traffic runs on one OVN network per application (`ovn.sh`) | A bridge does not span members; OVN does |
 | Project | `apelora`, `restricted=true`, own `default` profile (root disk + `eth0`) | The deploy project Apelora is allowed to change |
 | Client identities | ECDSA P-384, X.509 v3, client-auth only, 90 days. `client`: **restricted to the `apelora` project** (control plane and worker). `admin`: unrestricted, control plane only, for join tokens ([ADR 0003](../adr/0003-incus-identities-and-cluster-join.md)) | Least privilege: deployments cannot see or touch anything else |
 | Join tokens | `cluster.join_token_expiry=30M` | Short-lived approvals |
@@ -77,6 +81,17 @@ Install replica anti-affinity (Incus's placement scriptlet, cluster-wide; `--rem
 bash scripts/test-cluster/placement.sh
 cargo test -p apelora-deployment-worker --test real_incus -- --ignored replicas_spread
 ```
+
+Shared storage (clustered LVM on the lab SAN; HA slice B in `docs/design/mobility-and-ha.md`). Start the SAN VM (first command below) and give it an iSCSI target that exports one LUN as `iqn.2026-10.org.apelora:lab-shared` with no authentication (done by hand on the VM so far, not scripted); then:
+
+```sh
+limactl start --name apelora-san scripts/test-cluster/san-vm.yaml
+bash scripts/test-cluster/shared-storage.sh plan     # default: print every step, change nothing
+bash scripts/test-cluster/shared-storage.sh apply    # safe to repeat; finished steps are skipped
+bash scripts/test-cluster/shared-storage.sh status   # iSCSI sessions, locks, volume group, pools
+```
+
+On every member it installs the iSCSI initiator, the LVM lock daemon and sanlock, loads a software watchdog, logs in to the target (also at boot) and sets a unique `host_id`; then it creates the shared volume group `apelora-shared` on the LUN and the Incus pool `shared` (`lvmcluster`) on all members. `APELORA_SAN_IP` (default `192.168.104.6`, the SAN VM's `user-v2` address), `APELORA_SAN_IQN`, `APELORA_SHARED_VG` and `APELORA_SHARED_POOL` override the defaults. REAL INCUS TESTED (2026-10-21): the pool exists on all four members. Apelora places nothing on it yet. `down.sh` leaves the SAN VM alone: remove it with `limactl delete --force apelora-san`.
 
 Remove everything (the VMs and the credentials):
 

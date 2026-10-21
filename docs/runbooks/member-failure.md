@@ -1,8 +1,8 @@
 # A server fails
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 — a member's VM was force-stopped three times on the
-two-member test cluster and three times on the three-member cluster (`demo.sh`, recovery delay
-30 s): stateless replicas were substituted and later retired automatically; the service was whole
+**Evidence:** REAL INCUS TESTED, 2026-10-20 — a member's VM (a Lima VM standing in for a physical
+server) was force-stopped three times on the test cluster with two members and three times with
+three members (`demo.sh`, recovery delay 30 s): stateless replicas were substituted and later retired automatically; the service was whole
 again 84–206 s after the failure. Removing a member that never returns is NOT YET VERIFIED.
 
 ## What happens on its own

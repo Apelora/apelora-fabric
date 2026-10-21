@@ -48,4 +48,4 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 
 - Planned moves: `instance.move` job, planned by `apelora_domain::mobility::plan_move`. VMs with `migration.stateful=true` move live (measured: under one second, no reboot); containers and VMs with `data-local` volumes stop, their volumes are copied to the target member, the old copies are deleted only once the instance runs there.
 - The deploy project needs `restricted.cluster.target=allow`; without it Incus refuses targeting for the restricted identity.
-- Unplanned failures: live migration cannot help. Stateless replicas cover them today; VMs on shared storage restart elsewhere only after the failed member is fenced (slice B). Never enable Incus's `cluster.healing_threshold` without an automatic fence.
+- Unplanned failures: live migration cannot help. Stateless replicas cover them today. Planned (slice B, not built): instances on a shared pool, containers or VMs, restart on another member once the failed one is fenced; the lab's `shared` pool exists for this, but Apelora places nothing there yet. Never enable Incus's `cluster.healing_threshold` without an automatic fence.

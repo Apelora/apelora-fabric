@@ -13,7 +13,7 @@ Apelora composes applications from modules in a visual designer and runs them on
 - `packages/api-client` — TypeScript types and client generated from the control plane's OpenAPI document.
 - `packages/assembly-model` — zod schemas, geometry, validation, pure edit operations, network intent compiler, (de)serialisation, generated JSON Schema.
 - `packages/module-catalog` — original module class manifests, runtimes (NGINX, Debian), bundled logos (with attribution), sample assembly.
-- `services/control-plane` (Axum API), `services/deployment-worker` (job queue, network sync, replica supervisor), `crates/domain`, `crates/persistence` (PostgreSQL), `crates/incus-adapter` (Incus REST + mock). **REAL INCUS TESTED** on a three-member disposable cluster; see `docs/architecture/current-state.md` for what is verified and the known limitations.
+- `services/control-plane` (Axum API), `services/deployment-worker` (job queue, network sync, replica supervisor), `crates/domain`, `crates/persistence` (PostgreSQL), `crates/incus-adapter` (Incus REST + mock). **REAL INCUS TESTED** on a disposable four-member cluster (Lima VMs standing in for physical servers); see `docs/architecture/current-state.md` for what is verified and the known limitations.
 - Product name in UI/code is **Apelora**. Change it in one place if branding changes (`PRODUCT_NAME`, `API_VERSION`).
 
 ## Non-negotiables

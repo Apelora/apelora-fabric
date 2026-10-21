@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-labelledby="dc-title dc-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
   <title id="dc-title">From a design to running instances</title>
-  <desc id="dc-desc">In the Studio, a gateway connects to a web module with three replicas, which connects to a database module that keeps a 20 GiB volume. Apelora plans and deploys it. On the cluster, the gateway and the database run on server 1 with the database's volume in that server's pool, and the three web replicas run on three different servers. All of them share the application's OVN network; a service address balances across the web replicas, and only the connections drawn in the design are allowed.</desc>
+  <desc id="dc-desc">In the Studio, a gateway connects to a web module (NGINX) with three replicas, which connects to a database module (PostgreSQL) that keeps a 20 GiB volume. Apelora plans the deployment first: three instances, the web replicas, named shop-web, shop-web-r2 and shop-web-r3, each on a different server and all on the application's OVN network. The gateway does not run as an instance: it publishes web's service address on port 80 to the outside. PostgreSQL has no runtime yet, so the database and its volume, drawn dashed on server 1, stay in the design for now; once it can run, its volume lives in its server's pool and only the web-to-database connection is allowed to reach it.</desc>
   <!-- SPDX-License-Identifier: AGPL-3.0-only -->
   <defs>
     <linearGradient id="dc-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF7EB"/><stop offset="1" stop-color="#FDEBCF"/></linearGradient>
@@ -82,8 +82,9 @@
     <rect x="478" y="248" width="112" height="38" rx="19" fill="url(#dc-teal-strong)"/>
     <text x="534" y="272" text-anchor="middle" class="w h2">2. Deploy</text>
     <text x="534" y="324" text-anchor="middle" class="m s">plan first:</text>
-    <text x="534" y="340" text-anchor="middle" class="m s">5 instances,</text>
-    <text x="534" y="356" text-anchor="middle" class="m s">1 volume</text>
+    <text x="534" y="340" text-anchor="middle" class="m s">3 instances (web),</text>
+    <text x="534" y="356" text-anchor="middle" class="m s">web published on 80;</text>
+    <text x="534" y="372" text-anchor="middle" class="m s">db design-only today</text>
   </g>
 
   <!-- 3. The cluster -->
@@ -104,13 +105,16 @@
       <text x="706" y="219" text-anchor="middle" class="w h2">Server 1</text>
       <rect x="642" y="240" width="128" height="34" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
       <text x="706" y="262" text-anchor="middle" class="mono t">shop-web</text>
-      <rect x="642" y="296" width="128" height="34" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="706" y="318" text-anchor="middle" class="mono t">shop-db</text>
-      <path d="M706 330 V343" stroke="#8C959F" stroke-width="1.2"/>
-      <rect x="681" y="348" width="50" height="22" fill="url(#dc-green-body)"/>
-      <ellipse cx="706" cy="370" rx="25" ry="5" fill="#2F8A57"/>
-      <ellipse cx="706" cy="348" rx="25" ry="5" fill="#9BDAB4"/>
+      <rect x="642" y="296" width="128" height="34" rx="6" fill="#FFFFFF" stroke="#B9C0C9" stroke-dasharray="4 3"/>
+      <text x="706" y="318" text-anchor="middle" class="mono m">shop-db</text>
+      <path d="M706 330 V343" stroke="#8C959F" stroke-width="1.2" stroke-dasharray="3 2"/>
+      <g opacity="0.45">
+        <rect x="681" y="348" width="50" height="22" fill="url(#dc-green-body)"/>
+        <ellipse cx="706" cy="370" rx="25" ry="5" fill="#2F8A57"/>
+        <ellipse cx="706" cy="348" rx="25" ry="5" fill="#9BDAB4"/>
+      </g>
       <text x="740" y="364" class="m s">data</text>
+      <text x="706" y="400" text-anchor="middle" class="m s">later: no runtime yet</text>
     </g>
     <g id="dc-server-2">
       <rect x="806" y="200" width="160" height="230" rx="10" fill="url(#dc-amber)" stroke="#EDC27E"/>
@@ -127,26 +131,26 @@
       <text x="1066" y="219" text-anchor="middle" class="w h2">Server 3</text>
       <rect x="1002" y="240" width="128" height="34" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
       <text x="1066" y="262" text-anchor="middle" class="mono t">shop-web-r3</text>
-      <rect x="1002" y="316" width="128" height="34" rx="6" fill="#FFFFFF" stroke="#E2C08A"/>
-      <text x="1066" y="338" text-anchor="middle" class="mono t">shop-gateway</text>
     </g>
 
     <!-- the service address balances over the replicas -->
     <path class="rule" d="M800 144 V156 H706 V240" marker-end="url(#dc-arrow-blue)"/>
     <path class="rule" d="M886 144 V240" marker-end="url(#dc-arrow-blue)"/>
     <path class="rule" d="M972 144 V156 H1066 V240" marker-end="url(#dc-arrow-blue)"/>
-    <!-- the drawn connections, as access rules: gateway to web (through its service address), web to db -->
-    <path class="rule" d="M1130 333 H1153 V127 H1010" marker-end="url(#dc-arrow-blue)"/>
-    <use href="#dc-lock" x="1153" y="290"/>
-    <path class="rule" d="M706 274 V296" marker-end="url(#dc-arrow-blue)"/>
+    <!-- the gateway publishes web's service address to the outside; web to db is an access rule once db can run -->
+    <path class="rule" d="M1188 127 H1014" marker-end="url(#dc-arrow-blue)"/>
+    <use href="#dc-lock" x="1100" y="125"/>
+    <text x="1100" y="104" text-anchor="middle" class="s" fill="#2F6FD6">from outside, port 80</text>
+    <path class="rule" d="M706 274 V296" stroke-dasharray="4 3" marker-end="url(#dc-arrow-blue)"/>
     <use href="#dc-lock" x="724" y="288"/>
   </g>
 
   <!-- Legend -->
   <g id="dc-legend">
     <use href="#dc-lock" x="618" y="497"/>
-    <text x="632" y="502" class="m b">An access rule for each cable: gateway to web on 80, web to db on 5432.</text>
-    <text x="610" y="526" class="m b">Replicas run on different servers, and a lost one is replaced. The volume</text>
-    <text x="610" y="544" class="m b">lives in its server's pool and outlives the instance.</text>
+    <text x="632" y="502" class="m b">The gateway publishes web on port 80; web to db is allowed on 5432.</text>
+    <text x="610" y="526" class="m b">Replicas run on different servers, and a lost one is replaced. Dashed:</text>
+    <text x="610" y="544" class="m b">design-only today (PostgreSQL has no runtime; its volume would stay</text>
+    <text x="610" y="562" class="m b">in its server's pool and outlive the instance).</text>
   </g>
 </svg>

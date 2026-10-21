@@ -68,7 +68,7 @@ pub enum InstanceKind {
     Unknown,
 }
 
-/// Observed state of an Incus cluster member ("minion" in the UI).
+/// Observed state of an Incus cluster member (a server in the UI).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[serde(rename_all = "camelCase")]

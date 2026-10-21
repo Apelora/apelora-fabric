@@ -31,8 +31,9 @@ Every module class declares how it runs on Incus. A class without a runtime is a
 |---|---|---|
 | `incus-system-container` (LXC) | Default: web servers, APIs, workers, caches, databases | Full init system; unprivileged by default |
 | `incus-oci-container` | Single-process apps shipped as OCI images | Pin the image by digest; verify entrypoint and behaviour at runtime |
-| `incus-vm` (QEMU) | Firewalls/routers, other kernels or OSes (Windows), strong isolation | Exception, not the default |
-| `composite` | A Studio grouping of other modules | Not an Incus instance type |
+| `incus-vm` (QEMU) | Only where needed: another kernel or OS (Windows, `guestOs`), kernel modules, firewall-style modules, or live migration (`migration.stateful`) | Exception, not the default. Today: `linux-base`, a VM so it can move while running |
+
+Today's runnable classes (`packages/module-catalog/src/runtimes.ts`): `nginx` (OCI container, stateless), `debian` (system container), `linux-base` (VM). A component (`composition` on the class) is not a runtime: it is a Studio grouping, deployed as its parts in a later version. The whole chain from module to instances, members, pools and networks: `docs/architecture/PLATFORM-ARCHITECTURE.md` §4.1.
 
 7. Deployable classes record: versioned id, approved image with immutable digest, architectures, licence/provenance, CPU/RAM/disk limits, terminals, configuration schema, **secret references** (never real secrets), volumes, health probes, rollout and placement policy, availability class (stateless / singleton / stateful).
 8. Default to unprivileged containers in restricted projects; refuse broad host device or path mounts for ordinary modules. If a module needs privileges or kernel features a container cannot safely have (e.g. a general-purpose firewall), make it a VM.

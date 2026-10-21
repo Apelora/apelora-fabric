@@ -15,11 +15,11 @@ Use for cluster membership, member roles, LXC/OCI/QEMU instance and Incus REST i
 - First inspect documented API, check `/` and `/1.0` versions and `api_extensions`, then implement typed endpoints from verified schemas.
 - Authenticate remote connections via TLS/certificates, verify server identity; no insecure SSL bypass.
 - Track asynchronous operation IDs and errors. Idempotency and safe retries need explicit guardrails.
-- A `minion` is an Incus cluster member in Apelora UI. Do not add a privileged host agent without ADR.
-- Three members are recommended for database quorum and one voter failure; ensure synchronized clocks and sub-10ms member network latency.
+- In Apelora a server is an Incus cluster member, called a server (or member) in the UI; in production it is a physical server, in the lab a Lima VM stands in for one. Do not add a privileged host agent without ADR.
+- Three members are recommended for database quorum and one voter failure; ensure synchronized clocks and sub-10ms member network latency. The lab has four (three voters, one standby) plus a SAN VM (`docs/development/TEST-CLUSTER.md`).
 - Evacuation (verified on 7.0.1, two members): `POST /1.0/cluster/members/<name>/state {"action":"evacuate"|"restore"}` with the admin identity; containers on local btrfs with OVN NICs moved (cold) in seconds and kept their addresses; restore moved them back. `cluster.evacuate` comes from the expanded config (profiles included).
 - Incus's default auto placement is roughly fewest instances, not comprehensive anti-affinity. Apelora's replica anti-affinity is the placement scriptlet `infra/incus/placement.star` (REAL INCUS TESTED on two members); install with `KEY=VALUE` (`incus config set "instances.placement.scriptlet=$(cat …)"`), call scriptlet helpers with keyword arguments, and leave unlabelled instances to Incus.
-- Ordinary LXC migrations generally need stop/move/start. No blanket live-migration claim.
+- Ordinary LXC migrations generally need stop/move/start. No blanket live-migration claim: only VMs with `migration.stateful=true` and no attached member-local volumes move running (`instance.move`, REAL INCUS TESTED).
 - Expose unknown/unavailable resource fields instead of making them up.
 
 ## Evidence required before calling a feature complete

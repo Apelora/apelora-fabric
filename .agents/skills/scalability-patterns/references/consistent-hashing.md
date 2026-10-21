@@ -15,10 +15,10 @@
 
 ## Where it fits Apelora
 - Assigning assemblies or reconcile partitions to Controller instances
-- Choosing candidate nodes for volume placement or image caching
+- Choosing which worker caches which images or catalog data
 - Partitioning job queues and event streams
 
-Not for scheduling VMs by capacity: use the scheduler (`rust-control-plane`) with constraints. Hashing ignores resource fit.
+Not for placing instances or volumes on members: Incus places instances (and a member-local volume goes where its instance is). Apelora adds only replica anti-affinity, through Incus's placement scriptlet (`infra/incus/placement.star`, installed on the lab by `scripts/test-cluster/placement.sh`); it never runs a competing scheduler.
 
 ## Implementation notes (Rust)
 - Keep a sorted `BTreeMap<u64, NodeId>` of vnode positions; lookup with `range(hash..).next()` wrapping to the first entry.

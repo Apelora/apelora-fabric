@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" width="1200" height="760" role="img" aria-labelledby="sl-title sl-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
   <title id="sl-title">Storage for modules, layer by layer</title>
-  <desc id="sl-desc">Modules in a design ask for volumes by name, size and class. Apelora's volume classes are policies: data-local exists today; scratch, data-replicated and backup-target are planned. The control plane maps each class to an Incus storage pool that an administrator configured. Today data-local maps to each server's own pool, where every instance gets its own volume; a shared pool for data-replicated is planned. Each pool sits on the disks of its server.</desc>
+  <desc id="sl-desc">Modules in a design ask for volumes by name, size and mount path. Apelora's volume classes are policies: data-local exists today, and backups are copied into a backup pool on another server; scratch and data-replicated are planned. The control plane maps each class to an Incus storage pool that an administrator configured. Today data-local maps to each server's own local pool, where every instance gets its own volume, named after the instance and the volume (shop-db-data). A shared pool, clustered LVM on a SAN, runs in the lab, but Apelora places nothing on it yet; with it, data-replicated volumes could let an instance restart on another server after its old server is fenced. Local and backup pools sit on the disks of their server.</desc>
   <!-- SPDX-License-Identifier: AGPL-3.0-only -->
   <defs>
     <linearGradient id="sl-teal-strong" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19B3A3"/><stop offset="1" stop-color="#0F8C80"/></linearGradient>
@@ -26,7 +26,7 @@
 
   <!-- Modules -->
   <g id="sl-modules">
-    <text x="120" y="92" class="t h2">Modules in a design</text>
+    <text x="120" y="92" class="t h2">Modules in a design (examples)</text>
     <rect x="120" y="104" width="300" height="64" rx="10" fill="#FFFFFF" stroke="#D9DCE1"/>
     <rect x="120" y="104" width="6" height="64" rx="3" fill="#B9A3E3"/>
     <text x="140" y="130" class="t h2">db (PostgreSQL)</text>
@@ -58,9 +58,9 @@
     <rect x="612" y="244" width="214" height="62" rx="8" fill="#E9F7F5" stroke="#FFFFFF" stroke-dasharray="5 4"/>
     <text x="719" y="270" text-anchor="middle" class="t h2">data-replicated</text>
     <text x="719" y="290" text-anchor="middle" class="m s">planned: survives a server loss</text>
-    <rect x="846" y="244" width="210" height="62" rx="8" fill="#E9F7F5" stroke="#FFFFFF" stroke-dasharray="5 4"/>
-    <text x="951" y="270" text-anchor="middle" class="t h2">backup-target</text>
-    <text x="951" y="290" text-anchor="middle" class="m s">planned: receives backups</text>
+    <rect x="846" y="244" width="210" height="62" rx="8" fill="#FFFFFF"/>
+    <text x="951" y="270" text-anchor="middle" class="t h2">backups</text>
+    <text x="951" y="290" text-anchor="middle" class="m s">copies on another server</text>
   </g>
 
   <!-- Mapping -->
@@ -69,6 +69,7 @@
     <text x="600" y="369" text-anchor="middle" class="t b">Control plane: class to pool, set by an administrator</text>
   </g>
   <path class="line" d="M251 306 V364 H370"/>
+  <path class="line" d="M951 306 V364 H830"/>
   <path class="plan" d="M719 306 V344"/>
 
   <!-- Incus pools -->
@@ -97,21 +98,28 @@
     </g>
     <g id="sl-pool-3">
       <text x="600" y="468" text-anchor="middle" class="t s">Server 3</text>
-      <rect x="535" y="486" width="130" height="66" fill="url(#sl-green-body)"/>
-      <ellipse cx="600" cy="552" rx="65" ry="10" fill="#2F8A57"/>
-      <ellipse cx="600" cy="486" rx="65" ry="10" fill="#9BDAB4"/>
-      <text x="600" y="524" text-anchor="middle" class="w s">room for more</text>
-      <text x="600" y="580" text-anchor="middle" class="m s">local pool</text>
+      <rect x="543" y="486" width="76" height="66" fill="url(#sl-green-body)"/>
+      <ellipse cx="581" cy="552" rx="38" ry="9" fill="#2F8A57"/>
+      <ellipse cx="581" cy="486" rx="38" ry="9" fill="#9BDAB4"/>
+      <text x="581" y="580" text-anchor="middle" class="m s">local pool</text>
+      <rect x="630" y="496" width="76" height="56" fill="url(#sl-green-body)" fill-opacity="0.75"/>
+      <ellipse cx="668" cy="552" rx="38" ry="9" fill="#2F8A57" fill-opacity="0.75"/>
+      <ellipse cx="668" cy="496" rx="38" ry="9" fill="#9BDAB4"/>
+      <rect x="634" y="510" width="68" height="20" rx="4" fill="#FFFFFF" fill-opacity="0.9"/>
+      <text x="668" y="524" text-anchor="middle" class="t s">db copy</text>
+      <text x="668" y="580" text-anchor="middle" class="m s">backup pool</text>
     </g>
     <g id="sl-pool-shared">
       <rect x="732" y="458" width="324" height="140" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="5 4"/>
-      <text x="894" y="490" text-anchor="middle" class="t h2">Shared pool</text>
-      <text x="894" y="512" text-anchor="middle" class="m s">planned: reachable from every server,</text>
-      <text x="894" y="528" text-anchor="middle" class="m s">so an instance can restart elsewhere</text>
-      <text x="894" y="544" text-anchor="middle" class="m s">after its old server is fenced</text>
+      <text x="894" y="486" text-anchor="middle" class="t h2">Shared pool</text>
+      <text x="894" y="506" text-anchor="middle" class="m s">clustered LVM on a SAN, reached by every</text>
+      <text x="894" y="522" text-anchor="middle" class="m s">server: running in the lab, but Apelora</text>
+      <text x="894" y="538" text-anchor="middle" class="m s">places nothing on it yet. Planned: an</text>
+      <text x="894" y="554" text-anchor="middle" class="m s">instance there restarts on another server</text>
+      <text x="894" y="570" text-anchor="middle" class="m s">once its old server is fenced</text>
     </g>
-    <text x="144" y="612" class="m s">Pools are created and sized by the administrator. Each instance gets its own volume on the server Incus placed it on;</text>
-    <text x="144" y="628" class="m s">volumes grow online, never shrink, and outlive their instance.</text>
+    <text x="144" y="612" class="m s">Pools are created and sized by the administrator. Each instance gets its own volume, &lt;instance&gt;-&lt;volume&gt;, on the server</text>
+    <text x="144" y="628" class="m s">Incus placed it on; volumes grow online, never shrink, and outlive their instance. Backups are copied to another server.</text>
   </g>
   <path class="plan" d="M719 384 V398 H894 V458"/>
 

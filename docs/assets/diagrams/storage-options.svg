@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 850" width="1200" height="850" role="img" aria-labelledby="so-title so-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 870" width="1200" height="870" role="img" aria-labelledby="so-title so-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
   <title id="so-title">Where module data can live</title>
-  <desc id="so-desc">Apelora's volume classes map to Incus storage pools. Four kinds of storage can sit under a pool. Local disks in each server, with the dir, btrfs, LVM or ZFS drivers, are what Apelora uses today for data-local volumes and for backups. A SAN gives every server the same block device over Fibre Channel, iSCSI or NVMe over Fabrics; the clustered LVM driver shares it, so a VM can restart on another server after its old server is fenced. A distributed storage cluster, with the Ceph RBD, CephFS or LINSTOR drivers, replicates data across machines and can serve the same purpose. NAS shares over NFS or SMB/CIFS are not a pool driver in Incus for running instances: they can receive backup copies, or a module mounts them itself; a NAS that exports iSCSI counts as a SAN.</desc>
+  <desc id="so-desc">Apelora's volume classes map to Incus storage pools. Four kinds of storage can sit under a pool. Local disks in each server, with the dir, btrfs, LVM or ZFS drivers, are what Apelora uses today for data-local volumes and for backups; VMs without attached volumes move live between servers, their disk copied. A SAN gives every server the same block device over Fibre Channel, iSCSI or NVMe over Fabrics; the clustered LVM driver shares it. The lab runs such a pool on an iSCSI SAN, but Apelora places nothing on it yet. A distributed storage cluster, with the Ceph RBD, CephFS or LINSTOR drivers, replicates data across machines. With either kind of shared pool, instances on it, containers or VMs, could restart on another server once the failed one is fenced; that is planned, not built. NAS shares over NFS or SMB/CIFS are not a pool driver in Incus for running instances: they can receive backup copies, or a module mounts them itself; a NAS that exports iSCSI counts as a SAN.</desc>
   <!-- SPDX-License-Identifier: AGPL-3.0-only -->
   <defs>
     <linearGradient id="so-teal-strong" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#19B3A3"/><stop offset="1" stop-color="#0F8C80"/></linearGradient>
@@ -29,14 +29,14 @@
     .plan { stroke: #8C959F; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
   </style>
 
-  <rect width="1200" height="850" fill="#FFFFFF"/>
+  <rect width="1200" height="870" fill="#FFFFFF"/>
   <text x="600" y="46" text-anchor="middle" class="t h1">Where module data can live</text>
 
   <!-- Apelora's view -->
   <g id="so-apelora">
     <rect x="120" y="72" width="960" height="70" rx="12" fill="url(#so-teal-strong)"/>
     <text x="144" y="100" class="w h2">Apelora: volume classes, mapped to Incus pools</text>
-    <text x="144" y="124" class="w s" fill-opacity="0.92">data-local and backups use member-local pools today; data-replicated (planned) needs a shared pool</text>
+    <text x="144" y="124" class="w s" fill-opacity="0.92">data-local volumes and backups use member-local pools today; data-replicated (planned) needs a shared pool</text>
   </g>
   <path class="line" d="M240 142 V170 M480 142 V170 M720 142 V170 M960 142 V170"/>
 
@@ -51,8 +51,8 @@
     <text x="136" y="300" class="t s">dir, btrfs, LVM, ZFS</text>
     <text x="136" y="330" class="g tag">GOOD FOR</text>
     <text x="136" y="348" class="t s">fastest volumes, snapshots</text>
-    <text x="136" y="364" class="t s">VMs move live between</text>
-    <text x="136" y="380" class="t s">servers (the disk is copied)</text>
+    <text x="136" y="364" class="t s">VMs without attached volumes</text>
+    <text x="136" y="380" class="t s">move live (the disk is copied)</text>
     <text x="136" y="410" class="g tag">KEEP IN MIND</text>
     <text x="136" y="428" class="t s">data stays on its server:</text>
     <text x="136" y="444" class="t s">if the server dies, restore</text>
@@ -63,22 +63,24 @@
 
   <g id="so-san">
     <rect x="364" y="170" width="228" height="404" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="5 4"/>
-    <rect x="380" y="186" width="70" height="20" rx="10" fill="#E9ECEF"/>
-    <text x="415" y="200" text-anchor="middle" class="tag m">PLANNED</text>
+    <rect x="380" y="186" width="200" height="20" rx="10" fill="#FCEFD9" stroke="#E2B567"/>
+    <text x="480" y="200" text-anchor="middle" class="tag" fill="#8A5A12">IN THE LAB; NOT USED BY APELORA</text>
     <text x="380" y="232" class="t h2">SAN, shared block</text>
     <text x="380" y="252" class="m s">Fibre Channel, iSCSI, NVMe-oF</text>
     <text x="380" y="282" class="g tag">INCUS DRIVER</text>
     <text x="380" y="300" class="t s">clustered LVM (lvmcluster)</text>
     <text x="380" y="330" class="g tag">GOOD FOR</text>
     <text x="380" y="348" class="t s">every server sees the same</text>
-    <text x="380" y="364" class="t s">disk: a VM restarts on another</text>
-    <text x="380" y="380" class="t s">server after a failure</text>
+    <text x="380" y="364" class="t s">disk: an instance could restart</text>
+    <text x="380" y="380" class="t s">on another server (planned)</text>
     <text x="380" y="410" class="g tag">KEEP IN MIND</text>
     <text x="380" y="428" class="t s">needs fencing first; thick</text>
     <text x="380" y="444" class="t s">provisioning; no snapshots of</text>
     <text x="380" y="460" class="t s">shared custom volumes</text>
-    <rect x="418" y="490" width="120" height="60" rx="5" fill="url(#so-metal)" stroke="#7C8592"/>
-    <path d="M430 500 H526 M430 512 H526 M430 524 H526 M430 536 H526" stroke="#4B5563" stroke-width="5"/>
+    <text x="380" y="488" class="m s">lab: pool shared on all four</text>
+    <text x="380" y="504" class="m s">members (iSCSI), 2026-10-21</text>
+    <rect x="418" y="516" width="120" height="44" rx="5" fill="url(#so-metal)" stroke="#7C8592"/>
+    <path d="M430 525 H526 M430 535 H526 M430 545 H526" stroke="#4B5563" stroke-width="5"/>
   </g>
 
   <g id="so-distributed">
@@ -128,11 +130,11 @@
   <g id="so-ha">
     <text x="120" y="618" class="t h2">What each choice means when a server fails</text>
     <rect x="120" y="632" width="960" height="150" rx="12" fill="#FBFBFC" stroke="#D9DCE1"/>
-    <text x="144" y="662" class="t b">Planned maintenance: VMs move live to another server with any of these (measured on the test cluster:</text>
-    <text x="144" y="682" class="t b">a pause under one second, no reboot). Containers stop, move and start again.</text>
+    <text x="144" y="662" class="t b">Planned maintenance: VMs without attached volumes move live to another server (measured on the test cluster:</text>
+    <text x="144" y="682" class="t b">a pause under one second, no reboot). Containers, and VMs with volumes, stop, move with their volumes and start.</text>
     <text x="144" y="714" class="t b">A failure on local disks: replicas behind a service address keep the service up; a single instance waits</text>
     <text x="144" y="734" class="t b">for its server or is restored from a backup on another server.</text>
-    <text x="144" y="766" class="t b">A failure on a SAN or distributed storage: the instance restarts on another server once the old one is fenced.</text>
+    <text x="144" y="766" class="t b">A failure on a shared pool (planned): instances on it, containers or VMs, restart elsewhere once the failed server is fenced.</text>
   </g>
 
   <g id="so-legend">
@@ -140,6 +142,8 @@
     <text x="142" y="820" class="m s">built and REAL INCUS TESTED</text>
     <rect x="330" y="808" width="14" height="14" rx="3" fill="#FFFFFF" stroke="#8C959F" stroke-dasharray="3 2"/>
     <text x="352" y="820" class="m s">planned in Apelora; Incus supports it</text>
-    <text x="1080" y="820" text-anchor="end" class="m s">Driver details: Incus storage reference at the pinned release</text>
+    <rect x="590" y="808" width="14" height="14" rx="3" fill="#FCEFD9" stroke="#E2B567"/>
+    <text x="612" y="820" class="m s">running in the lab, not used by Apelora yet</text>
+    <text x="1080" y="850" text-anchor="end" class="m s">Driver details: Incus storage reference at the pinned release</text>
   </g>
 </svg>

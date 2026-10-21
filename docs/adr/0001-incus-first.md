@@ -15,6 +15,8 @@ Incus 7.0 LTS (released May 2026, supported to June 2031) manages clusters of Li
 ## Decision
 
 1. **Incus is the execution and cluster engine.** Modules run as Incus instances: LXC system containers by default, OCI application containers for single-process images, QEMU VMs only where a container is unsuitable (other kernels or OSes, firewall-style modules, stronger isolation).
+
+   Note (2026-10-21): in practice a class chooses its instance kind in `runtime.kind` (`incus-system-container`, `incus-oci-container`, `incus-vm`). VMs are used for another kernel or operating system (Windows), kernel modules, firewall-style modules, or live migration (`migration.stateful`); the catalog's VM class today (Linux base) is a VM for live migration. The full mapping is in [platform architecture §4](../architecture/PLATFORM-ARCHITECTURE.md#4-modules-and-runtimes).
 2. **Authority is split, never shared.**
    - Incus owns cluster membership, quorum and leader election, its own database, instance placement and instance lifecycle.
    - Apelora owns application graphs, module classes, desired state, typed terminals and the connectivity they imply, replica and availability policy, application health, operations history and audit.
@@ -45,3 +47,5 @@ Incus 7.0 LTS (released May 2026, supported to June 2031) manages clusters of Li
 ## Reversibility
 
 The Incus dependency sits behind `crates/incus-adapter` and provider traits in `crates/domain`. Studio documents contain no Incus-specific data. Replacing the runtime later means a new adapter, not a rewrite of the graph model or the UI.
+
+Note (2026-10-21): the sentence above no longer holds in full. The graph itself (modules, ports, cables, link tags) stays neutral, but module classes carry `runtime.kind` values named after Incus (`incus-*`), and a document that embeds custom classes (`catalog.classes`) carries them too; a module's `liveMigration` becomes Incus's `migration.stateful`. Another runtime would add its own runtime kinds and its own meaning for live migration; the graph model and the UI would still not need a rewrite. See [runtime providers](../architecture/HYPERVISOR-PROVIDERS.md).

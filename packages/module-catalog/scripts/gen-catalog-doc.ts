@@ -23,18 +23,23 @@ for (const cat of CATEGORIES) {
 const deployable = MODULE_CLASSES.filter((c) => c.runtime);
 md += `## Deployable modules
 
-${deployable.length} of ${MODULE_CLASSES.length} classes have an Incus runtime; the others are design-only. A runtime is added only after its images have run on the disposable test cluster.
+${deployable.length} of ${MODULE_CLASSES.length} classes have an Incus runtime; the others are design-only. A runtime is added only after its images have run on the disposable test cluster. The runtime decides the instance kind: a system container unless the class needs an OCI application container or a virtual machine ([how a module becomes instances](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances)).
 
 | Module | Runtime | Image by setting |
 |---|---|---|
 `;
+const KIND: Record<NonNullable<(typeof deployable)[number]["runtime"]>["kind"], string> = {
+  "incus-system-container": "system container",
+  "incus-oci-container": "OCI application container",
+  "incus-vm": "virtual machine",
+};
 for (const c of deployable) {
   const rt = c.runtime!;
   const show = (img: NonNullable<typeof rt.image>) => ("reference" in img ? `\`${img.reference.replace(/@sha256:(.{12}).*/, "@sha256:$1…")}\`${img.version ? ` (${img.version})` : ""}` : `\`${img.alias}\``);
   const images = rt.image
     ? show(rt.image)
     : Object.entries(rt.imageBy!.images).map(([k, v]) => `${rt.imageBy!.property} = ${k}: ${show(v)}`).join("<br>");
-  md += `| **${c.displayName}** (\`${c.id}\`) | ${rt.kind} | ${images} |\n`;
+  md += `| **${c.displayName}** (\`${c.id}\`) | ${KIND[rt.kind]} (\`${rt.kind}\`) | ${images} |\n`;
 }
 md += "\n";
 writeFileSync(new URL("../../../docs/architecture/CATALOG.md", import.meta.url), md);

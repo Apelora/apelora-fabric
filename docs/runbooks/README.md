@@ -3,13 +3,14 @@
 Step-by-step procedures for operating an Apelora fabric. Every procedure states how far it has
 been verified:
 
-- **REAL INCUS TESTED** — carried out on the disposable test cluster (docs/development/TEST-CLUSTER.md),
-  with the date and cluster size.
+- **REAL INCUS TESTED** — carried out on the disposable test cluster (docs/development/TEST-CLUSTER.md:
+  Lima VMs standing in for physical servers), with the date and cluster size.
 - **NOT YET VERIFIED** — written from the Incus documentation and our design; follow it with care
   and record the result here when it has been done.
 
-Apelora never writes Incus's database and never moves instances itself: membership, placement,
-evacuation and migration are Incus operations that Apelora requests, previews and audits.
+Apelora never writes Incus's database and moves instances only by asking Incus (the `instance.move`
+job): membership, placement, evacuation and migration are Incus operations that Apelora requests,
+previews and audits.
 
 | Situation | Runbook |
 |---|---|

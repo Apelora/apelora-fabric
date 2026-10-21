@@ -8,16 +8,16 @@ These are general, long-established ideas in component-based and infrastructure-
 
 | Concept | In Apelora | Status |
 |---|---|---|
-| **Class vs instance** | An *module class* (manifest: ports, resources, defaults, image placeholder) is instantiated many times; each instance carries its own copy of ports and settings. | Implemented |
+| **Class vs instance** | A *module class* (manifest: ports, resources, defaults, optional runtime with image and instance kind) is placed on the canvas many times; each placed module (`ModuleInstance`) carries its own copy of ports and settings. A placed module is not an Incus instance: deployed, it becomes one Incus instance per replica ([platform architecture §4.1](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances)). | Implemented |
 | **Typed terminals** | Ports are directional (input left, output right), named, typed (`http`, `postgres`, …) and carry multiplicity and a required/optional flag. Short names are shown on the canvas; full text is in the tooltip. | Implemented |
-| **Point-to-point logical links** | An assembly connects one output terminal to one input terminal. Links are logical (protocol-level), not IP addresses or hosts; the platform later decides how to realise them on the network. | Model implemented; realisation is a later phase |
+| **Point-to-point logical links** | An assembly connects one output terminal to one input terminal. Links are logical (protocol-level), not IP addresses or hosts; the platform decides how to realise them on the network. | Implemented: deployed, each becomes an access rule (and, where needed, a service address) on the application's OVN network |
 | **Hardware independence** | Assemblies contain no hosts, IP addresses or storage identifiers, only resource *requests*. | Implemented (schema) |
 | **Custom components** | Users define their own module classes (name, icon, ports, resources) in the Module Designer, or turn a configured instance into a class. Custom classes are embedded in exported assemblies so files are self-contained. | Implemented |
 | **Hierarchical composition** | A selection of modules is packaged as a class (`composition`) whose exposed ports map to inner terminals; its `net` maps to every inner NIC. Components can contain components. | Implemented (grouping, ungrouping, export/import); drill-in view planned |
 | **Network interface** | Every module has a `net` terminal (a NIC) that plugs into a network or a network module; unplugged it uses the default network. | Implemented |
 | **Link tags** | Terminals sharing a name are linked without a drawn cable. | Implemented |
-| **Setup parameters** | Per-instance values (names, public addresses, credentials by reference) supplied when an application is instantiated. | Planned |
-| **Volumes and resource budgets** | Persistent volumes attached to modules, and a minimum/maximum resource budget per application. | Planned |
+| **Setup parameters** | Per-module values (names, public addresses, credentials by reference) supplied when an application is deployed. | Planned |
+| **Volumes and resource budgets** | Persistent volumes per module (class defaults or set in the Studio; not for stateless classes) and resources per module are implemented; a minimum/maximum resource budget per application is planned. | Partly implemented |
 | **Catalog sharing** | Exporting/importing classes and assemblies as portable, versioned, diff-friendly text. | Partly implemented (JSON) |
 
 ## What "original" means here

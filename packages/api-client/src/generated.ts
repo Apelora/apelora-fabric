@@ -201,7 +201,7 @@ export type CheckStatus = "pass" | "not-checked" | "warn" | "fail";
 /** What kind of power a permission is. Only `Tenant` permissions can be granted below the platform level, so an organisation or project role can never reach physical servers, the Incus cluster or the platform's own security settings. */
 export type Class = "tenant" | "infrastructure" | "security";
 
-/** Observed state of an Incus cluster member ("minion" in the UI). */
+/** Observed state of an Incus cluster member (a server in the UI). */
 export type ClusterMember = {
   architecture: string;
   database: boolean;

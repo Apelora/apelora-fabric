@@ -17,7 +17,7 @@ Everything here runs in the browser against mock data. Nothing is sent to a serv
 
 ### Network interface (`net`)
 
-Every module has a **net** terminal, the equivalent of a network card (NIC): an input of type `network`, single-cable, optional. It plugs into a **Network** module (a virtual segment, no VM) or any module that offers a `network` output (firewall `lan`, another Network). Left unplugged, the module joins the application's **default network**. A small **link light** on the jack turns green when the NIC is plugged; the inspector shows `Network: default network | <module> (cable) | <module> (tag lan)`. The `net` terminal cannot be deleted from an instance, is locked in the Module Designer (every custom module gets one), and is added automatically to older saved or imported assemblies.
+Every module has a **net** terminal, the equivalent of a network card (NIC): an input of type `network`, single-cable, optional. It plugs into a **Network** module (a virtual network segment; it runs no instance) or any module that offers a `network` output (firewall `lan`, another Network). Left unplugged, the module joins the application's **default network**. A small **link light** on the jack turns green when the NIC is plugged; the inspector shows `Network: default network | <module> (cable) | <module> (tag lan)`. The `net` terminal cannot be deleted from an instance, is locked in the Module Designer (every custom module gets one), and is added automatically to older saved or imported assemblies.
 
 ### Link tags
 
