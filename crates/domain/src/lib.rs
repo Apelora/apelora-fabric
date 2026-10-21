@@ -7,6 +7,7 @@ pub mod access;
 pub mod enrolment;
 pub mod evacuation;
 pub mod health;
+pub mod images;
 pub mod lifecycle;
 pub mod mobility;
 pub mod network;

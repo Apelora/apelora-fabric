@@ -19,7 +19,7 @@ pub use client::{CertificateExpiry, IncusClient, IncusConfig, certificate_not_af
 pub use shell::{MAX_CHUNK, MockShell, ShellInput, ShellRequest, ShellSession};
 pub use wire::Operation;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use apelora_domain::enrolment::HELD;
@@ -108,6 +108,29 @@ const VOLUME_BUDGET: Duration = Duration::from_secs(300);
 
 /// Server-side wait per request; below the client's 20 s request timeout.
 const WAIT_STEP_SECS: u32 = 15;
+
+/// Image mirrors for this process (ADR 0010), set once at startup from the environment.
+static IMAGE_MIRRORS: RwLock<Option<apelora_domain::images::ImageMirrors>> = RwLock::new(None);
+
+/// Sets the image mirrors every instance creation goes through.
+pub fn set_image_mirrors(m: apelora_domain::images::ImageMirrors) {
+    *IMAGE_MIRRORS.write().unwrap_or_else(|e| e.into_inner()) = Some(m);
+}
+
+/// The spec with its image server replaced by this installation's mirror, or refused.
+fn mirrored(spec: &InstanceSpec) -> Result<std::borrow::Cow<'_, InstanceSpec>, AdapterError> {
+    let guard = IMAGE_MIRRORS.read().unwrap_or_else(|e| e.into_inner());
+    let Some(m) = guard.as_ref().filter(|m| !m.is_empty()) else {
+        return Ok(std::borrow::Cow::Borrowed(spec));
+    };
+    let source = m.apply(&spec.source).map_err(AdapterError::InvalidConfig)?;
+    if source.server != spec.source.server {
+        tracing::debug!(instance = %format!("{}/{}", spec.project, spec.name), from = %spec.source.server, to = %source.server, "image from mirror");
+    }
+    let mut out = spec.clone();
+    out.source = source;
+    Ok(std::borrow::Cow::Owned(out))
+}
 
 /// Where inventory comes from: a real Incus server or labelled mock data.
 #[derive(Debug, Clone)]
@@ -265,9 +288,10 @@ impl Provider {
     /// Starts creating an instance (validated spec) and returns the Incus operation id.
     pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
         spec.validate().map_err(AdapterError::InvalidConfig)?;
+        let spec = mirrored(spec)?;
         match self {
-            Provider::Mock(m) => m.create(spec),
-            Provider::Incus(c) => c.create_instance(spec).await,
+            Provider::Mock(m) => m.create(&spec),
+            Provider::Incus(c) => c.create_instance(&spec).await,
         }
     }
 

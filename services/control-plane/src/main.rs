@@ -61,6 +61,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
+    let mirrors = apelora_incus_adapter::config::image_mirrors_from_env(|k| std::env::var(k).ok())?;
+    if !mirrors.is_empty() {
+        tracing::info!(
+            mirrors = mirrors.len(),
+            mirrors_only = mirrors.mirrors_only(),
+            "images come from this installation's mirrors"
+        );
+    }
+    apelora_incus_adapter::set_image_mirrors(mirrors);
     let admin = apelora_incus_adapter::config::admin_provider_from_env(
         |k| std::env::var(k).ok(),
         &provider,

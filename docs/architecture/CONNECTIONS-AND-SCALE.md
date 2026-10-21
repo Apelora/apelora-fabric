@@ -70,7 +70,7 @@ In the disposable test cluster, Lima virtual machines stand in for the physical 
 
 ## 5. Beyond one cluster: sectors linked into one fabric
 
-A **sector** is one Incus cluster: one site, at most about 50 servers, its own cluster database, its own OVN and its own storage pools. The **fabric** is all sectors together, managed by one Apelora control plane. Decision and details: [ADR 0008](../adr/0008-sectors.md).
+A **sector** is one Incus cluster: one site, at most about 50 servers, its own cluster database, its own OVN and its own storage pools. The **fabric** is all sectors together. Decision and details: [ADR 0008](../adr/0008-sectors.md). Past a few hundred servers, or across countries and continents, sectors are grouped into sites and regions, each region with its own control plane: [global fabric](GLOBAL-FABRIC.md) and [ADR 0009](../adr/0009-global-fabric.md).
 
 ![Sectors linked into one fabric](../assets/diagrams/sectors.svg)
 

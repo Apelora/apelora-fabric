@@ -1,0 +1,273 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 840" width="1200" height="840" role="img" aria-labelledby="gf-title gf-desc" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title id="gf-title">Regions, sites and sectors</title>
+  <desc id="gf-desc">A small global plane holds people, roles, sign-in, module classes, designs, policies, the address plan, roll-ups and the audit archive, and copies what regions need to each regional plane. Each region (Europe, Americas, Asia-Pacific) has its own regional plane that manages its sites; each site is one data centre with several sectors, each sector one Incus cluster. Sites in a region are linked by OVN interconnection and backup copies; regions are linked by published services and archives only.</desc>
+  <!-- SPDX-License-Identifier: AGPL-3.0-only -->
+  <defs>
+    <linearGradient id="g-card" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F3F4F6"/></linearGradient>
+    <linearGradient id="g-teal" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E6FAF7"/><stop offset="1" stop-color="#CDEFEA"/></linearGradient>
+    <linearGradient id="g-blue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#EEF4FE"/><stop offset="1" stop-color="#DCE8FC"/></linearGradient>
+    <linearGradient id="g-amber" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFF7EB"/><stop offset="1" stop-color="#FDEBCF"/></linearGradient>
+    <linearGradient id="g-violet" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F4F1FE"/><stop offset="1" stop-color="#E7E1FC"/></linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8C959F"/></marker>
+  </defs>
+  <style>
+    .t { fill: #1F2328; } .m { fill: #57606A; } .w { fill: #FFFFFF; }
+    .h1 { font-size: 26px; font-weight: 700; } .h2 { font-size: 15px; font-weight: 700; }
+    .b { font-size: 13px; } .s { font-size: 11.5px; }
+    .ln { stroke: #8C959F; stroke-width: 1.6; fill: none; }
+    .tl { stroke: #0F8C80; stroke-width: 2; fill: none; }
+    .bl { stroke: #2F6FD6; stroke-width: 2; fill: none; stroke-dasharray: 7 5; }
+    .al { stroke: #D98A1C; stroke-width: 2; fill: none; stroke-dasharray: 2 5; stroke-linecap: round; }
+    .dash { stroke-dasharray: 6 5; }
+  </style>
+  <rect width="1200" height="840" fill="#FFFFFF"/>
+  <text x="600.0" y="46" text-anchor="middle" class="t h1">Regions, sites and sectors</text>
+    <rect x="330" y="80" width="540" height="84" rx="12" fill="url(#g-violet)" stroke="#B9AEF0" stroke-width="1.5"/>
+    <text x="600.0" y="104" text-anchor="middle" class="t h2">Global plane</text>
+    <text x="600.0" y="124" text-anchor="middle" class="m s">people, roles and sign-in · module classes · designs and versions</text>
+    <text x="600.0" y="141" text-anchor="middle" class="m s">policies · address plan · roll-ups · audit archive</text>
+    <rect x="30" y="230" width="350" height="430" rx="18" fill="#F6F8FA" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="48" y="256" class="t h2">Region: Europe</text>
+    <text x="48" y="274" class="m s">a jurisdiction · sites within ~30 ms</text>
+    <rect x="55" y="288" width="300" height="64" rx="12" fill="url(#g-teal)" stroke="#8FD6CC" stroke-width="1.5"/>
+    <text x="205.0" y="312" text-anchor="middle" class="t h2">Regional plane</text>
+    <text x="205.0" y="332" text-anchor="middle" class="m s">API · workers · PostgreSQL pair · audit</text>
+    <rect x="50" y="380" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="64" y="402" class="t b" font-weight="700">Site A</text><text x="120" y="402" class="m s">one data centre · under 2 ms</text>
+    <rect x="60" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="91" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="68" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="85" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="102" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="68" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="85" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="102" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="132" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="163" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="140" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="157" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="174" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="140" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="157" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="174" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="204" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="235" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="212" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="229" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="246" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="212" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="229" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="246" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="276" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="307" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="284" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="301" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="318" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="284" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="301" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="318" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <path d="M205 352 L205 380" class="tl" marker-end="url(#arr)"/>
+    <rect x="50" y="520" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="64" y="542" class="t b" font-weight="700">Site B</text><text x="120" y="542" class="m s">one data centre · under 2 ms</text>
+    <rect x="60" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="91" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="68" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="85" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="102" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="68" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="85" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="102" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="132" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="163" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="140" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="157" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="174" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="140" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="157" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="174" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="204" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="235" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="212" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="229" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="246" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="212" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="229" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="246" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="276" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="307" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="284" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="301" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="318" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="284" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="301" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="318" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    
+    <path d="M360 440 L370 440 L370 580 L360 580" class="bl" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M600 164 L600 205 L330 205 L330 288" class="ln" marker-end="url(#arr)"/>
+    <rect x="425" y="230" width="350" height="430" rx="18" fill="#F6F8FA" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="443" y="256" class="t h2">Region: Americas</text>
+    <text x="443" y="274" class="m s">a jurisdiction · sites within ~30 ms</text>
+    <rect x="450" y="288" width="300" height="64" rx="12" fill="url(#g-teal)" stroke="#8FD6CC" stroke-width="1.5"/>
+    <text x="600.0" y="312" text-anchor="middle" class="t h2">Regional plane</text>
+    <text x="600.0" y="332" text-anchor="middle" class="m s">API · workers · PostgreSQL pair · audit</text>
+    <rect x="445" y="380" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="459" y="402" class="t b" font-weight="700">Site A</text><text x="515" y="402" class="m s">one data centre · under 2 ms</text>
+    <rect x="455" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="486" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="463" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="480" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="497" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="463" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="480" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="497" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="527" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="558" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="535" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="552" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="569" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="535" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="552" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="569" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="599" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="630" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="607" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="624" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="641" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="607" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="624" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="641" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="671" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="702" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="679" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="696" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="713" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="679" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="696" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="713" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <path d="M600 352 L600 380" class="tl" marker-end="url(#arr)"/>
+    <rect x="445" y="520" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="459" y="542" class="t b" font-weight="700">Site B</text><text x="515" y="542" class="m s">one data centre · under 2 ms</text>
+    <rect x="455" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="486" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="463" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="480" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="497" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="463" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="480" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="497" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="527" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="558" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="535" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="552" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="569" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="535" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="552" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="569" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="599" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="630" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="607" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="624" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="641" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="607" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="624" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="641" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="671" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="702" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="679" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="696" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="713" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="679" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="696" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="713" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    
+    <path d="M755 440 L765 440 L765 580 L755 580" class="bl" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M600 164 L600 205 L725 205 L725 288" class="ln" marker-end="url(#arr)"/>
+    <rect x="820" y="230" width="350" height="430" rx="18" fill="#F6F8FA" stroke="#D0D7DE" stroke-width="1.5"/>
+    <text x="838" y="256" class="t h2">Region: Asia-Pacific</text>
+    <text x="838" y="274" class="m s">a jurisdiction · sites within ~30 ms</text>
+    <rect x="845" y="288" width="300" height="64" rx="12" fill="url(#g-teal)" stroke="#8FD6CC" stroke-width="1.5"/>
+    <text x="995.0" y="312" text-anchor="middle" class="t h2">Regional plane</text>
+    <text x="995.0" y="332" text-anchor="middle" class="m s">API · workers · PostgreSQL pair · audit</text>
+    <rect x="840" y="380" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="854" y="402" class="t b" font-weight="700">Site A</text><text x="910" y="402" class="m s">one data centre · under 2 ms</text>
+    <rect x="850" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="881" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="858" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="875" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="892" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="858" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="875" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="892" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="922" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="953" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="930" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="947" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="964" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="930" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="947" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="964" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="994" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="1025" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="1002" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1019" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1036" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1002" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1019" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1036" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1066" y="416" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="1097" y="434" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="1074" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1091" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1108" y="442" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1074" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1091" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1108" y="458" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <path d="M995 352 L995 380" class="tl" marker-end="url(#arr)"/>
+    <rect x="840" y="520" width="310" height="120" rx="12" fill="#FFFFFF" stroke="#8C959F" stroke-width="1.2"/>
+    <text x="854" y="542" class="t b" font-weight="700">Site B</text><text x="910" y="542" class="m s">one data centre · under 2 ms</text>
+    <rect x="850" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="881" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="858" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="875" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="892" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="858" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="875" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="892" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="922" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="953" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="930" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="947" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="964" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="930" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="947" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="964" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="994" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="1025" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="1002" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1019" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1036" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1002" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1019" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1036" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1066" y="556" width="62" height="66" rx="8" fill="url(#g-card)" stroke="#D0D7DE"/>
+    <text x="1097" y="574" text-anchor="middle" class="t s" font-weight="700">sector</text>
+    <rect x="1074" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1091" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1108" y="582" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1074" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1091" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    <rect x="1108" y="598" width="13" height="11" rx="2" fill="#E6FAF7" stroke="#8FD6CC"/>
+    
+    <path d="M1150 440 L1160 440 L1160 580 L1150 580" class="bl" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M600 164 L600 205 L1120 205 L1120 288" class="ln" marker-end="url(#arr)"/>
+    <text x="612" y="196" class="m s">copies of people, roles, classes, designs and policies (regions keep working without it)</text>
+    <path d="M382 600 L423 600" class="al" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M777 600 L818 600" class="al" marker-end="url(#arr)" marker-start="url(#arr)"/>
+    <path d="M70 700 L120 700" class="tl"/>
+    <text x="136" y="705" class="t b" font-weight="700">Inside a region</text><text x="290" y="705" class="m b">the regional plane manages its sectors over ~30 ms; the management link of ADR 0008</text>
+    <path d="M70 730 L120 730" class="bl"/>
+    <text x="136" y="735" class="t b" font-weight="700">Between sites</text><text x="290" y="735" class="m b">OVN interconnection over the regional backbone; backup copies (tier 2) stay in the region</text>
+    <path d="M70 760 L120 760" class="al"/>
+    <text x="136" y="765" class="t b" font-weight="700">Between regions</text><text x="290" y="765" class="m b">published services with mutual TLS; archives (tier 3) only where policy allows; no shared networks</text>
+    <text x="600" y="812" text-anchor="middle" class="m s">Fabric → region → site → sector (one Incus cluster, up to 50 servers) → server. 10 regions × 5 sites × 20 sectors × 50 servers = 50,000 servers (estimate).</text>
+</svg>

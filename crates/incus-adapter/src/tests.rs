@@ -528,6 +528,33 @@ async fn a_pinned_image_is_requested_by_fingerprint() {
 }
 
 #[tokio::test]
+async fn images_come_from_the_installations_mirror_with_the_pin_kept() {
+    // Process-wide setting: this test uses an upstream no other test uses, and stays permissive.
+    crate::set_image_mirrors(
+        apelora_domain::images::ImageMirrors::parse(
+            "https://upstream-only-in-this-test.example=https://images.mirror.internal",
+            false,
+        )
+        .expect("rules"),
+    );
+    let (base, seen) =
+        recording_server(vec![("POST /1.0/instances?project=apelora", accepted())]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let mut spec = oci_spec();
+    spec.source = apelora_domain::ImageSource {
+        protocol: apelora_domain::ImageProtocol::Simplestreams,
+        server: "https://upstream-only-in-this-test.example".into(),
+        alias: "debian/13".into(),
+        fingerprint: Some(FP.into()),
+    };
+    p.create_instance(&spec).await.expect("create");
+    let (_, body) = seen.lock().expect("log")[0].clone();
+    assert_eq!(body["source"]["server"], "https://images.mirror.internal");
+    assert_eq!(body["source"]["fingerprint"], FP);
+    assert_eq!(body["source"]["alias"], "debian/13");
+}
+
+#[tokio::test]
 async fn invalid_specs_never_reach_incus() {
     let (base, seen) = recording_server(vec![]).await;
     let p = Provider::Incus(IncusClient::plain_for_tests(&base));

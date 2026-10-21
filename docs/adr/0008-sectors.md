@@ -1,6 +1,6 @@
 # ADR 0008 — Sectors: linking Incus clusters into one fabric
 
-Status: **accepted; not built yet** · Date: 2026-10-21 · Related: [ADR 0001](0001-incus-first.md), [connections and scale](../architecture/CONNECTIONS-AND-SCALE.md)
+Status: **accepted; not built yet; extended by [ADR 0009](0009-global-fabric.md) (regions, sites and a plane per region)** · Date: 2026-10-21 · Related: [ADR 0001](0001-incus-first.md), [connections and scale](../architecture/CONNECTIONS-AND-SCALE.md)
 
 ## Context
 

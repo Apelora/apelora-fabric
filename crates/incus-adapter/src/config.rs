@@ -5,6 +5,10 @@
 use crate::{IncusClient, IncusConfig, MockIncus, Provider};
 
 pub const URL: &str = "APELORA_INCUS_URL";
+/// `upstream=mirror` pairs (ADR 0010); see `apelora_domain::images`.
+pub const IMAGE_MIRRORS: &str = "APELORA_IMAGE_MIRRORS";
+/// `mirrors-only` refuses every image server that is not a configured mirror; `any` (default).
+pub const IMAGE_SERVERS: &str = "APELORA_IMAGE_SERVERS";
 pub const CLIENT_CERT: &str = "APELORA_INCUS_CLIENT_CERT";
 pub const CLIENT_KEY: &str = "APELORA_INCUS_CLIENT_KEY";
 pub const SERVER_CERT: &str = "APELORA_INCUS_SERVER_CERT";
@@ -16,6 +20,26 @@ pub const ADMIN_CLIENT_KEY: &str = "APELORA_INCUS_ADMIN_CLIENT_KEY";
 
 /// No `APELORA_INCUS_URL`: labelled mock data. URL set: all three certificate paths are
 /// required and must be readable, otherwise startup fails with a clear message.
+/// Image mirrors from the environment (empty when none are set).
+pub fn image_mirrors_from_env(
+    get: impl Fn(&str) -> Option<String>,
+) -> Result<apelora_domain::images::ImageMirrors, String> {
+    let mirrors_only = match get(IMAGE_SERVERS).as_deref().map(str::trim) {
+        None | Some("") | Some("any") => false,
+        Some("mirrors-only") => true,
+        Some(v) => {
+            return Err(format!(
+                "{IMAGE_SERVERS}: expected any or mirrors-only, got {v:?}"
+            ));
+        }
+    };
+    apelora_domain::images::ImageMirrors::parse(
+        &get(IMAGE_MIRRORS).unwrap_or_default(),
+        mirrors_only,
+    )
+    .map_err(|e| format!("{IMAGE_MIRRORS}: {e}"))
+}
+
 pub fn provider_from_env(get: impl Fn(&str) -> Option<String>) -> Result<Provider, String> {
     let Some(url) = get(URL).filter(|u| !u.trim().is_empty()) else {
         return Ok(Provider::Mock(MockIncus::default()));

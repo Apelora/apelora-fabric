@@ -20,6 +20,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker = std::env::var("APELORA_WORKER_ID")
         .unwrap_or_else(|_| format!("worker-{}", std::process::id()));
     let provider = apelora_incus_adapter::config::provider_from_env(|k| std::env::var(k).ok())?;
+    let mirrors = apelora_incus_adapter::config::image_mirrors_from_env(|k| std::env::var(k).ok())?;
+    if !mirrors.is_empty() {
+        tracing::info!(
+            mirrors = mirrors.len(),
+            mirrors_only = mirrors.mirrors_only(),
+            "images come from this installation's mirrors"
+        );
+    }
+    apelora_incus_adapter::set_image_mirrors(mirrors);
     tracing::info!(%worker, provider = ?provider.mode(), "deployment worker started");
     // The replica supervisor restores lost stateless replicas (0 turns it off).
     // A member must stay offline this long before replicas on it are substituted.
