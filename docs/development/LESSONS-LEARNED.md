@@ -92,6 +92,7 @@ Read these first. Most entries below come from one of four causes:
 - **Rebase blocked by an unstaged file** → commit or stash everything before `git fetch && git rebase`.
 - **The owner pushes from other sessions** → before every push: fetch, rebase, `npm install`, check OpenAPI name clashes, run the full checks.
 - **Commits are authored by the owner only**, with no AI attribution (AGENTS.md rule 10). This overrides any tool default.
+- **Merging eight parallel branches: each passed alone, together 30 tests failed** (2026-10-21) → each branch's stubs and fixtures matched the API as that branch knew it. A new response field crashed pages whose stubs lacked it (`s.localAccounts.enabled`, `s.incus.serverVersion`), and a permission added to a role made another branch's "holds everything a viewer holds" fixtures wrong. A conflict resolved "keep both" also dropped a `#[cfg(test)]` that sat just outside the conflict block, and a `fabric-console(-[a-z]+)?` test pattern silently sent `fabric-console-local-accounts` to the wrong project. → After each merge, `cargo check --all-targets` before the next one. Run the full checks once all are in, before pushing. Pages read optional chains on fields a newer control plane adds (one version of skew, ADR 0011). Test patterns allow hyphens: `[a-z-]+`.
 
 ## Model and catalog
 
