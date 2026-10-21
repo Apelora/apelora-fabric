@@ -435,7 +435,11 @@ async fn converge(
                 let Goal::Limits(_, wanted) = goal else {
                     unreachable!("limits are only decided for a Limits goal")
                 };
-                provider.set_instance_limits(project, name, wanted).await?
+                // Incus may have applied it already: the next pass reads the instance again.
+                match provider.set_instance_limits(project, name, wanted).await? {
+                    Some(op) => op,
+                    None => continue,
+                }
             }
         };
         record_operation(pool, job, worker, Some(&op)).await?;

@@ -1409,7 +1409,7 @@ async fn an_instances_limits_are_read_and_changed_in_place_with_only_the_resizab
         .set_instance_limits("apelora", "web-01", &changes)
         .await
         .expect("patched");
-    assert_eq!(op, OP);
+    assert_eq!(op.as_deref(), Some(OP));
     let seen = seen.lock().expect("log");
     let patch = seen
         .iter()
@@ -1419,6 +1419,28 @@ async fn an_instances_limits_are_read_and_changed_in_place_with_only_the_resizab
         patch.1,
         json!({ "config": { "limits.memory": "1024MiB", "limits.cpu.allowance": "" } }),
         "a removed limit is sent empty; nothing else is sent"
+    );
+}
+
+#[tokio::test]
+async fn a_limits_change_incus_answers_at_once_is_done_without_an_operation() {
+    // REAL INCUS TESTED: a running container's configuration PATCH is answered synchronously.
+    let (base, _) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            sync(json!({ "name": "web-01", "status": "Running", "config": { "user.apelora.managed": "true" } })),
+        ),
+        ("PATCH /1.0/instances/web-01?project=apelora", sync(json!({}))),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let changes =
+        std::collections::BTreeMap::from([("limits.cpu".to_owned(), Some("2".to_owned()))]);
+    assert_eq!(
+        p.set_instance_limits("apelora", "web-01", &changes)
+            .await
+            .expect("patched"),
+        None
     );
 }
 

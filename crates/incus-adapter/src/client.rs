@@ -719,6 +719,29 @@ impl IncusClient {
         Ok(id.to_owned())
     }
 
+    /// Like `start_operation`, for a call Incus may answer at once (a configuration change of an
+    /// instance is answered synchronously on a running container): `None` when it already
+    /// finished.
+    async fn start_operation_or_done(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Option<String>, AdapterError> {
+        let env: Envelope<Value> = self.call(method, path, body).await?;
+        if env.kind == "sync" {
+            return Ok(None);
+        }
+        env.operation
+            .rsplit('/')
+            .next()
+            .filter(|id| !id.is_empty() && env.kind == "async")
+            .map(|id| Some(id.to_owned()))
+            .ok_or_else(|| {
+                AdapterError::Decode(format!("{path}: expected an asynchronous operation"))
+            })
+    }
+
     /// The instance's status and whether Apelora owns it; `None` if it does not exist.
     pub async fn instance(
         &self,
@@ -1258,7 +1281,7 @@ impl IncusClient {
         project: &str,
         name: &str,
         config: serde_json::Map<String, Value>,
-    ) -> Result<String, AdapterError> {
+    ) -> Result<Option<String>, AdapterError> {
         match self.instance(project, name).await? {
             None => return Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
             Some(s) if !s.managed => {
@@ -1269,7 +1292,7 @@ impl IncusClient {
             }
             Some(_) => {}
         }
-        self.start_operation(
+        self.start_operation_or_done(
             Method::PATCH,
             &format!("/1.0/instances/{name}?project={project}"),
             Some(&json!({ "config": config })),

@@ -882,3 +882,173 @@ async fn shared_pool_instances_keep_their_disks_on_it_and_move_without_copying(p
         Ok(true)
     );
 }
+
+#[ignore = "needs a disposable Incus: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_running_container_is_resized_in_place_and_answers_readiness_commands(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let name = unique("apl-resize");
+    let target = json!({ "project": project, "name": name });
+    let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "config": { "limits.cpu": "1", "limits.memory": "512MiB" } });
+    converge(&pool, &provider, "instance.create", &spec).await;
+    let cpus = |provider: Provider, project: String, name: String, want: &'static str| async move {
+        let script = format!("[ \"$(nproc)\" = \"{want}\" ]");
+        provider
+            .run_probe(&project, &name, &["sh".into(), "-c".into(), script], 0, 10)
+            .await
+            .expect("probe")
+            .exit
+    };
+    let ready = |args: &[&str], uid: u32, secs: u8| {
+        let provider = provider.clone();
+        let (p, n) = (project.clone(), name.clone());
+        let args: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
+        async move { provider.run_probe(&p, &n, &args, uid, secs).await }
+    };
+
+    // A readiness command reports only its exit status; a hanging one is stopped at its limit;
+    // one that cannot be started says so; neither of the last two is an exit status.
+    assert_eq!(ready(&["true"], 0, 10).await.expect("run").exit, Some(0));
+    assert_eq!(ready(&["false"], 0, 10).await.expect("run").exit, Some(1));
+    let hang = ready(&["sleep", "30"], 0, 2).await.expect("run");
+    assert!(hang.timed_out && hang.exit.is_none(), "{hang:?}");
+    let missing = ready(&["/nonexistent/binary"], 0, 5).await;
+    assert!(
+        missing.as_ref().map(|r| r.exit != Some(0)).unwrap_or(true),
+        "{missing:?}"
+    );
+    // As an unprivileged user (uid 1000) it cannot read root's files.
+    assert_eq!(
+        ready(&["cat", "/etc/shadow"], 1000, 5)
+            .await
+            .expect("run")
+            .exit,
+        Some(1),
+        "an unprivileged user cannot read /etc/shadow"
+    );
+    assert_eq!(
+        cpus(provider.clone(), project.clone(), name.clone(), "1").await,
+        Some(0),
+        "one CPU before"
+    );
+
+    // Resize while it runs: it stays Running, Incus has the new limits, the guest sees two CPUs.
+    let resize = json!({ "project": project, "name": name,
+        "limits": { "limits.cpu": "2", "limits.memory": "1024MiB" } });
+    converge(&pool, &provider, "instance.resize", &resize).await;
+    let after = status(&provider, &project, &name).await.expect("exists");
+    assert_eq!(after.status, "Running", "resizing does not stop it");
+    assert_eq!(
+        after.limits.get("limits.cpu").map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        after.limits.get("limits.memory").map(String::as_str),
+        Some("1024MiB")
+    );
+    assert_eq!(
+        cpus(provider.clone(), project.clone(), name.clone(), "2").await,
+        Some(0),
+        "two CPUs after"
+    );
+    // The same job again changes nothing; an instance that is not there fails without retry.
+    converge(&pool, &provider, "instance.resize", &resize).await;
+    let ghost = json!({ "project": project, "name": unique("apl-ghost"),
+        "limits": { "limits.cpu": "2" } });
+    assert_eq!(
+        finish(&pool, &provider, "instance.resize", &ghost)
+            .await
+            .status,
+        "failed"
+    );
+
+    converge(&pool, &provider, "instance.delete", &target).await;
+    assert_eq!(status(&provider, &project, &name).await, None);
+}
+
+/// The restore a person starts in the Console, through the same jobs: back up, change the data,
+/// stop the instance, `volume.restore` (a safety backup first), start and read the data back.
+#[ignore = "needs a disposable Incus with a backup pool: scripts/test-cluster/backup-pool.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_volume_is_restored_from_its_backup_with_a_safety_backup_first(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let backup_pool = std::env::var("APELORA_TEST_BACKUP_POOL").unwrap_or_else(|_| "backup".into());
+    let app = unique("apl-rs");
+    apelora_persistence::ensure_application(&pool, &app)
+        .await
+        .expect("application");
+    let name = format!("{app}-db-01");
+    let target = json!({ "project": project, "name": name });
+    let spec = json!({ "project": project, "name": name, "kind": "container", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" },
+        "owner": { "application": app, "module": "db-01", "replica": 1 },
+        "volumes": [{ "name": "data", "sizeMib": 128, "path": "/srv/data", "pool": "local" }] });
+    converge(&pool, &provider, "instance.create", &spec).await;
+    let created = status(&provider, &project, &name).await.expect("created");
+    let volume = format!("{name}-data");
+    let sh = |script: &'static str| {
+        let provider = provider.clone();
+        let (p, n) = (project.clone(), name.clone());
+        async move {
+            provider
+                .run_probe(&p, &n, &["sh".into(), "-c".into(), script.into()], 0, 10)
+                .await
+                .expect("probe")
+                .exit
+        }
+    };
+    assert_eq!(sh("echo first > /srv/data/marker && sync").await, Some(0));
+
+    // Back up (the job the Console's "Back up now" queues).
+    let backup_payload = json!({ "application": app, "project": project, "module": "db-01",
+        "volume": volume, "pool": "local", "member": created.location, "sizeMib": 128, "backupPool": backup_pool });
+    converge(&pool, &provider, "volume.backup", &backup_payload).await;
+    let backup = apelora_persistence::volume_backups(&pool, &app, &volume)
+        .await
+        .expect("backups")
+        .pop()
+        .expect("a backup is recorded");
+
+    // The data changes after the backup; then the instance stops, as the restore requires.
+    assert_eq!(sh("echo second > /srv/data/marker && sync").await, Some(0));
+    let running = json!({ "application": app, "project": project, "module": "db-01", "volume": volume,
+        "pool": "local", "member": created.location, "sizeMib": 128, "backup": backup.name,
+        "backupPool": backup.storage_pool, "backupMember": backup.member, "safetyPool": backup_pool });
+    let refused = finish(&pool, &provider, "volume.restore", &running).await;
+    assert_eq!(refused.status, "failed", "refused while the instance runs");
+    assert!(
+        refused.last_error.unwrap_or_default().contains("stop"),
+        "the reason says to stop it"
+    );
+    converge(&pool, &provider, "instance.stop", &target).await;
+    converge(&pool, &provider, "volume.restore", &running).await;
+    converge(&pool, &provider, "instance.start", &target).await;
+    assert_eq!(
+        sh("grep -qx first /srv/data/marker").await,
+        Some(0),
+        "the data is the backup's"
+    );
+    let backups = apelora_persistence::volume_backups(&pool, &app, &volume)
+        .await
+        .expect("backups");
+    assert!(
+        backups.iter().any(|b| b.before_restore.is_some()),
+        "the safety backup is recorded with the restore: {backups:?}"
+    );
+
+    converge(&pool, &provider, "instance.delete", &target).await;
+    let member = Some(created.location.as_str());
+    for b in &backups {
+        let m = Some(b.member.as_str());
+        let _ = provider
+            .delete_volume(&project, &b.storage_pool, m, &b.name, &app)
+            .await;
+    }
+    let _ = provider
+        .delete_volume(&project, "local", member, &volume, &app)
+        .await;
+}

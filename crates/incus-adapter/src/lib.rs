@@ -533,7 +533,8 @@ impl Provider {
         }
     }
 
-    /// Changes an Apelora-owned instance's resource limits in place and returns the operation:
+    /// Changes an Apelora-owned instance's resource limits in place and returns the operation, or
+    /// `None` when Incus has already applied it (it answers at once for a running container):
     /// `Some` sets a limit, `None` removes it so none applies. Only the keys in
     /// `apelora_domain::plan::RESIZABLE_KEYS` with plain values are accepted; nothing else on
     /// the instance can be changed through this call.
@@ -542,7 +543,7 @@ impl Provider {
         project: &str,
         name: &str,
         changes: &std::collections::BTreeMap<String, Option<String>>,
-    ) -> Result<String, AdapterError> {
+    ) -> Result<Option<String>, AdapterError> {
         let config = client::limits_body(changes)?;
         match self {
             Provider::Mock(m) => {
@@ -568,7 +569,7 @@ impl Provider {
                     }
                 }
                 drop(all);
-                Ok(m.op())
+                Ok(Some(m.op()))
             }
             Provider::Incus(c) => c.set_instance_limits(project, name, config).await,
         }
