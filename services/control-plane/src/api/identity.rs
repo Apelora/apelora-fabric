@@ -27,9 +27,11 @@ use time::OffsetDateTime;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::authz::{allow, allow_any, allow_platform, audit_scoped, filter_for, now};
+use super::authz::{
+    allow, allow_any, allow_platform, audit_alone, audit_scoped, begin, commit, filter_for, now,
+};
 use super::deploy::store;
-use super::{ApiError, AppState, AuditItem, AuditList, ErrorBody, Principal};
+use super::{ApiError, AppState, AuditList, ErrorBody, Principal};
 
 type Res<T> = Result<T, ApiError>;
 
@@ -602,11 +604,12 @@ pub(super) async fn create_organization(
         ));
     }
     let pool = store(&state)?;
-    let o = db::create_organization(pool, &req.slug, valid_name(&req.name)?)
+    let mut tx = begin(pool).await?;
+    let o = db::create_organization(&mut *tx, &req.slug, valid_name(&req.name)?)
         .await
         .map_err(map_conflict)?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "organization.create",
         &o.slug,
@@ -615,6 +618,7 @@ pub(super) async fn create_organization(
         &json!({ "id": o.id }),
     )
     .await?;
+    commit(tx).await?;
     Ok((
         StatusCode::CREATED,
         Json(OrganizationDto {
@@ -687,9 +691,10 @@ pub(super) async fn create_project(
             "a project identifier is 2–40 lowercase letters, digits and hyphens, starting with a letter",
         ));
     }
-    let row = db::create_project(pool, org, &req.slug, valid_name(&req.name)?).await?;
+    let mut tx = begin(pool).await?;
+    let row = db::create_project(&mut *tx, org, &req.slug, valid_name(&req.name)?).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "project.create",
         &row.slug,
@@ -698,6 +703,7 @@ pub(super) async fn create_project(
         &json!({ "id": row.id }),
     )
     .await?;
+    commit(tx).await?;
     Ok((StatusCode::CREATED, Json(project_dto(row))))
 }
 
@@ -813,8 +819,9 @@ pub(super) async fn create_environment(
             derived
         }
     };
+    let mut tx = begin(pool).await?;
     let env = db::create_environment(
-        pool,
+        &mut *tx,
         project,
         &req.slug,
         valid_name(&req.name)?,
@@ -822,7 +829,8 @@ pub(super) async fn create_environment(
         Some(&incus),
     )
     .await?;
-    audit_scoped(pool, &p, "environment.create", &env.slug, "success", Some(&res), &json!({ "id": env.id, "kind": req.kind.as_str(), "incusProject": incus, "chosenByPlatformAdmin": req.incus_project.is_some() })).await?;
+    audit_scoped(&mut tx, &p, "environment.create", &env.slug, "success", Some(&res), &json!({ "id": env.id, "kind": req.kind.as_str(), "incusProject": incus, "chosenByPlatformAdmin": req.incus_project.is_some() })).await?;
+    commit(tx).await?;
     Ok((StatusCode::CREATED, Json(env_dto(env))))
 }
 
@@ -886,7 +894,7 @@ async fn last_super_admin(
     scope: Option<&Resource>,
     what: &str,
 ) -> ApiError {
-    let recorded = audit_scoped(
+    let recorded = audit_alone(
         pool,
         p,
         action,
@@ -919,9 +927,12 @@ async fn set_disabled(
             "you cannot disable your own account",
         ));
     }
+    let mut tx = begin(pool).await?;
     let revoked = if disabled {
-        let Some(revoked) = db::guarded_change(pool, db::SuperAdminChange::DisableUser(id)).await?
+        let Some(revoked) =
+            db::guarded_change_in(&mut tx, db::SuperAdminChange::DisableUser(id)).await?
         else {
+            drop(tx);
             return Err(last_super_admin(
                 pool,
                 p,
@@ -934,10 +945,10 @@ async fn set_disabled(
         };
         revoked
     } else {
-        db::set_user_disabled(pool, id, false).await?
+        db::set_user_disabled_in(&mut tx, id, false).await?
     };
     audit_scoped(
-        pool,
+        &mut tx,
         p,
         if disabled {
             "user.disable"
@@ -954,6 +965,7 @@ async fn set_disabled(
         },
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1040,8 +1052,9 @@ pub(super) async fn create_group(
     if req.description.chars().count() > 200 {
         return Err(bad("a description is at most 200 characters"));
     }
+    let mut tx = begin(pool).await?;
     let g = db::create_group(
-        pool,
+        &mut *tx,
         req.organization_id,
         valid_name(&req.name)?,
         req.external_name
@@ -1052,7 +1065,7 @@ pub(super) async fn create_group(
     )
     .await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "group.create",
         &g.name,
@@ -1061,6 +1074,7 @@ pub(super) async fn create_group(
         &json!({ "id": g.id, "externalName": g.external_name }),
     )
     .await?;
+    commit(tx).await?;
     Ok((StatusCode::CREATED, Json(group_dto(g))))
 }
 
@@ -1111,14 +1125,16 @@ async fn change_member(
     db::user(pool, user)
         .await?
         .ok_or_else(|| not_found("user"))?;
+    let mut tx = begin(pool).await?;
     if add {
-        db::add_group_member(pool, group, user, &p.actor_ref()).await?;
-    } else if !db::change_keeping_a_super_admin(
-        pool,
+        db::add_group_member(&mut *tx, group, user, &p.actor_ref()).await?;
+    } else if !db::change_keeping_a_super_admin_in(
+        &mut tx,
         db::SuperAdminChange::RemoveGroupMember { group, user },
     )
     .await?
     {
+        drop(tx);
         return Err(last_super_admin(
             pool,
             p,
@@ -1130,7 +1146,7 @@ async fn change_member(
         .await);
     }
     audit_scoped(
-        pool,
+        &mut tx,
         p,
         if add {
             "group.member.add"
@@ -1143,6 +1159,7 @@ async fn change_member(
         &json!({ "user": user }),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1254,8 +1271,9 @@ pub(super) async fn create_role(
         return Err(bad("a description is at most 200 characters"));
     }
     let pool = store(&state)?;
+    let mut tx = begin(pool).await?;
     let role = db::create_custom_role(
-        pool,
+        &mut *tx,
         req.name.trim(),
         &req.description,
         &perms,
@@ -1263,7 +1281,7 @@ pub(super) async fn create_role(
     )
     .await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "role.create",
         &role.name,
@@ -1272,6 +1290,7 @@ pub(super) async fn create_role(
         &json!({ "id": role.id, "permissions": role.permissions }),
     )
     .await?;
+    commit(tx).await?;
     Ok((StatusCode::CREATED, Json(custom_dto(&role))))
 }
 
@@ -1290,9 +1309,10 @@ pub(super) async fn delete_role(
         .await?
         .map(|r| r.name)
         .unwrap_or_default();
-    db::delete_custom_role(pool, role).await?;
+    let mut tx = begin(pool).await?;
+    db::delete_custom_role(&mut *tx, role).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "role.delete",
         &name,
@@ -1301,6 +1321,7 @@ pub(super) async fn delete_role(
         &json!({ "id": role }),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1482,7 +1503,7 @@ pub(super) async fn create_assignment(
     )
     .await;
     if let Err(e) = check_assignment(&engine, &subject, &areq, now()) {
-        audit_scoped(
+        audit_alone(
             pool,
             &p,
             "role.assign",
@@ -1499,8 +1520,9 @@ pub(super) async fn create_assignment(
         ));
     }
     check_principal(pool, &req.principal, &res).await?;
+    let mut tx = begin(pool).await?;
     let id = db::insert_assignment(
-        pool,
+        &mut *tx,
         &db::NewAssignment {
             principal: req.principal,
             role: req.role.clone(),
@@ -1513,7 +1535,8 @@ pub(super) async fn create_assignment(
         },
     )
     .await?;
-    audit_scoped(pool, &p, "role.assign", &role.name, "success", Some(&res), &json!({ "assignment": id, "principal": req.principal, "scope": req.scope, "conditions": req.conditions, "expiresAt": req.expires_at })).await?;
+    audit_scoped(&mut tx, &p, "role.assign", &role.name, "success", Some(&res), &json!({ "assignment": id, "principal": req.principal, "scope": req.scope, "conditions": req.conditions, "expiresAt": req.expires_at })).await?;
+    commit(tx).await?;
     let customs = db::list_custom_roles(pool).await?;
     let row = db::assignment(pool, id)
         .await?
@@ -1546,7 +1569,7 @@ pub(super) async fn revoke_assignment(
         let role = resolve_role(pool, &assignment_role(&row)).await?;
         let (engine, subject) = actor(&p);
         if let Err(e) = check_revocation(&engine, &subject, &role, &row.scope, &res, now()) {
-            audit_scoped(
+            audit_alone(
                 pool,
                 &p,
                 "role.revoke",
@@ -1564,12 +1587,14 @@ pub(super) async fn revoke_assignment(
         }
     }
     let actor_ref = p.actor_ref();
-    if !db::change_keeping_a_super_admin(
-        pool,
+    let mut tx = begin(pool).await?;
+    if !db::change_keeping_a_super_admin_in(
+        &mut tx,
         db::SuperAdminChange::RevokeAssignment { id, by: &actor_ref },
     )
     .await?
     {
+        drop(tx);
         return Err(last_super_admin(
             pool,
             &p,
@@ -1580,7 +1605,8 @@ pub(super) async fn revoke_assignment(
         )
         .await);
     }
-    audit_scoped(pool, &p, "role.revoke", &id.to_string(), "success", Some(&res), &json!({ "principalId": row.principal_id, "scope": row.scope, "role": row.builtin_role, "emergency": row.kind == "emergency" })).await?;
+    audit_scoped(&mut tx, &p, "role.revoke", &id.to_string(), "success", Some(&res), &json!({ "principalId": row.principal_id, "scope": row.scope, "role": row.builtin_role, "emergency": row.kind == "emergency" })).await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1765,7 +1791,7 @@ pub(super) async fn emergency_access(
         expires_at: Some(expires.unix_timestamp()),
     };
     if let Err(e) = check_assignment(&engine, &subject, &areq, now()) {
-        audit_scoped(
+        audit_alone(
             pool,
             &p,
             "emergency_access.grant",
@@ -1782,8 +1808,9 @@ pub(super) async fn emergency_access(
         ));
     }
     check_principal(pool, &principal, &res).await?;
+    let mut tx = begin(pool).await?;
     let id = db::insert_assignment(
-        pool,
+        &mut *tx,
         &db::NewAssignment {
             principal,
             role: RoleRef::Builtin {
@@ -1798,7 +1825,8 @@ pub(super) async fn emergency_access(
         },
     )
     .await?;
-    audit_scoped(pool, &p, "emergency_access.grant", &req.user_id.to_string(), "success", None, &json!({ "assignment": id, "role": req.role, "reason": req.reason.trim(), "expiresAt": rfc3339(expires) })).await?;
+    audit_scoped(&mut tx, &p, "emergency_access.grant", &req.user_id.to_string(), "success", None, &json!({ "assignment": id, "role": req.role, "reason": req.reason.trim(), "expiresAt": rfc3339(expires) })).await?;
+    commit(tx).await?;
     let customs = db::list_custom_roles(pool).await?;
     let row = db::assignment(pool, id)
         .await?
@@ -1874,8 +1902,9 @@ pub(super) async fn create_service_identity(
         req.restrictions.clone()
     };
     let pool = store(&state)?;
+    let mut tx = begin(pool).await?;
     let (row, token) = db::create_service_identity(
-        pool,
+        &mut *tx,
         name,
         req.kind.as_str(),
         req.credential_ref.as_deref(),
@@ -1884,7 +1913,8 @@ pub(super) async fn create_service_identity(
         &p.actor_ref(),
     )
     .await?;
-    audit_scoped(pool, &p, "service_identity.create", &row.name, "success", None, &json!({ "id": row.id, "kind": row.kind, "credentialRef": row.credential_ref, "restrictions": row.restrictions })).await?;
+    audit_scoped(&mut tx, &p, "service_identity.create", &row.name, "success", None, &json!({ "id": row.id, "kind": row.kind, "credentialRef": row.credential_ref, "restrictions": row.restrictions })).await?;
+    commit(tx).await?;
     let mut res = (
         StatusCode::CREATED,
         Json(ServiceIdentityCreated {
@@ -1906,9 +1936,10 @@ async fn set_service_disabled(
 ) -> Res<StatusCode> {
     allow_platform(p, "service_identity.manage")?;
     let pool = store(state)?;
-    db::set_service_identity_disabled(pool, id, disabled).await?;
+    let mut tx = begin(pool).await?;
+    db::set_service_identity_disabled(&mut *tx, id, disabled).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         p,
         if disabled {
             "service_identity.disable"
@@ -1921,6 +1952,7 @@ async fn set_service_disabled(
         &json!({}),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -2034,8 +2066,9 @@ pub(super) async fn save_policy(
         _ => return Err(bad("a policy kind is mfa or approval")),
     }
     let pool = store(&state)?;
+    let mut tx = begin(pool).await?;
     let row = db::save_policy(
-        pool,
+        &mut *tx,
         name,
         &req.kind,
         &req.parameters,
@@ -2044,7 +2077,7 @@ pub(super) async fn save_policy(
     )
     .await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "access_policy.save",
         &row.name,
@@ -2053,6 +2086,7 @@ pub(super) async fn save_policy(
         &json!({ "kind": row.kind, "parameters": row.parameters, "enabled": row.enabled }),
     )
     .await?;
+    commit(tx).await?;
     Ok(Json(policy_dto(row)))
 }
 
@@ -2066,9 +2100,10 @@ pub(super) async fn delete_policy(
 ) -> Res<StatusCode> {
     allow_platform(&p, "access_policy.manage")?;
     let pool = store(&state)?;
-    db::delete_policy(pool, id).await?;
+    let mut tx = begin(pool).await?;
+    db::delete_policy(&mut *tx, id).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "access_policy.delete",
         &id.to_string(),
@@ -2077,52 +2112,22 @@ pub(super) async fn delete_policy(
         &json!({}),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 // ---- audit ------------------------------------------------------------------------------------
 
-#[derive(Deserialize, IntoParams)]
-pub struct AuditQuery {
-    /// Only actions starting with this, e.g. `role.` or `emergency_access.`.
-    pub action: Option<String>,
-    /// `success`, `denied` or `failed`.
-    pub outcome: Option<String>,
-    /// Only events older than this id (paging).
-    pub before: Option<i64>,
-    pub limit: Option<i64>,
-}
-
-/// Audit history the caller may read, filtered and paged. Needs `audit.read`.
-#[utoipa::path(get, path = "/api/v1/identity/audit", tag = "identity", operation_id = "identity_audit", params(AuditQuery),
-    responses((status = 200, body = AuditList), (status = 403, body = ErrorBody)))]
+/// Audit history the caller may read: the same filters and paging as `GET /api/v1/audit`.
+/// Needs `audit.read`.
+#[utoipa::path(get, path = "/api/v1/identity/audit", tag = "identity", operation_id = "identity_audit", params(super::audit::AuditFilter),
+    responses((status = 200, body = AuditList), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody)))]
 pub(super) async fn audit_history(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
-    Query(q): Query<AuditQuery>,
+    Query(f): Query<super::audit::AuditFilter>,
 ) -> Res<Json<AuditList>> {
-    let f = filter_for(&p, "audit.read");
-    if f.is_empty() {
-        return Err(forbidden_view("audit.read"));
-    }
-    if q.outcome
-        .as_deref()
-        .is_some_and(|o| !matches!(o, "success" | "denied" | "failed"))
-    {
-        return Err(bad("outcome is success, denied or failed"));
-    }
-    let rows = db::audit_history(
-        store(&state)?,
-        &f,
-        q.action.as_deref().filter(|a| a.len() <= 64),
-        q.outcome.as_deref(),
-        q.before,
-        q.limit.unwrap_or(100),
-    )
-    .await?;
-    Ok(Json(AuditList {
-        items: rows.into_iter().map(AuditItem::from_row).collect(),
-    }))
+    Ok(Json(super::audit::page(&state, &p, f).await?))
 }
 
 // ---- approvals --------------------------------------------------------------------------------
@@ -2240,10 +2245,17 @@ pub(super) async fn request_approval(
     if req.reason.chars().count() > 300 {
         return Err(bad("a reason is at most 300 characters"));
     }
-    let row =
-        db::request_approval(pool, &req.action, target, &p.actor_ref(), req.reason.trim()).await?;
+    let mut tx = begin(pool).await?;
+    let row = db::request_approval(
+        &mut *tx,
+        &req.action,
+        target,
+        &p.actor_ref(),
+        req.reason.trim(),
+    )
+    .await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "approval.request",
         target,
@@ -2252,6 +2264,7 @@ pub(super) async fn request_approval(
         &json!({ "id": row.id, "action": req.action, "reason": req.reason.trim() }),
     )
     .await?;
+    commit(tx).await?;
     Ok((StatusCode::CREATED, Json(approval_dto(row))))
 }
 
@@ -2274,11 +2287,12 @@ async fn decide(
         Some(res) => allow(p, "approval.grant", res)?,
         None => allow_platform(p, "approval.grant")?,
     }
-    let outcome = db::decide_approval(pool, id, &p.actor_ref(), true, approve).await?;
+    let mut tx = begin(pool).await?;
+    let outcome = db::decide_approval_in(&mut tx, id, &p.actor_ref(), true, approve).await?;
     match outcome {
         Ok(row) => {
             audit_scoped(
-                pool,
+                &mut tx,
                 p,
                 if approve {
                     "approval.grant"
@@ -2291,10 +2305,12 @@ async fn decide(
                 &json!({ "id": row.id, "action": row.action, "requester": row.requester }),
             )
             .await?;
+            commit(tx).await?;
             Ok(Json(approval_dto(row)))
         }
         Err(e) => {
-            audit_scoped(
+            drop(tx);
+            audit_alone(
                 pool,
                 p,
                 if approve {
@@ -2347,10 +2363,11 @@ pub(super) async fn cancel_request(
     Path(id): Path<Uuid>,
 ) -> Res<Json<ApprovalDto>> {
     let pool = store(&state)?;
-    match db::cancel_approval(pool, id, &p.actor_ref()).await? {
+    let mut tx = begin(pool).await?;
+    match db::cancel_approval_in(&mut tx, id, &p.actor_ref()).await? {
         Ok(row) => {
             audit_scoped(
-                pool,
+                &mut tx,
                 &p,
                 "approval.cancel",
                 &row.target,
@@ -2359,6 +2376,7 @@ pub(super) async fn cancel_request(
                 &json!({ "id": row.id }),
             )
             .await?;
+            commit(tx).await?;
             Ok(Json(approval_dto(row)))
         }
         Err(e) => Err(approval_error(e)),

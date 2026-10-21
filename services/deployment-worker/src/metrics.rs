@@ -156,8 +156,26 @@ mod tests {
                 .await
                 .expect("run")
         );
+        // An audit row's message through the relay, so the outbox families have samples.
+        apelora_persistence::audit(&pool, "test", "test.event", "t", &serde_json::json!({}))
+            .await
+            .expect("audit");
+        crate::outbox::relay_once(&pool, &crate::outbox::LogSink, None)
+            .await
+            .expect("relay");
         let (status, body) = get_text(addr, "/metrics").await;
         assert_eq!(status, 200);
+        assert!(
+            body.contains("apelora_outbox_deliveries_total{region=\"default\",site=\"default\",sector=\"default\",topic=\"audit.recorded\",outcome=\"delivered\"}"),
+            "{body}"
+        );
+        for family in [
+            "apelora_outbox_pending{",
+            "apelora_outbox_oldest_pending_age_seconds{",
+            "apelora_outbox_failing{",
+        ] {
+            assert!(body.contains(family), "{family}: {body}");
+        }
         assert!(
             body.contains("content-type: text/plain; version=0.0.4"),
             "{body}"

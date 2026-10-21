@@ -88,18 +88,21 @@ pub async fn list_directories(pool: &Pool) -> Result<Vec<DirectoryRecord>> {
     .await?)
 }
 
-pub async fn get_directory(pool: &Pool, id: Uuid) -> Result<Option<DirectoryRecord>> {
+pub async fn get_directory(
+    db: impl sqlx::PgExecutor<'_>,
+    id: Uuid,
+) -> Result<Option<DirectoryRecord>> {
     Ok(sqlx::query_as::<_, DirectoryRecord>(&format!(
         "SELECT {COLUMNS} FROM directories WHERE id = $1"
     ))
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(db)
     .await?)
 }
 
 /// Creates (`id` none) or replaces a directory; returns its id.
 pub async fn save_directory(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     id: Option<Uuid>,
     f: &DirectoryFields,
     actor: &str,
@@ -140,15 +143,15 @@ pub async fn save_directory(
     .bind(&f.group_name_attribute)
     .bind(f.enabled)
     .bind(actor)
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(id)
 }
 
-pub async fn delete_directory(pool: &Pool, id: Uuid) -> Result<bool> {
+pub async fn delete_directory(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query("DELETE FROM directories WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected()
         > 0)

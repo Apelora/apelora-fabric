@@ -36,7 +36,9 @@ use time::OffsetDateTime;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::authz::{CallerKind, allow_platform, audit_as, audit_failed, guard};
+use super::authz::{
+    CallerKind, allow_platform, audit_alone, audit_as, audit_failed, begin, commit, guard,
+};
 use super::deploy::store;
 use super::identity::{UserDto, user_dto};
 use super::sessions::Peer;
@@ -103,13 +105,13 @@ pub struct IssuedSession {
 /// `external_groups` are directory group names, mapped onto Apelora groups by external name
 /// whenever the session is used.
 pub async fn issue_session(
-    pool: &Pool,
+    tx: &mut apelora_persistence::PgConnection,
     user_id: Uuid,
     method: SessionMethod,
     external_groups: &[String],
 ) -> Result<IssuedSession, ApiError> {
-    let (token, rec) = user_sessions::create_session(
-        pool,
+    let (token, rec) = user_sessions::create_session_in(
+        tx,
         user_id,
         method.as_str(),
         external_groups,
@@ -393,7 +395,7 @@ fn target(username: &str) -> String {
 
 /// An audit event for someone who is not signed in (yet).
 async fn audit_anonymous(
-    pool: &Pool,
+    db: impl apelora_persistence::PgExecutor<'_>,
     user: Option<Uuid>,
     action: &str,
     target: &str,
@@ -404,10 +406,11 @@ async fn audit_anonymous(
     super::requests::tag(&mut detail);
     let actor = user.map_or_else(|| "anonymous".to_owned(), |id| format!("user:{id}"));
     idb::audit_event(
-        pool,
+        db,
         &idb::AuditEntry {
             actor: &actor,
             actor_type: if user.is_some() { "user" } else { "anonymous" },
+            actor_name: None,
             action,
             target,
             outcome,
@@ -429,8 +432,10 @@ async fn directory_sign_in(
 ) -> Result<PasswordSignInResult, ApiError> {
     let who =
         super::directories::verify_directory_sign_in(state, directory, username, password).await?;
-    let user = super::directories::upsert_directory_user(state, &who).await?;
-    let session = issue_session(pool, user.id, SessionMethod::Directory, &who.groups).await?;
+    let mut tx = begin(pool).await?;
+    let user = super::directories::upsert_directory_user_in(&mut tx, state, &who).await?;
+    let session = issue_session(&mut tx, user.id, SessionMethod::Directory, &who.groups).await?;
+    commit(tx).await?;
     tracing::info!(username = %who.username, directory = %who.directory_name, "directory sign-in succeeded");
     Ok(PasswordSignInResult {
         token: session.token,
@@ -556,10 +561,11 @@ async fn password_sign_in(
             return Err(refuse("wrong").await);
         }
     };
-    db::record_success(pool, login.user_id).await?;
-    let session = issue_session(pool, login.user_id, SessionMethod::Password, &[]).await?;
+    let mut tx = begin(pool).await?;
+    db::record_success_in(&mut tx, login.user_id).await?;
+    let session = issue_session(&mut tx, login.user_id, SessionMethod::Password, &[]).await?;
     audit_anonymous(
-        pool,
+        &mut *tx,
         Some(login.user_id),
         "auth.password.succeeded",
         &target(&login.username),
@@ -567,6 +573,7 @@ async fn password_sign_in(
         json!({ "username": login.username, "address": ip.to_string() }),
     )
     .await?;
+    commit(tx).await?;
     tracing::info!(username = %login.username, "password sign-in succeeded");
     Ok(PasswordSignInResult {
         token: session.token,
@@ -618,11 +625,12 @@ async fn setup(
     };
     check_password(&req.password, &account.username).map_err(weak)?;
     let hashed = hash_password(req.password).await?;
-    let Some(user) = db::complete_setup(pool, req.token.trim(), &hashed).await? else {
+    let mut tx = begin(pool).await?;
+    let Some(user) = db::complete_setup_in(&mut tx, req.token.trim(), &hashed).await? else {
         return Err(setup_invalid());
     };
     audit_anonymous(
-        pool,
+        &mut *tx,
         Some(user),
         "auth.setup.completed",
         &target(&account.username),
@@ -630,6 +638,7 @@ async fn setup(
         json!({ "username": account.username, "address": ip.to_string() }),
     )
     .await?;
+    commit(tx).await?;
     tracing::info!(username = %account.username, "local account password set");
     Ok(())
 }
@@ -648,15 +657,17 @@ pub(super) async fn sign_out(
         return Ok(StatusCode::NO_CONTENT);
     };
     let pool = store(&state)?;
-    user_sessions::revoke_session(pool, session.id).await?;
+    let mut tx = begin(pool).await?;
+    user_sessions::revoke_session(&mut *tx, session.id).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         "auth.signed_out",
         &format!("session:{}", session.id),
         &json!({ "method": session.method.as_str() }),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -726,11 +737,13 @@ async fn change(
         if locked {
             audit_failed(
                 "auth.locked",
-                audit_as(
+                audit_alone(
                     pool,
                     p,
                     "auth.locked",
                     &target(&login.username),
+                    "success",
+                    None,
                     &json!({ "username": login.username, "minutes": db::LOCK_MINUTES, "address": ip.to_string() }),
                 )
                 .await,
@@ -738,7 +751,7 @@ async fn change(
         }
         audit_failed(
             "auth.password.failed",
-            super::authz::audit_scoped(
+            audit_alone(
                 pool,
                 p,
                 "auth.password.failed",
@@ -762,15 +775,17 @@ async fn change(
         ));
     }
     let hashed = hash_password(req.new).await?;
-    let revoked = db::change_password(pool, user, &hashed, p.session.map(|s| s.id)).await?;
+    let mut tx = begin(pool).await?;
+    let revoked = db::change_password_in(&mut tx, user, &hashed, p.session.map(|s| s.id)).await?;
     audit_as(
-        pool,
+        &mut tx,
         p,
         "auth.password.changed",
         &target(&login.username),
         &json!({ "username": login.username, "revokedSessions": revoked }),
     )
     .await?;
+    commit(tx).await?;
     Ok(())
 }
 
@@ -851,8 +866,9 @@ pub(super) async fn create_local_account(
     }
     let pool = store(&state)?;
     let approval = guard(&state, &p, &headers, "user.manage", &target(&username)).await?;
-    let (user, link) = db::create_local_account(
-        pool,
+    let mut tx = begin(pool).await?;
+    let (user, link) = db::create_local_account_in(
+        &mut tx,
         &username,
         display_name.as_deref(),
         email.as_deref(),
@@ -864,7 +880,7 @@ pub(super) async fn create_local_account(
         other => other.into(),
     })?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         "identity.local_account.created",
         &target(&username),
@@ -872,6 +888,7 @@ pub(super) async fn create_local_account(
                  "setupExpiresAt": rfc3339(link.expires_at), "approval": approval }),
     )
     .await?;
+    commit(tx).await?;
     Ok(no_store(
         (
             StatusCode::CREATED,
@@ -922,9 +939,10 @@ pub(super) async fn reset_local_account(
         &target(&login.username),
     )
     .await?;
-    let (link, revoked) = db::reset_local_account(pool, id).await?;
+    let mut tx = begin(pool).await?;
+    let (link, revoked) = db::reset_local_account_in(&mut tx, id).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         "identity.local_account.reset",
         &target(&login.username),
@@ -932,6 +950,7 @@ pub(super) async fn reset_local_account(
                  "setupExpiresAt": rfc3339(link.expires_at), "approval": approval }),
     )
     .await?;
+    commit(tx).await?;
     Ok(no_store(
         Json(LocalAccountSetupLink {
             setup_token: link.token,
@@ -1005,16 +1024,16 @@ pub(super) async fn set_local_accounts(
         super::auth_config::guard_leaving_local_accounts(&state)?;
     }
     let approval = guard(&state, &p, &headers, MANAGE, "local-accounts").await?;
+    let mut tx = begin(pool).await?;
     apelora_persistence::auth_settings::set_setting(
-        pool,
+        &mut *tx,
         LOCAL_ACCOUNTS,
         &json!(req.enabled),
         &p.actor_ref(),
     )
     .await?;
-    super::auth_config::reload(&state).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         if req.enabled {
             "identity.local_accounts.enabled"
@@ -1025,6 +1044,8 @@ pub(super) async fn set_local_accounts(
         &json!({ "approval": approval }),
     )
     .await?;
+    commit(tx).await?;
+    super::auth_config::reload(&state).await?;
     Ok(Json(local_setting(&state).await?))
 }
 

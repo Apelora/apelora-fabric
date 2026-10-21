@@ -155,20 +155,20 @@ pub async fn set_volume_member(
 }
 
 /// Records a volume's new size after it grew.
-pub async fn set_volume_size(pool: &Pool, id: Uuid, size_mib: u32) -> Result<()> {
+pub async fn set_volume_size(db: impl sqlx::PgExecutor<'_>, id: Uuid, size_mib: u32) -> Result<()> {
     sqlx::query("UPDATE volumes SET size_mib = $2, updated_at = now() WHERE id = $1")
         .bind(id)
         .bind(i32::try_from(size_mib).unwrap_or(i32::MAX))
-        .execute(pool)
+        .execute(db)
         .await?;
     Ok(())
 }
 
 /// Forgets a volume once it is deleted in Incus.
-pub async fn forget_volume(pool: &Pool, id: Uuid) -> Result<bool> {
+pub async fn forget_volume(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query("DELETE FROM volumes WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected()
         > 0)
@@ -320,7 +320,7 @@ pub struct NewBackup<'a> {
     pub scheduled: bool,
 }
 
-pub async fn record_backup(pool: &Pool, b: &NewBackup<'_>) -> Result<()> {
+pub async fn record_backup(db: impl sqlx::PgExecutor<'_>, b: &NewBackup<'_>) -> Result<()> {
     sqlx::query(
         "INSERT INTO volume_backups (id, application_id, project, source, snapshot, name,
                                      storage_pool, member, size_mib, scheduled)
@@ -337,7 +337,7 @@ pub async fn record_backup(pool: &Pool, b: &NewBackup<'_>) -> Result<()> {
     .bind(b.member)
     .bind(i32::try_from(b.size_mib).unwrap_or(i32::MAX))
     .bind(b.scheduled)
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(())
 }

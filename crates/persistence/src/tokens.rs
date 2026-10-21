@@ -44,7 +44,7 @@ fn new_secret() -> Result<String> {
 
 /// Creates a token and returns it with its record. The plaintext exists only in the return value.
 pub async fn create_token(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     role: &str,
     expires_at: Option<OffsetDateTime>,
@@ -59,7 +59,7 @@ pub async fn create_token(
     .bind(hash(&secret))
     .bind(role)
     .bind(expires_at)
-    .fetch_one(pool)
+    .fetch_one(db)
     .await?;
     Ok((secret, rec))
 }
@@ -80,12 +80,12 @@ pub async fn authenticate(pool: &Pool, presented: &str) -> Result<Option<TokenRe
     .await?)
 }
 
-pub async fn revoke_token(pool: &Pool, id: Uuid) -> Result<()> {
+pub async fn revoke_token(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<()> {
     let n = sqlx::query(
         "UPDATE api_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
     )
     .bind(id)
-    .execute(pool)
+    .execute(db)
     .await?
     .rows_affected();
     if n == 1 {

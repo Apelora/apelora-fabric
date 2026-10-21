@@ -12,7 +12,7 @@
 //! `application.operation`) the request is recorded and the worker stops at the job kind's next
 //! safe point, never in the middle of an Incus change.
 
-use sqlx::{FromRow, PgPool};
+use sqlx::{Connection, FromRow, PgConnection, PgPool};
 use uuid::Uuid;
 
 use crate::{Enqueued, JOB_COLS, JobOrigin, JobView, Result, StoreError};
@@ -33,6 +33,14 @@ pub enum Cancel {
 /// Asks for a job to be cancelled (see the module documentation for when it ends at once).
 pub async fn request_cancel(pool: &PgPool, id: Uuid, by: &str) -> Result<Cancel> {
     let mut tx = pool.begin().await?;
+    let out = request_cancel_in(&mut tx, id, by).await?;
+    tx.commit().await?;
+    Ok(out)
+}
+
+/// [`request_cancel`] inside the caller's transaction (with the request's audit row).
+pub async fn request_cancel_in(conn: &mut PgConnection, id: Uuid, by: &str) -> Result<Cancel> {
+    let mut tx = conn.begin().await?;
     // Waits for a claim in progress, so the status read here is the one that counts.
     let row: Option<(String, String, Option<String>, bool)> = sqlx::query_as(
         "SELECT status, kind, external_operation, cancel_requested_at IS NOT NULL
@@ -108,16 +116,30 @@ pub struct RetryRequest<'a> {
 /// it. Refused when the job did not fail, was retried already, or a newer job for the same
 /// target exists.
 pub async fn retry_job(pool: &PgPool, id: Uuid, r: &RetryRequest<'_>) -> Result<Retry> {
+    let mut tx = pool.begin().await?;
+    let out = retry_job_in(&mut tx, id, r).await?;
+    tx.commit().await?;
+    Ok(out)
+}
+
+/// [`retry_job`] inside the caller's transaction (with the request's audit row). Its own work
+/// runs in a savepoint, so a lost race on the unique `retry_of` index leaves the caller's
+/// transaction usable.
+pub async fn retry_job_in(
+    conn: &mut PgConnection,
+    id: Uuid,
+    r: &RetryRequest<'_>,
+) -> Result<Retry> {
     if let Some(key) = r.idempotency_key
         && let Some(existing) =
             sqlx::query_scalar::<_, Uuid>("SELECT id FROM jobs WHERE idempotency_key = $1")
                 .bind(key)
-                .fetch_optional(pool)
+                .fetch_optional(&mut *conn)
                 .await?
     {
         return Ok(Retry::Repeated(existing));
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = conn.begin().await?;
     let job = sqlx::query_as::<_, JobView>(&format!(
         "SELECT {JOB_COLS} FROM jobs j WHERE j.id = $1 FOR UPDATE"
     ))
@@ -152,10 +174,10 @@ pub async fn retry_job(pool: &PgPool, id: Uuid, r: &RetryRequest<'_>) -> Result<
         Ok(q) => q,
         // Two retries at once: the unique index on `retry_of` lets one through.
         Err(StoreError::Database(sqlx::Error::Database(d))) if d.is_unique_violation() => {
-            drop(tx);
+            tx.rollback().await?;
             let newer = sqlx::query_scalar::<_, Uuid>("SELECT id FROM jobs WHERE retry_of = $1")
                 .bind(id)
-                .fetch_one(pool)
+                .fetch_one(&mut *conn)
                 .await?;
             return Ok(Retry::AlreadyRetried(newer));
         }

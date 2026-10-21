@@ -192,8 +192,9 @@ pub(super) async fn register(
     let adopted = members
         .iter()
         .any(|m| m.name == req.name && m.scheduler != enrolment::HELD);
+    let mut tx = super::authz::begin(pool).await?;
     let record = apelora_persistence::register_machine(
-        pool,
+        &mut *tx,
         &req.name,
         kind.as_str(),
         req.description.trim(),
@@ -202,13 +203,14 @@ pub(super) async fn register(
     )
     .await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "machine.register",
         &req.name,
         &json!({ "role": p.role, "provider": kind, "adopted": adopted }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     let pending = provider.join_tokens().await?;
     Ok((
         StatusCode::CREATED,
@@ -267,15 +269,17 @@ pub(super) async fn approve(
     )
     .await?;
     let t = provider.create_join_token(&name).await?;
-    apelora_persistence::approve_machine(pool, &name, &p.actor_ref(), &t.expires_at).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::approve_machine(&mut *tx, &name, &p.actor_ref(), &t.expires_at).await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "machine.approve",
         &name,
         &json!({ "role": p.role, "expiresAt": t.expires_at, "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     let warnings = lifetime_warnings(&t.expires_at, time::OffsetDateTime::now_utc());
     let mut res = (
         StatusCode::CREATED,
@@ -314,15 +318,17 @@ pub(super) async fn withdraw(
     let provider = admin(&state)?;
     apelora_persistence::machine(pool, &name).await?;
     let revoked = provider.revoke_join_token(&name).await?;
-    apelora_persistence::withdraw_approval(pool, &name).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::withdraw_approval(&mut *tx, &name).await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "machine.approval.withdraw",
         &name,
         &json!({ "role": p.role, "tokenRevoked": revoked }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -405,20 +411,22 @@ pub(super) async fn admit(
         ));
     }
     admin(&state)?.set_member_held(&name, false).await?;
-    apelora_persistence::admit_machine(pool, &name, &p.actor_ref()).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::admit_machine(&mut *tx, &name, &p.actor_ref()).await?;
     let summary: Vec<String> = result
         .checks
         .iter()
         .map(|c| format!("{}={:?}", c.id, c.status))
         .collect();
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "machine.admit",
         &name,
         &json!({ "role": p.role, "checks": summary }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(Json(result))
 }
 
@@ -461,14 +469,16 @@ pub(super) async fn remove(
     )
     .await?;
     let revoked = provider.revoke_join_token(&name).await?;
-    apelora_persistence::remove_machine(pool, &name).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::remove_machine(&mut *tx, &name).await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "machine.remove",
         &name,
         &json!({ "role": p.role, "tokenRevoked": revoked, "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -47,7 +47,7 @@ const labelOf = (id: ViewId) => VIEWS.find((v) => v.id === id)?.label ?? IDENTIT
 const viewFromHash = (): ViewId => {
   const detail = detailView(window.location.hash);
   if (detail) return detail;
-  const id = window.location.hash.replace(/^#\/?/, "");
+  const id = window.location.hash.replace(/^#\/?/, "").replace(/\?.*$/, "");
   if (isIdentityPage(id)) return id;
   return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
 };

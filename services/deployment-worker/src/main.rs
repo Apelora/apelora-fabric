@@ -105,6 +105,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(60),
         backup_pool,
     ));
+    // The outbox relay (EVERY-SIZE.md §2.5): delivers what changes wrote to the outbox, while
+    // this worker holds the `outbox-relay` lease. APELORA_OUTBOX_SINK=log (default) or off.
+    let relay =
+        apelora_deployment_worker::outbox::sink_from_env(|k| std::env::var(k).ok())?.map(|sink| {
+            tokio::spawn(apelora_deployment_worker::outbox::relay(
+                pool.clone(),
+                sink,
+                Duration::from_secs(2),
+                worker.clone(),
+            ))
+        });
     apelora_deployment_worker::run(pool, provider, worker, Duration::from_secs(2), async {
         let _ = tokio::signal::ctrl_c().await;
     })
@@ -113,6 +124,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s.abort();
     }
     storage.abort();
+    if let Some(r) = relay {
+        r.abort();
+    }
     if let Some(m) = metrics {
         m.abort();
     }

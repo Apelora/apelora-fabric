@@ -2227,8 +2227,84 @@
         "tags": [
           "audit"
         ],
-        "summary": "The most recent audit events the caller may read, newest first. Needs `audit.read`\n(platform-wide, or limited to the events of the caller's organisations, projects and\napplications) and a database.",
+        "summary": "Audit events the caller may read, newest first, filtered by actor, target, action prefix,\noutcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to\nthe events of the caller's organisations, projects and applications) and a database.",
         "operationId": "audit",
+        "parameters": [
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Who acted: their stable id (`user:<uuid>`, `service:<uuid>`, `token:<name>`) or, ignoring\ncase, the name they had when they acted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "What was acted on, exactly as recorded (e.g. `local-account:ada` or a group's name).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Only actions starting with this, e.g. `role.` or `emergency_access.`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "`success`, `denied` or `failed`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "RFC 3339: events at or after this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "RFC 3339: events before this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Events per page, 1 to 500 (default 100). Not used by the export.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -2236,6 +2312,167 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/audit/export": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Exports the audit events the caller may read, with the same filters as the list (`limit`\ndoes not apply), newest first, as CSV or JSON lines. Streamed one database page at a time.\nNeeds `audit.read`; the export itself is audited as `audit.exported` with its filters.",
+        "operationId": "audit_export",
+        "parameters": [
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Who acted: their stable id (`user:<uuid>`, `service:<uuid>`, `token:<name>`) or, ignoring\ncase, the name they had when they acted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "What was acted on, exactly as recorded (e.g. `local-account:ada` or a group's name).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "description": "Only actions starting with this, e.g. `role.` or `emergency_access.`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "description": "`success`, `denied` or `failed`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "RFC 3339: events at or after this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "RFC 3339: events before this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Events per page, 1 to 500 (default 100). Not used by the export.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "description": "`csv` or `jsonl` (one JSON object per line, as the list returns them). Default `jsonl`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The events: CSV with a header row, or one JSON object per line",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -3444,19 +3681,34 @@
         "tags": [
           "identity"
         ],
-        "summary": "Audit history the caller may read, filtered and paged. Needs `audit.read`.",
+        "summary": "Audit history the caller may read: the same filters and paging as `GET /api/v1/audit`.\nNeeds `audit.read`.",
         "operationId": "identity_audit",
         "parameters": [
+          {
+            "name": "actor",
+            "in": "query",
+            "description": "Who acted: their stable id (`user:<uuid>`, `service:<uuid>`, `token:<name>`) or, ignoring\ncase, the name they had when they acted.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "What was acted on, exactly as recorded (e.g. `local-account:ada` or a group's name).",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "action",
             "in": "query",
             "description": "Only actions starting with this, e.g. `role.` or `emergency_access.`.",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
@@ -3465,34 +3717,44 @@
             "description": "`success`, `denied` or `failed`.",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "RFC 3339: events at or after this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "RFC 3339: events before this time.",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
             "name": "before",
             "in": "query",
-            "description": "Only events older than this id (paging).",
+            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
             "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           },
           {
             "name": "limit",
             "in": "query",
+            "description": "Events per page, 1 to 500 (default 100). Not used by the export.",
             "required": false,
             "schema": {
-              "type": [
-                "integer",
-                "null"
-              ],
+              "type": "integer",
               "format": "int64"
             }
           }
@@ -3504,6 +3766,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -9127,6 +9399,13 @@
           "actor": {
             "type": "string",
             "description": "Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`."
+          },
+          "actorName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name the actor had when they acted (a username, a token's or service identity's\nname); absent on events recorded before names were kept."
           },
           "actorType": {
             "type": "string",

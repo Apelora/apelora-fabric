@@ -36,6 +36,25 @@ pub async fn create_session(
     external_groups: &[String],
     absolute_secs: i64,
 ) -> Result<(String, SessionRecord)> {
+    create_session_in(
+        &mut *pool.acquire().await?,
+        user_id,
+        method,
+        external_groups,
+        absolute_secs,
+    )
+    .await
+}
+
+/// [`create_session`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn create_session_in(
+    conn: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    method: &str,
+    external_groups: &[String],
+    absolute_secs: i64,
+) -> Result<(String, SessionRecord)> {
     let token = random_secret(PREFIX)?;
     let rec = sqlx::query_as::<_, SessionRecord>(&format!(
         "INSERT INTO user_sessions (id, user_id, token_hash, method, external_groups, expires_at)
@@ -47,10 +66,10 @@ pub async fn create_session(
     .bind(method)
     .bind(external_groups)
     .bind(absolute_secs as f64)
-    .fetch_one(pool)
+    .fetch_one(&mut *conn)
     .await?;
     sqlx::query("DELETE FROM user_sessions WHERE expires_at < now() - interval '7 days'")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     Ok((token, rec))
 }
@@ -84,12 +103,12 @@ pub async fn authenticate_session(
 }
 
 /// Revokes one session; false when it was already revoked or unknown.
-pub async fn revoke_session(pool: &Pool, id: Uuid) -> Result<bool> {
+pub async fn revoke_session(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query(
         "UPDATE user_sessions SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
     )
     .bind(id)
-    .execute(pool)
+    .execute(db)
     .await?
     .rows_affected()
         == 1)

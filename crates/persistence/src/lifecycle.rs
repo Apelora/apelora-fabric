@@ -32,7 +32,7 @@ fn arrays(f: &AccessFilter) -> (bool, Vec<Uuid>, Vec<Uuid>, Vec<Uuid>) {
 /// Creates an application in a project and environment. The name is unique across the platform
 /// and cannot change later (instance names are derived from it).
 pub async fn create_application_full(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     project_id: Uuid,
     environment_id: Option<Uuid>,
@@ -49,7 +49,7 @@ pub async fn create_application_full(
         .bind(description)
         .bind(icon)
         .bind(created_by)
-        .execute(pool)
+        .execute(db)
         .await
         .map_err(|e| match &e {
             sqlx::Error::Database(d) if d.is_unique_violation() => StoreError::Conflict(format!("an application named {name} already exists")),
@@ -62,7 +62,7 @@ pub async fn create_application_full(
 }
 
 pub async fn update_application_meta(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     id: Uuid,
     description: Option<&str>,
     icon: Option<&str>,
@@ -71,7 +71,7 @@ pub async fn update_application_meta(
         .bind(id)
         .bind(description)
         .bind(icon)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected();
     if n == 0 {
@@ -81,8 +81,8 @@ pub async fn update_application_meta(
     }
 }
 
-pub async fn set_archived(pool: &PgPool, id: Uuid, archived: bool) -> Result<()> {
-    sqlx::query("UPDATE applications SET archived_at = CASE WHEN $2 THEN now() ELSE NULL END, updated_at = now() WHERE id = $1").bind(id).bind(archived).execute(pool).await?;
+pub async fn set_archived(db: impl sqlx::PgExecutor<'_>, id: Uuid, archived: bool) -> Result<()> {
+    sqlx::query("UPDATE applications SET archived_at = CASE WHEN $2 THEN now() ELSE NULL END, updated_at = now() WHERE id = $1").bind(id).bind(archived).execute(db).await?;
     Ok(())
 }
 
@@ -184,7 +184,28 @@ pub async fn put_draft(
     errors: &Value,
     by: &str,
 ) -> Result<std::result::Result<DraftRow, i32>> {
-    let mut tx = pool.begin().await?;
+    put_draft_in(
+        &mut *pool.acquire().await?,
+        application_id,
+        document,
+        base,
+        errors,
+        by,
+    )
+    .await
+}
+
+/// [`put_draft`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn put_draft_in(
+    conn: &mut sqlx::PgConnection,
+    application_id: Uuid,
+    document: &Value,
+    base: Option<i32>,
+    errors: &Value,
+    by: &str,
+) -> Result<std::result::Result<DraftRow, i32>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     // Serialise saves of one application by locking its row.
     sqlx::query("SELECT id FROM applications WHERE id = $1 FOR UPDATE")
         .bind(application_id)
@@ -252,7 +273,18 @@ pub async fn publish_draft(
     label: Option<&str>,
     by: &str,
 ) -> Result<std::result::Result<VersionRow, PublishRefusal>> {
-    let mut tx = pool.begin().await?;
+    publish_draft_in(&mut *pool.acquire().await?, application_id, label, by).await
+}
+
+/// [`publish_draft`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn publish_draft_in(
+    conn: &mut sqlx::PgConnection,
+    application_id: Uuid,
+    label: Option<&str>,
+    by: &str,
+) -> Result<std::result::Result<VersionRow, PublishRefusal>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     sqlx::query("SELECT id FROM applications WHERE id = $1 FOR UPDATE")
         .bind(application_id)
         .fetch_optional(&mut *tx)
@@ -339,6 +371,15 @@ pub struct NewOperation<'a> {
 /// `Conflict` when another operation of the application is still active, or when the same
 /// idempotency key was used for a different request.
 pub async fn create_operation(pool: &PgPool, n: &NewOperation<'_>) -> Result<(OperationRow, bool)> {
+    create_operation_in(&mut *pool.acquire().await?, n).await
+}
+
+/// [`create_operation`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn create_operation_in(
+    conn: &mut sqlx::PgConnection,
+    n: &NewOperation<'_>,
+) -> Result<(OperationRow, bool)> {
     let NewOperation {
         application_id,
         project,
@@ -349,7 +390,7 @@ pub async fn create_operation(pool: &PgPool, n: &NewOperation<'_>) -> Result<(Op
         key,
         request_id,
     } = *n;
-    let mut tx = pool.begin().await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     if let Some(k) = key
         && let Some(existing) = sqlx::query_as::<_, OperationRow>(&format!(
             "SELECT {OP_COLS} FROM application_operations WHERE idempotency_key = $1"
@@ -484,10 +525,11 @@ pub async fn application_events(
     application_id: Uuid,
     limit: i64,
 ) -> Result<Vec<crate::identity::AuditRow>> {
-    Ok(sqlx::query_as(
-        "SELECT id, at, actor, actor_type, action, target, outcome, scope, detail FROM audit_events
+    Ok(sqlx::query_as(&format!(
+        "SELECT {} FROM audit_events
          WHERE (scope->>'application')::uuid = $1 ORDER BY id DESC LIMIT $2",
-    )
+        crate::identity::AUDIT_COLS
+    ))
     .bind(application_id)
     .bind(limit.clamp(1, 200))
     .fetch_all(pool)

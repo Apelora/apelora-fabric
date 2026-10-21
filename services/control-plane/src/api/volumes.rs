@@ -13,7 +13,7 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use super::admin::rfc3339;
-use super::authz::{allow, audit_scoped, guard};
+use super::authz::{allow, audit_alone, audit_scoped, guard};
 use super::deploy::{bad_request, store};
 use super::manage::load;
 use super::{ApiError, AppState, ErrorBody, Principal, Source, source};
@@ -171,9 +171,11 @@ pub(super) async fn grow(
             req.size_mib,
         )
         .await?;
-    apelora_persistence::set_volume_size(pool, record.id, req.size_mib).await?;
+    // Incus has grown the volume; the record and its audit row are written together.
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::set_volume_size(&mut *tx, record.id, req.size_mib).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "application.volume.grow",
         &format!("{}/{}", record.project, record.incus_name),
@@ -182,6 +184,7 @@ pub(super) async fn grow(
         &json!({ "application": name, "fromMib": current, "toMib": req.size_mib }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -256,9 +259,11 @@ pub(super) async fn delete(
             &name,
         )
         .await?;
-    apelora_persistence::forget_volume(pool, record.id).await?;
+    // Incus has deleted the volume; forgetting it and its audit row are written together.
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::forget_volume(&mut *tx, record.id).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "application.volume.delete",
         &target,
@@ -268,6 +273,7 @@ pub(super) async fn delete(
                  "member": record.member, "sizeMib": record.size_mib, "existed": existed, "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -442,7 +448,7 @@ pub(super) async fn take_snapshot(
     } else {
         "crash-consistent"
     };
-    audit_scoped(
+    audit_alone(
         store(&state)?,
         &p,
         "application.volume.snapshot",
@@ -511,7 +517,7 @@ pub(super) async fn restore_snapshot(
             &snapshot,
         )
         .await?;
-    audit_scoped(
+    audit_alone(
         store(&state)?,
         &p,
         "application.volume.restore",
@@ -552,7 +558,7 @@ pub(super) async fn delete_snapshot(
             &snapshot,
         )
         .await?;
-    audit_scoped(
+    audit_alone(
         store(&state)?,
         &p,
         "application.volume.snapshot.delete",

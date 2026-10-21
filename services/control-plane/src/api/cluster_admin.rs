@@ -123,11 +123,13 @@ pub(super) async fn create(
     )
     .await?;
     let t = provider.create_join_token(&req.member_name).await?;
-    super::authz::audit_as(
+    super::authz::audit_alone(
         pool,
         &p,
         "cluster.join-token.created",
         &t.member_name,
+        "success",
+        None,
         &json!({ "role": p.role, "expiresAt": t.expires_at, "approval": approval }),
     )
     .await?;
@@ -188,11 +190,13 @@ pub(super) async fn revoke(
             format!("no pending join token for {member}"),
         ));
     }
-    super::authz::audit_as(
+    super::authz::audit_alone(
         pool,
         &p,
         "cluster.join-token.revoked",
         &member,
+        "success",
+        None,
         &json!({ "role": p.role }),
     )
     .await?;
@@ -364,9 +368,11 @@ pub(super) async fn evacuate(
     )
     .await?;
     let operation = provider.member_state(&member, false).await?;
-    super::authz::audit_as(pool, &p,
+    super::authz::audit_alone(pool, &p,
         if unsafe_run { "cluster.member.evacuate.unsafe" } else { "cluster.member.evacuate" },
         &member,
+        "success",
+        None,
         &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings, "blocked": plan.blocked, "approval": approval }),
     )
     .await?;
@@ -395,11 +401,13 @@ pub(super) async fn restore(
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
     let operation = provider.member_state(&member, true).await?;
-    super::authz::audit_as(
+    super::authz::audit_alone(
         pool,
         &p,
         "cluster.member.restore",
         &member,
+        "success",
+        None,
         &json!({ "role": p.role, "operation": operation }),
     )
     .await?;
@@ -518,11 +526,13 @@ pub(super) async fn remove(
     )
     .await?;
     provider.remove_member(&member).await?;
-    super::authz::audit_as(
+    super::authz::audit_alone(
         pool,
         &p,
         "cluster.member.remove",
         &member,
+        "success",
+        None,
         &json!({ "role": p.role, "warnings": plan.warnings, "approval": approval }),
     )
     .await?;

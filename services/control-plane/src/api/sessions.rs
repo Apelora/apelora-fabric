@@ -45,7 +45,7 @@ use tokio::sync::oneshot;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::authz::{Caller, allow, audit_failed, audit_scoped, guard_on};
+use super::authz::{Caller, allow, audit_alone, audit_failed, guard_on};
 use super::deploy::{bad_request, store};
 use super::manage::{desired_of, load, pick_deployment, resource_of};
 use super::{ApiError, AppState, Auth, ErrorBody, Principal};
@@ -664,7 +664,7 @@ pub(super) async fn open(
         async move {
             audit_failed(
                 "session.denied",
-                audit_scoped(
+                audit_alone(
                     &pool,
                     &p,
                     "session.denied",
@@ -757,7 +757,7 @@ pub(super) async fn open(
         }
     };
     state.sessions.set_approval(&hash, approval);
-    if let Err(e) = audit_scoped(
+    if let Err(e) = audit_alone(
         pool,
         &p,
         "session.request",
@@ -848,7 +848,7 @@ pub(super) async fn terminate(
             approval_target(&r.application, &r.instance),
         )
     };
-    audit_scoped(
+    audit_alone(
         pool,
         &p,
         "session.terminate",
@@ -957,7 +957,7 @@ pub(super) async fn connect(
         if let Auth::Tokens(pool) = &state.auth {
             audit_failed(
                 "session.denied",
-                audit_scoped(
+                audit_alone(
                     pool,
                     &ticket.principal,
                     "session.denied",
@@ -1083,7 +1083,7 @@ async fn run(
             };
             audit_failed(
                 "session.open",
-                audit_scoped(
+                audit_alone(
                     &pool,
                     &ticket.principal,
                     "session.open",
@@ -1131,7 +1131,7 @@ async fn run(
             tracing::warn!(session = %ticket.id, error = %e, "session could not be opened");
             audit_failed(
                 "session.open",
-                audit_scoped(
+                audit_alone(
                     &pool,
                     &ticket.principal,
                     "session.open",
@@ -1156,7 +1156,7 @@ async fn run(
         }
     };
     // A session that cannot be recorded is not allowed to run.
-    if audit_scoped(
+    if audit_alone(
         &pool,
         &ticket.principal,
         "session.open",
@@ -1268,7 +1268,7 @@ async fn run(
     send_close(&mut socket, reason).await;
     audit_failed(
         "session.close",
-        audit_scoped(
+        audit_alone(
             &pool,
             &ticket.principal,
             "session.close",

@@ -156,7 +156,7 @@ fn spec_for(
 /// range is configured. Returns module → address.
 async fn allocate_services(
     state: &AppState,
-    pool: &apelora_persistence::Pool,
+    tx: &mut apelora_persistence::PgConnection,
     application_id: Uuid,
     name: &str,
     req: &DeployRequest,
@@ -184,8 +184,8 @@ async fn allocate_services(
         .collect();
     let mut out = std::collections::BTreeMap::new();
     for a in sync.services() {
-        match apelora_persistence::service_address(
-            pool,
+        match apelora_persistence::service_address_in(
+            &mut *tx,
             application_id,
             &req.project,
             &a,
@@ -567,24 +567,25 @@ pub(super) async fn deploy(
             Some(_) => {}
         }
     }
+    let mut tx = super::authz::begin(pool).await?;
     let app = match target.project_id {
         Some(project) => {
-            apelora_persistence::identity::ensure_application_in(
-                pool,
+            apelora_persistence::identity::ensure_application_in_tx(
+                &mut tx,
                 &name,
                 project,
                 target.environment_id,
             )
             .await?
         }
-        None => apelora_persistence::ensure_application(pool, &name).await?,
+        None => apelora_persistence::ensure_application_tx(&mut tx, &name).await?,
     };
     // A repeated request (same key) finds its revision and its jobs: nothing happens twice.
     let (revision_no, new_revision) = match req.version {
         Some(v) => (v, true),
         None => {
-            let (r, new) = apelora_persistence::add_revision_once(
-                pool,
+            let (r, new) = apelora_persistence::add_revision_once_in(
+                &mut tx,
                 app.id,
                 &req.document,
                 &p.actor_ref(),
@@ -596,7 +597,7 @@ pub(super) async fn deploy(
     };
     // Service addresses are allocated before any instance is created, so consumers start with
     // their discovery environment (ADR 0004).
-    let addresses = allocate_services(&state, pool, app.id, &name, &req).await?;
+    let addresses = allocate_services(&state, &mut tx, app.id, &name, &req).await?;
     let mut jobs = Vec::new();
     for item in &applied.items {
         let (kind, payload) = match item.action {
@@ -631,10 +632,7 @@ pub(super) async fn deploy(
             .as_ref()
             .map(|k| format!("{k}:{}:{kind}", item.instance));
         let job_id = apelora_persistence::enqueue_job_from(
-            &mut *pool
-                .acquire()
-                .await
-                .map_err(apelora_persistence::StoreError::from)?,
+            &mut tx,
             kind,
             Some(app.id),
             &payload,
@@ -673,8 +671,8 @@ pub(super) async fn deploy(
         .then(|| serde_json::to_value(published))
         .transpose()
         .map_err(|e| bad_request(e.to_string()))?;
-    apelora_persistence::record_deployment(
-        pool,
+    apelora_persistence::record_deployment_in(
+        &mut tx,
         &apelora_persistence::NewDeployment {
             application_id: app.id,
             project: &req.project,
@@ -703,10 +701,7 @@ pub(super) async fn deploy(
         .map_err(|e| bad_request(e.to_string()))?;
         let job_key = key.as_ref().map(|k| format!("{k}:{name}:network.sync"));
         let job_id = apelora_persistence::enqueue_job_from(
-            &mut *pool
-                .acquire()
-                .await
-                .map_err(apelora_persistence::StoreError::from)?,
+            &mut tx,
             "network.sync",
             Some(app.id),
             &payload,
@@ -723,7 +718,7 @@ pub(super) async fn deploy(
     }
     if new_revision {
         super::authz::audit_scoped(
-            pool,
+            &mut tx,
             &p,
             "application.deploy.requested",
             &format!("{}/{name}", req.project),
@@ -739,6 +734,7 @@ pub(super) async fn deploy(
         )
         .await?;
     }
+    super::authz::commit(tx).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(DeployResponse {

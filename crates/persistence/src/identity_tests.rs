@@ -729,6 +729,7 @@ async fn the_audit_trail_is_append_only_and_filtered_by_scope(pool: PgPool) {
             &AuditEntry {
                 actor: "user:a",
                 actor_type: "user",
+                actor_name: Some("Ada"),
                 action,
                 target: "x",
                 outcome,
@@ -744,7 +745,8 @@ async fn the_audit_trail_is_append_only_and_filtered_by_scope(pool: PgPool) {
         projects: vec![],
         applications: vec![],
     };
-    let rows = audit_history(&pool, &acme, None, None, None, 50)
+    let none = AuditQuery::default();
+    let rows = audit_history(&pool, &acme, &none, 50)
         .await
         .expect("history");
     assert_eq!(
@@ -752,27 +754,108 @@ async fn the_audit_trail_is_append_only_and_filtered_by_scope(pool: PgPool) {
         1,
         "only events inside the reader's scope; scope-less platform events are for platform readers"
     );
+    let count = |q: AuditQuery| {
+        let pool = pool.clone();
+        async move {
+            audit_history(&pool, &AccessFilter::All, &q, 50)
+                .await
+                .expect("history")
+                .len()
+        }
+    };
+    assert_eq!(count(none.clone()).await, 3);
     assert_eq!(
-        audit_history(&pool, &AccessFilter::All, None, None, None, 50)
-            .await
-            .expect("history")
-            .len(),
+        count(AuditQuery {
+            outcome: Some("denied".into()),
+            ..none.clone()
+        })
+        .await,
+        1
+    );
+    assert_eq!(
+        count(AuditQuery {
+            action_prefix: Some("token.".into()),
+            ..none.clone()
+        })
+        .await,
+        1
+    );
+    assert_eq!(
+        count(AuditQuery {
+            action_prefix: Some("token%".into()),
+            ..none.clone()
+        })
+        .await,
+        0,
+        "a prefix is literal, not a pattern"
+    );
+    assert_eq!(
+        rows[0].actor_name.as_deref(),
+        Some("Ada"),
+        "the name is kept"
+    );
+    for actor in ["user:a", "ada", "ADA"] {
+        assert_eq!(
+            count(AuditQuery {
+                actor: Some(actor.into()),
+                ..none.clone()
+            })
+            .await,
+            3,
+            "by stable id or by name, ignoring case: {actor}"
+        );
+    }
+    assert_eq!(
+        count(AuditQuery {
+            actor: Some("user:b".into()),
+            ..none.clone()
+        })
+        .await,
+        0
+    );
+    assert_eq!(
+        count(AuditQuery {
+            target: Some("x".into()),
+            ..none.clone()
+        })
+        .await,
         3
     );
     assert_eq!(
-        audit_history(&pool, &AccessFilter::All, None, Some("denied"), None, 50)
-            .await
-            .expect("history")
-            .len(),
-        1
+        count(AuditQuery {
+            target: Some("X".into()),
+            ..none.clone()
+        })
+        .await,
+        0,
+        "targets match exactly"
+    );
+    let now = time::OffsetDateTime::now_utc();
+    assert_eq!(
+        count(AuditQuery {
+            from: Some(now - time::Duration::minutes(5)),
+            to: Some(now + time::Duration::minutes(5)),
+            ..none.clone()
+        })
+        .await,
+        3
     );
     assert_eq!(
-        audit_history(&pool, &AccessFilter::All, Some("token."), None, None, 50)
-            .await
-            .expect("history")
-            .len(),
-        1
+        count(AuditQuery {
+            to: Some(now - time::Duration::minutes(5)),
+            ..none.clone()
+        })
+        .await,
+        0
     );
+    assert!(
+        sqlx::query("TRUNCATE audit_events")
+            .execute(&pool)
+            .await
+            .is_err(),
+        "the table cannot be emptied"
+    );
+    assert_eq!(count(none.clone()).await, 3);
     assert!(
         sqlx::query("UPDATE audit_events SET actor = 'someone-else'")
             .execute(&pool)

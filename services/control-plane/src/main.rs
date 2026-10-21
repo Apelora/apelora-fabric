@@ -327,9 +327,10 @@ async fn identity_command(
             if apelora_persistence::identity::super_admin_count(pool).await? > 0 {
                 return Err("a platform super admin already exists; use the Fabric Console to grant roles".into());
             }
-            let user = apelora_persistence::identity::upsert_user(pool, &issuer, &subject, flag("--username").as_deref(), flag("--email").as_deref(), None).await?;
+            let mut tx = apelora_persistence::begin(pool).await?;
+            let user = apelora_persistence::identity::upsert_user(&mut *tx, &issuer, &subject, flag("--username").as_deref(), flag("--email").as_deref(), None).await?;
             let id = apelora_persistence::identity::insert_assignment(
-                pool,
+                &mut *tx,
                 &apelora_persistence::identity::NewAssignment {
                     principal: apelora_auth::PrincipalRef::User { id: user.id },
                     role: apelora_auth::RoleRef::Builtin { key: apelora_auth::Builtin::PlatformSuperAdmin.key().into() },
@@ -343,10 +344,11 @@ async fn identity_command(
             )
             .await?;
             apelora_persistence::identity::audit_event(
-                pool,
-                &apelora_persistence::identity::AuditEntry { actor: "cli", actor_type: "cli", action: "identity.bootstrap", target: &user.id.to_string(), outcome: "success", scope: None, detail: &json!({ "assignment": id, "issuer": issuer }) },
+                &mut *tx,
+                &apelora_persistence::identity::AuditEntry { actor: "cli", actor_type: "cli", actor_name: None, action: "identity.bootstrap", target: &user.id.to_string(), outcome: "success", scope: None, detail: &json!({ "assignment": id, "issuer": issuer }) },
             )
             .await?;
+            apelora_persistence::commit(tx).await?;
             println!("Platform super admin granted to {issuer} / {subject} (user {}).", user.id);
             Ok(())
         }
@@ -373,8 +375,10 @@ async fn token_command(
             }
             let days = cli_token_days(flag("--expires-in-days").or_else(|| flag("--expires-days")).as_deref())?;
             let expires = time::OffsetDateTime::now_utc() + time::Duration::days(days);
-            let (secret, rec) = apelora_persistence::create_token(pool, &name, &role, Some(expires)).await?;
-            apelora_persistence::audit(pool, "cli", "token.create", &rec.name, &json!({ "id": rec.id, "role": rec.role, "expiresInDays": days })).await?;
+            let mut tx = apelora_persistence::begin(pool).await?;
+            let (secret, rec) = apelora_persistence::create_token(&mut *tx, &name, &role, Some(expires)).await?;
+            apelora_persistence::audit(&mut *tx, "cli", "token.create", &rec.name, &json!({ "id": rec.id, "role": rec.role, "expiresInDays": days })).await?;
+            apelora_persistence::commit(tx).await?;
             println!("Created token {} ({}, role {}, expires in {days} days). It is shown only once:\n{secret}", rec.id, rec.name, rec.role);
         }
         Some("list") => {
@@ -385,8 +389,10 @@ async fn token_command(
         }
         Some("revoke") => {
             let id: uuid::Uuid = args.get(1).ok_or("usage: token revoke <id>")?.parse()?;
-            apelora_persistence::revoke_token(pool, id).await?;
-            apelora_persistence::audit(pool, "cli", "token.revoke", &id.to_string(), &json!({})).await?;
+            let mut tx = apelora_persistence::begin(pool).await?;
+            apelora_persistence::revoke_token(&mut *tx, id).await?;
+            apelora_persistence::audit(&mut *tx, "cli", "token.revoke", &id.to_string(), &json!({})).await?;
+            apelora_persistence::commit(tx).await?;
             println!("Revoked token {id}");
         }
         _ => return Err("usage: token create --name <n> --role <r> [--expires-in-days <1-365, default 90>] | token list | token revoke <id>".into()),

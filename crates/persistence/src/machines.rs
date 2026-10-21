@@ -27,7 +27,7 @@ pub struct MachineRecord {
 
 /// Registers a machine; `admitted` records an existing member as already admitted (adopted).
 pub async fn register_machine(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     provider: &str,
     description: &str,
@@ -45,7 +45,7 @@ pub async fn register_machine(
     .bind(description)
     .bind(actor)
     .bind(admitted)
-    .fetch_optional(pool)
+    .fetch_optional(db)
     .await?
     .ok_or_else(|| StoreError::Conflict(format!("machine {name} is already registered")))
 }
@@ -69,7 +69,12 @@ pub async fn machine(pool: &Pool, name: &str) -> Result<MachineRecord> {
 }
 
 /// Records an approval (a join token was issued that expires at `expires_at`).
-pub async fn approve_machine(pool: &Pool, name: &str, actor: &str, expires_at: &str) -> Result<()> {
+pub async fn approve_machine(
+    db: impl sqlx::PgExecutor<'_>,
+    name: &str,
+    actor: &str,
+    expires_at: &str,
+) -> Result<()> {
     let q = sqlx::query(
         "UPDATE machines SET approved_by = $2, approved_at = now(), approval_expires_at = $3
          WHERE name = $1",
@@ -77,30 +82,30 @@ pub async fn approve_machine(pool: &Pool, name: &str, actor: &str, expires_at: &
     .bind(name)
     .bind(actor)
     .bind(expires_at);
-    found(name, q.execute(pool).await?.rows_affected())
+    found(name, q.execute(db).await?.rows_affected())
 }
 
 /// Forgets an approval whose token was revoked.
-pub async fn withdraw_approval(pool: &Pool, name: &str) -> Result<()> {
+pub async fn withdraw_approval(db: impl sqlx::PgExecutor<'_>, name: &str) -> Result<()> {
     let q = sqlx::query(
         "UPDATE machines SET approved_by = NULL, approved_at = NULL, approval_expires_at = NULL
          WHERE name = $1",
     )
     .bind(name);
-    found(name, q.execute(pool).await?.rows_affected())
+    found(name, q.execute(db).await?.rows_affected())
 }
 
-pub async fn admit_machine(pool: &Pool, name: &str, actor: &str) -> Result<()> {
+pub async fn admit_machine(db: impl sqlx::PgExecutor<'_>, name: &str, actor: &str) -> Result<()> {
     let q =
         sqlx::query("UPDATE machines SET admitted_by = $2, admitted_at = now() WHERE name = $1")
             .bind(name)
             .bind(actor);
-    found(name, q.execute(pool).await?.rows_affected())
+    found(name, q.execute(db).await?.rows_affected())
 }
 
-pub async fn remove_machine(pool: &Pool, name: &str) -> Result<()> {
+pub async fn remove_machine(db: impl sqlx::PgExecutor<'_>, name: &str) -> Result<()> {
     let q = sqlx::query("DELETE FROM machines WHERE name = $1").bind(name);
-    found(name, q.execute(pool).await?.rows_affected())
+    found(name, q.execute(db).await?.rows_affected())
 }
 
 fn found(name: &str, rows: u64) -> Result<()> {

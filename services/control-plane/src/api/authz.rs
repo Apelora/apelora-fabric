@@ -639,6 +639,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/networks", &["cluster.view"]),
     ("GET", "/api/v1/storage-pools", &["cluster.view"]),
     ("GET", "/api/v1/audit", &["audit.read"]),
+    ("GET", "/api/v1/audit/export", &["audit.read"]),
     // Monitoring (metrics.rs): scraping needs the metrics permission; the set-up page also
     // opens to people who can see the cluster.
     ("GET", "/metrics", &["fabric.metrics.read"]),
@@ -862,6 +863,7 @@ pub(super) async fn audit_denials(
                 &apelora_persistence::identity::AuditEntry {
                     actor: &p.actor_ref(),
                     actor_type: p.actor_type(),
+                    actor_name: Some(&p.name),
                     action: "access.denied",
                     target: &format!("{method} {path}"),
                     outcome: "denied",
@@ -883,19 +885,89 @@ pub(super) fn audit_failed(action: &str, result: apelora_persistence::Result<()>
     }
 }
 
-/// Writes an audit event for the caller: who (stable id and kind), what, on what.
-pub(super) async fn audit_as(
+/// How often a person signing in with identity-provider tokens is audited: on the first request
+/// of each period (an hour, the longest token lifetime Apelora accepts). Password and directory
+/// sign-ins are audited when their session is issued; tokens have no such moment.
+pub(super) const PROVIDER_SIGN_IN_PERIOD_SECS: f64 = 3600.0;
+
+/// Records `auth.oidc.signed_in` for the first request a person makes with identity-provider
+/// tokens in each [`PROVIDER_SIGN_IN_PERIOD_SECS`]: at most one row per person per period, so
+/// valid tokens cannot flood the trail (refused tokens are logged, never audited). A failure is
+/// logged at error and does not refuse the request: every change still needs its own audit row.
+pub(super) async fn audit_provider_sign_in(
     pool: &apelora_persistence::Pool,
+    user: Uuid,
+    issuer: &str,
+    mfa: bool,
+) {
+    let mut detail = json!({ "method": "oidc", "issuer": issuer, "mfa": mfa });
+    super::requests::tag(&mut detail);
+    let recorded = apelora_persistence::identity::audit_provider_sign_in(
+        pool,
+        user,
+        PROVIDER_SIGN_IN_PERIOD_SECS,
+        &detail,
+    )
+    .await;
+    audit_failed("auth.oidc.signed_in", recorded.map(|_| ()));
+}
+
+/// Begins the transaction a change and its audit row are written in (EVERY-SIZE.md §2.5): pass
+/// `&mut tx` to the persistence functions and to [`audit_as`]/[`audit_scoped`], then
+/// [`commit`]. If the audit row cannot be written, the change is rolled back with it.
+pub(super) async fn begin(
+    pool: &apelora_persistence::Pool,
+) -> apelora_persistence::Result<apelora_persistence::Tx> {
+    apelora_persistence::begin(pool).await
+}
+
+/// Commits a change and its audit row together.
+pub(super) async fn commit(tx: apelora_persistence::Tx) -> apelora_persistence::Result<()> {
+    apelora_persistence::commit(tx).await
+}
+
+/// Writes the caller's audit row for a change, inside the change's transaction: who (stable id,
+/// kind and name), what, on what.
+pub(super) async fn audit_as(
+    tx: &mut apelora_persistence::PgConnection,
     p: &Principal,
     action: &str,
     target: &str,
     detail: &Value,
 ) -> apelora_persistence::Result<()> {
-    audit_scoped(pool, p, action, target, "success", None, detail).await
+    audit_scoped(tx, p, action, target, "success", None, detail).await
 }
 
+/// [`audit_as`] with an outcome and the organisation, project or application concerned.
 pub(super) async fn audit_scoped(
+    tx: &mut apelora_persistence::PgConnection,
+    p: &Principal,
+    action: &str,
+    target: &str,
+    outcome: &str,
+    scope: Option<&Resource>,
+    detail: &Value,
+) -> apelora_persistence::Result<()> {
+    write_audit(&mut *tx, p, action, target, outcome, scope, detail).await
+}
+
+/// Writes the caller's audit row on its own, for an event that changes nothing in Apelora's
+/// database: a refusal, a failed attempt, an export, or a change carried out in Incus or in
+/// this process's memory (the audit-coverage test lists those routes and why).
+pub(super) async fn audit_alone(
     pool: &apelora_persistence::Pool,
+    p: &Principal,
+    action: &str,
+    target: &str,
+    outcome: &str,
+    scope: Option<&Resource>,
+    detail: &Value,
+) -> apelora_persistence::Result<()> {
+    write_audit(pool, p, action, target, outcome, scope, detail).await
+}
+
+async fn write_audit(
+    db: impl apelora_persistence::PgExecutor<'_>,
     p: &Principal,
     action: &str,
     target: &str,
@@ -915,10 +987,11 @@ pub(super) async fn audit_scoped(
     }
     super::requests::tag(&mut detail);
     apelora_persistence::identity::audit_event(
-        pool,
+        db,
         &apelora_persistence::identity::AuditEntry {
             actor: &p.actor_ref(),
             actor_type: p.actor_type(),
+            actor_name: Some(&p.name),
             action,
             target,
             outcome,
@@ -1017,7 +1090,7 @@ async fn guard_required(
     // A spent, someone else's or mismatched approval is a refusal: on the record.
     audit_failed(
         "access.denied",
-        audit_scoped(
+        audit_alone(
             pool,
             p,
             "access.denied",

@@ -235,11 +235,10 @@ pub(super) async fn queue(
     let key = idempotency_key(headers, p)?;
     let request = super::requests::current();
     let actor = p.actor_ref();
+    // The job and the request's audit row are queued together: no job without its record.
+    let mut tx = super::authz::begin(pool).await?;
     let enqueued = apelora_persistence::enqueue_job_from(
-        &mut *pool
-            .acquire()
-            .await
-            .map_err(apelora_persistence::StoreError::from)?,
+        &mut tx,
         kind,
         None,
         &payload,
@@ -257,7 +256,7 @@ pub(super) async fn queue(
     };
     if created {
         super::authz::audit_as(
-            pool,
+            &mut tx,
             p,
             &format!("{kind}.requested"),
             target,
@@ -265,6 +264,7 @@ pub(super) async fn queue(
         )
         .await?;
     }
+    super::authz::commit(tx).await?;
     Ok((StatusCode::ACCEPTED, Json(JobAccepted { job_id, created })))
 }
 

@@ -72,8 +72,27 @@ pub async fn create_local_account(
     email: Option<&str>,
     by: &str,
 ) -> Result<(UserRow, SetupLink)> {
+    create_local_account_in(
+        &mut *pool.acquire().await?,
+        username,
+        display_name,
+        email,
+        by,
+    )
+    .await
+}
+
+/// [`create_local_account`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn create_local_account_in(
+    conn: &mut sqlx::PgConnection,
+    username: &str,
+    display_name: Option<&str>,
+    email: Option<&str>,
+    by: &str,
+) -> Result<(UserRow, SetupLink)> {
     let token = random_secret(SETUP_PREFIX)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let taken: bool =
         sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE lower(username) = $1)")
             .bind(username)
@@ -114,8 +133,17 @@ pub async fn create_local_account(
 /// Returns the link and how many sessions were revoked. `NotFound` for anyone who is not a
 /// local account.
 pub async fn reset_local_account(pool: &Pool, user_id: Uuid) -> Result<(SetupLink, u64)> {
+    reset_local_account_in(&mut *pool.acquire().await?, user_id).await
+}
+
+/// [`reset_local_account`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn reset_local_account_in(
+    conn: &mut sqlx::PgConnection,
+    user_id: Uuid,
+) -> Result<(SetupLink, u64)> {
     let token = random_secret(SETUP_PREFIX)?;
-    let mut tx = pool.begin().await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let expires_at: Option<OffsetDateTime> = sqlx::query_scalar(
         "UPDATE local_credentials SET password_hash = NULL, setup_token_hash = $2,
              setup_expires_at = now() + make_interval(hours => $3), failed_attempts = 0, locked_until = NULL
@@ -151,7 +179,17 @@ pub async fn setup_target(pool: &Pool, token: &str) -> Result<Option<LocalLogin>
 /// spent or expired in the meantime (single use even under concurrent requests). Revokes any
 /// session the account still had.
 pub async fn complete_setup(pool: &Pool, token: &str, password_hash: &str) -> Result<Option<Uuid>> {
-    let mut tx = pool.begin().await?;
+    complete_setup_in(&mut *pool.acquire().await?, token, password_hash).await
+}
+
+/// [`complete_setup`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn complete_setup_in(
+    conn: &mut sqlx::PgConnection,
+    token: &str,
+    password_hash: &str,
+) -> Result<Option<Uuid>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let user: Option<Uuid> = sqlx::query_scalar(
         "UPDATE local_credentials SET password_hash = $2, setup_token_hash = NULL, setup_expires_at = NULL,
              password_changed_at = now(), failed_attempts = 0, locked_until = NULL
@@ -210,15 +248,21 @@ pub async fn record_failure(pool: &Pool, user_id: Uuid) -> Result<bool> {
 
 /// A successful sign-in: clears the failure count and any expired lock, and records the visit.
 pub async fn record_success(pool: &Pool, user_id: Uuid) -> Result<()> {
+    record_success_in(&mut *pool.acquire().await?, user_id).await
+}
+
+/// [`record_success`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn record_success_in(conn: &mut sqlx::PgConnection, user_id: Uuid) -> Result<()> {
     sqlx::query(
         "UPDATE local_credentials SET failed_attempts = 0, locked_until = NULL WHERE user_id = $1",
     )
     .bind(user_id)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     sqlx::query("UPDATE users SET last_seen_at = now() WHERE id = $1")
         .bind(user_id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     Ok(())
 }
@@ -231,7 +275,18 @@ pub async fn change_password(
     password_hash: &str,
     keep: Option<Uuid>,
 ) -> Result<u64> {
-    let mut tx = pool.begin().await?;
+    change_password_in(&mut *pool.acquire().await?, user_id, password_hash, keep).await
+}
+
+/// [`change_password`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn change_password_in(
+    conn: &mut sqlx::PgConnection,
+    user_id: Uuid,
+    password_hash: &str,
+    keep: Option<Uuid>,
+) -> Result<u64> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let n = sqlx::query(
         "UPDATE local_credentials SET password_hash = $2, password_changed_at = now(), failed_attempts = 0,
              locked_until = NULL, setup_token_hash = NULL, setup_expires_at = NULL

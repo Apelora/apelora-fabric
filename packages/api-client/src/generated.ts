@@ -144,6 +144,8 @@ export type AuditItem = {
   action: string;
   /** Stable id of who acted, e.g. `user:<uuid>`, `service:<uuid>`, `token:<name>`. */
   actor: string;
+  /** The name the actor had when they acted (a username, a token's or service identity's name); absent on events recorded before names were kept. */
+  actorName?: string | null;
   /** `user`, `service`, `token`, `development`, `cli`, `system`, or `anonymous` (a failed password sign-in for an unknown username). */
   actorType: string;
   /** RFC 3339 timestamp. */
@@ -2258,6 +2260,7 @@ export const operations = {
   cancel_request: { method: "POST", path: "/api/v1/approvals/{id}/cancel", params: ["id"], public: false },
   reject_request: { method: "POST", path: "/api/v1/approvals/{id}/reject", params: ["id"], public: false },
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
+  audit_export: { method: "GET", path: "/api/v1/audit/export", params: [], public: false },
   capacity: { method: "GET", path: "/api/v1/capacity", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
@@ -2426,8 +2429,10 @@ export type Responses = {
   cancel_request: ApprovalDto;
   /** Rejects a request. Needs `approval.grant`. */
   reject_request: ApprovalDto;
-  /** The most recent audit events the caller may read, newest first. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
+  /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
+  /** Exports the audit events the caller may read, with the same filters as the list (`limit` does not apply), newest first, as CSV or JSON lines. Streamed one database page at a time. Needs `audit.read`; the export itself is audited as `audit.exported` with its filters. */
+  audit_export: string;
   /** How much CPU, memory and volume space the cluster has free, per server and in total, for comparing with a design. Read-only. With `cluster.view` servers are named; with `capacity.view` (held by designers and operators at any scope) they are numbered. */
   capacity: CapacityReport;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
@@ -2462,7 +2467,7 @@ export type Responses = {
   preview_assignment: AssignmentPreview;
   /** Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its scope and every permission the role confers there (you can only take away what you could grant). Refused when it would leave no enabled platform super admin. */
   revoke_assignment: null;
-  /** Audit history the caller may read, filtered and paged. Needs `audit.read`. */
+  /** Audit history the caller may read: the same filters and paging as `GET /api/v1/audit`. Needs `audit.read`. */
   identity_audit: AuditList;
   /** Grants a person a platform role for a short time, with a recorded reason (break-glass). You cannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`. */
   grant_emergency_access: AssignmentDto;
@@ -2665,6 +2670,7 @@ export type Bodies = {
   cancel_request: never;
   reject_request: never;
   audit: never;
+  audit_export: never;
   capacity: never;
   cluster: never;
   list_join_tokens: never;

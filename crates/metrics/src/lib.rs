@@ -266,6 +266,35 @@ pub static VOLUME_SCHEDULE_RUNS: Counter = Counter::new(
     "Scheduled snapshot and backup runs, by kind (snapshot, backup) and outcome (ok, failed, not_configured).",
     &["kind", "outcome"],
 );
+// ---- the outbox relay (worker; only the holder of the `outbox-relay` lease reports) ---------
+
+pub static OUTBOX_PENDING: Gauge = Gauge::new(
+    "apelora_outbox_pending",
+    "Outbox messages not delivered yet (read by the relay leader every pass; other workers report nothing).",
+    &[],
+);
+pub static OUTBOX_OLDEST_PENDING_AGE: Gauge = Gauge::new(
+    "apelora_outbox_oldest_pending_age_seconds",
+    "How long the oldest undelivered outbox message has waited (0 when none).",
+    &[],
+);
+pub static OUTBOX_FAILING: Gauge = Gauge::new(
+    "apelora_outbox_failing",
+    "Undelivered outbox messages whose last delivery attempt failed (they are retried with backoff).",
+    &[],
+);
+pub static OUTBOX_DELIVERIES: Counter = Counter::new(
+    "apelora_outbox_deliveries",
+    "Outbox delivery attempts, by topic (audit.recorded, ...) and outcome (delivered, failed).",
+    &["topic", "outcome"],
+);
+
+/// An outbox topic as a label: topics are names from code (`audit.recorded`), anything else
+/// becomes `other`.
+pub fn topic_label(topic: &str) -> &str {
+    job_kind_label(topic)
+}
+
 pub static LAST_BACKUP: Gauge = Gauge::new(
     "apelora_volume_last_backup_timestamp_seconds",
     "When the newest volume backup in each backup pool was made (Unix seconds; read from PostgreSQL).",
@@ -389,6 +418,10 @@ pub static FAMILIES: &[&dyn Family] = &[
     &SUPERVISOR_LAST_PASS,
     &VOLUME_SCHEDULE_RUNS,
     &LAST_BACKUP,
+    &OUTBOX_PENDING,
+    &OUTBOX_OLDEST_PENDING_AGE,
+    &OUTBOX_FAILING,
+    &OUTBOX_DELIVERIES,
     &INCUS_REQUESTS,
     &INCUS_DURATION,
     &INCUS_OPERATION_WAIT,
@@ -482,6 +515,8 @@ mod tests {
             "version",
             "commit",
             "mode",
+            // Outbox topics are names from code, few (`topic_label`).
+            "topic",
         ];
         for f in FAMILIES {
             for l in f.label_names() {

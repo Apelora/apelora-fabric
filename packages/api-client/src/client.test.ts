@@ -37,6 +37,19 @@ describe("api client", () => {
     expect((init.headers as Record<string, string>).authorization).toBe("Bearer aps_x");
   });
 
+  it("returns audit exports as text, CSV and JSON lines alike, with the filters in the query", async () => {
+    const answers = [
+      new Response("id,at\r\n1,2026\r\n", { status: 200, headers: { "content-type": "text/csv; charset=utf-8" } }),
+      new Response('{"id":1}\n', { status: 200, headers: { "content-type": "application/x-ndjson" } }),
+    ];
+    const fetch = vi.fn(async () => answers.shift() as Response);
+    const api = createClient({ token: () => "apu_x", fetch });
+    await expect(api.request("audit_export", { query: { format: "csv", actor: "ada", outcome: "denied" } })).resolves.toBe("id,at\r\n1,2026\r\n");
+    await expect(api.request("audit_export", { query: { format: "jsonl" } })).resolves.toBe('{"id":1}\n');
+    const [url] = fetch.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/api/v1/audit/export?format=csv&actor=ada&outcome=denied");
+  });
+
   it("turns error bodies into typed errors with the stable code", async () => {
     const api = createClient({ fetch: async () => json(401, { error: { code: "unauthenticated", message: "token required" } }) });
     const err = await api.get("cluster").catch((e: unknown) => e);
@@ -144,6 +157,7 @@ describe("api client", () => {
       "GET /api/v1/applications/{name}/volumes/{volume}/snapshots",
       "GET /api/v1/approvals",
       "GET /api/v1/audit",
+      "GET /api/v1/audit/export",
       "GET /api/v1/capacity",
       "GET /api/v1/cluster",
       "GET /api/v1/cluster/join-tokens",

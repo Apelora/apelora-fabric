@@ -363,7 +363,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
-        .route("/api/v1/audit", get(audit))
+        .route("/api/v1/audit", get(audit::list))
+        .route("/api/v1/audit/export", get(audit::export))
         .route("/api/v1/monitoring", get(metrics::monitoring))
         .route("/metrics", get(metrics::metrics))
         .route(
@@ -721,6 +722,7 @@ async fn resolve_principal(
                     &apelora_persistence::identity::AuditEntry {
                         actor: &format!("user:{}", user.id),
                         actor_type: "user",
+                        actor_name: user.username.as_deref(),
                         action: "auth.refused",
                         target: "disabled account",
                         outcome: "denied",
@@ -742,6 +744,7 @@ async fn resolve_principal(
         let caller = caller_for(pool, authz::CallerKind::User, user.id, groups, identity.mfa)
             .await
             .map_err(fail)?;
+        authz::audit_provider_sign_in(pool, user.id, &identity.issuer, identity.mfa).await;
         let name = user.username.or(user.email).unwrap_or(identity.subject);
         return Ok(Principal {
             name,
@@ -898,11 +901,13 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
         // Everything done while holding emergency access is on the record.
         authz::audit_failed(
             "emergency_access.request",
-            authz::audit_as(
+            authz::audit_alone(
                 pool,
                 &principal,
                 "emergency_access.request",
                 &format!("{} {}", req.method(), req.uri().path()),
+                "success",
+                None,
                 &serde_json::json!({}),
             )
             .await,
@@ -1127,6 +1132,9 @@ pub struct AuditItem {
     /// `user`, `service`, `token`, `development`, `cli`, `system`, or `anonymous` (a failed
     /// password sign-in for an unknown username).
     pub actor_type: String,
+    /// The name the actor had when they acted (a username, a token's or service identity's
+    /// name); absent on events recorded before names were kept.
+    pub actor_name: Option<String>,
     pub action: String,
     pub target: String,
     /// `success`, `denied` or `failed`.
@@ -1148,6 +1156,7 @@ impl AuditItem {
                 .unwrap_or_default(),
             actor: e.actor,
             actor_type: e.actor_type,
+            actor_name: e.actor_name,
             action: e.action,
             target: e.target,
             outcome: e.outcome,
@@ -1388,39 +1397,6 @@ async fn storage_pools(
     }))
 }
 
-/// The most recent audit events the caller may read, newest first. Needs `audit.read`
-/// (platform-wide, or limited to the events of the caller's organisations, projects and
-/// applications) and a database.
-#[utoipa::path(get, path = "/api/v1/audit", tag = "audit", responses(
-    (status = 200, body = AuditList), (status = 401, body = ErrorBody),
-    (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
-async fn audit(
-    State(state): State<AppState>,
-    Extension(p): Extension<Principal>,
-) -> Result<Json<AuditList>, ApiError> {
-    let filter = authz::filter_for(&p, "audit.read");
-    if filter.is_empty() {
-        return Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            "you may not read the audit log (audit.read)",
-        ));
-    }
-    let Auth::Tokens(pool) = &state.auth else {
-        return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
-            "the audit log needs a database (DATABASE_URL)",
-        ));
-    };
-    let items = apelora_persistence::identity::audit_history(pool, &filter, None, None, None, 100)
-        .await?
-        .into_iter()
-        .map(AuditItem::from_row)
-        .collect();
-    Ok(Json(AuditList { items }))
-}
-
 struct BearerAuth;
 
 impl Modify for BearerAuth {
@@ -1444,7 +1420,7 @@ impl Modify for BearerAuth {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
-    paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
+    paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit::list, audit::export,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         jobs::detail, jobs::retry, jobs::cancel,
         instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,
@@ -1494,6 +1470,7 @@ async fn openapi() -> impl IntoResponse {
 mod admin;
 pub(crate) use admin::token_lifetime_days;
 mod applications;
+mod audit;
 pub mod auth_config;
 mod authz;
 mod cluster_admin;
@@ -1518,6 +1495,8 @@ pub mod sessions;
 pub mod sessions_auth;
 mod volumes;
 
+#[cfg(test)]
+mod audit_coverage_tests;
 #[cfg(test)]
 mod containment_tests;
 #[cfg(test)]

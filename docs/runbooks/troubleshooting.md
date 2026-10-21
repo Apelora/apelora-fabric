@@ -83,7 +83,9 @@ followed on a real cluster incident.
 | Refused by permission (403: `forbidden`, `mfa_required`, `route_not_authorizable`, `account_disabled`) | warn `request denied` | `access.denied` with `code` and `reason` |
 | Action that needs an approval, none presented (`approval_required`) | info | not audited: it is the normal first step of the approval flow |
 | Approval presented that is spent, someone else's or for another action (`approval_invalid`) | warn `approval refused` | `access.denied` with `code: approval_invalid`, the approval id and permission |
-| Every change made through the API | info where useful | always, with actor, target and outcome |
+| Every change made through the API | info where useful | always, with actor, target and outcome, in the same transaction as the change (exceptions: [identity and authorization §8](../architecture/IDENTITY-AND-AUTHORIZATION.md#8-audit-trail)) |
+| Sign-in with an identity provider's token | debug | `auth.oidc.signed_in`, on the first request of each hour per person |
+| An audit export | info | `audit.exported` with the format and filters |
 | The audit write itself fails | error `audit: could not record <action>` | — (that is the failure) |
 
 Never in logs, audit detail or error messages: bearer tokens, API and service tokens, Incus join
@@ -307,8 +309,40 @@ in any case. A job that starts about 2 s late means the wake-up is not working:
 
 ### The audit trail is not being written
 
-- `ERROR audit: could not record access.denied error=…` (or another action). API changes
-  answer with an error when their audit event cannot be written (the change itself may already
-  be stored: look before repeating it), and terminal sessions are not opened. Refusals and
-  session ends are still carried out and only logged. Check the database and the
-  `audit_events` table.
+- A change answers `500 store_error`, and the log line with its request id says
+  `ERROR store: database error` with an error about `audit_events` or `outbox`: the change's audit
+  row could not be written, so **the change was rolled back** with it; nothing was stored and the
+  request can be repeated once the cause is fixed. Check that PostgreSQL is up and has disk
+  space, that nobody added a trigger or permission change on `audit_events` or `outbox`, and the
+  database log. Changes made in Incus (join tokens, evacuation, member removal, snapshots) and the
+  Incus step of volume and machine changes are the exception: Incus has already acted, so look
+  before repeating them.
+- `ERROR audit: could not record access.denied error=…` (or another refusal, a failed sign-in,
+  `auth.oidc.signed_in`, `emergency_access.request`): events that change nothing are written on
+  their own; the request is still answered and only the log has it. Check the same things.
+
+### `TRUNCATE audit_events` is refused
+
+By design: `audit_events is append-only`. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`
+(migration 0022). Retention will come with monthly partitions (EVERY-SIZE.md §5 item 9); until
+then the table only grows. When cleaning up test data, delete the other rows in their own
+statements and leave the audit trail alone.
+
+### The outbox backlog grows
+
+Every audit row writes an outbox message; the worker that holds the `outbox-relay` lease delivers
+them (today to its log, `INFO outbox: message`). If `apelora_outbox_pending` or
+`apelora_outbox_oldest_pending_age_seconds` keeps growing:
+
+1. Is a relay running? `SELECT holder, generation, expires_at > now() FROM leader_leases WHERE name = 'outbox-relay'`.
+   No row, or an expired one, means no worker is relaying: check that a worker runs and that
+   `APELORA_OUTBOX_SINK` is not `off` (with `off` nothing is relayed and the backlog only grows).
+   The worker logs `outbox relay started` at start and `leader: lease acquired` when it takes over.
+2. Are deliveries failing? The relay logs `WARN outbox: delivery failed; will retry` with the
+   message id, topic, attempts and reason, and `apelora_outbox_failing` counts them. The reason is
+   also in the table: `SELECT id, topic, attempts, last_error, next_attempt_at FROM outbox WHERE delivered_at IS NULL ORDER BY id LIMIT 20`.
+   Retries wait 2, 4, 8 … seconds, at most five minutes; nothing is dropped.
+3. `WARN outbox: pass stopped: the relay lease is no longer held`: another worker took over; it
+   delivers the rest (some messages may be delivered twice, by design).
+
+Delivered messages are removed after seven days; undelivered ones are kept.

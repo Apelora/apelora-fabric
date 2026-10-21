@@ -144,8 +144,10 @@ async fn record(
     snapshot: &str,
     scheduled: bool,
 ) -> Result<(), StoreError> {
+    // The backup's record and its audit row are written together.
+    let mut tx = apelora_persistence::begin(pool).await?;
     record_backup(
-        pool,
+        &mut *tx,
         &NewBackup {
             application: &req.application,
             project: &req.project,
@@ -160,13 +162,14 @@ async fn record(
     )
     .await?;
     audit(
-        pool,
+        &mut *tx,
         "storage-scheduler",
         if scheduled { "application.volume.backup.scheduled" } else { "application.volume.backup" },
         &format!("{}/{}", req.project, req.volume),
         &json!({ "application": req.application, "module": req.module, "backup": name, "pool": req.backup_pool, "member": member }),
     )
-    .await
+    .await?;
+    apelora_persistence::commit(tx).await
 }
 
 async fn scheduled_snapshot(

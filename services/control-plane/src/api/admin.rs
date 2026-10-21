@@ -213,7 +213,7 @@ pub(super) async fn create(
             req.role.as_str(),
             missing.join(", ")
         );
-        super::authz::audit_scoped(
+        super::authz::audit_alone(
             pool,
             &p,
             "token.create",
@@ -231,7 +231,7 @@ pub(super) async fn create(
     }
     let approval = if req.role == Role::FabricAdmin {
         if p.caller.is_none() {
-            super::authz::audit_scoped(
+            super::authz::audit_alone(
                 pool,
                 &p,
                 "token.create",
@@ -252,16 +252,18 @@ pub(super) async fn create(
         None
     };
     let expires = time::OffsetDateTime::now_utc() + time::Duration::days(days);
+    let mut tx = super::authz::begin(pool).await?;
     let (secret, rec) =
-        apelora_persistence::create_token(pool, name, req.role.as_str(), Some(expires)).await?;
+        apelora_persistence::create_token(&mut *tx, name, req.role.as_str(), Some(expires)).await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "token.create",
         &rec.name,
         &json!({ "id": rec.id, "role": rec.role, "by": p.role, "expiresInDays": days, "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     let mut res = (
         StatusCode::CREATED,
         Json(TokenCreated {
@@ -288,15 +290,17 @@ pub(super) async fn revoke(
 ) -> Result<StatusCode, ApiError> {
     require(&p, Permission::ManageTokens)?;
     let pool = store(&state)?;
-    apelora_persistence::revoke_token(pool, id).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    apelora_persistence::revoke_token(&mut *tx, id).await?;
     super::authz::audit_as(
-        pool,
+        &mut tx,
         &p,
         "token.revoke",
         &id.to_string(),
         &json!({ "by": p.role }),
     )
     .await?;
+    super::authz::commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

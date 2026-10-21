@@ -80,8 +80,9 @@ export function createClient({ baseUrl = "", token, fetch: doFetch = globalThis.
       throw new ApiRequestError(0, "network_error", e instanceof Error ? e.message : String(e));
     }
     if (res.status === 204) return null as Responses[K];
-    // Text answers (the metrics exposition) are returned as they are.
-    if (res.ok && (res.headers.get("content-type") ?? "").startsWith("text/plain")) return (await res.text()) as Responses[K];
+    // Text answers (the metrics exposition, audit exports as CSV or JSON lines) are returned as they are.
+    const type = res.headers.get("content-type") ?? "";
+    if (res.ok && (type.startsWith("text/") || type.startsWith("application/x-ndjson"))) return (await res.text()) as Responses[K];
     const body = (await res.json().catch(() => null)) as Responses[K] | ErrorBody | null;
     if (!res.ok || body === null) {
       const err = (body as ErrorBody | null)?.error;

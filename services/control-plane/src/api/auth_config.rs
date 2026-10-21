@@ -553,7 +553,8 @@ async fn save(
         &format!("identity-provider:{}", fields.issuer),
     )
     .await?;
-    let id = db::save_provider(pool, id, &fields, &p.actor_ref())
+    let mut tx = super::authz::begin(pool).await?;
+    let id = db::save_provider(&mut *tx, id, &fields, &p.actor_ref())
         .await
         .map_err(|e| match e {
             apelora_persistence::StoreError::Database(e)
@@ -567,6 +568,10 @@ async fn save(
             }
             other => other.into(),
         })?;
+    super::authz::audit_as(&mut tx, p, "identity.provider.saved", &fields.issuer,
+        &json!({ "id": id, "name": fields.name, "enabled": fields.enabled, "audiences": fields.audiences, "clientId": fields.client_id, "approval": approval }))
+        .await?;
+    super::authz::commit(tx).await?;
     reload(state).await?;
     let rt = state.runtime();
     let saved = rt
@@ -582,9 +587,6 @@ async fn save(
                 "the provider was saved, but another change removed it before it could be shown; reload the sign-in settings and check the list",
             )
         })?;
-    audit_as(pool, p, "identity.provider.saved", &fields.issuer,
-        &json!({ "id": id, "name": fields.name, "enabled": fields.enabled, "audiences": fields.audiences, "clientId": fields.client_id, "reachable": saved.verifier.is_some(), "approval": approval }))
-        .await?;
     Ok(view(saved))
 }
 
@@ -678,16 +680,18 @@ pub(super) async fn delete(
         &format!("identity-provider:{}", existing.issuer),
     )
     .await?;
-    db::delete_provider(pool, id).await?;
-    reload(&state).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    db::delete_provider(&mut *tx, id).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         "identity.provider.deleted",
         &existing.issuer,
         &json!({ "id": id, "name": existing.name, "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
+    reload(&state).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -766,10 +770,10 @@ pub(super) async fn set_api_tokens(
     }
     let pool = store(&state)?;
     let approval = guard(&state, &p, &headers, MANAGE, "api-tokens").await?;
-    db::set_setting(pool, API_TOKENS, &json!(req.enabled), &p.actor_ref()).await?;
-    reload(&state).await?;
+    let mut tx = super::authz::begin(pool).await?;
+    db::set_setting(&mut *tx, API_TOKENS, &json!(req.enabled), &p.actor_ref()).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         if req.enabled {
             "identity.api_tokens.enabled"
@@ -780,6 +784,8 @@ pub(super) async fn set_api_tokens(
         &json!({ "approval": approval }),
     )
     .await?;
+    super::authz::commit(tx).await?;
+    reload(&state).await?;
     Ok(Json(api_token_setting(&state)))
 }
 

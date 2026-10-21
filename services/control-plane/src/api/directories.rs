@@ -24,7 +24,7 @@ use serde_json::json;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use super::authz::{allow_platform, audit_as, audit_failed, guard};
+use super::authz::{allow_platform, audit_as, audit_failed, begin, commit, guard};
 use super::deploy::{bad_request, store};
 use super::ldap::{self, BindForm, DirectoryProblem, Failure};
 use super::{ApiError, AppState, ErrorBody, Principal, requests};
@@ -422,7 +422,8 @@ async fn save(
         &format!("directory:{}", fields.url),
     )
     .await?;
-    let id = db::save_directory(pool, id, &fields, &p.actor_ref())
+    let mut tx = begin(pool).await?;
+    let id = db::save_directory(&mut *tx, id, &fields, &p.actor_ref())
         .await
         .map_err(|e| match e {
             apelora_persistence::StoreError::Database(e)
@@ -436,17 +437,19 @@ async fn save(
             }
             other => other.into(),
         })?;
-    let saved = db::get_directory(pool, id).await?.ok_or_else(|| {
+    let saved = db::get_directory(&mut *tx, id).await?.ok_or_else(|| {
         ApiError::new(
             StatusCode::CONFLICT,
             "conflict",
             "the directory was saved, but another change removed it; reload the sign-in settings",
         )
     })?;
-    let reach = reachability(&saved, ldap::REACH_DEADLINE).await;
-    audit_as(pool, p, "identity.directory.saved", &format!("directory:{id}"),
-        &json!({ "id": id, "name": fields.name, "url": fields.url, "startTls": fields.start_tls, "enabled": fields.enabled, "reachable": saved.enabled && reach.is_none(), "approval": approval }))
+    audit_as(&mut tx, p, "identity.directory.saved", &format!("directory:{id}"),
+        &json!({ "id": id, "name": fields.name, "url": fields.url, "startTls": fields.start_tls, "enabled": fields.enabled, "approval": approval }))
         .await?;
+    commit(tx).await?;
+    // Probed after the commit: no transaction is held while a directory is asked.
+    let reach = reachability(&saved, ldap::REACH_DEADLINE).await;
     Ok(view(&saved, reach.as_ref()))
 }
 
@@ -520,15 +523,17 @@ pub(super) async fn delete(
         &format!("directory:{}", existing.url),
     )
     .await?;
-    db::delete_directory(pool, id).await?;
+    let mut tx = begin(pool).await?;
+    db::delete_directory(&mut *tx, id).await?;
     audit_as(
-        pool,
+        &mut tx,
         &p,
         "identity.directory.deleted",
         &format!("directory:{id}"),
         &json!({ "id": id, "name": existing.name, "url": existing.url, "approval": approval }),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -658,37 +663,51 @@ pub(super) fn invalid_credentials() -> ApiError {
     )
 }
 
+/// A refused directory sign-in, on its own (it changes nothing); a failure to record it is
+/// logged at error.
 async fn audit_sign_in(
     state: &AppState,
     actor: (&str, &str),
     outcome: &str,
     action: &str,
-    (directory_id, directory_name): (Uuid, &str),
-    mut detail: serde_json::Value,
+    directory: (Uuid, &str),
+    detail: serde_json::Value,
 ) {
     let super::Auth::Tokens(pool) = &state.auth else {
         return;
     };
+    audit_failed(
+        action,
+        write_sign_in(pool, actor, outcome, action, directory, detail).await,
+    );
+}
+
+async fn write_sign_in(
+    db: impl apelora_persistence::PgExecutor<'_>,
+    actor: (&str, &str),
+    outcome: &str,
+    action: &str,
+    (directory_id, directory_name): (Uuid, &str),
+    mut detail: serde_json::Value,
+) -> apelora_persistence::Result<()> {
     if let Some(o) = detail.as_object_mut() {
         o.insert("directory".into(), json!(directory_name));
     }
     requests::tag(&mut detail);
-    audit_failed(
-        action,
-        audit_event(
-            pool,
-            &AuditEntry {
-                actor: actor.0,
-                actor_type: actor.1,
-                action,
-                target: &format!("directory:{directory_id}"),
-                outcome,
-                scope: None,
-                detail: &detail,
-            },
-        )
-        .await,
-    );
+    audit_event(
+        db,
+        &AuditEntry {
+            actor: actor.0,
+            actor_type: actor.1,
+            actor_name: detail["username"].as_str(),
+            action,
+            target: &format!("directory:{directory_id}"),
+            outcome,
+            scope: None,
+            detail: &detail,
+        },
+    )
+    .await
 }
 
 /// Binds to the directory as the person and reads who they are, within 10 seconds. Failures
@@ -791,13 +810,26 @@ pub(super) async fn verify_within(
 /// Creates the person on their first directory sign-in (issuer: the directory's URL, subject:
 /// the entry's stable id) and refreshes their profile later. A disabled person is refused
 /// (`403 account_disabled`). Success is audited as `auth.directory.succeeded`.
+#[cfg(test)]
 pub async fn upsert_directory_user(
     state: &AppState,
     identity: &DirectoryIdentity,
 ) -> Result<UserRow, ApiError> {
-    let pool = store(state)?;
+    let mut tx = begin(store(state)?).await?;
+    let user = upsert_directory_user_in(&mut tx, state, identity).await?;
+    commit(tx).await?;
+    Ok(user)
+}
+
+/// [`upsert_directory_user`] inside the caller's transaction: the person and the
+/// `auth.directory.succeeded` row commit with whatever else the sign-in writes (its session).
+pub(super) async fn upsert_directory_user_in(
+    tx: &mut apelora_persistence::PgConnection,
+    state: &AppState,
+    identity: &DirectoryIdentity,
+) -> Result<UserRow, ApiError> {
     let user = upsert_user(
-        pool,
+        &mut *tx,
         &identity.issuer,
         &identity.subject,
         Some(&identity.username),
@@ -823,15 +855,15 @@ pub async fn upsert_directory_user(
             "this account has been disabled",
         ));
     }
-    audit_sign_in(
-        state,
+    write_sign_in(
+        &mut *tx,
         (&actor, "user"),
         "success",
         "auth.directory.succeeded",
         directory,
         json!({ "username": identity.username, "groups": identity.groups }),
     )
-    .await;
+    .await?;
     Ok(user)
 }
 

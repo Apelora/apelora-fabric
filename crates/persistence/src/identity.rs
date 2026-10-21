@@ -73,12 +73,16 @@ pub struct OrganizationRow {
     pub disabled_at: Option<OffsetDateTime>,
 }
 
-pub async fn create_organization(pool: &PgPool, slug: &str, name: &str) -> Result<OrganizationRow> {
+pub async fn create_organization(
+    db: impl sqlx::PgExecutor<'_>,
+    slug: &str,
+    name: &str,
+) -> Result<OrganizationRow> {
     sqlx::query_as("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) RETURNING id, slug, name, created_at, disabled_at")
         .bind(Uuid::new_v4())
         .bind(slug)
         .bind(name)
-        .fetch_one(pool)
+        .fetch_one(db)
         .await
         .map_err(|e| db_conflict(e, "an organisation with that identifier"))
 }
@@ -122,23 +126,22 @@ const PROJECT_COLS: &str =
     "p.id, p.organization_id, o.slug AS organization_slug, p.slug, p.name, p.created_at";
 
 pub async fn create_project(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     organization_id: Uuid,
     slug: &str,
     name: &str,
 ) -> Result<ProjectRow> {
-    let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO projects (id, organization_id, slug, name) VALUES ($1, $2, $3, $4)")
-        .bind(id)
-        .bind(organization_id)
-        .bind(slug)
-        .bind(name)
-        .execute(pool)
-        .await
-        .map_err(|e| db_conflict(e, "a project with that identifier"))?;
-    project(pool, id)
-        .await?
-        .ok_or_else(|| StoreError::NotFound(format!("project {id}")))
+    sqlx::query_as(&format!(
+        "WITH p AS (INSERT INTO projects (id, organization_id, slug, name) VALUES ($1, $2, $3, $4) RETURNING *)
+         SELECT {PROJECT_COLS} FROM p JOIN organizations o ON o.id = p.organization_id"
+    ))
+    .bind(Uuid::new_v4())
+    .bind(organization_id)
+    .bind(slug)
+    .bind(name)
+    .fetch_one(db)
+    .await
+    .map_err(|e| db_conflict(e, "a project with that identifier"))
 }
 
 pub async fn project(pool: &PgPool, id: Uuid) -> Result<Option<ProjectRow>> {
@@ -174,7 +177,7 @@ pub struct EnvironmentRow {
 }
 
 pub async fn create_environment(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     project_id: Uuid,
     slug: &str,
     name: &str,
@@ -188,7 +191,7 @@ pub async fn create_environment(
         .bind(name)
         .bind(kind.as_str())
         .bind(incus_project)
-        .fetch_one(pool)
+        .fetch_one(db)
         .await
         .map_err(|e| db_conflict(e, "an environment with that identifier or Incus project"))
 }
@@ -325,16 +328,33 @@ pub async fn ensure_application_in(
     project_id: Uuid,
     environment_id: Option<Uuid>,
 ) -> Result<crate::Application> {
+    ensure_application_in_tx(
+        &mut *pool.acquire().await?,
+        name,
+        project_id,
+        environment_id,
+    )
+    .await
+}
+
+/// [`ensure_application_in`] (the `_tx` form, as its name already ends in `_in`) inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn ensure_application_in_tx(
+    conn: &mut sqlx::PgConnection,
+    name: &str,
+    project_id: Uuid,
+    environment_id: Option<Uuid>,
+) -> Result<crate::Application> {
     sqlx::query("INSERT INTO applications (id, name, project_id, environment_id) VALUES ($1, $2, $3, $4) ON CONFLICT (name) DO NOTHING")
         .bind(Uuid::new_v4())
         .bind(name)
         .bind(project_id)
         .bind(environment_id)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     let row = sqlx::query("SELECT id, name, project_id FROM applications WHERE name = $1")
         .bind(name)
-        .fetch_one(pool)
+        .fetch_one(&mut *conn)
         .await?;
     if row.get::<Uuid, _>("project_id") != project_id {
         return Err(StoreError::Conflict(format!(
@@ -390,7 +410,7 @@ const USER_COLS: &str =
 
 /// First sign-in creates the user; later ones refresh the profile and the last-seen time.
 pub async fn upsert_user(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     issuer: &str,
     subject: &str,
     username: Option<&str>,
@@ -408,7 +428,7 @@ pub async fn upsert_user(
     .bind(username)
     .bind(email)
     .bind(display_name)
-    .fetch_one(pool)
+    .fetch_one(db)
     .await?)
 }
 
@@ -430,7 +450,17 @@ pub async fn find_user(pool: &PgPool, query: &str) -> Result<Option<UserRow>> {
 /// (password and directory sign-ins), in the same transaction; returns how many.
 /// Unguarded: to disable someone on a person's behalf use [`guarded_change`].
 pub async fn set_user_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<u64> {
-    let mut tx = pool.begin().await?;
+    set_user_disabled_in(&mut *pool.acquire().await?, id, disabled).await
+}
+
+/// [`set_user_disabled`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn set_user_disabled_in(
+    conn: &mut sqlx::PgConnection,
+    id: Uuid,
+    disabled: bool,
+) -> Result<u64> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let n = sqlx::query("UPDATE users SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(&mut *tx).await?.rows_affected();
     if n == 0 {
         return Err(StoreError::NotFound(format!("user {id}")));
@@ -484,7 +514,7 @@ pub struct GroupRow {
 const GROUP_COLS: &str = "id, organization_id, name, external_name, description, created_at";
 
 pub async fn create_group(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     organization_id: Option<Uuid>,
     name: &str,
     external_name: Option<&str>,
@@ -496,7 +526,7 @@ pub async fn create_group(
         .bind(name)
         .bind(external_name)
         .bind(description)
-        .fetch_one(pool)
+        .fetch_one(db)
         .await
         .map_err(|e| db_conflict(e, "a group with that name or identity-provider name"))
 }
@@ -526,21 +556,25 @@ pub async fn list_groups(pool: &PgPool, f: &AccessFilter) -> Result<Vec<GroupRow
 }
 
 pub async fn add_group_member(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     group_id: Uuid,
     user_id: Uuid,
     by: &str,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO group_members (group_id, user_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(group_id).bind(user_id).bind(by).execute(pool).await.map_err(|e| db_conflict(e, "that membership"))?;
+    sqlx::query("INSERT INTO group_members (group_id, user_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING").bind(group_id).bind(user_id).bind(by).execute(db).await.map_err(|e| db_conflict(e, "that membership"))?;
     Ok(())
 }
 
 /// Unguarded: on a person's behalf use [`change_keeping_a_super_admin`].
-pub async fn remove_group_member(pool: &PgPool, group_id: Uuid, user_id: Uuid) -> Result<()> {
+pub async fn remove_group_member(
+    db: impl sqlx::PgExecutor<'_>,
+    group_id: Uuid,
+    user_id: Uuid,
+) -> Result<()> {
     sqlx::query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2")
         .bind(group_id)
         .bind(user_id)
-        .execute(pool)
+        .execute(db)
         .await?;
     Ok(())
 }
@@ -583,7 +617,7 @@ pub async fn external_groups(pool: &PgPool, ids: &BTreeSet<Uuid>) -> Result<BTre
 // ---- roles and assignments ------------------------------------------------------------------
 
 pub async fn create_custom_role(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     description: &str,
     permissions: &BTreeSet<String>,
@@ -596,7 +630,7 @@ pub async fn create_custom_role(
         .bind(description)
         .bind(permissions.iter().cloned().collect::<Vec<_>>())
         .bind(by)
-        .execute(pool)
+        .execute(db)
         .await
         .map_err(|e| db_conflict(e, "a role with that name"))?;
     Ok(CustomRole {
@@ -631,10 +665,10 @@ pub async fn custom_role(pool: &PgPool, id: Uuid) -> Result<Option<CustomRole>> 
 }
 
 /// Refuses while any assignment (even a revoked one, which the audit trail still refers to) uses the role.
-pub async fn delete_custom_role(pool: &PgPool, id: Uuid) -> Result<()> {
+pub async fn delete_custom_role(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<()> {
     let n = sqlx::query("DELETE FROM custom_roles WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await
         .map_err(|e| db_conflict(e, "the role"))?
         .rows_affected();
@@ -722,7 +756,7 @@ fn principal_columns(p: &PrincipalRef) -> (&'static str, Uuid) {
     }
 }
 
-pub async fn insert_assignment(pool: &PgPool, a: &NewAssignment) -> Result<Uuid> {
+pub async fn insert_assignment(db: impl sqlx::PgExecutor<'_>, a: &NewAssignment) -> Result<Uuid> {
     let id = Uuid::new_v4();
     let (st, org, proj, app, pool_name) = scope_columns(&a.scope);
     let (pt, pid) = principal_columns(&a.principal);
@@ -749,15 +783,15 @@ pub async fn insert_assignment(pool: &PgPool, a: &NewAssignment) -> Result<Uuid>
     .bind(a.expires_at)
     .bind(&a.reason)
     .bind(&a.created_by)
-    .execute(pool)
+    .execute(db)
     .await
     .map_err(|e| db_conflict(e, "that assignment"))?;
     Ok(id)
 }
 
 /// Unguarded: on a person's behalf use [`change_keeping_a_super_admin`].
-pub async fn revoke_assignment(pool: &PgPool, id: Uuid, by: &str) -> Result<()> {
-    let n = sqlx::query("UPDATE role_assignments SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL").bind(id).bind(by).execute(pool).await?.rows_affected();
+pub async fn revoke_assignment(db: impl sqlx::PgExecutor<'_>, id: Uuid, by: &str) -> Result<()> {
+    let n = sqlx::query("UPDATE role_assignments SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL").bind(id).bind(by).execute(db).await?.rows_affected();
     if n == 0 {
         Err(StoreError::NotFound(format!("assignment {id}")))
     } else {
@@ -928,7 +962,7 @@ pub async fn list_policies(pool: &PgPool) -> Result<Vec<PolicyRow>> {
 }
 
 pub async fn save_policy(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     kind: &str,
     parameters: &Value,
@@ -946,15 +980,15 @@ pub async fn save_policy(
     .bind(parameters)
     .bind(enabled)
     .bind(by)
-    .fetch_one(pool)
+    .fetch_one(db)
     .await
     .map_err(|e| db_conflict(e, "that policy"))
 }
 
-pub async fn delete_policy(pool: &PgPool, id: Uuid) -> Result<()> {
+pub async fn delete_policy(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<()> {
     let n = sqlx::query("DELETE FROM access_policies WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected();
     if n == 0 {
@@ -1025,7 +1059,7 @@ fn hash(token: &str) -> Vec<u8> {
 
 /// Registers a service identity. Automation identities also get an API token, returned once.
 pub async fn create_service_identity(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     name: &str,
     kind: &str,
     credential_ref: Option<&str>,
@@ -1055,7 +1089,7 @@ pub async fn create_service_identity(
     .bind(token.as_deref().map(hash))
     .bind(by)
     .bind(expires_at)
-    .fetch_one(pool)
+    .fetch_one(db)
     .await
     .map_err(|e| db_conflict(e, "a service identity with that name"))?;
     Ok((row, token))
@@ -1069,8 +1103,12 @@ pub async fn list_service_identities(pool: &PgPool) -> Result<Vec<ServiceIdentit
     .await?)
 }
 
-pub async fn set_service_identity_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<()> {
-    let n = sqlx::query("UPDATE service_identities SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(pool).await?.rows_affected();
+pub async fn set_service_identity_disabled(
+    db: impl sqlx::PgExecutor<'_>,
+    id: Uuid,
+    disabled: bool,
+) -> Result<()> {
+    let n = sqlx::query("UPDATE service_identities SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(db).await?.rows_affected();
     if n == 0 {
         Err(StoreError::NotFound(format!("service identity {id}")))
     } else {
@@ -1142,7 +1180,7 @@ fn domain(r: &ApprovalRow) -> Approval {
 }
 
 pub async fn request_approval(
-    pool: &PgPool,
+    db: impl sqlx::PgExecutor<'_>,
     action: &str,
     target: &str,
     requester: &str,
@@ -1161,7 +1199,7 @@ pub async fn request_approval(
         .bind(requester)
         .bind(reason)
         .bind(a.expires_at as f64)
-        .fetch_one(pool)
+        .fetch_one(db)
         .await?)
 }
 
@@ -1217,7 +1255,26 @@ pub async fn decide_approval(
     approver_may: bool,
     approve: bool,
 ) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
-    let mut tx = pool.begin().await?;
+    decide_approval_in(
+        &mut *pool.acquire().await?,
+        id,
+        approver,
+        approver_may,
+        approve,
+    )
+    .await
+}
+
+/// [`decide_approval`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn decide_approval_in(
+    conn: &mut sqlx::PgConnection,
+    id: Uuid,
+    approver: &str,
+    approver_may: bool,
+    approve: bool,
+) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let Some(row) = sqlx::query_as::<_, ApprovalRow>(&format!(
         "SELECT {APPROVAL_COLS} FROM approvals WHERE id = $1 FOR UPDATE"
     ))
@@ -1249,7 +1306,17 @@ pub async fn cancel_approval(
     id: Uuid,
     who: &str,
 ) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
-    let mut tx = pool.begin().await?;
+    cancel_approval_in(&mut *pool.acquire().await?, id, who).await
+}
+
+/// [`cancel_approval`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn cancel_approval_in(
+    conn: &mut sqlx::PgConnection,
+    id: Uuid,
+    who: &str,
+) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let Some(row) = sqlx::query_as::<_, ApprovalRow>(&format!(
         "SELECT {APPROVAL_COLS} FROM approvals WHERE id = $1 FOR UPDATE"
     ))
@@ -1284,7 +1351,19 @@ pub async fn consume_approval(
     target: &str,
     who: &str,
 ) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
-    let mut tx = pool.begin().await?;
+    consume_approval_in(&mut *pool.acquire().await?, id, action, target, who).await
+}
+
+/// [`consume_approval`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn consume_approval_in(
+    conn: &mut sqlx::PgConnection,
+    id: Uuid,
+    action: &str,
+    target: &str,
+    who: &str,
+) -> Result<std::result::Result<ApprovalRow, apelora_auth::ApprovalError>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let Some(row) = sqlx::query_as::<_, ApprovalRow>(&format!(
         "SELECT {APPROVAL_COLS} FROM approvals WHERE id = $1 FOR UPDATE"
     ))
@@ -1312,6 +1391,8 @@ pub async fn consume_approval(
 pub struct AuditEntry<'a> {
     pub actor: &'a str,
     pub actor_type: &'a str,
+    /// The name the actor has now (a username, a token's or service identity's name).
+    pub actor_name: Option<&'a str>,
     pub action: &'a str,
     pub target: &'a str,
     pub outcome: &'a str,
@@ -1319,18 +1400,37 @@ pub struct AuditEntry<'a> {
     pub detail: &'a Value,
 }
 
-pub async fn audit_event(pool: &PgPool, e: &AuditEntry<'_>) -> Result<()> {
+/// Records an audit row and its outbox message (topic [`crate::outbox::AUDIT_TOPIC`], the row
+/// as the API shows it) in one statement. Inside the caller's transaction (`&mut *tx`) both
+/// commit or roll back with the change they describe; on a pool they are written on their own
+/// (for events that change nothing in this database: refusals, failed attempts, exports).
+pub async fn audit_event(db: impl sqlx::PgExecutor<'_>, e: &AuditEntry<'_>) -> Result<()> {
     let scope = e.scope.map(|r| json!({ "organization": r.organization, "project": r.project, "application": r.application }));
-    sqlx::query("INSERT INTO audit_events (actor, actor_type, action, target, outcome, scope, detail) VALUES ($1,$2,$3,$4,$5,$6,$7)")
-        .bind(e.actor)
-        .bind(e.actor_type)
-        .bind(e.action)
-        .bind(e.target)
-        .bind(e.outcome)
-        .bind(scope)
-        .bind(e.detail)
-        .execute(pool)
-        .await?;
+    let name = e
+        .actor_name
+        .map(|n| n.chars().take(200).collect::<String>());
+    sqlx::query(
+        "WITH a AS (
+            INSERT INTO audit_events (actor, actor_type, actor_name, action, target, outcome, scope, detail)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            RETURNING id, at, actor, actor_type, actor_name, action, target, outcome, scope, detail)
+         INSERT INTO outbox (topic, payload)
+         SELECT $9, jsonb_build_object('id', id, 'at', at, 'actor', actor, 'actorType', actor_type,
+                'actorName', actor_name, 'action', action, 'target', target, 'outcome', outcome,
+                'scope', scope, 'detail', detail)
+         FROM a",
+    )
+    .bind(e.actor)
+    .bind(e.actor_type)
+    .bind(name)
+    .bind(e.action)
+    .bind(e.target)
+    .bind(e.outcome)
+    .bind(scope)
+    .bind(e.detail)
+    .bind(crate::outbox::AUDIT_TOPIC)
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -1341,6 +1441,7 @@ pub struct AuditRow {
     pub at: OffsetDateTime,
     pub actor: String,
     pub actor_type: String,
+    pub actor_name: Option<String>,
     pub action: String,
     pub target: String,
     pub outcome: String,
@@ -1348,35 +1449,121 @@ pub struct AuditRow {
     pub detail: Value,
 }
 
-/// Newest first. Platform-wide readers see everything (including events with no scope); others
-/// see only events that name an organisation, project or application they may read.
+pub(crate) const AUDIT_COLS: &str =
+    "id, at, actor, actor_type, actor_name, action, target, outcome, scope, detail";
+
+/// What to read from the audit trail. Every field narrows; `None` does not.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AuditQuery {
+    /// The actor's stable id (`user:<uuid>`, `token:<name>`, …) or, ignoring case, the name
+    /// they had when they acted.
+    pub actor: Option<String>,
+    /// The exact target.
+    pub target: Option<String>,
+    /// Actions starting with this, e.g. `role.`.
+    pub action_prefix: Option<String>,
+    /// `success`, `denied` or `failed`.
+    pub outcome: Option<String>,
+    /// At or after this time.
+    pub from: Option<OffsetDateTime>,
+    /// Before this time.
+    pub to: Option<OffsetDateTime>,
+    /// Only events older than this id (paging, newest first).
+    pub before: Option<i64>,
+}
+
+/// `LIKE` treats `%`, `_` and the backslash specially; a prefix is matched literally.
+fn like_prefix(p: &str) -> String {
+    let mut out = String::with_capacity(p.len() + 1);
+    for c in p.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out.push('%');
+    out
+}
+
+/// Newest first, at most `limit` (1–1,000). Platform-wide readers see everything (including
+/// events with no scope); others see only events that name an organisation, project or
+/// application they may read. Every filter is served by an index (migration 0022).
 pub async fn audit_history(
     pool: &PgPool,
     f: &AccessFilter,
-    action_prefix: Option<&str>,
-    outcome: Option<&str>,
-    before_id: Option<i64>,
+    q: &AuditQuery,
     limit: i64,
 ) -> Result<Vec<AuditRow>> {
     let (orgs, projects, apps) = arrays(f);
-    Ok(sqlx::query_as(
-        "SELECT id, at, actor, actor_type, action, target, outcome, scope, detail FROM audit_events e
+    Ok(sqlx::query_as(&format!(
+        "SELECT {AUDIT_COLS} FROM audit_events e
          WHERE ($1 OR (e.scope IS NOT NULL AND ((e.scope->>'organization')::uuid = ANY($2) OR (e.scope->>'project')::uuid = ANY($3) OR (e.scope->>'application')::uuid = ANY($4))))
-           AND ($5::text IS NULL OR e.action LIKE $5 || '%')
+           AND ($5::text IS NULL OR e.action LIKE $5)
            AND ($6::text IS NULL OR e.outcome = $6)
            AND ($7::bigint IS NULL OR e.id < $7)
-         ORDER BY e.id DESC LIMIT $8",
-    )
+           AND ($8::text IS NULL OR e.actor = $8 OR lower(e.actor_name) = lower($8))
+           AND ($9::text IS NULL OR e.target = $9)
+           AND ($10::timestamptz IS NULL OR e.at >= $10)
+           AND ($11::timestamptz IS NULL OR e.at < $11)
+         ORDER BY e.id DESC LIMIT $12"
+    ))
     .bind(all(f))
     .bind(orgs)
     .bind(projects)
     .bind(apps)
-    .bind(action_prefix)
-    .bind(outcome)
-    .bind(before_id)
-    .bind(limit.clamp(1, 500))
+    .bind(q.action_prefix.as_deref().map(like_prefix))
+    .bind(q.outcome.as_deref())
+    .bind(q.before)
+    .bind(q.actor.as_deref())
+    .bind(q.target.as_deref())
+    .bind(q.from)
+    .bind(q.to)
+    .bind(limit.clamp(1, 1000))
     .fetch_all(pool)
     .await?)
+}
+
+/// Audits a sign-in with an identity provider's token at most once per person per
+/// `period_secs`: the first request of each period writes `auth.oidc.signed_in` (and its outbox
+/// message), later ones write nothing, so valid tokens cannot fill the trail. Race-safe: the
+/// conditional update takes the person's row lock, so of two concurrent first requests only one
+/// records. Returns whether this request recorded it.
+pub async fn audit_provider_sign_in(
+    pool: &PgPool,
+    user_id: Uuid,
+    period_secs: f64,
+    detail: &Value,
+) -> Result<bool> {
+    let mut tx = pool.begin().await?;
+    let due = sqlx::query_scalar::<_, String>(
+        "UPDATE users SET sign_in_audited_at = now()
+         WHERE id = $1 AND (sign_in_audited_at IS NULL OR sign_in_audited_at <= now() - make_interval(secs => $2))
+         RETURNING coalesce(username, email, subject)",
+    )
+    .bind(user_id)
+    .bind(period_secs)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(name) = due else {
+        return Ok(false);
+    };
+    let actor = format!("user:{user_id}");
+    audit_event(
+        &mut *tx,
+        &AuditEntry {
+            actor: &actor,
+            actor_type: "user",
+            actor_name: Some(&name),
+            action: "auth.oidc.signed_in",
+            target: &actor,
+            outcome: "success",
+            scope: None,
+            detail,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// Count of live platform-super-admin assignments; used by `identity bootstrap`. The guard
@@ -1425,11 +1612,29 @@ pub async fn change_keeping_a_super_admin(
     Ok(guarded_change(pool, change).await?.is_some())
 }
 
+/// [`change_keeping_a_super_admin`] inside the caller's transaction: the advisory lock is held
+/// until the caller commits, so the audit row is written under it too.
+pub async fn change_keeping_a_super_admin_in(
+    conn: &mut sqlx::PgConnection,
+    change: SuperAdminChange<'_>,
+) -> Result<bool> {
+    Ok(guarded_change_in(conn, change).await?.is_some())
+}
+
 /// [`change_keeping_a_super_admin`], returning `None` when refused and otherwise how many
 /// Apelora sessions the change revoked: disabling a person ends their sessions in the same
 /// transaction; the other changes revoke none.
 pub async fn guarded_change(pool: &PgPool, change: SuperAdminChange<'_>) -> Result<Option<u64>> {
-    let mut tx = pool.begin().await?;
+    guarded_change_in(&mut *pool.acquire().await?, change).await
+}
+
+/// [`guarded_change`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn guarded_change_in(
+    conn: &mut sqlx::PgConnection,
+    change: SuperAdminChange<'_>,
+) -> Result<Option<u64>> {
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(SUPER_ADMIN_LOCK)
         .execute(&mut *tx)

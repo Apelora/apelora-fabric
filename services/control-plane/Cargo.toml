@@ -17,6 +17,7 @@ apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter"
 apelora-metrics = { version = "0.0.0", path = "../../crates/metrics" }
 apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
 argon2 = "0.6.0"
+futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
 axum = { version = "0.8.9", features = ["ws"] }
 getrandom = "0.4.3"
 jiff = "0.2.38"

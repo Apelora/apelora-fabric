@@ -350,7 +350,8 @@ async fn refuse(
     code: &'static str,
     message: String,
 ) -> ApiError {
-    let result = audit_scoped(
+    // A refusal changes nothing: its row is written on its own.
+    let result = super::authz::audit_alone(
         pool,
         p,
         action,
@@ -390,8 +391,10 @@ pub(super) async fn retry(
     let key = idempotency_key(&headers, &p)?;
     let actor = p.actor_ref();
     let request = super::requests::current();
-    let result = apelora_persistence::jobs::retry_job(
-        pool,
+    // The new job and its audit row commit together; a refusal rolls back and is audited alone.
+    let mut tx = super::authz::begin(pool).await?;
+    let result = apelora_persistence::jobs::retry_job_in(
+        &mut tx,
         id,
         &RetryRequest {
             queued_by: &actor,
@@ -432,7 +435,7 @@ pub(super) async fn retry(
     };
     if created {
         audit_scoped(
-            pool,
+            &mut tx,
             &p,
             "job.retry",
             &target_of(&job, None),
@@ -443,6 +446,7 @@ pub(super) async fn retry(
         .await?;
         tracing::info!(job = %id, new_job = %new, kind = %job.kind, "job: retry queued");
     }
+    super::authz::commit(tx).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(JobAccepted {
@@ -469,27 +473,31 @@ pub(super) async fn cancel(
     let pool = store(&state)?;
     let job = visible_job(&state, &p, pool, id).await?;
     authorize(&state, &p, pool, &job).await?;
-    let outcome = match apelora_persistence::jobs::request_cancel(pool, id, &p.actor_ref()).await? {
-        Cancel::Finished(status) => {
-            return Err(refuse(
-                pool,
-                &p,
-                "job.cancel",
-                &job,
-                "job_finished",
-                format!("the job is {status}; only waiting or running jobs can be cancelled"),
-            )
-            .await);
-        }
-        Cancel::AlreadyRequested => "requested",
-        c @ (Cancel::Cancelled | Cancel::Requested) => {
-            let outcome = if c == Cancel::Cancelled {
-                "cancelled"
-            } else {
-                "requested"
-            };
-            audit_scoped(
-                pool,
+    // The cancellation and its audit row commit together; a refusal is audited alone.
+    let mut tx = super::authz::begin(pool).await?;
+    let outcome =
+        match apelora_persistence::jobs::request_cancel_in(&mut tx, id, &p.actor_ref()).await? {
+            Cancel::Finished(status) => {
+                drop(tx);
+                return Err(refuse(
+                    pool,
+                    &p,
+                    "job.cancel",
+                    &job,
+                    "job_finished",
+                    format!("the job is {status}; only waiting or running jobs can be cancelled"),
+                )
+                .await);
+            }
+            Cancel::AlreadyRequested => "requested",
+            c @ (Cancel::Cancelled | Cancel::Requested) => {
+                let outcome = if c == Cancel::Cancelled {
+                    "cancelled"
+                } else {
+                    "requested"
+                };
+                audit_scoped(
+                &mut tx,
                 &p,
                 "job.cancel",
                 &target_of(&job, None),
@@ -498,10 +506,11 @@ pub(super) async fn cancel(
                 &json!({ "jobId": id, "kind": job.kind, "outcome": outcome, "status": job.status }),
             )
             .await?;
-            tracing::info!(job = %id, kind = %job.kind, outcome, "job: cancellation");
-            outcome
-        }
-    };
+                tracing::info!(job = %id, kind = %job.kind, outcome, "job: cancellation");
+                outcome
+            }
+        };
+    super::authz::commit(tx).await?;
     let now = apelora_persistence::get_job(pool, id).await?;
     let mut out = with_actions(&state, &p, vec![now]).await?;
     Ok(Json(JobCancellation {

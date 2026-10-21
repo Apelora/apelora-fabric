@@ -38,7 +38,7 @@ sequenceDiagram
   API->>API: route gate (GATES): route listed? else deny
   API->>DB: resolve resource in caller's scope (404 if not visible)
   API->>API: allow(permission, exact resource), MFA/approval policy
-  API->>DB: write change + audit row (same transaction where possible)
+  API->>DB: one transaction: change + audit row + outbox message
   API-->>B: result (+ per-resource `actions` for the UI)
 ```
 
@@ -51,7 +51,7 @@ Rules that are enforced and tested (API integration tests, 22 for identity, 13 f
 - **The last super admin stays.** Disabling a person, revoking an assignment or removing a group member is refused (409 `last_super_admin`, audited as denied) when it would leave no enabled person holding `platform-super-admin` at platform level, directly or through a group membership recorded in Apelora. The change and the count run in one transaction under an advisory lock, so concurrent changes cannot both pass. Membership through an identity provider's group claim is not counted (it is only known at sign-in). With no super admin at all (a platform run on API tokens), nothing is refused.
 - **Approvals**: flagged permissions need a recorded approval by a different person for the exact action and target, single use, 30 minutes (`Apelora-Approval` header). Self-approval is refused.
 - **Emergency access**: at most 4 hours, a written reason, cannot be self-granted, every request under it audited.
-- **Audit** is append-only (database trigger); reads are scoped to what the caller may see. Denials of sensitive actions are recorded.
+- **Audit** is append-only (database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`) and written in the same transaction as the change it describes; reads are scoped to what the caller may see. Denials of sensitive actions are recorded. Details in section 8.
 
 ## 3. Sign-in
 
@@ -113,7 +113,7 @@ Apelora never connects people to Incus. It maps its decisions onto each backend'
 
 1. `ApplicationInfo` has no `id`, so an application-scoped assignment needs a pasted UUID.
 2. `preview_assignment` does not run the principal checks that create runs (disabled user, unknown service identity); the error appears at save time.
-3. Assignments, memberships and audit rows carry ids; names are resolved from lists the caller may not be allowed to read, so some show as ids.
+3. Assignments and memberships carry ids; names are resolved from lists the caller may not be allowed to read, so some show as ids. Audit rows written since migration 0022 also carry the actor's name (`actorName`); older rows have only the id.
 4. No endpoint previews a custom role's assignable levels before creating it.
 5. Remote desktop (RDP) is **not built**: there is no gateway, so the API reports it as unavailable with that reason. PowerShell into Windows modules is wired through the same exec channel but has never run against a Windows guest (**NOT VERIFIED**).
 6. Terminal sessions have only run against a labelled mock shell and an Incus-shaped contract fixture, never a real Incus (see section 7).
@@ -142,3 +142,40 @@ Contract: the `secure-remote-access` skill. Built as one slice; evidence **MOCK 
 | Approvals for sessions | Requests are capped at 20 waiting per person, and a target the caller cannot see answers like one that does not exist. |
 | Limits of this design | Sessions live in the control plane's memory: they end on restart and are not shared between replicas. Idle time counts typing, not output. RDP needs a gateway that does not exist yet. The right-click entries appear on the Designer canvas of an application whenever the control plane reports running instances of a module with that id; they name the instance, and the control plane checks the instance, not the canvas. Invalid or expired tickets are not audited (they would let an anonymous caller grow the audit table). |
 
+## 8. Audit trail
+
+Status: **BUILT** (2026-10-21), MOCK VERIFIED with a real PostgreSQL (ADR 0011, [EVERY-SIZE.md](EVERY-SIZE.md) §2.5 and "Auditing"; gap S4 in the [Console plan](../development/CONSOLE-PLAN.md)).
+
+**One transaction.** A change and its audit row commit or roll back together. A handler begins a transaction (`authz::begin`), makes the change through the persistence functions on it, writes the row with `audit_as` or `audit_scoped(&mut tx, …)` and commits (`authz::commit`). If the row cannot be written, the change is rolled back and the caller gets `500 store_error`. `audit_as` and `audit_scoped` take a connection (the transaction's), not the pool, so writing the row on the side takes a deliberate `audit_alone`. Events that change nothing in Apelora's database are written on their own with `audit_alone`: refusals, failed attempts, exports, and changes carried out in Incus or in the control plane's memory (listed below).
+
+**Append-only, completely.** Row triggers refuse `UPDATE` and `DELETE`; a statement trigger (migration 0022) refuses `TRUNCATE`.
+
+**What a row holds.** Who (stable id such as `user:<uuid>`, kind, and since migration 0022 the name they had, `actor_name`), what (action), on what (target), outcome (`success`, `denied`, `failed`), the organisation, project and application concerned, the request id, and a detail object without secrets.
+
+**Outbox.** Every audit row also writes one message (topic `audit.recorded`, the row as the API shows it) to the `outbox` table, in the same statement. The worker relays it at least once (see [MONITORING.md](MONITORING.md) and `services/deployment-worker/src/outbox.rs`). Today the relay writes one log line per message; alerts, webhooks and copies for another plane plug in as sinks later.
+
+**Sign-ins.**
+- Password and directory sign-ins write `auth.password.succeeded` or `auth.directory.succeeded` in the same transaction as the session they issue; failures are written on their own.
+- A sign-in with an identity provider's token has no such moment, so the first request a person makes in each hour writes `auth.oidc.signed_in` (method, issuer, whether multi-factor, request id; never the token). A conditional update of `users.sign_in_audited_at` takes the person's row lock, so concurrent first requests write one row. Refused tokens are logged, never audited. If the row cannot be written, the request still goes ahead and the failure is logged at error; every change still needs its own row.
+
+**Reading.** `GET /api/v1/audit` and `GET /api/v1/identity/audit` take the same filters, newest first, each served by an index:
+- `actor`: the stable id, or the name the actor had (ignoring case);
+- `target`: exact;
+- `action`: a prefix, taken literally (`%` and `_` are not patterns);
+- `outcome`: `success`, `denied` or `failed`;
+- `from` and `to`: RFC 3339, `from` before `to`;
+- `before` (an id, for paging) and `limit` (1 to 500, default 100).
+
+Both need `audit.read`; below platform level a reader sees only the events of their organisations, projects and applications.
+
+**Export.** `GET /api/v1/audit/export?format=csv|jsonl` takes the same filters (not `limit`), needs `audit.read` and streams the events newest first, 500 rows per database read, so a large export never sits in memory. CSV has a header row; a cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'` so spreadsheet programs do not run it. JSON lines hold one event per line as the list returns it. The export is itself audited as `audit.exported` with its format and filters, before the first byte is sent; an export that cannot be audited does not start.
+
+**Every route is checked.** `services/control-plane/src/api/audit_coverage_tests.rs` drives every state-changing route of the OpenAPI document through the real router. For each, it checks the route writes its audit row and, where the change is Apelora's own state, makes the audit table unwritable, sends the request again and checks that it fails and that every other table is unchanged. A route that is neither exercised there nor listed in its `EXEMPT` list, with the reason, fails the test. Exempt today: dry runs and checks that change nothing (`…/plan`, `…/assignments/preview`, `…/sign-in/check`, `…/directories/check`) and terminal sessions, which are exercised with their audit rows by `sessions_tests`.
+
+**Exceptions to the one-transaction rule:**
+- *Changes made in Incus*, written with `audit_alone` right after Incus accepted them (if the row cannot be written the request fails, but the Incus change stands): join tokens (create, revoke), evacuating, restoring and removing members, and volume snapshots (take, restore, delete).
+- *Incus first, then the record and its row in one transaction* (the Incus step is not undone): growing and deleting an application's volume; approving, withdrawing, admitting and removing a machine.
+- *In memory*: opening a terminal session (its ticket is discarded when its row cannot be written) and ending one (written before it takes effect).
+- *Approvals* presented with `Apelora-Approval` are spent before the change, outside its transaction: a change that then fails leaves the approval spent. That errs on the safe side.
+- *After the commit*: reloading sign-in settings (providers, local accounts, API tokens), and the reachability probes of providers and directories. Reachability is shown in the response and no longer recorded in the audit row.
+- *Worker*: a backup's record and its row share a transaction, as the supervisor's actions already did; `instance.moved` after a move is written on its own.

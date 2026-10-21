@@ -21,11 +21,14 @@ type Operation = {
   security?: unknown[];
   parameters?: Parameter[];
   requestBody?: { content: { "application/json": { schema: Schema } } };
-  responses: Record<string, { content?: { "application/json"?: { schema: Schema }; "text/plain"?: { schema: Schema } } }>;
+  responses: Record<string, { content?: Record<string, { schema: Schema } | undefined> }>;
 };
 type Doc = { info: { version: string }; paths: Record<string, Partial<Record<Method, Operation>>>; components: { schemas: Record<string, Schema> } };
 const METHODS = ["get", "post", "put", "patch", "delete"] as const;
 type Method = (typeof METHODS)[number];
+
+/** Media types the client returns as text rather than parsing JSON. */
+const isText = (type: string) => type.startsWith("text/") || type === "application/x-ndjson";
 
 const doc = JSON.parse(readFileSync(new URL("../openapi.json", import.meta.url), "utf8")) as Doc;
 
@@ -88,8 +91,8 @@ out.push("export type Responses = {");
 for (const { op } of ops) {
   const code = Object.keys(op.responses).find((c) => c.startsWith("2"));
   const ok = code && op.responses[code]?.content?.["application/json"]?.schema;
-  // A text answer (the metrics exposition) is a string.
-  const text = code && op.responses[code]?.content?.["text/plain"];
+  // A text answer (the metrics exposition, the audit export as CSV or JSON lines) is a string.
+  const text = code && Object.keys(op.responses[code]?.content ?? {}).some(isText);
   if (!ok && !text && code !== "204") throw new Error(`${op.operationId}: no 2xx JSON or text response`);
   out.push(`${comment(op.description ?? op.summary, "  ")}  ${op.operationId}: ${ok ? ts(ok, "  ") : text ? "string" : "null"};`);
 }

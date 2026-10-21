@@ -21,6 +21,7 @@ pub mod lifecycle;
 pub mod local_accounts;
 mod machines;
 pub mod monitoring;
+pub mod outbox;
 pub mod status;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
@@ -35,6 +36,7 @@ pub use machines::{
     remove_machine, withdraw_approval,
 };
 pub use sqlx::postgres::PgListener;
+pub use sqlx::{PgConnection, PgExecutor};
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 pub use volumes::{
     BackupRecord, DueVolume, NewBackup, ScheduleKind, claim_due, forget_backup, instance_volumes,
@@ -85,6 +87,22 @@ impl StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// A transaction. A change, its audit row and its outbox messages are written in one, so they
+/// commit or roll back together (EVERY-SIZE.md §2.5). Functions that take
+/// `&mut PgConnection` run inside the caller's transaction (`&mut tx`); the ones named `…_in`
+/// are the in-transaction forms of a function that otherwise opens its own.
+pub type Tx = sqlx::Transaction<'static, sqlx::Postgres>;
+
+/// Begins a transaction on `pool`.
+pub async fn begin(pool: &PgPool) -> Result<Tx> {
+    Ok(pool.begin().await?)
+}
+
+/// Commits a transaction begun with [`begin`].
+pub async fn commit(tx: Tx) -> Result<()> {
+    Ok(tx.commit().await?)
+}
+
 /// Connects and applies pending migrations.
 pub async fn connect(database_url: &str) -> Result<PgPool> {
     let pool = PgPoolOptions::new()
@@ -129,17 +147,27 @@ pub async fn create_application(pool: &PgPool, name: &str) -> Result<Application
 
 /// The application with this name, created if it does not exist yet.
 pub async fn ensure_application(pool: &PgPool, name: &str) -> Result<Application> {
+    ensure_application_tx(&mut *pool.acquire().await?, name).await
+}
+
+/// [`ensure_application`] inside the caller's transaction (`&mut tx`; named `_tx` because
+/// `identity::ensure_application_in` already means "in a project"). It commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn ensure_application_tx(
+    conn: &mut sqlx::PgConnection,
+    name: &str,
+) -> Result<Application> {
     sqlx::query(
         "INSERT INTO applications (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING",
     )
     .bind(Uuid::new_v4())
     .bind(name)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(
         sqlx::query_as::<_, Application>("SELECT id, name FROM applications WHERE name = $1")
             .bind(name)
-            .fetch_one(pool)
+            .fetch_one(&mut *conn)
             .await?,
     )
 }
@@ -187,18 +215,37 @@ pub async fn add_revision_once(
     created_by: &str,
     idempotency_key: Option<&str>,
 ) -> Result<(Revision, bool)> {
+    add_revision_once_in(
+        &mut *pool.acquire().await?,
+        application_id,
+        document,
+        created_by,
+        idempotency_key,
+    )
+    .await
+}
+
+/// [`add_revision_once`] inside the caller's transaction (`&mut tx`); its own transaction
+/// becomes a savepoint.
+pub async fn add_revision_once_in(
+    conn: &mut sqlx::PgConnection,
+    application_id: Uuid,
+    document: &Value,
+    created_by: &str,
+    idempotency_key: Option<&str>,
+) -> Result<(Revision, bool)> {
     if let Some(key) = idempotency_key
         && let Some(existing) = sqlx::query_as::<_, Revision>(
             "SELECT id, application_id, revision, document, created_by FROM application_revisions
              WHERE idempotency_key = $1",
         )
         .bind(key)
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?
     {
         return Ok((existing, false));
     }
-    let mut tx = pool.begin().await?;
+    let mut tx = sqlx::Connection::begin(&mut *conn).await?;
     let exists = sqlx::query("SELECT 1 FROM applications WHERE id = $1 FOR UPDATE")
         .bind(application_id)
         .fetch_optional(&mut *tx)
@@ -266,6 +313,15 @@ pub struct NewDeployment<'a> {
 
 /// Records the desired state of the latest deployment; an empty `desired` removes the record.
 pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<()> {
+    record_deployment_in(&mut *pool.acquire().await?, d).await
+}
+
+/// [`record_deployment`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
+/// with the caller's change and audit row; its own transaction becomes a savepoint.
+pub async fn record_deployment_in(
+    conn: &mut sqlx::PgConnection,
+    d: &NewDeployment<'_>,
+) -> Result<()> {
     let NewDeployment {
         application_id,
         project,
@@ -282,7 +338,7 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
         )
         .bind(application_id)
         .bind(project)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         return Ok(());
     }
@@ -300,7 +356,7 @@ pub async fn record_deployment(pool: &PgPool, d: &NewDeployment<'_>) -> Result<(
     .bind(uplink)
     .bind(service_range)
     .bind(published)
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(())
 }
@@ -338,17 +394,41 @@ pub async fn service_address(
     module: &str,
     candidates: &[String],
 ) -> Result<Option<String>> {
-    let held = |pool| {
-        sqlx::query_scalar::<_, String>(
+    service_address_in(
+        &mut *pool.acquire().await?,
+        application_id,
+        project,
+        module,
+        candidates,
+    )
+    .await
+}
+
+/// [`service_address`] inside the caller's transaction (`&mut tx`).
+pub async fn service_address_in(
+    conn: &mut sqlx::PgConnection,
+    application_id: Uuid,
+    project: &str,
+    module: &str,
+    candidates: &[String],
+) -> Result<Option<String>> {
+    async fn held(
+        conn: &mut sqlx::PgConnection,
+        application_id: Uuid,
+        project: &str,
+        module: &str,
+    ) -> Result<Option<String>> {
+        Ok(sqlx::query_scalar::<_, String>(
             "SELECT address FROM service_addresses
              WHERE application_id = $1 AND project = $2 AND module = $3",
         )
         .bind(application_id)
         .bind(project)
         .bind(module)
-        .fetch_optional(pool)
-    };
-    if let Some(a) = held(pool).await? {
+        .fetch_optional(conn)
+        .await?)
+    }
+    if let Some(a) = held(&mut *conn, application_id, project, module).await? {
         return Ok(Some(a));
     }
     for c in candidates {
@@ -362,13 +442,13 @@ pub async fn service_address(
         .bind(application_id)
         .bind(project)
         .bind(module)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?
         .rows_affected();
         if inserted == 1 {
             return Ok(Some(c.clone()));
         }
-        if let Some(a) = held(pool).await? {
+        if let Some(a) = held(&mut *conn, application_id, project, module).await? {
             return Ok(Some(a));
         }
     }
@@ -933,7 +1013,8 @@ pub async fn recent_audit(pool: &PgPool, limit: i64) -> Result<Vec<AuditEvent>> 
     .await?)
 }
 
-/// Records an audit event; takes a pool or a transaction (`&mut *tx`).
+/// Records a successful audit event of Apelora itself (`supervisor`, `scheduler`, `cli`, …) with
+/// its outbox message; takes a pool or, for a change, the change's transaction (`&mut *tx`).
 pub async fn audit<'e>(
     db: impl sqlx::PgExecutor<'e>,
     actor: &str,
@@ -941,14 +1022,20 @@ pub async fn audit<'e>(
     target: &str,
     detail: &Value,
 ) -> Result<()> {
-    sqlx::query("INSERT INTO audit_events (actor, action, target, detail) VALUES ($1, $2, $3, $4)")
-        .bind(actor)
-        .bind(action)
-        .bind(target)
-        .bind(detail)
-        .execute(db)
-        .await?;
-    Ok(())
+    identity::audit_event(
+        db,
+        &identity::AuditEntry {
+            actor,
+            actor_type: if actor == "cli" { "cli" } else { "system" },
+            actor_name: None,
+            action,
+            target,
+            outcome: "success",
+            scope: None,
+            detail,
+        },
+    )
+    .await
 }
 
 #[cfg(test)]

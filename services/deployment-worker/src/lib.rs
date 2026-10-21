@@ -9,6 +9,7 @@ pub mod metrics;
 pub mod mobility;
 pub mod network;
 pub mod operations;
+pub mod outbox;
 pub mod storage;
 pub mod supervisor;
 pub mod wake;

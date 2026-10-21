@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::authz::{allow, audit_scoped, filter_for};
+use super::authz::{allow, audit_scoped, begin, commit, filter_for};
 use super::deploy::{bad_request, store};
 use super::{ApiError, AppState, AuditItem, AuditList, ErrorBody, Principal, document};
 
@@ -787,8 +787,9 @@ pub(super) async fn create(
     {
         return Err(bad_request("the document is larger than 2 MB"));
     }
+    let mut tx = begin(pool).await?;
     let app = db::create_application_full(
-        pool,
+        &mut *tx,
         &req.name,
         project,
         Some(env.id),
@@ -799,7 +800,7 @@ pub(super) async fn create(
     .await?;
     if let Some(doc) = &req.document {
         let errors = json!(document::validate(doc));
-        db::put_draft(pool, app.id, doc, None, &errors, &p.actor_ref())
+        db::put_draft_in(&mut tx, app.id, doc, None, &errors, &p.actor_ref())
             .await?
             .map_err(|_| {
                 ApiError::new(
@@ -814,7 +815,7 @@ pub(super) async fn create(
         ..res
     };
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "application.create",
         &app.name,
@@ -823,6 +824,7 @@ pub(super) async fn create(
         &json!({ "environment": env.slug, "icon": icon }),
     )
     .await?;
+    commit(tx).await?;
     let row = db::application_row(pool, &app.name)
         .await?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not_found", "not found"))?;
@@ -863,15 +865,16 @@ pub(super) async fn update(
         return Err(bad_request("an icon is a key such as nginx or generic-box"));
     }
     let pool = store(&state)?;
+    let mut tx = begin(pool).await?;
     db::update_application_meta(
-        pool,
+        &mut *tx,
         row.id,
         req.description.as_deref().map(str::trim),
         req.icon.as_deref(),
     )
     .await?;
     audit_scoped(
-        pool,
+        &mut tx,
         &p,
         "application.update",
         &name,
@@ -880,6 +883,7 @@ pub(super) async fn update(
         &json!({ "icon": req.icon, "descriptionChanged": req.description.is_some() }),
     )
     .await?;
+    commit(tx).await?;
     let fresh = db::application_row(pool, &name)
         .await?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not_found", "not found"))?;
@@ -984,9 +988,11 @@ pub(super) async fn put_draft(
     }
     let errors = json!(document::validate(&req.document));
     let pool = store(&state)?;
-    match db::put_draft(pool, row.id, &req.document, req.base_version, &errors, &p.actor_ref()).await? {
+    let mut tx = begin(pool).await?;
+    match db::put_draft_in(&mut tx, row.id, &req.document, req.base_version, &errors, &p.actor_ref()).await? {
         Ok(d) => {
-            audit_scoped(pool, &p, "application.draft.save", &name, "success", Some(&res), &json!({ "version": d.version, "errors": errors.as_array().map_or(0, Vec::len) })).await?;
+            audit_scoped(&mut tx, &p, "application.draft.save", &name, "success", Some(&res), &json!({ "version": d.version, "errors": errors.as_array().map_or(0, Vec::len) })).await?;
+            commit(tx).await?;
             Ok(Json(draft_dto(d)).into_response())
         }
         Err(current) => Ok((StatusCode::CONFLICT, Json(json!({ "error": { "code": "draft_conflict", "message": format!("someone saved version {current} since you started from {}; nothing was overwritten", req.base_version.map_or("the beginning".to_owned(), |v| v.to_string())) }, "currentVersion": current }))).into_response()),
@@ -1017,8 +1023,9 @@ pub(super) async fn publish(
         return Err(bad_request("a label is at most 80 characters"));
     }
     let pool = store(&state)?;
-    match db::publish_draft(
-        pool,
+    let mut tx = begin(pool).await?;
+    match db::publish_draft_in(
+        &mut tx,
         row.id,
         req.label
             .as_deref()
@@ -1030,7 +1037,7 @@ pub(super) async fn publish(
     {
         Ok(v) => {
             audit_scoped(
-                pool,
+                &mut tx,
                 &p,
                 "application.version.publish",
                 &name,
@@ -1039,6 +1046,7 @@ pub(super) async fn publish(
                 &json!({ "revision": v.revision, "draftVersion": v.draft_version }),
             )
             .await?;
+            commit(tx).await?;
             Ok((StatusCode::CREATED, Json(version_info(v))))
         }
         Err(db::PublishRefusal::NoDraft) => Err(ApiError::new(
@@ -1175,9 +1183,10 @@ async fn set_archived(
             ));
         }
     }
-    db::set_archived(pool, row.id, archived).await?;
+    let mut tx = begin(pool).await?;
+    db::set_archived(&mut *tx, row.id, archived).await?;
     audit_scoped(
-        pool,
+        &mut tx,
         p,
         if archived {
             "application.archive"
@@ -1190,6 +1199,7 @@ async fn set_archived(
         &json!({}),
     )
     .await?;
+    commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1509,8 +1519,9 @@ pub(super) async fn operate(
     }
     let key = super::deploy::idempotency_key(&headers, &p)?.map(|k| format!("{k}:{name}:operate"));
     let request = super::requests::current();
-    let (op, created) = db::create_operation(
-        pool,
+    let mut tx = begin(pool).await?;
+    let (op, created) = db::create_operation_in(
+        &mut tx,
         &db::NewOperation {
             application_id: row.id,
             project: &dep.project,
@@ -1530,8 +1541,9 @@ pub(super) async fn operate(
         other => other.into(),
     })?;
     if created {
-        audit_scoped(pool, &p, &format!("application.{}.requested", req.action.as_str()), &name, "success", Some(&res), &json!({ "operation": op.id, "confirmedDisruption": req.confirm_disruption, "instances": phases.iter().map(|p| p["steps"].as_array().map_or(0, Vec::len)).sum::<usize>() })).await?;
+        audit_scoped(&mut tx, &p, &format!("application.{}.requested", req.action.as_str()), &name, "success", Some(&res), &json!({ "operation": op.id, "confirmedDisruption": req.confirm_disruption, "instances": phases.iter().map(|p| p["steps"].as_array().map_or(0, Vec::len)).sum::<usize>() })).await?;
     }
+    commit(tx).await?;
     Ok((
         StatusCode::ACCEPTED,
         Json(OperationAccepted {

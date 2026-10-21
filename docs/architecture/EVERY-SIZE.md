@@ -32,6 +32,8 @@ Eight rules hold at every size. The first three already hold; the rest is the pl
    - audit integrity: no change without its audit row, gap S4;
    - replication between planes;
    - alert and webhook delivery.
+
+   Built (2026-10-21, MOCK VERIFIED with a real PostgreSQL): the `outbox` table (migration 0022), one message per audit row written in the same statement, and a relay in the worker under the `outbox-relay` leader lease that delivers oldest first with backoff to a pluggable sink. The only sink today writes a log line; alerts, webhooks and replication plug in later.
 6. **Summaries go up, intent goes down.**
    - Each level sends the level above counts, worst states and capacity, each with the time it was measured. It never sends raw lists.
    - A person who needs detail is sent to the level that owns it.
@@ -56,16 +58,17 @@ Each row says what holds at every size, what changes as the installation grows, 
   - the global plane keeps an archive of exported partitions;
   - a daily digest (a hash of the day's rows, chained to the previous day's) makes tampering detectable without special hardware;
   - export to write-once storage where the operator requires it.
-- **Built:** the append-only trigger for `UPDATE` and `DELETE`; search by action and outcome.
+- **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL unless noted):
+  - the append-only triggers for `UPDATE`, `DELETE` and `TRUNCATE`;
+  - same-transaction writes for every route that changes Apelora's own state, with the exceptions listed in [IDENTITY-AND-AUTHORIZATION.md](IDENTITY-AND-AUTHORIZATION.md) §8;
+  - a test that every state-changing route audits, in the same transaction where it can (`audit_coverage_tests.rs`);
+  - audit rows for successful sign-ins (provider tokens once per person per hour);
+  - filters by actor, target, action, outcome and time, and export as CSV or JSON lines;
+  - an outbox message per audit row.
 - **Missing:**
-  - same-transaction writes;
-  - blocking `TRUNCATE`;
-  - a test that every state-changing route audits;
-  - audit rows for successful sign-ins;
-  - filters by actor, target and time;
-  - export;
   - partitions;
-  - the digest.
+  - the digest;
+  - retention and an archive of exported partitions.
 
 ### Security
 
@@ -222,7 +225,7 @@ A backup that has never been restored is not counted as a backup. The Console sh
 
 Each item is small enough to review on its own. **(N)** marks items needed now, at three servers.
 
-1. **(N)** Audit in the same transaction, `TRUNCATE` blocked, a test that every state-changing route audits (S4). Then the outbox table and relay, so the next items reuse it.
+1. **(N)** Audit in the same transaction, `TRUNCATE` blocked, a test that every state-changing route audits (S4). Then the outbox table and relay, so the next items reuse it. **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): handlers write the change and its row in one transaction (`authz::begin`/`commit`, `audit_scoped(&mut tx, …)`), with a short, listed set of exceptions (changes made in Incus or in memory, approvals spent before the change); migration 0022 blocks `TRUNCATE`; `audit_coverage_tests.rs` exercises every state-changing route and fails on a new one that neither audits nor is exempt with a reason; provider sign-ins are audited hourly; the `outbox` table and the worker's relay with a log sink and metrics. Not yet: real sinks (wave 3).
 2. **(N)** Correlation: `request_id` on jobs, carried into the job's span, the Incus operation id recorded beside it, both on the audit row. **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): `jobs.request_id` from every API route that queues a job (instance requests, application deployments, application operations and the instance jobs they queue); the worker's `job` span has `request_id`; every Incus operation a lifecycle or move job started is kept in `jobs.incus_operations`; the request's audit row has `requestId` and `jobId`; `GET /api/v1/jobs` and the Console's Operations view show the request id. Not yet: operations an adapter call waits on internally (volume copies, backups), and `traceparent` across planes.
 3. **(N)** Backup and restore of Apelora's own database: a script, a restore drill, a runbook (built: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, [runbook](../runbooks/apelora-database-backup.md)), and the age of the last verified restore in the Console (not yet).
 4. **(N)** Supervisor leadership through a lease in PostgreSQL, so two workers can run (the first item before HA of the plane itself). **Built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): `leader_leases`, 15 s lease renewed every 5 s, every supervisor write in a transaction fenced by the lease generation; not yet run with two worker processes on the test cluster.
@@ -233,7 +236,7 @@ Each item is small enough to review on its own. **(N)** marks items needed now, 
 6. Incus event subscription per sector, with the periodic re-check kept.
 7. Per-sector bulkheads and the *unreachable* state, with sectors (ADR 0008).
 8. The infrastructure scope tree for roles, with sectors.
-9. Audit partitions, the daily digest and export (wave 1 adds filters; this adds integrity and retention).
+9. Audit partitions, the daily digest and export (wave 1 adds filters; this adds integrity and retention). Filters and export **built** (2026-10-21, MOCK VERIFIED with a real PostgreSQL): `GET /api/v1/audit` filters by actor, target, action prefix, outcome and time; `GET /api/v1/audit/export` streams CSV or JSON lines and is audited as `audit.exported`. Partitions, the digest and retention are not built.
 10. Run-time log level, support bundle (wave 4).
 
 Items 1, 3 and 4 are P0 in the [Console plan](../development/CONSOLE-PLAN.md). The rest follow sectors (ADR 0008) and the global plane (ADR 0009).

@@ -53,18 +53,21 @@ pub async fn list_providers(pool: &Pool) -> Result<Vec<ProviderRecord>> {
     .await?)
 }
 
-pub async fn get_provider(pool: &Pool, id: Uuid) -> Result<Option<ProviderRecord>> {
+pub async fn get_provider(
+    db: impl sqlx::PgExecutor<'_>,
+    id: Uuid,
+) -> Result<Option<ProviderRecord>> {
     Ok(sqlx::query_as::<_, ProviderRecord>(&format!(
         "SELECT {COLUMNS} FROM identity_providers WHERE id = $1"
     ))
     .bind(id)
-    .fetch_optional(pool)
+    .fetch_optional(db)
     .await?)
 }
 
 /// Creates (`id` none) or replaces a provider; returns its id.
 pub async fn save_provider(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     id: Option<Uuid>,
     f: &ProviderFields,
     actor: &str,
@@ -95,15 +98,15 @@ pub async fn save_provider(
     .bind(&f.authorized_parties)
     .bind(f.enabled)
     .bind(actor)
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(id)
 }
 
-pub async fn delete_provider(pool: &Pool, id: Uuid) -> Result<bool> {
+pub async fn delete_provider(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query("DELETE FROM identity_providers WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected()
         > 0)
@@ -120,7 +123,7 @@ pub async fn setting(pool: &Pool, key: &str) -> Result<Option<serde_json::Value>
 }
 
 pub async fn set_setting(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     key: &str,
     value: &serde_json::Value,
     actor: &str,
@@ -132,7 +135,7 @@ pub async fn set_setting(
     .bind(key)
     .bind(value)
     .bind(actor)
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(())
 }

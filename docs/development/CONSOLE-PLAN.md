@@ -30,7 +30,7 @@ Priorities:
 | Images and catalog | catalog in the Studio | Incus images: list, pin, prune (P2) |
 | Tenancy | organisations, projects, environments | create the environment's restricted Incus project with limits (P1); quotas (P1); delete and rename (P2) |
 | Identity and access | users, groups, roles, custom roles, assignments with preview, service identities, policies, approvals, emergency access, sign-in providers | local accounts, sign-out, change password (IP); directory sign-in (IP); personal tokens bound to a person (P1); token rotation (P1); a person's active sign-ins (P1); access-review export (P2) |
-| Audit | search by action and outcome, paged | filters by actor, target and time (P0); export (P1); retention and archive (P1) |
+| Audit | search by action and outcome, paged; filters by actor, target and time, kept in the page address; export as CSV or JSON lines, itself audited (built 2026-10-21) | retention and archive (P1) |
 | Debugging | request ids; preflight | log lookup by request id (P1); support bundle (P1) |
 | Security | certificate expiry | TLS on the API (P0); security headers (P0); rate limits on public routes (P0); a security-posture page (P1) |
 | Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`); effective settings (P1); licence notices (P1) |
@@ -53,6 +53,8 @@ Priorities:
    - There is no test that every state-changing route audits (P0).
    - Successful sign-ins are not audited.
    - Security settings taken from the environment are only logged.
+
+   **Fixed (S4, built 2026-10-21, MOCK VERIFIED with a real PostgreSQL)**, except the last point, which stays open: a change and its audit row are written in one transaction (`authz::begin`/`commit`, `audit_scoped(&mut tx, …)`), with a short list of exceptions (changes made in Incus or in memory, approvals spent before the change; [IDENTITY-AND-AUTHORIZATION.md](../architecture/IDENTITY-AND-AUTHORIZATION.md) §8); a statement trigger refuses `TRUNCATE` (migration 0022); `audit_coverage_tests.rs` drives every state-changing route, checks its row and, with the audit table made unwritable, that nothing changed; a new route without a check or an exemption fails it; provider-token sign-ins are audited once per person per hour (`auth.oidc.signed_in`), password and directory sign-ins with their session. Every audit row also writes an outbox message, relayed by the worker.
 5. **Public surface.**
    - No security headers or content security policy.
    - The API serves plain HTTP and can listen on a non-local address.
@@ -72,11 +74,11 @@ Packages in one wave touch different files and can be built in parallel.
 - S1 token containment (done).
 - S2 guards on revoke and disable (done).
 - S3 public surface (done): headers, `/health` redaction and cache, per-address limits, TLS or a declared proxy for non-local addresses, a serving configuration for the web apps with a content security policy.
-- S4 audit integrity: audit in the same transaction; `TRUNCATE` blocked; a structural test that every state-changing route audits or is listed as exempt.
+- S4 audit integrity (done): audit in the same transaction; `TRUNCATE` blocked; a structural test that every state-changing route audits or is listed as exempt; the outbox and its relay.
 
 **Wave 1 — operations core:**
 - Navigation regrouped: Overview, Health, Servers, Workloads, Networks, Storage, Alerts, Identity & Access, Audit, Administration.
-- Audit filters and export.
+- Audit filters and export (done): actor, target, action, outcome, from and to in the URL; CSV or JSON lines, audited as `audit.exported`.
 - Job detail, retry and cancel (built).
 - Instance detail with logs and restart (built).
 
@@ -90,7 +92,7 @@ Packages in one wave touch different files and can be built in parallel.
 - Alerts: an evaluator in the worker, acknowledgement, a webhook channel holding only a secret reference.
 - Terminal from the Console, reusing the Studio's brokered sessions, with a sessions page (built, MOCK VERIFIED).
 - Personal tokens and rotation.
-- Audited sign-ins.
+- Audited sign-ins (done): provider tokens once per person per hour; password and directory sign-ins were already audited, now in the session's transaction.
 
 **Wave 4 — administration and tenancy:**
 - Effective settings, licence notices, a database backup check, a support bundle.
