@@ -14,7 +14,11 @@ export function HelpDialog() {
   const close = () => api.getState().setDialog(null);
   return (
     <Modal testId="help-dialog" title="Keyboard shortcuts" hint="Everything here is also in the right-click menus." onClose={close}
-      footer={<button type="button" className="btn btn-sm" data-testid="tour-start" onClick={() => { api.getState().setDialog(null); window.dispatchEvent(new Event("apelora:tour")); }}>Take the tour</button>}>
+      footer={<>
+        {/* The AGPL's network clause: people using Apelora over a network are offered its source. */}
+        <a className="link link-hover mr-auto text-xs text-base-content/60" href="/licenses" target="_blank" rel="noopener" data-testid="help-licences">Licences and source code</a>
+        <button type="button" className="btn btn-sm" data-testid="tour-start" onClick={() => { api.getState().setDialog(null); window.dispatchEvent(new Event("apelora:tour")); }}>Take the tour</button>
+      </>}>
       <div className="grid gap-5 sm:grid-cols-3">
         {GROUPS.map((g) => (
           <section key={g.title} aria-label={g.title}>

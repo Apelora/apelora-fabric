@@ -328,6 +328,7 @@ test.describe("help and first run", () => {
     await page.locator("body").click({ position: { x: 5, y: 5 } });
     await page.keyboard.press("?");
     await expect(page.getByTestId("help-dialog")).toBeVisible();
+    await expect(page.getByTestId("help-licences")).toHaveAttribute("href", "/licenses");
     await page.getByTestId("tour-start").click();
     await expect(page.getByTestId("tour")).toBeVisible();
   });
