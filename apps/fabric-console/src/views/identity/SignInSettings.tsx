@@ -5,6 +5,7 @@ import type { ProviderCheck, ProviderInput, ProviderView, SignInSettings } from 
 import { Badge, ConfirmDialog, ErrorPanel, FormDialog, Notice, Section, SectionHeader, TableFrame } from "../../components/ui";
 import { client, useLoad } from "../../lib/api";
 import { useRun } from "../../lib/identity";
+import { DirectoriesSection } from "./Directories";
 
 const list = (s: string) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 const joined = (v: string[] | undefined) => (v ?? []).join(", ");
@@ -195,6 +196,8 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
               </tbody>
             </TableFrame>
           )}
+
+          <DirectoriesSection directories={s.directories ?? []} onAuth={onAuth} reload={reload} />
 
           <section className="flex flex-col gap-2 rounded-box border border-base-300 p-4" data-testid="api-tokens-setting">
             <h2 className="text-sm font-semibold">API tokens</h2>

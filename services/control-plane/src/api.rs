@@ -375,6 +375,18 @@ pub fn router(state: AppState) -> Router {
             put(auth_config::set_api_tokens),
         )
         .route(
+            "/api/v1/identity/sign-in/directories",
+            get(directories::list).post(directories::create),
+        )
+        .route(
+            "/api/v1/identity/sign-in/directories/check",
+            post(directories::check),
+        )
+        .route(
+            "/api/v1/identity/sign-in/directories/{id}",
+            put(directories::update).delete(directories::delete),
+        )
+        .route(
             "/api/v1/identity/policies/{id}",
             delete(identity::delete_policy),
         )
@@ -1029,6 +1041,8 @@ pub struct SignInOptions {
     pub providers: Vec<OidcSignIn>,
     /// Whether API tokens are accepted (legacy platform-wide tokens).
     pub api_tokens: bool,
+    /// Directories people can sign in with (username and password), enabled ones only.
+    pub directories: Vec<directories::DirectoryOption>,
 }
 
 /// Public. How people can sign in to this control plane.
@@ -1038,6 +1052,7 @@ async fn sign_in(State(state): State<AppState>) -> Json<SignInOptions> {
     Json(SignInOptions {
         providers: state.sign_in_providers(),
         api_tokens: state.api_tokens_accepted(),
+        directories: directories::sign_in_options(&state).await,
     })
 }
 
@@ -1273,7 +1288,9 @@ impl Modify for BearerAuth {
         identity::create_assignment, identity::preview_assignment, identity::revoke_assignment,
         identity::emergency_access, identity::service_identities, identity::create_service_identity,
         identity::disable_service, identity::enable_service, identity::policies, identity::save_policy,
-        identity::delete_policy, auth_config::get_settings, auth_config::check, auth_config::create, auth_config::update, auth_config::delete, auth_config::set_api_tokens, identity::audit_history, identity::approvals, identity::request_approval,
+        identity::delete_policy, auth_config::get_settings, auth_config::check, auth_config::create, auth_config::update, auth_config::delete, auth_config::set_api_tokens,
+        directories::list, directories::create, directories::update, directories::delete, directories::check,
+        identity::audit_history, identity::approvals, identity::request_approval,
         identity::approve_request, identity::reject_request, identity::cancel_request,
         sessions::access, sessions::open, sessions::list, sessions::terminate),
     modifiers(&BearerAuth),
@@ -1303,8 +1320,10 @@ pub mod auth_config;
 mod authz;
 mod cluster_admin;
 mod deploy;
+mod directories;
 mod document;
 mod identity;
+mod ldap;
 mod machines;
 mod manage;
 mod mobility;
@@ -1312,6 +1331,8 @@ pub mod requests;
 pub mod sessions;
 mod volumes;
 
+#[cfg(test)]
+mod directories_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

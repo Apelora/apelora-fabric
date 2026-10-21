@@ -114,6 +114,7 @@ describe("api client", () => {
       "DELETE /api/v1/identity/groups/{group}/members/{user}",
       "DELETE /api/v1/identity/policies/{id}",
       "DELETE /api/v1/identity/roles/{role}",
+      "DELETE /api/v1/identity/sign-in/directories/{id}",
       "DELETE /api/v1/identity/sign-in/providers/{id}",
       "DELETE /api/v1/instances/{project}/{name}",
       "DELETE /api/v1/machines/{name}",
@@ -151,6 +152,7 @@ describe("api client", () => {
       "GET /api/v1/identity/roles",
       "GET /api/v1/identity/service-identities",
       "GET /api/v1/identity/sign-in",
+      "GET /api/v1/identity/sign-in/directories",
       "GET /api/v1/identity/users",
       "GET /api/v1/identity/users/lookup",
       "GET /api/v1/instances",
@@ -200,6 +202,8 @@ describe("api client", () => {
       "POST /api/v1/identity/service-identities/{id}/disable",
       "POST /api/v1/identity/service-identities/{id}/enable",
       "POST /api/v1/identity/sign-in/check",
+      "POST /api/v1/identity/sign-in/directories",
+      "POST /api/v1/identity/sign-in/directories/check",
       "POST /api/v1/identity/sign-in/providers",
       "POST /api/v1/identity/users/{user}/disable",
       "POST /api/v1/identity/users/{user}/enable",
@@ -214,6 +218,7 @@ describe("api client", () => {
       "PUT /api/v1/identity/groups/{group}/members/{user}",
       "PUT /api/v1/identity/policies",
       "PUT /api/v1/identity/sign-in/api-tokens",
+      "PUT /api/v1/identity/sign-in/directories/{id}",
       "PUT /api/v1/identity/sign-in/providers/{id}",
     ]);
   });

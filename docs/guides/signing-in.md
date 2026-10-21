@@ -181,3 +181,88 @@ Every refused token is logged at `warn` level as `credential refused`, never wit
 | `code`, `reason` | The error code (for example `invalid_token`) and the reason in words, the same as on the sign-in page |
 
 Refusals are not written to the audit history (anyone could fill it with bad requests). A disabled account that signs in is recorded there as `auth.refused`. For more detail, run the control plane with `RUST_LOG=apelora_control_plane=debug,info`.
+
+## 7. Directories (LDAP over TLS)
+
+People can also sign in with the username and password of an existing directory that speaks LDAP. Apelora connects over TLS, signs in to the directory **as that person** (it binds with their name and password), reads their entry and groups with that same sign-in, and forgets the password. No directory service account or password is stored. Design: [ADR 0007](../adr/0007-sign-in-methods.md), [design note](../design/sign-in-methods.md).
+
+> **State:** directories are configured and checked in the Console (built, REAL DIRECTORY TESTED against the development directory). The username and password form on the sign-in page arrives with local accounts; until then a directory is not yet offered there.
+
+### Adding a directory
+
+Identity & Access → Sign-in → **Directories → Add directory** (needs `platform.security.manage`; every change is audited as `identity.directory.saved` or `identity.directory.deleted`).
+
+| Field | What to enter |
+|---|---|
+| Name on the sign-in form | What people choose, e.g. *Staff directory* |
+| Address | `ldaps://host[:port]` (port 636 by default), or `ldap://host[:port]` with **Use StartTLS**. Plain LDAP is refused when you save. Use the host name the server's certificate names |
+| Sign-in name | How the person's sign-in name is built, with `{username}` where their username goes: a DN such as `uid={username},ou=people,dc=example,dc=org`, or a principal name such as `{username}@example.org` |
+| Certificate authority (PEM, optional) | The authority that signed the directory's certificate. Empty: the control plane's system trust store. The certificate and host name are always checked; there is no way to turn that off |
+| Finding people and groups (advanced) | *Search people under* (base DN) and *User filter* (e.g. `(uid={username})`): needed for a principal-name sign-in, optional for a DN. Attributes for the stable ID (default `entryUUID`; `objectGUID` is read as hex), username (`uid`), email (`mail`) and display name (`cn`). Groups from an attribute of the person (e.g. `memberOf`), from a search (*Search groups under* with *Group filter*, default `(member={dn})`), or both; *Group name attribute* (default `cn`) |
+| Offer this directory on the sign-in page | Off: kept, but nobody can sign in with it |
+
+**Test sign-in** in the same dialog signs in as one person with a username and password you type there. They are used once and never saved. The result shows the entry, the stable ID, the groups the directory reports and the Apelora groups they match, or the precise reason it failed.
+
+What the person types is escaped before it reaches the directory (RFC 4514 inside a DN, RFC 4515 inside a filter), so `*`, `)(`, `,` or `=` in a username cannot change what is searched or where the bind goes. For a principal-name sign-in, a username with `@`, `\` or `/` is refused (type it without a domain). An empty password is refused before anything is sent, because an LDAP bind with an empty password is an anonymous bind.
+
+**Groups and roles.** Directory groups map onto Apelora groups by external name: give an Apelora group (Identity & Access → Groups) the directory group's name as its external name, then assign roles to that group as usual. Groups read through `memberOf` use the group DN's first value (`cn=dev-admins,ou=groups,…` → `dev-admins`).
+
+**Who the person is in Apelora.** The directory's address is the account's issuer and the entry's stable ID its subject: the same person keeps one account across renames in the directory. Changing a directory's address therefore creates new accounts on the next sign-in.
+
+**The directory's access rules** must let a person read their own entry and, when groups are searched, the groups (the person's own sign-in does both).
+
+### Example: a POSIX-style tree
+
+People under `ou=people`, groups as `groupOfNames` under `ou=groups`:
+
+| Field | Value |
+|---|---|
+| Address | `ldaps://ldap.example.org` |
+| Sign-in name | `uid={username},ou=people,dc=example,dc=org` |
+| Group attribute of the person | `memberOf` (if the server maintains it), or leave empty and set *Search groups under* `ou=groups,dc=example,dc=org` with *Group filter* `(member={dn})` |
+| Stable ID attribute | `entryUUID` |
+
+For `posixGroup` groups that list usernames, use *Group filter* `(memberUid={username})`.
+
+### Example: a directory with user principal names
+
+People sign in as `name@example.org`; entries carry `objectGUID` and `memberOf`:
+
+| Field | Value |
+|---|---|
+| Address | `ldaps://dc1.example.org` (or `ldap://dc1.example.org` with StartTLS) |
+| Sign-in name | `{username}@example.org` |
+| Search people under | `dc=example,dc=org` |
+| User filter | `(userPrincipalName={username}@example.org)` |
+| Stable ID attribute | `objectGUID` |
+| Username attribute | `sAMAccountName` |
+| Display name attribute | `displayName` |
+| Group attribute of the person | `memberOf` |
+
+(Written from documentation; not tested against such a directory.)
+
+### Trying it locally
+
+```sh
+bash infra/dev/directory/make-certs.sh       # once: a throwaway CA and server certificate (git-ignored)
+docker compose -f infra/dev/compose.yaml --profile directory up -d --build directory
+```
+
+Then add a directory with address `ldaps://localhost:1636`, the CA from `infra/dev/directory/certs/ca.pem`, and sign-in name `uid={username},ou=people,dc=apelora,dc=test`. People (`infra/dev/directory/seed.ldif`; password `apelora-dev-only` for all, development only): `ada` (dev-admins, dev-operators), `oscar` (dev-operators), `vic` (no groups), `sam+ops` (dev-operators). Groups can come from `memberOf` or from a search under `ou=groups,dc=apelora,dc=test`. StartTLS is on `ldap://localhost:1389`. `ldaps://127.0.0.1:1636` shows a host-name mismatch on purpose. Stop it with `docker compose -f infra/dev/compose.yaml --profile directory down`.
+
+### Troubleshooting directories
+
+| Shown in the Console | Meaning and what to do |
+|---|---|
+| *Nothing answers at this address* | Wrong host or port, a firewall, or the server is down |
+| *The directory did not answer in time* | Nothing answered within the deadline (10 s for a sign-in, 5 s for the status in the list) |
+| *The certificate is not trusted* | Paste the certificate authority that signed the directory's certificate (PEM) |
+| *The certificate is for another host name* | Use the host name in the certificate in the address (not an IP address, unless the certificate names it) |
+| *The directory refused StartTLS* | The server does not offer StartTLS on that port: use `ldaps://` |
+| *The TLS connection failed* | For example `ldaps://` pointed at a plain LDAP port, or no common TLS version (TLS 1.2 or later is required) |
+| *Wrong username or password* (test sign-in) | The directory refused the bind. Check the sign-in name template |
+| *Signed in, but the person's entry was not found* | The bind worked but the entry could not be read: check the base DN and user filter, and that the directory lets a person read their own entry |
+| *The user filter found more than one person* | Make the filter match exactly one entry |
+| *A search in the directory failed* | Often: the person may not read the groups. Check the directory's access rules |
+
+People signing in see *The username or password is incorrect.* for a refused bind (the same for every way it can be wrong) and *The directory … cannot be reached right now* (`503 directory_unreachable`) when the directory cannot be used; other ways in keep working. Each failed directory sign-in is audited as `auth.directory.failed` with the username and a reason (`wrong`, `unreachable`, `entry_unreadable`, `disabled`), never the password; a directory that cannot be used is also logged at `warn` with the precise reason.

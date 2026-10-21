@@ -29,7 +29,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (backend.kind === "api") return;
     // Without the options a token still works: the control plane decides.
-    client.get("sign_in_options").then(setOptions, () => setOptions({ providers: [], apiTokens: true }));
+    client.get("sign_in_options").then(setOptions, () => setOptions({ providers: [], apiTokens: true, directories: [] }));
   }, [backend.kind]);
   useEffect(() => { if (showToken) tokenInput.current?.focus(); }, [showToken]);
 

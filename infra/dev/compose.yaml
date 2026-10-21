@@ -29,5 +29,20 @@ services:
       - "127.0.0.1:5556:5556"
     volumes:
       - ./dex.yaml:/etc/dex/config.yaml:ro
+  # Optional: an LDAP directory (TLS) for trying directory sign-in. Started only with
+  # --profile directory, after `bash infra/dev/directory/make-certs.sh` (git-ignored keys).
+  # People and the development password: infra/dev/directory/seed.ldif. In the Fabric Console
+  # (Identity & Access → Sign-in → Directories): ldaps://localhost:1636 with the CA in
+  # infra/dev/directory/certs/ca.pem, bind name uid={username},ou=people,dc=apelora,dc=test.
+  directory:
+    build: ./directory
+    image: apelora-dev-directory:local
+    container_name: apelora-dev-directory
+    profiles: ["directory"]
+    ports:
+      - "127.0.0.1:1636:636"
+      - "127.0.0.1:1389:389"
+    volumes:
+      - ./directory/certs:/certs:ro
 volumes:
   apelora-dev-db: {}

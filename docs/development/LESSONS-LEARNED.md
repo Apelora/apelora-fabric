@@ -37,6 +37,9 @@ Read these first. Most entries below come from one of four causes:
 - **The control plane refused a provider's token and logged nothing** (2026-10-21) → refusals returned 401 without a log line. → Each refused credential is logged at warn as `credential refused` with method, path, credential kind, issuer and reason, never the token. It is not audited, since one row per bad request would let anyone fill the audit log.
 - **A real provider issues 24-hour tokens; Apelora accepts at most one hour** (2026-10-21) → provider defaults differ from our limits. → Document the limit next to the setting, configure the dev provider for one hour, and make the refusal reason visible.
 - **A provider that is down at startup stayed refused until a restart** (2026-10-21) → discovery ran only at startup and on save. → Retry unreachable providers every minute (`auth_config::retry_unreachable`).
+- **An LDAP bind with an empty password succeeds** (2026-10-21) → it is an anonymous ("unauthenticated") bind, not a failed one. → Refuse an empty password before connecting (`ldap::sign_in`; guarded by `an_empty_password_is_refused_before_anything_is_sent`).
+- **`ldaps://LDAP.Example` kept its capitals after URL parsing** (2026-10-21) → the `url` crate lowercases hosts only for special schemes (http, https, …), not `ldap`/`ldaps`. → Lowercase the host ourselves (`directories::validate`): the directory URL is its people's issuer, so its spelling must be stable.
+- **The development directory's `memberOf` was empty** (2026-10-21) → the `memberof` overlay does not run for offline `slapadd`. → The seed lists `memberOf` explicitly (`infra/dev/directory/seed.ldif`).
 - **Any change to sign-in settings can lock everyone out** → the API enforces the guards, not just the UI (`lockout_guard`, `set_api_tokens`). Keep both guards when changing sign-in.
 
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)
@@ -54,6 +57,8 @@ Read these first. Most entries below come from one of four causes:
 - **`npm run lint` failed with "multiple candidate TSConfigRootDirs"** (2026-10-21) → agent worktrees live under `.claude/worktrees/` inside the repository, and ESLint scanned their copies. → `.claude/**` is in the ESLint ignores; any new repo-wide tool must ignore it too.
 - **"`cargo run` gives development mode" was wrong inside the repository** (2026-10-21) → `.cargo/config.toml` sets `DATABASE_URL` for every cargo command. → Development mode is `DATABASE_URL= cargo run -p apelora-control-plane`; check tool-level config before documenting a default.
 
+- **A worktree with a new migration must not use the shared development database** (2026-10-21) → once a worktree applies a migration the main checkout does not have, the main checkout's control plane refuses to start (sqlx: an applied migration is missing from its sources). → For real-stack runs in a worktree, create a separate database on the dev server (`CREATE DATABASE apelora_<topic>`) and drop it afterwards; `#[sqlx::test]` already uses fresh databases.
+- **Dev servers on 5173/5174 belong to whichever checkout started them** (2026-10-21) → Playwright reuses them, so a worktree's run would test the main checkout's code. → In a worktree, run Playwright with a temporary config on other ports (e.g. `--port 5274`) and remove it afterwards.
 - **Lab scripts broke on macOS** → `/usr/bin/env bash` is bash 3.2, which has different quoting and breaks on empty arrays. → Lab scripts use `/opt/homebrew/bin/bash`.
 - **A plain `sleep` was blocked in the agent shell** → wait with `until <condition>; do sleep 1; done`.
 - **The Incus CLI attach failed** → it needs a device name.

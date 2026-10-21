@@ -198,6 +198,20 @@ export type CheckRequest = {
 
 export type CheckStatus = "pass" | "not-checked" | "warn" | "fail";
 
+/** What the check found for the test person. */
+export type CheckedEntry = {
+  displayName?: string | null;
+  dn: string;
+  email?: string | null;
+  /** Group names from the directory. */
+  groups: string[];
+  /** Apelora groups whose external name matches one of `groups`. */
+  mappedGroups: string[];
+  /** The stable id Apelora would identify the person by. */
+  subject: string;
+  username: string;
+};
+
 /** What kind of power a permission is. Only `Tenant` permissions can be granted below the platform level, so an organisation or project role can never reach physical servers, the Incus cluster or the platform's own security settings. */
 export type Class = "tenant" | "infrastructure" | "security";
 
@@ -228,6 +242,11 @@ export type Conditions = {
   environments?: EnvKind[] | null;
   /** The grant counts only when the caller signed in with multi-factor authentication. */
   requireMfa?: boolean;
+};
+
+export type ConfirmDirectory = {
+  /** The directory's name again. */
+  confirm: string;
 };
 
 export type ConfirmMember = {
@@ -354,6 +373,93 @@ export type DesiredModule = {
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
   spec: InstanceSpec;
+};
+
+export type DirectoryCheck = {
+  entry?: null | CheckedEntry;
+  message: string;
+  ok: boolean;
+  problem?: null | DirectoryProblem;
+};
+
+/** Settings to check (saved or not) and a test username and password, which are used for one bind and never stored or logged. */
+export type DirectoryCheckRequest = {
+  password: string;
+  settings: DirectoryInput;
+  username: string;
+};
+
+/** The settings of a directory. Empty optional fields take the defaults shown. */
+export type DirectoryInput = {
+  /** Where to search for the person's entry after the bind. */
+  baseDn?: string | null;
+  /** The bind name with `{username}`: a DN (`uid={username},ou=people,dc=example,dc=org`) or a principal name (`{username}@example.org`, which needs `baseDn` and `userFilter`). */
+  bindTemplate: string;
+  /** The certificate authority that signed the directory's certificate (PEM); empty: the system's trusted roots. */
+  caPem?: string | null;
+  /** Default `mail`. */
+  emailAttribute?: string | null;
+  enabled?: boolean;
+  /** An attribute of the person's entry that lists their groups, e.g. `memberOf`. */
+  groupAttribute?: string | null;
+  /** Where to search for groups that name the person. */
+  groupBaseDn?: string | null;
+  /** The group search, with `{dn}` and `{username}` (default `(member={dn})`). */
+  groupFilter?: string | null;
+  /** The group attribute that holds the group's name (default `cn`). */
+  groupNameAttribute?: string | null;
+  /** The entry's stable id (default `entryUUID`; `objectGUID` is read as hex). */
+  idAttribute?: string | null;
+  /** What the sign-in form calls it (1 to 60 characters). */
+  name: string;
+  /** Default `cn`. */
+  nameAttribute?: string | null;
+  startTls?: boolean;
+  /** `ldaps://host[:port]`, or `ldap://host[:port]` with `startTls`. Plain LDAP is refused. */
+  url: string;
+  /** Finds the person's entry under `baseDn`, with `{username}`, e.g. `(userPrincipalName={username}@example.org)`. Empty: the entry is the bind DN itself. */
+  userFilter?: string | null;
+  /** Default `uid`. */
+  usernameAttribute?: string | null;
+};
+
+export type DirectoryList = {
+  items: DirectoryView[];
+};
+
+/** A directory people can choose on the sign-in page. */
+export type DirectoryOption = {
+  id: string;
+  name: string;
+};
+
+/** Why talking to a directory failed, in words an administrator can act on. */
+export type DirectoryProblem = "unreachable" | "timeout" | "tls" | "certificate-untrusted" | "certificate-name-mismatch" | "start-tls-refused" | "bind-refused" | "entry-not-found" | "entry-ambiguous" | "search-failed" | "settings";
+
+/** A saved directory, with whether it answered a TLS connect check just now. */
+export type DirectoryView = {
+  baseDn?: string | null;
+  bindTemplate: string;
+  caPem?: string | null;
+  emailAttribute: string;
+  enabled: boolean;
+  error?: string | null;
+  groupAttribute?: string | null;
+  groupBaseDn?: string | null;
+  groupFilter?: string | null;
+  groupNameAttribute: string;
+  id: string;
+  idAttribute: string;
+  name: string;
+  nameAttribute: string;
+  problem?: null | DirectoryProblem;
+  /** Whether a TLS connection (with certificate and host-name checks) worked just now; false for a directory that is turned off. */
+  reachable: boolean;
+  startTls: boolean;
+  updatedBy: string;
+  url: string;
+  userFilter?: string | null;
+  usernameAttribute: string;
 };
 
 export type DraftDto = {
@@ -1295,12 +1401,16 @@ export type SessionTicket = {
 export type SignInOptions = {
   /** Whether API tokens are accepted (legacy platform-wide tokens). */
   apiTokens: boolean;
+  /** Directories people can sign in with (username and password), enabled ones only. */
+  directories: DirectoryOption[];
   /** The organisation's identity providers people can sign in with, in order. */
   providers: OidcSignIn[];
 };
 
 export type SignInSettings = {
   apiTokens: ApiTokenSetting;
+  /** Directories (LDAP with TLS), each checked with a TLS connection now. */
+  directories: DirectoryView[];
   providers: ProviderView[];
 };
 
@@ -1564,6 +1674,11 @@ export const operations = {
   sign_in_settings: { method: "GET", path: "/api/v1/identity/sign-in", params: [], public: false },
   set_api_tokens: { method: "PUT", path: "/api/v1/identity/sign-in/api-tokens", params: [], public: false },
   check_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/check", params: [], public: false },
+  list_directories: { method: "GET", path: "/api/v1/identity/sign-in/directories", params: [], public: false },
+  create_directory: { method: "POST", path: "/api/v1/identity/sign-in/directories", params: [], public: false },
+  check_directory: { method: "POST", path: "/api/v1/identity/sign-in/directories/check", params: [], public: false },
+  update_directory: { method: "PUT", path: "/api/v1/identity/sign-in/directories/{id}", params: ["id"], public: false },
+  delete_directory: { method: "DELETE", path: "/api/v1/identity/sign-in/directories/{id}", params: ["id"], public: false },
   create_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/providers", params: [], public: false },
   update_identity_provider: { method: "PUT", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
   delete_identity_provider: { method: "DELETE", path: "/api/v1/identity/sign-in/providers/{id}", params: ["id"], public: false },
@@ -1750,6 +1865,16 @@ export type Responses = {
   set_api_tokens: ApiTokenSetting;
   /** Reads a provider's discovery document and key set, without saving anything: what an administrator checks before saving. Needs `platform.security.manage`. */
   check_identity_provider: ProviderCheck;
+  /** The directories people sign in with, each checked with a TLS connection now. Needs `platform.security.manage`. */
+  list_directories: DirectoryList;
+  /** Adds a directory; it is offered on the sign-in page at once when enabled. Needs `platform.security.manage` (and an approval where the policy asks for one); audited. */
+  create_directory: DirectoryView;
+  /** Connects with TLS, binds as a test person and reads their entry and groups, without saving anything. Reports what it found or the precise reason it failed. Needs `platform.security.manage`. */
+  check_directory: DirectoryCheck;
+  /** Changes a directory (including turning it off). Needs `platform.security.manage`; audited. */
+  update_directory: DirectoryView;
+  /** Removes a directory: its people can no longer sign in with it; their accounts and roles in Apelora stay. Its name must be typed again. Needs `platform.security.manage`; audited. */
+  delete_directory: null;
   /** Adds an identity provider; it is checked and applied at once. Needs `platform.security.manage` (and an approval where the policy asks for one); audited. */
   create_identity_provider: ProviderView;
   /** Changes a provider saved in the Console. Needs `platform.security.manage`; audited. */
@@ -1896,6 +2021,11 @@ export type Bodies = {
   sign_in_settings: never;
   set_api_tokens: ApiTokensRequest;
   check_identity_provider: CheckRequest;
+  list_directories: never;
+  create_directory: DirectoryInput;
+  check_directory: DirectoryCheckRequest;
+  update_directory: DirectoryInput;
+  delete_directory: ConfirmDirectory;
   create_identity_provider: ProviderInput;
   update_identity_provider: ProviderInput;
   delete_identity_provider: ConfirmProvider;

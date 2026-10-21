@@ -4702,6 +4702,304 @@
         }
       }
     },
+    "/api/v1/identity/sign-in/directories": {
+      "get": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "The directories people sign in with, each checked with a TLS connection now. Needs\n`platform.security.manage`.",
+        "operationId": "list_directories",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Adds a directory; it is offered on the sign-in page at once when enabled. Needs\n`platform.security.manage` (and an approval where the policy asks for one); audited.",
+        "operationId": "create_directory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/directories/check": {
+      "post": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Connects with TLS, binds as a test person and reads their entry and groups, without saving\nanything. Reports what it found or the precise reason it failed. Needs\n`platform.security.manage`.",
+        "operationId": "check_directory",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryCheck"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/sign-in/directories/{id}": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Changes a directory (including turning it off). Needs `platform.security.manage`; audited.",
+        "operationId": "update_directory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Directory id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Removes a directory: its people can no longer sign in with it; their accounts and roles in\nApelora stay. Its name must be typed again. Needs `platform.security.manage`; audited.",
+        "operationId": "delete_directory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Directory id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmDirectory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity/sign-in/providers": {
       "post": {
         "tags": [
@@ -7628,6 +7926,55 @@
           "fail"
         ]
       },
+      "CheckedEntry": {
+        "type": "object",
+        "description": "What the check found for the test person.",
+        "required": [
+          "dn",
+          "subject",
+          "username",
+          "groups",
+          "mappedGroups"
+        ],
+        "properties": {
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dn": {
+            "type": "string"
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Group names from the directory."
+          },
+          "mappedGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Apelora groups whose external name matches one of `groups`."
+          },
+          "subject": {
+            "type": "string",
+            "description": "The stable id Apelora would identify the person by."
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
       "Class": {
         "type": "string",
         "description": "What kind of power a permission is. Only `Tenant` permissions can be granted below the\nplatform level, so an organisation or project role can never reach physical servers,\nthe Incus cluster or the platform's own security settings.",
@@ -7730,6 +8077,18 @@
           "requireMfa": {
             "type": "boolean",
             "description": "The grant counts only when the caller signed in with multi-factor authentication."
+          }
+        }
+      },
+      "ConfirmDirectory": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The directory's name again."
           }
         }
       },
@@ -8127,6 +8486,331 @@
           "spec": {
             "$ref": "#/components/schemas/InstanceSpec",
             "description": "Image, kind and settings; the control plane sets the name, project and owner."
+          }
+        }
+      },
+      "DirectoryCheck": {
+        "type": "object",
+        "required": [
+          "ok",
+          "message"
+        ],
+        "properties": {
+          "entry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CheckedEntry"
+              }
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "problem": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DirectoryProblem",
+                "description": "What went wrong, when it did."
+              }
+            ]
+          }
+        }
+      },
+      "DirectoryCheckRequest": {
+        "type": "object",
+        "description": "Settings to check (saved or not) and a test username and password, which are used for one\nbind and never stored or logged.",
+        "required": [
+          "settings",
+          "username",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DirectoryInput"
+          },
+          "username": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoryInput": {
+        "type": "object",
+        "description": "The settings of a directory. Empty optional fields take the defaults shown.",
+        "required": [
+          "name",
+          "url",
+          "bindTemplate"
+        ],
+        "properties": {
+          "baseDn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where to search for the person's entry after the bind."
+          },
+          "bindTemplate": {
+            "type": "string",
+            "description": "The bind name with `{username}`: a DN (`uid={username},ou=people,dc=example,dc=org`) or\na principal name (`{username}@example.org`, which needs `baseDn` and `userFilter`)."
+          },
+          "caPem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The certificate authority that signed the directory's certificate (PEM); empty: the\nsystem's trusted roots."
+          },
+          "emailAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Default `mail`."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "groupAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An attribute of the person's entry that lists their groups, e.g. `memberOf`."
+          },
+          "groupBaseDn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where to search for groups that name the person."
+          },
+          "groupFilter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group search, with `{dn}` and `{username}` (default `(member={dn})`)."
+          },
+          "groupNameAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The group attribute that holds the group's name (default `cn`)."
+          },
+          "idAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The entry's stable id (default `entryUUID`; `objectGUID` is read as hex)."
+          },
+          "name": {
+            "type": "string",
+            "description": "What the sign-in form calls it (1 to 60 characters)."
+          },
+          "nameAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Default `cn`."
+          },
+          "startTls": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string",
+            "description": "`ldaps://host[:port]`, or `ldap://host[:port]` with `startTls`. Plain LDAP is refused."
+          },
+          "userFilter": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Finds the person's entry under `baseDn`, with `{username}`, e.g.\n`(userPrincipalName={username}@example.org)`. Empty: the entry is the bind DN itself."
+          },
+          "usernameAttribute": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Default `uid`."
+          }
+        }
+      },
+      "DirectoryList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryView"
+            }
+          }
+        }
+      },
+      "DirectoryOption": {
+        "type": "object",
+        "description": "A directory people can choose on the sign-in page.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "DirectoryProblem": {
+        "type": "string",
+        "description": "Why talking to a directory failed, in words an administrator can act on.",
+        "enum": [
+          "unreachable",
+          "timeout",
+          "tls",
+          "certificate-untrusted",
+          "certificate-name-mismatch",
+          "start-tls-refused",
+          "bind-refused",
+          "entry-not-found",
+          "entry-ambiguous",
+          "search-failed",
+          "settings"
+        ]
+      },
+      "DirectoryView": {
+        "type": "object",
+        "description": "A saved directory, with whether it answered a TLS connect check just now.",
+        "required": [
+          "id",
+          "name",
+          "url",
+          "startTls",
+          "bindTemplate",
+          "idAttribute",
+          "usernameAttribute",
+          "emailAttribute",
+          "nameAttribute",
+          "groupNameAttribute",
+          "enabled",
+          "reachable",
+          "updatedBy"
+        ],
+        "properties": {
+          "baseDn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bindTemplate": {
+            "type": "string"
+          },
+          "caPem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "emailAttribute": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupAttribute": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupBaseDn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupFilter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "groupNameAttribute": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "idAttribute": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nameAttribute": {
+            "type": "string"
+          },
+          "problem": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DirectoryProblem"
+              }
+            ]
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Whether a TLS connection (with certificate and host-name checks) worked just now;\nfalse for a directory that is turned off."
+          },
+          "startTls": {
+            "type": "boolean"
+          },
+          "updatedBy": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "userFilter": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usernameAttribute": {
+            "type": "string"
           }
         }
       },
@@ -11401,12 +12085,20 @@
         "type": "object",
         "required": [
           "providers",
-          "apiTokens"
+          "apiTokens",
+          "directories"
         ],
         "properties": {
           "apiTokens": {
             "type": "boolean",
             "description": "Whether API tokens are accepted (legacy platform-wide tokens)."
+          },
+          "directories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryOption"
+            },
+            "description": "Directories people can sign in with (username and password), enabled ones only."
           },
           "providers": {
             "type": "array",
@@ -11421,11 +12113,19 @@
         "type": "object",
         "required": [
           "providers",
-          "apiTokens"
+          "apiTokens",
+          "directories"
         ],
         "properties": {
           "apiTokens": {
             "$ref": "#/components/schemas/ApiTokenSetting"
+          },
+          "directories": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DirectoryView"
+            },
+            "description": "Directories (LDAP with TLS), each checked with a TLS connection now."
           },
           "providers": {
             "type": "array",

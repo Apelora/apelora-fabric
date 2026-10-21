@@ -250,6 +250,8 @@ pub struct ApiTokenSetting {
 pub struct SignInSettings {
     pub providers: Vec<ProviderView>,
     pub api_tokens: ApiTokenSetting,
+    /// Directories (LDAP with TLS), each checked with a TLS connection now.
+    pub directories: Vec<super::directories::DirectoryView>,
 }
 
 /// The editable fields of a provider. Lists default to the provider defaults when left empty.
@@ -424,6 +426,7 @@ fn settings(state: &AppState) -> SignInSettings {
             enabled: state.api_tokens_accepted(),
             locked_by_environment: !state.legacy_tokens,
         },
+        directories: Vec::new(),
     }
 }
 
@@ -438,7 +441,9 @@ pub(super) async fn get_settings(
     Extension(p): Extension<Principal>,
 ) -> Result<Json<SignInSettings>, ApiError> {
     allow_platform(&p, MANAGE)?;
-    Ok(Json(settings(&state)))
+    let mut s = settings(&state);
+    s.directories = super::directories::views(&state).await?;
+    Ok(Json(s))
 }
 
 #[derive(Serialize, ToSchema)]

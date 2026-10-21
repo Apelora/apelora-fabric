@@ -19,6 +19,7 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 | Four-eyes approvals | `crates/auth/src/approval.rs` |
 | OIDC token validation, discovery | `crates/identity` |
 | Identity providers and API-token setting (Console-configured, lockout guards) | `services/control-plane/src/api/auth_config.rs`, `crates/persistence/src/auth_settings.rs` |
+| Directories (LDAP over TLS): settings API, check, `verify_directory_sign_in`, `upsert_directory_user` | `services/control-plane/src/api/directories.rs`, LDAP client and escaping `services/control-plane/src/api/ldap.rs`, `crates/persistence/src/directories.rs` (migration 0018), Console `apps/fabric-console/src/views/identity/Directories.tsx` |
 | Browser sign-in (PKCE) | `packages/api-client/src/oidc.ts`, `apps/fabric-console/src/views/SignIn.tsx` |
 | Route gate (`GATES`) and per-handler checks | `services/control-plane/src/api/authz.rs` |
 | Identity API | `services/control-plane/src/api/identity.rs` |
@@ -36,7 +37,8 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 8. **Audit is append-only** (database trigger). Record actor, action, target, outcome (`success`/`denied`/`failed`) and scope. Never put secrets, tokens, or request bodies with secrets in audit detail.
 9. **Legacy `apl_` tokens** stay platform-wide and exempt from approvals; `APELORA_LEGACY_TOKENS=disabled` or the Console setting turns them off. Do not extend what they can do. Sign-in changes must keep the lockout guards in `auth_config.rs` (never leave nobody able to sign in).
 10. **The UI only avoids dead ends.** Hide or disable actions from `whoami.capabilities` / the `actions` object returned per resource, always with the reason; the server enforces regardless.
-11. **Troubleshooting without leaks.** Log refused credentials and denied actions with method, path, credential kind, issuer and reason; never a token, certificate, password or the Authorization header.
+11. **Directories (ADR 0007):** bind as the person only (no stored service password); `ldaps://` or StartTLS only, certificate and host name always verified; escape usernames with `escape_dn_value` / `escape_filter_value` (RFC 4514 / 4515), never by hand; refuse an empty password before connecting (it is an anonymous bind); 10 s deadline (`503 directory_unreachable`); a refused bind is `401 invalid_credentials` with the same words as local accounts. Directory groups map by `groups.external_name`. Do not count directories in the lockout guards until the password endpoint signs people in with them.
+12. **Troubleshooting without leaks.** Log refused credentials and denied actions with method, path, credential kind, issuer and reason; never a token, certificate, password or the Authorization header.
 
 ## Adding a protected route — checklist
 
@@ -50,4 +52,4 @@ The design is in `docs/architecture/ACCESS-AND-ROLES.md` and `docs/adr/0005-acce
 
 ## Not yet verified against real systems
 
-Browser sign-in with PKCE is REAL-BROWSER TESTED against the local development provider (`infra/dev/dex.yaml`); enterprise providers in production, the MAAS 3.8 entitlement mapping, and Incus restricted-project enforcement are written from documentation and tested with stubs. Say so in reports; do not label them as verified.
+Browser sign-in with PKCE is REAL-BROWSER TESTED against the local development provider (`infra/dev/dex.yaml`); directory bind, groups, escaping and TLS checks are REAL DIRECTORY TESTED against the development OpenLDAP (`infra/dev`, profile `directory`; `cargo test -p apelora-control-plane real_directory -- --ignored`), while principal-name directories (`objectGUID`, `userPrincipalName`) are written from documentation; enterprise providers in production, the MAAS 3.8 entitlement mapping, and Incus restricted-project enforcement are written from documentation and tested with stubs. Say so in reports; do not label them as verified.

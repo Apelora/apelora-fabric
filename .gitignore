@@ -14,6 +14,8 @@ Thumbs.db
 *.key
 *.p12
 secrets/
+# Development directory TLS keys (infra/dev/directory/make-certs.sh)
+infra/dev/directory/certs/
 .claude/settings.local.json
 
 # Node / Studio

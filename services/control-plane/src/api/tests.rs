@@ -2972,7 +2972,10 @@ async fn sign_in_options_are_public_and_name_the_identity_provider_only_when_set
     let plain = AppState::new(provider.clone(), Auth::Tokens(pool.clone()));
     let (status, body, _) = call(plain, "/api/v1/sign-in", None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, json!({ "providers": [], "apiTokens": true }));
+    assert_eq!(
+        body,
+        json!({ "providers": [], "apiTokens": true, "directories": [] })
+    );
 
     let with_oidc = AppState::new(provider, Auth::Tokens(pool))
         .with_legacy_tokens(false)

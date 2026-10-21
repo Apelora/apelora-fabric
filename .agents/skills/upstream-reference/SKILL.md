@@ -22,12 +22,15 @@ Distilled knowledge from upstream repositories and documents the owner has share
 | **MAAS** | Proposed bare-metal provisioning (ADR 0002) | AGPL-3.0 | REST API only, if adopted |
 | **Ceph** | Candidate shared storage for HA, via Incus | Mainly LGPL-2.1/3.0, some GPL headers | External system Incus talks to; never linked |
 | **PostgreSQL** | Apelora state, jobs, leases | PostgreSQL licence | Via SQLx (Phase 03) |
+| **OpenLDAP** (Alpine Linux package) | Development directory for directory sign-in (`infra/dev/directory`) | OpenLDAP Public License 2.8 (permissive); Alpine base image MIT | A separate program in a development container built from `alpine:3.24` and Alpine's maintained `openldap` packages; never linked or shipped |
 
 **Incus** (seen 2026-10): 7.0 LTS released May 2026, supported to June 2031 (2 years of fixes, then security only). Host minimums include kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables. Supports LXC system containers, OCI application containers and QEMU VMs; Raft-replicated cluster database; projects, profiles, images, storage pools (incl. Ceph, LINSTOR), networks (bridge, OVN with ACLs, DNS zones, forwards, load balancers), placement scriptlets (Starlark), evacuation/restore, metrics, OIDC and fine-grained authorisation, a low-level backup API and built-in basic S3. Live migration of ordinary LXC containers is limited; stopped moves are reliable. `cluster.healing_threshold` defaults to disabled. Local Unix-socket access equals root on the host.
 
 **MAAS** (seen 2026-10): region and rack controllers; DHCP, TFTP/HTTP network boot, commissioning (hardware inventory), OS deployment with cloud-init, power control through BMCs (Redfish, IPMI, vendor interfaces); REST API. Its own development uses Python and Go; supports FIPS/STIG-hardened environments. Never run its DHCP on a network that already has one.
 
 **Ceph** (seen 2026-10): object, block (RBD) and file storage; needs its own cluster, monitoring and repair runbooks. A storage cluster, not a feature of Incus.
+
+**OpenLDAP dev image** (chosen 2026-10): the popular prebuilt OpenLDAP images are either unmaintained for years or no longer freely published, so we build a small image from Alpine's maintained packages (2.6.x). Facts that mattered: the `memberof` overlay does not run for `slapadd` (seed `memberOf` explicitly or load online); `security simple_bind=64` refuses simple binds without TLS (result 13); `entryUUID` is operational and must be requested by name; Alpine's `slappasswd` produces salted SHA-1 by default.
 
 ### General infrastructure concepts (no single source)
 
@@ -60,6 +63,7 @@ Running a module image does not link its code into ours; record the licence in t
 | **rustfmt** | MIT or Apache-2.0 | `rustfmt.toml` with `edition` and `style_edition` so editors and `cargo fmt` agree; `--check` in CI |
 | **docs.rs** | MIT | Same stack (Axum, SQLx, PostgreSQL): local PostgreSQL via compose on loopback, SQLx offline metadata committed, parallel test runner (Phase 03) |
 | **rust-analyzer** | MIT or Apache-2.0 | One rules file shared by agents; working habits now in AGENTS.md ("How to change things") |
+| **ldap3** (Rust) | MIT or Apache-2.0 | LDAP client for directory sign-in (0.12, `tls-rustls-aws-lc-rs` only, no default features): rustls 0.23 and tokio-rustls 0.26 as already used by the Incus adapter. Its rustls connector verifies the certificate against the `ClientConfig` we pass and the URL's host name; `SearchEntry::construct` panics on malformed replies, so we call it under `catch_unwind` |
 | **regex** (Rust) | MIT or Apache-2.0 | Linear-time matching: use it if we ever match patterns from untrusted input (avoids ReDoS) |
 
 Repository-level results so far: `rust-toolchain.toml` pin, `rustfmt.toml`, `--locked` builds in CI, `cargo deny` planned.

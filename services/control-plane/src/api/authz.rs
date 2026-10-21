@@ -386,6 +386,31 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "GET",
+        "/api/v1/identity/sign-in/directories",
+        &["platform.security.manage"],
+    ),
+    (
+        "POST",
+        "/api/v1/identity/sign-in/directories",
+        &["platform.security.manage"],
+    ),
+    (
+        "POST",
+        "/api/v1/identity/sign-in/directories/check",
+        &["platform.security.manage"],
+    ),
+    (
+        "PUT",
+        "/api/v1/identity/sign-in/directories/{id}",
+        &["platform.security.manage"],
+    ),
+    (
+        "DELETE",
+        "/api/v1/identity/sign-in/directories/{id}",
+        &["platform.security.manage"],
+    ),
+    (
+        "GET",
         "/api/v1/applications/{name}/volumes",
         &["application.view"],
     ),

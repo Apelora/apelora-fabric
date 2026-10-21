@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub use sqlx::PgPool as Pool;
 
 pub mod auth_settings;
+pub mod directories;
 mod health;
 pub mod identity;
 pub mod lifecycle;

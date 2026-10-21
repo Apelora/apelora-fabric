@@ -18,6 +18,13 @@ apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
 axum = { version = "0.8.9", features = ["ws"] }
 getrandom = "0.4.3"
 jiff = "0.2.38"
+# Directory sign-in over LDAP with TLS (ADR 0007). MIT OR Apache-2.0. Only its rustls backend
+# (aws-lc-rs, as the Incus adapter uses); no native TLS, Kerberos or NTLM.
+ldap3 = { version = "0.12.1", default-features = false, features = ["tls-rustls-aws-lc-rs"] }
+# The same TLS stack and versions as the Incus adapter: the directory's CA (PEM) or the system's
+# trusted roots (rustls-native-certs, already in the tree through reqwest).
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-native-certs = "0.8.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.0"
@@ -25,6 +32,8 @@ time = { version = "0.3.47", features = ["formatting", "parsing"] }
 tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# Parses directory URLs; already in the tree (MIT OR Apache-2.0).
+url = "2.5.8"
 utoipa = { version = "5.5.0", features = ["axum_extras", "uuid"] }
 uuid = "1.26.1"
 
@@ -39,4 +48,6 @@ apelora-incus-adapter = { path = "../../crates/incus-adapter", features = ["test
 http-body-util = "0.1.5"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread", "net"] }
+# A local TLS server for the directory TLS tests (same version as the Incus adapter).
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs"] }
 tower = { version = "0.5.3", features = ["util"] }

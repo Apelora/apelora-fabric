@@ -1,0 +1,72 @@
+# People and groups of the development directory. Development credentials only.
+# Every person's password: apelora-dev-only (hashed when the container starts).
+#
+#   ada       Ada Admin       dev-admins, dev-operators
+#   oscar     Oscar Operator  dev-operators
+#   vic       Vic Viewer      (no groups)
+#   sam+ops   Sam Ops         dev-operators   (a "+" in the name: proves DN escaping)
+#
+# memberOf is listed explicitly because the seed is loaded offline (slapadd), where the
+# memberof overlay does not run; later changes made over LDAP keep it up to date.
+
+dn: dc=apelora,dc=test
+objectClass: dcObject
+objectClass: organization
+dc: apelora
+o: Apelora development
+
+dn: ou=people,dc=apelora,dc=test
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=apelora,dc=test
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=ada,ou=people,dc=apelora,dc=test
+objectClass: inetOrgPerson
+uid: ada
+cn: Ada Admin
+sn: Admin
+mail: ada@apelora.test
+userPassword: @PASSWORD@
+memberOf: cn=dev-admins,ou=groups,dc=apelora,dc=test
+memberOf: cn=dev-operators,ou=groups,dc=apelora,dc=test
+
+dn: uid=oscar,ou=people,dc=apelora,dc=test
+objectClass: inetOrgPerson
+uid: oscar
+cn: Oscar Operator
+sn: Operator
+mail: oscar@apelora.test
+userPassword: @PASSWORD@
+memberOf: cn=dev-operators,ou=groups,dc=apelora,dc=test
+
+dn: uid=vic,ou=people,dc=apelora,dc=test
+objectClass: inetOrgPerson
+uid: vic
+cn: Vic Viewer
+sn: Viewer
+mail: vic@apelora.test
+userPassword: @PASSWORD@
+
+dn: uid=sam\+ops,ou=people,dc=apelora,dc=test
+objectClass: inetOrgPerson
+uid: sam+ops
+cn: Sam Ops
+sn: Ops
+mail: sam@apelora.test
+userPassword: @PASSWORD@
+memberOf: cn=dev-operators,ou=groups,dc=apelora,dc=test
+
+dn: cn=dev-admins,ou=groups,dc=apelora,dc=test
+objectClass: groupOfNames
+cn: dev-admins
+member: uid=ada,ou=people,dc=apelora,dc=test
+
+dn: cn=dev-operators,ou=groups,dc=apelora,dc=test
+objectClass: groupOfNames
+cn: dev-operators
+member: uid=ada,ou=people,dc=apelora,dc=test
+member: uid=oscar,ou=people,dc=apelora,dc=test
+member: uid=sam\+ops,ou=people,dc=apelora,dc=test
