@@ -24,7 +24,7 @@ flowchart LR
 - **Permission classes**: `Tenant` (applications, projects, members), `Infrastructure` (cluster, networks, storage, hardware) and `Security` (identity, policy, emergency access). Each permission has a **floor**, the narrowest scope it may be granted at; only `Tenant` permissions can be granted below platform level, so a project role can never reach servers, the cluster or the platform's own security settings.
 - **Predefined roles** (ten) and **custom roles** are sets of catalogue permissions. Nothing checks a role name.
 - **Service identities** hold roles like people but are withheld from security and people-management permissions, and never get interactive sessions.
-- **Legacy `apl_` tokens** stay platform-wide and exempt from approvals; set `APELORA_LEGACY_TOKENS=disabled` once people sign in through OIDC.
+- **Legacy `apl_` tokens** stay platform-wide and exempt from approvals and multi-factor rules (they cannot present either); they pass the same route gate as everyone else, through their role's legacy mapping, and cannot create `fabric-admin` tokens. Set `APELORA_LEGACY_TOKENS=disabled` once people sign in through OIDC.
 
 ## 2. Request path
 
@@ -44,9 +44,11 @@ sequenceDiagram
 
 Rules that are enforced and tested (API integration tests, 22 for identity, 13 for application management):
 
-- A route not in `GATES` is refused for people and services.
+- A route not in `GATES` is refused for every caller (people, services, legacy tokens and the development principal).
 - Every handler checks the **exact resource**; objects the caller cannot see answer 404.
-- The **escalation guard** (`check_assignment`) stops anyone granting more than they hold or at a wider scope; the preview endpoint uses the same checks as create.
+- The **escalation guard** (`check_assignment`) stops anyone granting more than they hold or at a wider scope; the preview endpoint uses the same checks as create. **Revoking** uses the same test (`check_revocation`): only someone who could grant the role at that scope may revoke it (403 `revocation_refused`, audited); emergency grants can also be ended with `platform.emergency_access`.
+- **Tokens never exceed their creator.** An API token's role is refused (403 `token_exceeds_caller`, audited as a denied `token.create`) when it carries any permission the creator does not hold at platform level. A `fabric-admin` token needs another person's approval of `token.create_admin` on `token:fabric-admin`; legacy tokens cannot present one and are refused (`approval_unavailable`). Every token expires: 1–365 days, 90 by default, through the API and the command line (`--expires-in-days`); a service token asking for more is refused with 400, not shortened.
+- **The last super admin stays.** Disabling a person, revoking an assignment or removing a group member is refused (409 `last_super_admin`, audited as denied) when it would leave no enabled person holding `platform-super-admin` at platform level, directly or through a group membership recorded in Apelora. The change and the count run in one transaction under an advisory lock, so concurrent changes cannot both pass. Membership through an identity provider's group claim is not counted (it is only known at sign-in). With no super admin at all (a platform run on API tokens), nothing is refused.
 - **Approvals**: flagged permissions need a recorded approval by a different person for the exact action and target, single use, 30 minutes (`Apelora-Approval` header). Self-approval is refused.
 - **Emergency access**: at most 4 hours, a written reason, cannot be self-granted, every request under it audited.
 - **Audit** is append-only (database trigger); reads are scoped to what the caller may see. Denials of sensitive actions are recorded.
@@ -61,7 +63,7 @@ OIDC access tokens are validated by `crates/identity`: asymmetric algorithms onl
 
 **Choosing the provider for a token.** The control plane reads the token's `iss` (unverified) only to pick the configured provider with that issuer, then verifies the token against that provider alone. An issuer nobody configured is refused.
 
-**API tokens** (`apl_`) can be turned off in the Console once people sign in with a provider (`identity.api_tokens.disabled`). `APELORA_LEGACY_TOKENS=disabled` turns them off for good; the Console cannot turn them back on.
+**API tokens** (`apl_`) are created by a person or token that holds everything the token's role can do, expire within a year, and a `fabric-admin` one needs an approval (see section 2). They can be turned off in the Console once people sign in with a provider (`identity.api_tokens.disabled`). `APELORA_LEGACY_TOKENS=disabled` turns them off for good; the Console cannot turn them back on.
 
 **Local accounts** ([ADR 0007](../adr/0007-sign-in-methods.md), [design](../design/sign-in-methods.md); `services/control-plane/src/api/sessions_auth.rs`, `crates/persistence/src/local_accounts.rs`, `user_sessions.rs`, migration `0017_sign_in_methods.sql`). A local account is a `users` row with the issuer `apelora:local` and the lowercase username (`[a-z0-9._-]{2,64}`, also a database CHECK) as subject, plus a `local_credentials` row. Usernames are unique across every issuer. The setting `auth.local_accounts` is off by default (`PUT /api/v1/identity/sign-in/local-accounts`, `platform.security.manage`, audited). An administrator with `user.manage` creates an account (`POST /api/v1/identity/local-accounts`) or resets one (`POST …/{id}/reset`); both return a one-time setup token (`apw_` + 64 hex, 24 hours, stored as SHA-256, `Cache-Control: no-store`) that the Console turns into the link `#/set-password?token=…` (a fragment, so it never reaches a server log). The person sets the password with `POST /api/v1/sign-in/setup`; the link is spent atomically. A reset removes the password and revokes every session; nobody can reset their own account.
 
@@ -115,7 +117,9 @@ Apelora never connects people to Incus. It maps its decisions onto each backend'
 4. No endpoint previews a custom role's assignable levels before creating it.
 5. Remote desktop (RDP) is **not built**: there is no gateway, so the API reports it as unavailable with that reason. PowerShell into Windows modules is wired through the same exec channel but has never run against a Windows guest (**NOT VERIFIED**).
 6. Terminal sessions have only run against a labelled mock shell and an Incus-shaped contract fixture, never a real Incus (see section 7).
-6. Real Keycloak, MAAS 3.8 and Incus restricted-project behaviour must be verified before these are called production-ready.
+7. Real Keycloak, MAAS 3.8 and Incus restricted-project behaviour must be verified before these are called production-ready.
+8. The Console's token dialog cannot send an approval, so a person creates a `fabric-admin` token through the API (with `Apelora-Approval`) or with the command line on the server. The dialog still offers every role and shows the server's refusal (which roles a token may have is not in any response the Console reads).
+9. Legacy `apl_` tokens remain exempt from approvals and multi-factor rules for everything except creating `fabric-admin` tokens; turning them off is the only way to apply those rules to everyone.
 
 ## 7. Interactive access to modules (terminal, PowerShell)
 

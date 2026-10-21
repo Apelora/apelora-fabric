@@ -9,8 +9,8 @@
 //!   keep working until `APELORA_LEGACY_TOKENS=disabled`.
 //!
 //! Every handler authorises with [`allow`] (or `require` for platform-level routes); a route
-//! gate in front of the handlers refuses any route that is not listed in [`GATES`] for a person
-//! or service, so a new route is denied until someone decides who may use it.
+//! gate in front of the handlers refuses any route that is not listed in [`GATES`] for every
+//! caller, so a new route is denied until someone decides who may use it.
 
 use apelora_auth::{Engine, Resource, Subject};
 use apelora_domain::{Permission, Role};
@@ -110,7 +110,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         "application.deploy" | "application.operate" | "application.delete" | "instance.manage" => {
             Deploy
         }
-        "token.manage" => ManageTokens,
+        "token.manage" | "token.create_admin" => ManageTokens,
         "cluster.manage"
         | "cluster.evacuate"
         | "cluster.evacuate_unsafe"
@@ -141,6 +141,18 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "user.manage" => ManageTokens,
         _ => return None,
     })
+}
+
+/// What an API token of `role` would be able to do and the caller may not (at platform level),
+/// in catalogue order. Empty when the caller may create such a token: a token never carries more
+/// than its creator holds.
+pub(super) fn beyond_caller(p: &Principal, role: Role) -> Vec<&'static str> {
+    apelora_auth::PERMISSIONS
+        .iter()
+        .map(|d| d.id)
+        .filter(|id| legacy_requirement(id).is_some_and(|need| role.allows(need)))
+        .filter(|id| allow_platform(p, id).is_err())
+        .collect()
 }
 
 /// The platform-level permission id a legacy `Permission` stands for when a person or service
@@ -238,7 +250,7 @@ pub(super) fn holds_anywhere(p: &Principal, permission: &str) -> bool {
 /// Routes and the permissions that open them. A person or service identity needs at least one
 /// of the listed permissions at some scope to get past the gate; the handler then checks the
 /// exact resource. An empty list means any signed-in caller. **A route that is not here is
-/// refused.** Legacy tokens are checked by their handlers as before.
+/// refused.** Legacy tokens pass the same gate through their role's legacy mapping.
 pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/whoami", &[]),
     // Ends the caller's own session; changes the caller's own password (local accounts only,
@@ -718,32 +730,30 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
 ];
 
-/// Default-deny gate for people and service identities.
+/// Default-deny gate for every caller: people, service identities and legacy API tokens (and the
+/// development principal), the latter through their role's legacy mapping.
 pub(super) async fn route_gate(matched: Option<MatchedPath>, req: Request, next: Next) -> Response {
     let Some(p) = req.extensions().get::<Principal>().cloned() else {
         return forbidden("access", false).into_response();
     };
-    if p.caller.is_some() {
-        let pattern = matched.as_ref().map(MatchedPath::as_str).unwrap_or("");
-        let method = req.method().as_str();
-        match GATES
-            .iter()
-            .find(|(m, pat, _)| *m == method && *pat == pattern)
-        {
-            Some((_, _, any_of))
-                if any_of.is_empty() || any_of.iter().any(|perm| holds_anywhere(&p, perm)) => {}
-            Some((_, _, any_of)) => {
-                return forbidden(any_of.first().copied().unwrap_or("access"), false)
-                    .into_response();
-            }
-            None => {
-                return ApiError::new(
-                    StatusCode::FORBIDDEN,
-                    "route_not_authorizable",
-                    "this route has no access rule for signed-in users",
-                )
-                .into_response();
-            }
+    let pattern = matched.as_ref().map(MatchedPath::as_str).unwrap_or("");
+    let method = req.method().as_str();
+    match GATES
+        .iter()
+        .find(|(m, pat, _)| *m == method && *pat == pattern)
+    {
+        Some((_, _, any_of))
+            if any_of.is_empty() || any_of.iter().any(|perm| holds_anywhere(&p, perm)) => {}
+        Some((_, _, any_of)) => {
+            return forbidden(any_of.first().copied().unwrap_or("access"), false).into_response();
+        }
+        None => {
+            return ApiError::new(
+                StatusCode::FORBIDDEN,
+                "route_not_authorizable",
+                "this route has no access rule for signed-in users",
+            )
+            .into_response();
         }
     }
     next.run(req).await
@@ -868,8 +878,10 @@ pub(super) async fn guard_on(
 
 /// The approval gate for risky actions. When the action needs approval, the caller must present
 /// an approval of exactly this action and target that someone else granted; it is spent here.
-/// Legacy tokens are not subject to approvals (they are platform-wide credentials; disable them
-/// with `APELORA_LEGACY_TOKENS=disabled` to enforce the rule for everyone).
+/// Legacy tokens are not subject to approvals or multi-factor rules (they are platform-wide
+/// credentials that cannot present either; disable them with `APELORA_LEGACY_TOKENS=disabled` to
+/// enforce the rules for everyone). Where that exemption would let a token mint a more powerful
+/// credential, the handler refuses legacy tokens instead (a `fabric-admin` token, `admin.rs`).
 pub(super) async fn guard(
     state: &AppState,
     p: &Principal,

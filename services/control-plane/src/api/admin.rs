@@ -4,11 +4,16 @@
 //! A new token is returned once (`Cache-Control: no-store`); only its hash is stored and it
 //! is never logged or audited. Creating and revoking tokens is audited with the same actions
 //! as the command line (`token.create`, `token.revoke`).
+//!
+//! Containment: a token can never do more than the person or token that creates it (every
+//! permission the token's role carries must be one the creator holds at platform level), a
+//! `fabric-admin` token needs another person's approval (`token.create_admin`), and every token
+//! expires (1–365 days, here and on the command line).
 
 use apelora_domain::{Permission, Role};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
-use axum::http::{HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
@@ -18,9 +23,25 @@ use uuid::Uuid;
 
 use super::{API_VERSION, ApiError, AppState, Auth, ErrorBody, Principal, require};
 
-/// Tokens created through the API always expire; at most a year, 90 days by default.
-const DEFAULT_TOKEN_DAYS: i64 = 90;
-const MAX_TOKEN_DAYS: i64 = 365;
+/// Tokens always expire (API, command line and automation identities): at most a year, 90 days
+/// by default.
+pub(crate) const DEFAULT_TOKEN_DAYS: i64 = 90;
+pub(crate) const MAX_TOKEN_DAYS: i64 = 365;
+
+/// The lifetime of a new token in days: the default when none is asked for, and a refusal (not a
+/// silent change) when the request is outside 1–365 days.
+pub(crate) fn token_lifetime_days(requested: Option<i64>) -> Result<i64, String> {
+    let days = requested.unwrap_or(DEFAULT_TOKEN_DAYS);
+    if (1..=MAX_TOKEN_DAYS).contains(&days) {
+        Ok(days)
+    } else {
+        Err(format!("tokens expire after 1–{MAX_TOKEN_DAYS} days"))
+    }
+}
+
+/// The permission and approval target for creating a `fabric-admin` token.
+const CREATE_ADMIN: &str = "token.create_admin";
+const CREATE_ADMIN_TARGET: &str = "token:fabric-admin";
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -158,14 +179,20 @@ pub(super) async fn list(
     Ok(Json(TokenList { items }))
 }
 
-/// Creates an API token, shown only in this response. Needs `manage-tokens`.
+/// Creates an API token, shown only in this response. Needs `manage-tokens` and every permission
+/// the token's role carries (a token never does more than its creator). A `fabric-admin` token
+/// also needs another person's approval of `token.create_admin` on `token:fabric-admin`, sent as
+/// `Apelora-Approval`; an API token cannot present one, so it cannot create `fabric-admin` tokens.
 #[utoipa::path(post, path = "/api/v1/tokens", tag = "administration", operation_id = "create_token",
     request_body = CreateToken,
+    params(("Apelora-Approval" = Option<Uuid>, Header, description = "For a fabric-admin token: the approval another person granted for token.create_admin on token:fabric-admin")),
     responses((status = 201, body = TokenCreated), (status = 400, body = ErrorBody),
-        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 409, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn create(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    headers: HeaderMap,
     body: Result<Json<CreateToken>, JsonRejection>,
 ) -> Result<Response, ApiError> {
     require(&p, Permission::ManageTokens)?;
@@ -174,13 +201,53 @@ pub(super) async fn create(
     if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
         return Err(bad_request("the name must be 1–64 characters"));
     }
-    let days = req.expires_in_days.unwrap_or(DEFAULT_TOKEN_DAYS);
-    if !(1..=MAX_TOKEN_DAYS).contains(&days) {
-        return Err(bad_request(format!(
-            "tokens expire after 1–{MAX_TOKEN_DAYS} days"
-        )));
-    }
+    let days = token_lifetime_days(req.expires_in_days).map_err(bad_request)?;
     let pool = store(&state)?;
+    let missing = super::authz::beyond_caller(&p, req.role);
+    if !missing.is_empty() {
+        let message = format!(
+            "a {} token could do what you may not: {}",
+            req.role.as_str(),
+            missing.join(", ")
+        );
+        super::authz::audit_scoped(
+            pool,
+            &p,
+            "token.create",
+            name,
+            "denied",
+            None,
+            &json!({ "role": req.role.as_str(), "code": "token_exceeds_caller", "missing": missing }),
+        )
+        .await?;
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "token_exceeds_caller",
+            message,
+        ));
+    }
+    let approval = if req.role == Role::FabricAdmin {
+        if p.caller.is_none() {
+            super::authz::audit_scoped(
+                pool,
+                &p,
+                "token.create",
+                name,
+                "denied",
+                None,
+                &json!({ "role": req.role.as_str(), "code": "approval_unavailable" }),
+            )
+            .await?;
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "approval_unavailable",
+                "a fabric-admin token needs another person's approval, which an API token cannot present: sign in as a person, or use the command line on the server",
+            ));
+        }
+        super::authz::guard(&state, &p, &headers, CREATE_ADMIN, CREATE_ADMIN_TARGET).await?
+    } else {
+        None
+    };
     let expires = time::OffsetDateTime::now_utc() + time::Duration::days(days);
     let (secret, rec) =
         apelora_persistence::create_token(pool, name, req.role.as_str(), Some(expires)).await?;
@@ -189,7 +256,7 @@ pub(super) async fn create(
         &p,
         "token.create",
         &rec.name,
-        &json!({ "id": rec.id, "role": rec.role, "by": p.role }),
+        &json!({ "id": rec.id, "role": rec.role, "by": p.role, "expiresInDays": days, "approval": approval }),
     )
     .await?;
     let mut res = (
@@ -300,6 +367,21 @@ mod tests {
             (-1, "expired")
         );
         assert!(s(now).expires_at.starts_with("2027-01-15"));
+    }
+
+    #[test]
+    fn tokens_live_one_to_365_days_and_90_by_default() {
+        use super::token_lifetime_days as days;
+        assert_eq!(days(None), Ok(90));
+        assert_eq!(days(Some(1)), Ok(1));
+        assert_eq!(days(Some(365)), Ok(365));
+        for refused in [0, -1, 366, i64::MAX] {
+            assert_eq!(
+                days(Some(refused)),
+                Err("tokens expire after 1–365 days".to_owned()),
+                "{refused}"
+            );
+        }
     }
 
     #[test]

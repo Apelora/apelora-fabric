@@ -57,6 +57,49 @@ impl std::fmt::Display for AssignError {
     }
 }
 
+/// `role.assign` at the scope and every permission the role would confer there. For pool or
+/// platform grants the "scope resource" is the platform or the pool itself.
+fn check_grantable(
+    engine: &Engine,
+    actor: &Subject,
+    role: &ResolvedRole,
+    scope: &Scope,
+    resource: &Resource,
+    now: i64,
+) -> Result<(), AssignError> {
+    if !engine.check(actor, "role.assign", resource, now).allowed {
+        return Err(AssignError::NotPermitted);
+    }
+    // Only permissions that would take effect at the target scope count: the rest are inert there.
+    let missing: Vec<String> = role
+        .permissions
+        .iter()
+        .filter(|p| permission(p).is_some_and(|d| confers(scope, d)))
+        .filter(|p| !engine.check(actor, p, resource, now).allowed)
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(AssignError::WouldEscalate(missing));
+    }
+    Ok(())
+}
+
+/// May the actor revoke an existing assignment of `role` at `scope`? Only if they could grant it
+/// there: `role.assign` and every permission the role confers at that scope. Nobody can take away
+/// more than they could hand out, so a narrow membership manager cannot strip an administrator.
+/// Unlike [`check_assignment`], the role's assignable levels are not checked: an assignment that
+/// exists can always be ended by someone powerful enough to have made it.
+pub fn check_revocation(
+    engine: &Engine,
+    actor: &Subject,
+    role: &ResolvedRole,
+    scope: &Scope,
+    resource: &Resource,
+    now: i64,
+) -> Result<(), AssignError> {
+    check_grantable(engine, actor, role, scope, resource, now)
+}
+
 /// Longest emergency grant, in seconds.
 pub const MAX_EMERGENCY_SECS: i64 = 4 * 3600;
 
@@ -69,25 +112,7 @@ pub fn check_assignment(
     if !req.role.may_be_assigned_at(req.scope) {
         return Err(AssignError::RoleNotAssignableAtScope);
     }
-    // For pool or platform grants the "scope resource" is the platform or the pool itself.
-    if !engine
-        .check(actor, "role.assign", req.resource, now)
-        .allowed
-    {
-        return Err(AssignError::NotPermitted);
-    }
-    // Only permissions that would take effect at the target scope count: the rest are inert there.
-    let missing: Vec<String> = req
-        .role
-        .permissions
-        .iter()
-        .filter(|p| permission(p).is_some_and(|d| confers(req.scope, d)))
-        .filter(|p| !engine.check(actor, p, req.resource, now).allowed)
-        .cloned()
-        .collect();
-    if !missing.is_empty() {
-        return Err(AssignError::WouldEscalate(missing));
-    }
+    check_grantable(engine, actor, req.role, req.scope, req.resource, now)?;
     if matches!(req.principal, PrincipalRef::Service { .. }) {
         let bad: Vec<String> = req
             .role
@@ -221,6 +246,85 @@ mod tests {
                 "{b:?} at organisation"
             );
         }
+    }
+
+    #[test]
+    fn nobody_can_revoke_a_role_they_could_not_grant() {
+        let w = world();
+        let clerk = CustomRole {
+            id: id(601),
+            name: "Membership clerk".into(),
+            description: String::new(),
+            permissions: [
+                "role.assign",
+                "project.view",
+                "application.view",
+                "application.metrics.read",
+            ]
+            .map(String::from)
+            .into(),
+        };
+        let project = Scope::Project { id: w.acme_prod };
+        let mut e = engine(vec![Assignment {
+            role: RoleRef::Custom { id: clerk.id },
+            ..assign(1, user_ref(1), Builtin::Viewer, project.clone())
+        }]);
+        e.custom_roles.insert(clerk.id, clerk);
+        let res = Resource::project(w.acme, w.acme_prod);
+        let admin = ResolvedRole::builtin(Builtin::ProjectAdministrator);
+        match check_revocation(&e, &user(1), &admin, &project, &res, NOW) {
+            Err(AssignError::WouldEscalate(missing)) => {
+                assert!(
+                    missing.contains(&"application.deploy".to_string()),
+                    "{missing:?}"
+                );
+                assert!(
+                    !missing.contains(&"project.view".to_string()),
+                    "{missing:?}"
+                );
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+        // A viewer's permissions at the project are all held: revoking it is allowed, although
+        // the viewer role also lists permissions that are inert there (cluster.view).
+        let viewer = ResolvedRole::builtin(Builtin::Viewer);
+        assert_eq!(
+            check_revocation(&e, &user(1), &viewer, &project, &res, NOW),
+            Ok(())
+        );
+        // Holding the permissions without role.assign is not enough.
+        let reader = engine(vec![assign(
+            2,
+            user_ref(2),
+            Builtin::Viewer,
+            project.clone(),
+        )]);
+        assert_eq!(
+            check_revocation(&reader, &user(2), &viewer, &project, &res, NOW),
+            Err(AssignError::NotPermitted)
+        );
+        // Another project is out of reach.
+        let other = Scope::Project { id: w.other_proj };
+        let other_res = Resource::project(w.other, w.other_proj);
+        assert_eq!(
+            check_revocation(&e, &user(1), &viewer, &other, &other_res, NOW),
+            Err(AssignError::NotPermitted)
+        );
+        // Unlike a grant, the role's assignable levels do not matter: a platform super admin may
+        // end a role at a level where it could no longer be granted.
+        let root = engine(vec![assign(
+            3,
+            user_ref(3),
+            Builtin::PlatformSuperAdmin,
+            Scope::Platform,
+        )]);
+        let org = Scope::Organization { id: w.acme };
+        let org_res = Resource::organization(w.acme);
+        let fabric = ResolvedRole::builtin(Builtin::FabricAdministrator);
+        assert_eq!(
+            check_revocation(&root, &user(3), &fabric, &org, &org_res, NOW),
+            Ok(())
+        );
     }
 
     #[test]

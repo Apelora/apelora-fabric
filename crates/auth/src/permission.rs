@@ -64,6 +64,13 @@ const fn s(id: &'static str, description: &'static str) -> PermissionDef {
         description,
     }
 }
+/// A security permission that is carried out only after another person has approved it.
+const fn s_approved(id: &'static str, description: &'static str) -> PermissionDef {
+    PermissionDef {
+        approval: true,
+        ..s(id, description)
+    }
+}
 
 use Level::{Application as App, Organization as Org, Platform as Plat, Pool, Project as Proj};
 
@@ -243,6 +250,10 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         "Change access policies (MFA and approval rules)",
     ),
     s("token.manage", "Create and revoke API tokens"),
+    s_approved(
+        "token.create_admin",
+        "Create an API token with the fabric-admin role (needs another person's approval)",
+    ),
     s(
         "platform.security.manage",
         "Change identity provider settings and other platform security",
@@ -319,15 +330,21 @@ mod tests {
     }
 
     #[test]
-    fn the_four_protected_actions_need_approval() {
+    fn the_protected_actions_need_approval() {
         for id in [
             "hardware.delete",
             "hardware.power",
             "cluster.evacuate_unsafe",
             "cluster.sensitive_change",
+            "token.create_admin",
         ] {
             assert!(needs_approval(id), "{id}");
         }
+        assert!(!needs_approval("token.manage"));
+        assert_eq!(
+            permission("token.create_admin").map(|p| (p.class, p.floor)),
+            Some((Class::Security, Level::Platform))
+        );
         assert!(!needs_approval("application.deploy"));
         assert!(!needs_approval("no.such.permission"));
     }

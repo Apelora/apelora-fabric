@@ -1368,6 +1368,7 @@ async fn openapi() -> impl IntoResponse {
 }
 
 mod admin;
+pub(crate) use admin::token_lifetime_days;
 mod applications;
 pub mod auth_config;
 mod authz;
@@ -1390,6 +1391,8 @@ mod volumes;
 mod directories_tests;
 #[cfg(test)]
 mod fabric_health_tests;
+#[cfg(test)]
+mod containment_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

@@ -2132,7 +2132,7 @@ export type Responses = {
   create_assignment: AssignmentDto;
   /** Shows what an assignment would give before it is saved: what the person can already do at the scope, what they could do afterwards, which permissions would be inert, and whether you may save it. Changes nothing. Needs `role.assign`. */
   preview_assignment: AssignmentPreview;
-  /** Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its scope. The last platform super admin cannot be revoked. */
+  /** Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its scope and every permission the role confers there (you can only take away what you could grant). Refused when it would leave no enabled platform super admin. */
   revoke_assignment: null;
   /** Audit history the caller may read, filtered and paged. Needs `audit.read`. */
   identity_audit: AuditList;
@@ -2274,7 +2274,7 @@ export type Responses = {
   system: SystemInfo;
   /** API tokens, active and revoked (never the tokens themselves). Needs `manage-tokens`. */
   tokens: TokenList;
-  /** Creates an API token, shown only in this response. Needs `manage-tokens`. */
+  /** Creates an API token, shown only in this response. Needs `manage-tokens` and every permission the token's role carries (a token never does more than its creator). A `fabric-admin` token also needs another person's approval of `token.create_admin` on `token:fabric-admin`, sent as `Apelora-Approval`; an API token cannot present one, so it cannot create `fabric-admin` tokens. */
   create_token: TokenCreated;
   /** Revokes an API token; it stops working at once. Needs `manage-tokens`. */
   revoke_token: null;

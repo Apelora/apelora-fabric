@@ -3378,7 +3378,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its\nscope. The last platform super admin cannot be revoked.",
+        "summary": "Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its\nscope and every permission the role confers there (you can only take away what you could\ngrant). Refused when it would leave no enabled platform super admin.",
         "operationId": "revoke_assignment",
         "parameters": [
           {
@@ -7640,8 +7640,23 @@
         "tags": [
           "administration"
         ],
-        "summary": "Creates an API token, shown only in this response. Needs `manage-tokens`.",
+        "summary": "Creates an API token, shown only in this response. Needs `manage-tokens` and every permission\nthe token's role carries (a token never does more than its creator). A `fabric-admin` token\nalso needs another person's approval of `token.create_admin` on `token:fabric-admin`, sent as\n`Apelora-Approval`; an API token cannot present one, so it cannot create `fabric-admin` tokens.",
         "operationId": "create_token",
+        "parameters": [
+          {
+            "name": "Apelora-Approval",
+            "in": "header",
+            "description": "For a fabric-admin token: the approval another person granted for token.create_admin on token:fabric-admin",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -7684,6 +7699,16 @@
             }
           },
           "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {

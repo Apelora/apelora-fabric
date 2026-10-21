@@ -805,3 +805,187 @@ async fn the_last_super_admin_is_counted(pool: PgPool) {
     revoke_assignment(&pool, id, "t").await.expect("revoke");
     assert_eq!(super_admin_count(&pool).await.expect("count"), 0);
 }
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn the_last_enabled_super_admin_is_kept_whichever_way_they_would_go(pool: PgPool) {
+    let person = |s: &'static str| {
+        let pool = pool.clone();
+        async move {
+            upsert_user(&pool, "https://id.test", s, Some(s), None, None)
+                .await
+                .expect("user")
+                .id
+        }
+    };
+    let (ann, ben, cat) = (
+        person("ann").await,
+        person("ben").await,
+        person("cat").await,
+    );
+    assert_eq!(enabled_super_admins(&pool).await.expect("count"), 0);
+    // With no super admin at all, nothing is refused (a platform run on API tokens).
+    assert!(
+        change_keeping_a_super_admin(&pool, SuperAdminChange::DisableUser(cat))
+            .await
+            .expect("change")
+    );
+    set_user_disabled(&pool, cat, false).await.expect("enable");
+
+    let direct = insert_assignment(
+        &pool,
+        &assignment(
+            PrincipalRef::User { id: ann },
+            Builtin::PlatformSuperAdmin,
+            Scope::Platform,
+        ),
+    )
+    .await
+    .expect("assign");
+    let g = create_group(&pool, None, "owners", None, "")
+        .await
+        .expect("group");
+    let via_group = insert_assignment(
+        &pool,
+        &assignment(
+            PrincipalRef::Group { id: g.id },
+            Builtin::PlatformSuperAdmin,
+            Scope::Platform,
+        ),
+    )
+    .await
+    .expect("assign");
+    add_group_member(&pool, g.id, ben, "t")
+        .await
+        .expect("member");
+    // Neither an emergency grant nor an expired one counts.
+    let mut emergency = assignment(
+        PrincipalRef::User { id: cat },
+        Builtin::PlatformSuperAdmin,
+        Scope::Platform,
+    );
+    emergency.kind = AssignmentKind::Emergency;
+    emergency.expires_at = Some(OffsetDateTime::now_utc() + Duration::hours(1));
+    emergency.reason = Some("incident".into());
+    insert_assignment(&pool, &emergency).await.expect("assign");
+    let mut expired = assignment(
+        PrincipalRef::User { id: cat },
+        Builtin::PlatformSuperAdmin,
+        Scope::Platform,
+    );
+    expired.expires_at = Some(OffsetDateTime::now_utc() - Duration::minutes(1));
+    insert_assignment(&pool, &expired).await.expect("assign");
+    assert_eq!(enabled_super_admins(&pool).await.expect("count"), 2);
+
+    // ann goes; ben, through the group, is the last one.
+    assert!(
+        change_keeping_a_super_admin(&pool, SuperAdminChange::DisableUser(ann))
+            .await
+            .expect("change")
+    );
+    assert_eq!(enabled_super_admins(&pool).await.expect("count"), 1);
+    for change in [
+        SuperAdminChange::DisableUser(ben),
+        SuperAdminChange::RemoveGroupMember {
+            group: g.id,
+            user: ben,
+        },
+        SuperAdminChange::RevokeAssignment {
+            id: via_group,
+            by: "t",
+        },
+    ] {
+        assert!(
+            !change_keeping_a_super_admin(&pool, change)
+                .await
+                .expect("change"),
+            "{change:?}"
+        );
+    }
+    // Refused changes left nothing behind.
+    assert_eq!(enabled_super_admins(&pool).await.expect("count"), 1);
+    assert!(
+        user(&pool, ben)
+            .await
+            .expect("user")
+            .expect("ben")
+            .disabled_at
+            .is_none()
+    );
+    // The disabled person's own grant can go: it changes nothing.
+    assert!(
+        change_keeping_a_super_admin(
+            &pool,
+            SuperAdminChange::RevokeAssignment {
+                id: direct,
+                by: "t"
+            }
+        )
+        .await
+        .expect("change")
+    );
+    // Unknown targets are reported, not ignored.
+    for change in [
+        SuperAdminChange::DisableUser(uuid::Uuid::new_v4()),
+        SuperAdminChange::RevokeAssignment {
+            id: direct,
+            by: "t",
+        },
+    ] {
+        assert!(matches!(
+            change_keeping_a_super_admin(&pool, change).await,
+            Err(StoreError::NotFound(_))
+        ));
+    }
+    // Removing someone who is not a member is not refused.
+    assert!(
+        change_keeping_a_super_admin(
+            &pool,
+            SuperAdminChange::RemoveGroupMember {
+                group: g.id,
+                user: cat
+            }
+        )
+        .await
+        .expect("change")
+    );
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn concurrent_changes_never_leave_no_super_admin(pool: PgPool) {
+    let mut people = Vec::new();
+    for s in ["a", "b", "c", "d"] {
+        let id = upsert_user(&pool, "https://id.test", s, Some(s), None, None)
+            .await
+            .expect("user")
+            .id;
+        insert_assignment(
+            &pool,
+            &assignment(
+                PrincipalRef::User { id },
+                Builtin::PlatformSuperAdmin,
+                Scope::Platform,
+            ),
+        )
+        .await
+        .expect("assign");
+        people.push(id);
+    }
+    let tasks: Vec<_> = people
+        .iter()
+        .map(|id| {
+            let pool = pool.clone();
+            let id = *id;
+            tokio::spawn(async move {
+                change_keeping_a_super_admin(&pool, SuperAdminChange::DisableUser(id)).await
+            })
+        })
+        .collect();
+    let mut done = 0;
+    for t in tasks {
+        if t.await.expect("task").expect("change") {
+            done += 1;
+        }
+    }
+    assert_eq!(done, 3, "all but one");
+    assert_eq!(enabled_super_admins(&pool).await.expect("count"), 1);
+}

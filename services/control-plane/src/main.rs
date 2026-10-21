@@ -2,7 +2,8 @@
 //! Apelora control plane (Axum REST API, `/api/v1`).
 //!
 //! `apelora-control-plane`                 serve the API
-//! `apelora-control-plane token create --name <n> --role <r> [--expires-days <d>]`
+//! `apelora-control-plane token create --name <n> --role <r> [--expires-in-days <1-365>]`
+//!                                         (90 days by default; tokens always expire)
 //! `apelora-control-plane token list`
 //! `apelora-control-plane token revoke <id>`
 //! `apelora-control-plane identity bootstrap --issuer <iss> --subject <sub> [--username <u>]`
@@ -315,10 +316,11 @@ async fn token_command(
             if Role::parse(&role).is_none() {
                 return Err(format!("unknown role {role}").into());
             }
-            let expires = flag("--expires-days").map(|d| d.parse::<i64>()).transpose()?.map(|d| time::OffsetDateTime::now_utc() + time::Duration::days(d));
-            let (secret, rec) = apelora_persistence::create_token(pool, &name, &role, expires).await?;
-            apelora_persistence::audit(pool, "cli", "token.create", &rec.name, &json!({ "id": rec.id, "role": rec.role })).await?;
-            println!("Created token {} ({}, role {}). It is shown only once:\n{secret}", rec.id, rec.name, rec.role);
+            let days = cli_token_days(flag("--expires-in-days").or_else(|| flag("--expires-days")).as_deref())?;
+            let expires = time::OffsetDateTime::now_utc() + time::Duration::days(days);
+            let (secret, rec) = apelora_persistence::create_token(pool, &name, &role, Some(expires)).await?;
+            apelora_persistence::audit(pool, "cli", "token.create", &rec.name, &json!({ "id": rec.id, "role": rec.role, "expiresInDays": days })).await?;
+            println!("Created token {} ({}, role {}, expires in {days} days). It is shown only once:\n{secret}", rec.id, rec.name, rec.role);
         }
         Some("list") => {
             for t in apelora_persistence::list_tokens(pool).await? {
@@ -332,9 +334,22 @@ async fn token_command(
             apelora_persistence::audit(pool, "cli", "token.revoke", &id.to_string(), &json!({})).await?;
             println!("Revoked token {id}");
         }
-        _ => return Err("usage: token create --name <n> --role <r> [--expires-days <d>] | token list | token revoke <id>".into()),
+        _ => return Err("usage: token create --name <n> --role <r> [--expires-in-days <1-365, default 90>] | token list | token revoke <id>".into()),
     }
     Ok(())
+}
+
+/// Days a token made on the command line lives: like the API, 90 by default and 1–365 at most.
+/// A token that never expires cannot be made. `--expires-days` is the earlier spelling.
+fn cli_token_days(arg: Option<&str>) -> Result<i64, String> {
+    let requested = arg
+        .map(|d| {
+            d.trim()
+                .parse::<i64>()
+                .map_err(|_| format!("--expires-in-days takes a whole number of days, not {d:?}"))
+        })
+        .transpose()?;
+    api::token_lifetime_days(requested).map_err(|e| format!("--expires-in-days: {e}"))
 }
 
 /// Logging: `RUST_LOG` chooses what is written (default `info`, e.g.
@@ -362,5 +377,23 @@ fn init_logging() {
                 "APELORA_LOG_FORMAT must be text or json; writing text"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    #[test]
+    fn command_line_tokens_always_expire_within_a_year() {
+        use super::cli_token_days as days;
+        assert_eq!(days(None), Ok(90));
+        assert_eq!(days(Some("1")), Ok(1));
+        assert_eq!(days(Some(" 365 ")), Ok(365));
+        for refused in ["0", "366", "-5", "never", ""] {
+            assert!(days(Some(refused)).is_err(), "{refused}");
+        }
+        assert_eq!(
+            days(Some("400")),
+            Err("--expires-in-days: tokens expire after 1–365 days".to_owned())
+        );
     }
 }

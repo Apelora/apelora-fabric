@@ -35,7 +35,8 @@ DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --
 ```
 
 - Roles: `fabric-admin`, `operator`, `studio-designer`, `auditor`. A `fabric-admin` token acts as a platform super admin, including Identity & Access.
-- `--expires-days <d>` sets an expiry; `token list` and `token revoke <id>` manage tokens.
+- Every token expires: `--expires-in-days <d>` sets 1–365 days (90 when left out; `--expires-days` is still accepted). `token list` and `token revoke <id>` manage tokens.
+- Through the API or the Console, a token's role may only carry what its creator holds, and a `fabric-admin` token needs another person's approval (`token.create_admin`); the command line on the server is the way to make the first one.
 - With the local development database (`docker compose -f infra/dev/compose.yaml up -d`), `.cargo/config.toml` already supplies `DATABASE_URL`.
 
 In the Console, paste the token into **API token** and choose **Sign in**. If an identity provider is set up, choose **Use an API token instead** first. The token is kept only for this browser tab (session storage): closing the tab signs you out, and a new tab asks again.

@@ -13,7 +13,7 @@ use apelora_auth::service::ServiceKind;
 use apelora_auth::{
     AccessFilter, AssignRequest, Assignment, AssignmentKind, Builtin, Class, Conditions,
     CustomRole, Engine, EnvKind, Grant, Level, PERMISSIONS, PrincipalRef, ResolvedRole, Resource,
-    RoleRef, Scope, Subject, check_assignment, permission, validate_custom,
+    RoleRef, Scope, Subject, check_assignment, check_revocation, permission, validate_custom,
 };
 use apelora_persistence::identity as db;
 use axum::extract::rejection::JsonRejection;
@@ -331,6 +331,16 @@ pub struct AssignmentDto {
 #[derive(Serialize, ToSchema)]
 pub struct AssignmentList {
     pub items: Vec<AssignmentDto>,
+}
+
+/// The role an assignment row refers to (the table holds exactly one of the two columns).
+fn assignment_role(r: &db::AssignmentRow) -> RoleRef {
+    match (&r.builtin_role, r.custom_role_id) {
+        (None, Some(id)) => RoleRef::Custom { id },
+        (key, _) => RoleRef::Builtin {
+            key: key.clone().unwrap_or_default(),
+        },
+    }
 }
 
 fn assignment_dto(r: db::AssignmentRow, customs: &[CustomRole]) -> AssignmentDto {
@@ -867,6 +877,34 @@ pub(super) async fn lookup_user(
     }))
 }
 
+/// Refuses, on the record, a change that would leave no enabled platform super admin.
+async fn last_super_admin(
+    pool: &apelora_persistence::Pool,
+    p: &Principal,
+    action: &str,
+    target: &str,
+    scope: Option<&Resource>,
+    what: &str,
+) -> ApiError {
+    let recorded = audit_scoped(
+        pool,
+        p,
+        action,
+        target,
+        "denied",
+        scope,
+        &json!({ "code": "last_super_admin" }),
+    )
+    .await;
+    super::authz::audit_failed(action, recorded);
+    conflict(
+        "last_super_admin",
+        format!(
+            "this would leave no enabled platform super admin, so it cannot be {what}; give the role to someone else first"
+        ),
+    )
+}
+
 async fn set_disabled(
     state: &AppState,
     p: &Principal,
@@ -881,7 +919,23 @@ async fn set_disabled(
             "you cannot disable your own account",
         ));
     }
-    let revoked = db::set_user_disabled(pool, id, disabled).await?;
+    let revoked = if disabled {
+        let Some(revoked) = db::guarded_change(pool, db::SuperAdminChange::DisableUser(id)).await?
+        else {
+            return Err(last_super_admin(
+                pool,
+                p,
+                "user.disable",
+                &id.to_string(),
+                None,
+                "disabled",
+            )
+            .await);
+        };
+        revoked
+    } else {
+        db::set_user_disabled(pool, id, false).await?
+    };
     audit_scoped(
         pool,
         p,
@@ -1059,8 +1113,21 @@ async fn change_member(
         .ok_or_else(|| not_found("user"))?;
     if add {
         db::add_group_member(pool, group, user, &p.actor_ref()).await?;
-    } else {
-        db::remove_group_member(pool, group, user).await?;
+    } else if !db::change_keeping_a_super_admin(
+        pool,
+        db::SuperAdminChange::RemoveGroupMember { group, user },
+    )
+    .await?
+    {
+        return Err(last_super_admin(
+            pool,
+            p,
+            "group.member.remove",
+            &g.name,
+            Some(&res),
+            "removed from the group",
+        )
+        .await);
     }
     audit_scoped(
         pool,
@@ -1455,7 +1522,8 @@ pub(super) async fn create_assignment(
 }
 
 /// Revokes an assignment; the person loses it on their next request. Needs `role.assign` in its
-/// scope. The last platform super admin cannot be revoked.
+/// scope and every permission the role confers there (you can only take away what you could
+/// grant). Refused when it would leave no enabled platform super admin.
 #[utoipa::path(delete, path = "/api/v1/identity/assignments/{assignment}", tag = "identity", operation_id = "revoke_assignment",
     params(("assignment" = Uuid, Path, description = "Assignment id")),
     responses((status = 204), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]
@@ -1475,18 +1543,43 @@ pub(super) async fn revoke_assignment(
         allow_any(&p, &["role.assign", "platform.emergency_access"], &res)?;
     } else {
         allow(&p, "role.assign", &res)?;
+        let role = resolve_role(pool, &assignment_role(&row)).await?;
+        let (engine, subject) = actor(&p);
+        if let Err(e) = check_revocation(&engine, &subject, &role, &row.scope, &res, now()) {
+            audit_scoped(
+                pool,
+                &p,
+                "role.revoke",
+                &id.to_string(),
+                "denied",
+                Some(&res),
+                &json!({ "reason": e.to_string(), "role": role.name, "scope": row.scope }),
+            )
+            .await?;
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "revocation_refused",
+                format!("you could not grant this role here, so you may not revoke it: {e}"),
+            ));
+        }
     }
-    if row.builtin_role.as_deref() == Some("platform-super-admin")
-        && matches!(row.scope, Scope::Platform)
-        && row.kind == "standard"
-        && db::super_admin_count(pool).await? <= 1
+    let actor_ref = p.actor_ref();
+    if !db::change_keeping_a_super_admin(
+        pool,
+        db::SuperAdminChange::RevokeAssignment { id, by: &actor_ref },
+    )
+    .await?
     {
-        return Err(conflict(
-            "last_super_admin",
-            "the last platform super admin cannot be revoked; grant the role to someone else first",
-        ));
+        return Err(last_super_admin(
+            pool,
+            &p,
+            "role.revoke",
+            &id.to_string(),
+            Some(&res),
+            "revoked",
+        )
+        .await);
     }
-    db::revoke_assignment(pool, id, &p.actor_ref()).await?;
     audit_scoped(pool, &p, "role.revoke", &id.to_string(), "success", Some(&res), &json!({ "principalId": row.principal_id, "scope": row.scope, "role": row.builtin_role, "emergency": row.kind == "emergency" })).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1768,10 +1861,13 @@ pub(super) async fn create_service_identity(
             "restrictions is an object such as {\"projects\": [\"acme-prod\"]}",
         ));
     }
-    let expires = (req.kind == ServiceKind::Automation).then(|| {
-        let days = req.expires_in_days.unwrap_or(90);
-        OffsetDateTime::now_utc() + time::Duration::days(days.clamp(1, 365))
-    });
+    // Refused, not shortened: whoever asked for longer should know they did not get it.
+    let expires = if req.kind == ServiceKind::Automation {
+        let days = super::admin::token_lifetime_days(req.expires_in_days).map_err(bad)?;
+        Some(OffsetDateTime::now_utc() + time::Duration::days(days))
+    } else {
+        None
+    };
     let restrictions = if req.restrictions.is_null() {
         json!({})
     } else {

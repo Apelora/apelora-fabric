@@ -392,12 +392,17 @@ async fn only_signed_in_people_with_instance_console_on_this_application_can_ope
     let (s, b) = r.open(&svc, WEB).await;
     assert_eq!(s, StatusCode::FORBIDDEN, "{b}");
 
-    // People without the permission anywhere are stopped by the route gate (`access.denied`);
-    // those who hold it elsewhere are refused by the handler (`session.denied`). Both are on record.
+    // People without the permission anywhere, and legacy tokens (which can never hold it), are
+    // stopped by the route gate (`access.denied`), and that is on record. Every refusal above
+    // happened there, so the handler had nothing to refuse (`session.denied`).
     let gate = r.audit("access.denied").await;
     let handler = r.audit("session.denied").await;
-    assert!(gate.len() >= 3, "{gate:?}");
-    assert_eq!(handler.len(), 1, "{handler:?}");
+    assert!(gate.len() >= 4, "{gate:?}");
+    assert!(
+        gate.iter().any(|d| d["name"] == "ci"),
+        "the legacy token's refusal: {gate:?}"
+    );
+    assert!(handler.is_empty(), "{handler:?}");
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

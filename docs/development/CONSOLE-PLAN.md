@@ -39,13 +39,14 @@ Priorities:
 
 ## Security and audit gaps in the code
 
-1. **API tokens can grant more than their creator holds (P0).**
-   - Token creation checks `manage-tokens` but never the role of the token it creates (`services/control-plane/src/api/admin.rs`, `create`).
-   - Legacy tokens skip the route gate, approvals and multi-factor.
-   - The command line can create tokens that never expire.
-   - Fix: refuse a role whose permissions the caller does not hold; require an approval for `fabric-admin` tokens; make expiry mandatory.
-2. **Revoking a role** checks only `role.assign` at the scope, not that the revoker holds the role (P1).
-3. **Disabling a person** has no guard against disabling the last super administrator (P1).
+1. **API tokens could grant more than their creator holds (P0). Fixed (S1, B).**
+   - Token creation now refuses (403 `token_exceeds_caller`, audited as a denied `token.create` and as `access.denied`) a role that carries any permission the caller does not hold at platform level (`admin.rs` `create`, `authz::beyond_caller`).
+   - A `fabric-admin` token needs another person's approval of `token.create_admin` on `token:fabric-admin` (a new catalogue permission with the approval flag, so the existing approval requests, `Apelora-Approval` header and single use apply). A legacy token cannot present an approval, so it cannot create `fabric-admin` tokens through the API (403 `approval_unavailable`); the command line on the server still can.
+   - Legacy tokens now pass the same route gate as people and services (through their role's legacy mapping). They stay exempt from approvals and multi-factor rules, as documented, except for creating `fabric-admin` tokens; `APELORA_LEGACY_TOKENS=disabled` removes the exemption.
+   - The command line always sets an expiry: `--expires-in-days` (`--expires-days` still accepted), 90 by default, 1–365.
+   - Open: the Console's token dialog cannot send an approval yet, so a person creates a `fabric-admin` token through the API or the command line.
+2. **Revoking a role** checked only `role.assign` at the scope (P1). **Fixed (S2, B):** the revoker must be able to grant the role there (`check_revocation`: `role.assign` and every permission the role confers at that scope); refusals are 403 `revocation_refused`, audited as a denied `role.revoke`. Ending an emergency grant still needs only `role.assign` or `platform.emergency_access`.
+3. **Disabling a person** had no guard against disabling the last super administrator (P1). **Fixed (S2, B):** disabling a person, revoking an assignment and removing a group member are refused (409 `last_super_admin`, audited as denied) when they would leave no enabled person holding `platform-super-admin` at platform level, directly or through a group. The change and the count run in one transaction under an advisory lock, so two concurrent changes cannot both pass (`change_keeping_a_super_admin`). Membership through an identity provider's group claim is not counted.
 4. **Audit integrity.**
    - Audit rows are written after the change, outside its transaction (P0).
    - The append-only trigger does not cover `TRUNCATE`.
@@ -59,7 +60,7 @@ Priorities:
    - No rate limits except on terminal tickets.
 
    All P0.
-6. **Tokens.** Secrets are shown once and stored as hashes (good). There is no rotation, and a service token's lifetime is clamped silently instead of refused (P1).
+6. **Tokens.** Secrets are shown once and stored as hashes (good). There is no rotation (P1). A service token's lifetime outside 1–365 days is now refused with 400 instead of clamped (fixed, B).
 7. **Sessions.** Disabling takes effect on the next request (good). Terminal tickets live in one process. Identity-provider tokens cannot be revoked before they expire (at most an hour).
 8. **Clean:** no secrets in logs; no CSRF exposure (bearer tokens, no cookies); the terminal websocket checks `Origin`.
 
@@ -68,8 +69,8 @@ Priorities:
 Packages in one wave touch different files and can be built in parallel.
 
 **Wave 0 — security fixes (backend):**
-- S1 token containment.
-- S2 guards on revoke and disable.
+- S1 token containment (done).
+- S2 guards on revoke and disable (done).
 - S3 public surface: headers, `/health` redaction and cache, per-address limits, TLS or a declared proxy for non-local addresses, a serving configuration for the web apps with a content security policy.
 - S4 audit integrity: audit in the same transaction; `TRUNCATE` blocked; a structural test that every state-changing route audits or is listed as exempt.
 

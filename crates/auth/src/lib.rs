@@ -17,7 +17,7 @@ pub mod scope;
 pub mod service;
 
 pub use approval::{Approval, ApprovalError, ApprovalState};
-pub use assign::{AssignError, AssignRequest, check_assignment};
+pub use assign::{AssignError, AssignRequest, check_assignment, check_revocation};
 pub use evaluate::{
     AccessFilter, Assignment, AssignmentKind, Conditions, Decision, Denial, Engine, Grant,
     Policies, PrincipalRef, Subject, confers,

@@ -428,6 +428,7 @@ pub async fn find_user(pool: &PgPool, query: &str) -> Result<Option<UserRow>> {
 
 /// Disables or re-enables a person. Disabling also revokes every Apelora session they hold
 /// (password and directory sign-ins), in the same transaction; returns how many.
+/// Unguarded: to disable someone on a person's behalf use [`guarded_change`].
 pub async fn set_user_disabled(pool: &PgPool, id: Uuid, disabled: bool) -> Result<u64> {
     let mut tx = pool.begin().await?;
     let n = sqlx::query("UPDATE users SET disabled_at = CASE WHEN $2 THEN COALESCE(disabled_at, now()) ELSE NULL END WHERE id = $1").bind(id).bind(disabled).execute(&mut *tx).await?.rows_affected();
@@ -534,6 +535,7 @@ pub async fn add_group_member(
     Ok(())
 }
 
+/// Unguarded: on a person's behalf use [`change_keeping_a_super_admin`].
 pub async fn remove_group_member(pool: &PgPool, group_id: Uuid, user_id: Uuid) -> Result<()> {
     sqlx::query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2")
         .bind(group_id)
@@ -753,6 +755,7 @@ pub async fn insert_assignment(pool: &PgPool, a: &NewAssignment) -> Result<Uuid>
     Ok(id)
 }
 
+/// Unguarded: on a person's behalf use [`change_keeping_a_super_admin`].
 pub async fn revoke_assignment(pool: &PgPool, id: Uuid, by: &str) -> Result<()> {
     let n = sqlx::query("UPDATE role_assignments SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL").bind(id).bind(by).execute(pool).await?.rows_affected();
     if n == 0 {
@@ -1376,7 +1379,110 @@ pub async fn audit_history(
     .await?)
 }
 
-/// Count of live platform-super-admin assignments; used to refuse revoking the last one.
+/// Count of live platform-super-admin assignments; used by `identity bootstrap`. The guard
+/// against losing the last one counts people instead ([`change_keeping_a_super_admin`]).
 pub async fn super_admin_count(pool: &PgPool) -> Result<i64> {
     Ok(sqlx::query_scalar("SELECT count(*) FROM role_assignments WHERE builtin_role = 'platform-super-admin' AND scope_type = 'platform' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND kind = 'standard'").fetch_one(pool).await?)
+}
+
+/// A change that can take away someone's platform super admin role.
+#[derive(Debug, Clone, Copy)]
+pub enum SuperAdminChange<'a> {
+    DisableUser(Uuid),
+    RevokeAssignment { id: Uuid, by: &'a str },
+    RemoveGroupMember { group: Uuid, user: Uuid },
+}
+
+/// Taken by every [`SuperAdminChange`] so that they run one at a time: two changes that each
+/// leave one super admin cannot both commit and leave none.
+const SUPER_ADMIN_LOCK: i64 = 0x6170_6c72_5f73_6131;
+
+/// Enabled people holding a live, standard platform-super-admin assignment at platform scope,
+/// directly or through a group membership recorded in Apelora. Membership by an identity
+/// provider's group claim is not known until that person signs in, so it does not count.
+const ENABLED_SUPER_ADMINS: &str = "SELECT count(DISTINCT u.id) FROM users u
+    JOIN role_assignments ra ON ra.builtin_role = 'platform-super-admin' AND ra.scope_type = 'platform'
+        AND ra.kind = 'standard' AND ra.revoked_at IS NULL AND (ra.expires_at IS NULL OR ra.expires_at > now())
+        AND ((ra.principal_type = 'user' AND ra.principal_id = u.id)
+             OR (ra.principal_type = 'group' AND ra.principal_id IN (SELECT group_id FROM group_members WHERE user_id = u.id)))
+    WHERE u.disabled_at IS NULL";
+
+/// Enabled platform super admins (see [`ENABLED_SUPER_ADMINS`]).
+pub async fn enabled_super_admins(pool: &PgPool) -> Result<i64> {
+    Ok(sqlx::query_scalar(ENABLED_SUPER_ADMINS)
+        .fetch_one(pool)
+        .await?)
+}
+
+/// Makes the change unless it would leave no enabled platform super admin where there was at
+/// least one; returns `false` (and changes nothing) in that case. Race-safe: the change and both
+/// counts run in one transaction under a transaction-scoped advisory lock that every such change
+/// takes, and each statement sees what the previous holder of the lock committed.
+pub async fn change_keeping_a_super_admin(
+    pool: &PgPool,
+    change: SuperAdminChange<'_>,
+) -> Result<bool> {
+    Ok(guarded_change(pool, change).await?.is_some())
+}
+
+/// [`change_keeping_a_super_admin`], returning `None` when refused and otherwise how many
+/// Apelora sessions the change revoked: disabling a person ends their sessions in the same
+/// transaction; the other changes revoke none.
+pub async fn guarded_change(pool: &PgPool, change: SuperAdminChange<'_>) -> Result<Option<u64>> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(SUPER_ADMIN_LOCK)
+        .execute(&mut *tx)
+        .await?;
+    let before: i64 = sqlx::query_scalar(ENABLED_SUPER_ADMINS)
+        .fetch_one(&mut *tx)
+        .await?;
+    let n = match change {
+        SuperAdminChange::DisableUser(id) => sqlx::query(
+            "UPDATE users SET disabled_at = COALESCE(disabled_at, now()) WHERE id = $1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected(),
+        SuperAdminChange::RevokeAssignment { id, by } => sqlx::query(
+            "UPDATE role_assignments SET revoked_at = now(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL",
+        )
+        .bind(id)
+        .bind(by)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected(),
+        // Removing someone who is not a member changes nothing, and is not an error.
+        SuperAdminChange::RemoveGroupMember { group, user } => {
+            sqlx::query("DELETE FROM group_members WHERE group_id = $1 AND user_id = $2")
+                .bind(group)
+                .bind(user)
+                .execute(&mut *tx)
+                .await?;
+            1
+        }
+    };
+    if n == 0 {
+        return Err(StoreError::NotFound(match change {
+            SuperAdminChange::DisableUser(id) => format!("user {id}"),
+            SuperAdminChange::RevokeAssignment { id, .. } => format!("assignment {id}"),
+            SuperAdminChange::RemoveGroupMember { group, .. } => format!("group {group}"),
+        }));
+    }
+    let after: i64 = sqlx::query_scalar(ENABLED_SUPER_ADMINS)
+        .fetch_one(&mut *tx)
+        .await?;
+    if before > 0 && after == 0 {
+        tx.rollback().await?;
+        return Ok(None);
+    }
+    let revoked = match change {
+        SuperAdminChange::DisableUser(id) => {
+            crate::user_sessions::revoke_all_in(&mut tx, id, None).await?
+        }
+        _ => 0,
+    };
+    tx.commit().await?;
+    Ok(Some(revoked))
 }
