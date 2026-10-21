@@ -21,7 +21,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 # Alert webhooks (docs/design/alerts.md §2.4): HMAC-SHA256 signatures. Both already in the tree
 # (through sqlx), MIT OR Apache-2.0; hmac 0.12 pairs with sha2 0.10.
 hmac = "0.12.1"
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 # Alert webhooks over HTTPS: the same client, version and features the control plane and the
 # Incus adapter use (rustls, TLS verified against the system trust store).
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
