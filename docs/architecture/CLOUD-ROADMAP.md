@@ -1,6 +1,6 @@
 # Roadmap: from a three-server fabric to a full cloud
 
-Status: **direction** · Date: 2026-10-21 · Scale design: [global fabric](GLOBAL-FABRIC.md) · Today: [current state](current-state.md)
+Status: **direction** · Date: 2026-10-21 · Scale design: [global fabric](GLOBAL-FABRIC.md), [one design at every size](EVERY-SIZE.md) · Today: [current state](current-state.md)
 
 Apelora starts small (three servers, one sector) and aims to be a complete cloud and virtualisation platform: everything an organisation needs to run its applications on its own servers, anywhere, with the services people expect from large public clouds and established virtualisation suites. This page lists the capabilities that takes, layer by layer, what exists, and the order to build the rest. It is a direction, not a promise: each item gets a design note and an ADR when its turn comes.
 

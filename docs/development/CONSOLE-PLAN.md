@@ -1,6 +1,6 @@
 # Fabric Console: what is missing, and the build plan
 
-Status: **plan** · Date: 2026-10-21 · Source: a full review of the Console, the API and the worker against what a complete operations console needs · Direction: [cloud roadmap](../architecture/CLOUD-ROADMAP.md)
+Status: **plan** · Date: 2026-10-21 · Source: a full review of the Console, the API and the worker against what a complete operations console needs · Direction: [cloud roadmap](../architecture/CLOUD-ROADMAP.md), [one design at every size](../architecture/EVERY-SIZE.md) (S4 grows into the outbox, ADR 0011)
 
 Statuses:
 - **B** — built: API, UI and tests;

@@ -111,6 +111,11 @@ cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && ca
 | [Current state](docs/architecture/current-state.md) | What is verified, how, and the known limitations |
 | [Platform architecture](docs/architecture/PLATFORM-ARCHITECTURE.md) | The target design and who owns which state |
 | [Decisions](docs/adr/) | Architecture decision records |
+| [Connections and scale](docs/architecture/CONNECTIONS-AND-SCALE.md) | Every connection between the layers, and how far each layer scales |
+| [One design at every size](docs/architecture/EVERY-SIZE.md) | Communication, audit, security, roles, failure detection, HA and backups from three servers to the global fabric |
+| [Global fabric](docs/architecture/GLOBAL-FABRIC.md) and [cloud roadmap](docs/architecture/CLOUD-ROADMAP.md) | Regions, sites and sectors; the capabilities still to build |
+| [Disconnected installations](docs/architecture/DISCONNECTED.md) | Running without internet access |
+| [Console plan](docs/development/CONSOLE-PLAN.md) | What the Fabric Console still needs, in waves |
 | [Implementation phases](docs/development/IMPLEMENTATION-PHASES.md) | The build plan, phase by phase |
 | [Signing in](docs/guides/signing-in.md) | Signing in to the Fabric Console and the Studio; setting up an identity provider; troubleshooting |
 | [Runbooks](docs/runbooks/README.md) | Operating procedures: member failure, quorum loss, certificates |
