@@ -468,6 +468,13 @@ export type CertificateStatus = {
   state: string;
 };
 
+/** A change to cluster settings: each key is one of the listed settings; an empty or null value removes it so Incus's default applies again. */
+export type ChangeSettings = {
+  changes: Record<string, unknown>;
+  /** Only report what would change and what to watch for; nothing is changed and no approval is needed. */
+  dryRun?: boolean;
+};
+
 export type Check = {
   detail: string;
   /** Stable identifier, e.g. `kernel-version`. */
@@ -2874,6 +2881,25 @@ export type SetVolumeSchedules = {
   snapshots?: null | Schedule;
 };
 
+/** One setting in a change: what it is now, what it becomes, and what to know first. */
+export type SettingChange = {
+  /** The value set now; absent when Incus's default applies. */
+  from?: string | null;
+  key: string;
+  label: string;
+  /** The value after the change; absent when the setting is removed. */
+  to?: string | null;
+  warnings: string[];
+};
+
+export type SettingsChangeReport = {
+  /** False for a dry run. */
+  applied: boolean;
+  /** The approval target to ask for (`POST /approvals`, action `cluster.sensitive_change`). */
+  approvalTarget: string;
+  changes: SettingChange[];
+};
+
 export type SettingsWorker = {
   host: string;
   id: string;
@@ -3349,6 +3375,7 @@ export const operations = {
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
   cluster_recovery: { method: "GET", path: "/api/v1/cluster/recovery", params: [], public: false },
   cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
+  change_cluster_settings: { method: "PATCH", path: "/api/v1/cluster/settings", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
   health_servers: { method: "GET", path: "/api/v1/health/servers", params: [], public: false },
@@ -3596,6 +3623,8 @@ export type Responses = {
   cluster_recovery: RecoveryReport;
   /** Cluster-wide settings (offline and healing thresholds, database voters and stand-bys, join-token lifetime, image replication and updates): the value set, Incus's default and whether the default applies. Read with the admin identity, since Incus shows its configuration only to an unrestricted one (503 `cluster_admin_not_configured` without it); only these keys are returned. Read-only; needs `cluster.view`. */
   cluster_settings: ClusterSettingsReport;
+  /** Changes cluster settings through Incus with the admin identity. Every key must be one the Servers page lists and every value is checked. Settings that already hold the value are left out; nothing to change is refused. With `dryRun` it only reports (what each becomes and what to watch for). Applying needs `cluster.sensitive_change` and another person's approval of `cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is audited with the old and new values. */
+  change_cluster_settings: SettingsChangeReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
   health: Health;
   /** The state of each part of this installation: control plane, database, deployment workers, job queue, Incus, networks, storage pools and identity providers. Read-only; needs `cluster.view`. */
@@ -3888,6 +3917,7 @@ export type Bodies = {
   restore_member: ConfirmMember;
   cluster_recovery: never;
   cluster_settings: never;
+  change_cluster_settings: ChangeSettings;
   health: never;
   health_components: never;
   health_servers: never;

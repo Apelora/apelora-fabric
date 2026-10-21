@@ -564,6 +564,129 @@ pub fn settings(
         .collect()
 }
 
+/// Why a value is not acceptable for a cluster setting, or `Ok` when it is. An empty value is
+/// always acceptable: it removes the setting so Incus's default applies again.
+pub fn check_setting(key: &str, value: &str) -> Result<(), String> {
+    if !CLUSTER_SETTINGS.iter().any(|(k, _, _)| *k == key) {
+        return Err(format!("{key} is not a setting Apelora changes"));
+    }
+    if value.is_empty() {
+        return Ok(());
+    }
+    let int = || {
+        value
+            .parse::<i64>()
+            .map_err(|_| format!("{key} is a whole number"))
+    };
+    let range = |lo: i64, hi: i64, unit: &str| {
+        let n = int()?;
+        if (lo..=hi).contains(&n) {
+            Ok(())
+        } else {
+            Err(format!("{key} is {lo} to {hi}{unit}"))
+        }
+    };
+    match key {
+        "cluster.offline_threshold" => range(10, 3600, " seconds"),
+        "cluster.healing_threshold" => {
+            let n = int()?;
+            if n == 0 || (10..=86_400).contains(&n) {
+                Ok(())
+            } else {
+                Err(format!("{key} is 0 (off) or 10 to 86400 seconds"))
+            }
+        }
+        "cluster.max_voters" => {
+            let n = int()?;
+            if (3..=11).contains(&n) && n % 2 == 1 {
+                Ok(())
+            } else {
+                Err(format!("{key} is an odd number from 3 to 11"))
+            }
+        }
+        "cluster.max_standby" => range(0, 5, ""),
+        "cluster.images_minimal_replica" => {
+            let n = int()?;
+            if n == -1 || (1..=100).contains(&n) {
+                Ok(())
+            } else {
+                Err(format!("{key} is -1 (every member) or 1 to 100"))
+            }
+        }
+        "cluster.rebalance.interval" => range(0, 10_080, " minutes"),
+        "images.auto_update_interval" => range(0, 8_760, " hours"),
+        "images.auto_update_cached" => match value {
+            "true" | "false" => Ok(()),
+            _ => Err(format!("{key} is true or false")),
+        },
+        "cluster.join_token_expiry" => {
+            let (digits, unit) = value.split_at(value.len().saturating_sub(1));
+            let ok = !digits.is_empty()
+                && digits.len() <= 4
+                && !digits.starts_with('0')
+                && digits.bytes().all(|b| b.is_ascii_digit())
+                && matches!(unit, "S" | "M" | "H" | "d" | "w" | "m" | "y");
+            if ok {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{key} is a number and a unit (S, M, H, d, w, m, y), like 1H"
+                ))
+            }
+        }
+        _ => Err(format!("{key} is not a setting Apelora changes")),
+    }
+}
+
+/// What a person should know before this value takes effect (never a refusal).
+pub fn setting_warnings(key: &str, value: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let n = value.parse::<i64>().ok();
+    match key {
+        "cluster.healing_threshold" if n.is_some_and(|n| n > 0) => out.push(
+            "Incus will evacuate offline members by itself. Apelora's supervisor already recovers failed servers, and two recovery authorities can act on the same workload; keep this at 0 unless you mean it."
+                .into(),
+        ),
+        "cluster.rebalance.interval" if n.is_some_and(|n| n > 0) => out.push(
+            "Incus will move instances to even out load without Apelora's dry run, and a module with a data-local volume stops while it moves."
+                .into(),
+        ),
+        "cluster.offline_threshold" if n.is_some_and(|n| n < 20) => out.push(
+            "Below Incus's default of 20 seconds a busy member can be reported offline by mistake, which starts recovery."
+                .into(),
+        ),
+        "cluster.max_voters" | "cluster.max_standby" => out.push(
+            "Changing database roles moves the cluster database between members. Do it with every member online."
+                .into(),
+        ),
+        "cluster.join_token_expiry" => {
+            let hours = value
+                .split_at(value.len().saturating_sub(1))
+                .0
+                .parse::<i64>()
+                .ok()
+                .map(|d| match value.chars().last() {
+                    Some('S') => d / 3600,
+                    Some('M') => d / 60,
+                    Some('H') => d,
+                    Some('d') => d * 24,
+                    Some('w') => d * 24 * 7,
+                    Some('m') => d * 24 * 30,
+                    Some('y') => d * 24 * 365,
+                    _ => 0,
+                });
+            if hours.is_some_and(|h| h > 1) {
+                out.push("Apelora recommends join tokens that last an hour or less.".into());
+            }
+        }
+        "images.auto_update_interval" if n == Some(0) => out.push(
+            "Image updates stop being checked; pinned images are unaffected, others go stale.".into(),
+        ),
+        _ => {}
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -751,5 +874,104 @@ mod tests {
             (None, Some("3"), true)
         );
         assert!(!serde_json::to_string(&s).expect("json").contains("secret"));
+    }
+
+    #[test]
+    fn cluster_setting_values_are_checked_at_their_limits() {
+        let ok = |k: &str, v: &str| check_setting(k, v).is_ok();
+        assert!(ok("cluster.offline_threshold", "10") && ok("cluster.offline_threshold", "3600"));
+        assert!(!ok("cluster.offline_threshold", "9") && !ok("cluster.offline_threshold", "3601"));
+        assert!(
+            ok("cluster.healing_threshold", "0")
+                && ok("cluster.healing_threshold", "10")
+                && ok("cluster.healing_threshold", "86400")
+        );
+        assert!(!ok("cluster.healing_threshold", "5") && !ok("cluster.healing_threshold", "86401"));
+        for v in ["3", "5", "11"] {
+            assert!(ok("cluster.max_voters", v), "{v}");
+        }
+        for v in ["1", "2", "4", "13", "x"] {
+            assert!(!ok("cluster.max_voters", v), "{v}");
+        }
+        assert!(
+            ok("cluster.max_standby", "0")
+                && ok("cluster.max_standby", "5")
+                && !ok("cluster.max_standby", "6")
+                && !ok("cluster.max_standby", "-1")
+        );
+        assert!(
+            ok("cluster.images_minimal_replica", "-1")
+                && ok("cluster.images_minimal_replica", "1")
+                && ok("cluster.images_minimal_replica", "100")
+        );
+        assert!(
+            !ok("cluster.images_minimal_replica", "0")
+                && !ok("cluster.images_minimal_replica", "101")
+                && !ok("cluster.images_minimal_replica", "-2")
+        );
+        assert!(
+            ok("cluster.rebalance.interval", "0")
+                && ok("cluster.rebalance.interval", "10080")
+                && !ok("cluster.rebalance.interval", "10081")
+        );
+        assert!(
+            ok("images.auto_update_interval", "0")
+                && ok("images.auto_update_interval", "8760")
+                && !ok("images.auto_update_interval", "8761")
+        );
+        assert!(
+            ok("images.auto_update_cached", "true")
+                && ok("images.auto_update_cached", "false")
+                && !ok("images.auto_update_cached", "yes")
+        );
+        for v in ["1H", "30M", "2d", "9999y"] {
+            assert!(ok("cluster.join_token_expiry", v), "{v}");
+        }
+        for v in ["H", "0H", "1h", "10000H", "1", "1Hx", "-1H"] {
+            assert!(!ok("cluster.join_token_expiry", v), "{v}");
+        }
+    }
+
+    #[test]
+    fn an_empty_value_removes_a_setting_and_unknown_keys_are_refused() {
+        for (k, _, _) in CLUSTER_SETTINGS {
+            assert!(check_setting(k, "").is_ok(), "{k}");
+        }
+        for k in [
+            "core.https_address",
+            "cluster.https_address",
+            "oidc.client.secret",
+            "",
+        ] {
+            assert!(check_setting(k, "1").is_err(), "{k}");
+            assert!(
+                check_setting(k, "").is_err(),
+                "{k} stays refused even when empty"
+            );
+        }
+        assert!(
+            check_setting("cluster.offline_threshold", "abc")
+                .expect_err("refused")
+                .contains("whole number")
+        );
+    }
+
+    #[test]
+    fn risky_settings_come_with_a_warning_and_safe_ones_without() {
+        assert!(!setting_warnings("cluster.healing_threshold", "300").is_empty());
+        assert!(setting_warnings("cluster.healing_threshold", "0").is_empty());
+        assert!(!setting_warnings("cluster.rebalance.interval", "5").is_empty());
+        assert!(setting_warnings("cluster.rebalance.interval", "0").is_empty());
+        assert!(!setting_warnings("cluster.offline_threshold", "15").is_empty());
+        assert!(setting_warnings("cluster.offline_threshold", "20").is_empty());
+        assert!(!setting_warnings("cluster.max_voters", "5").is_empty());
+        assert!(!setting_warnings("cluster.max_standby", "1").is_empty());
+        assert!(!setting_warnings("cluster.join_token_expiry", "2H").is_empty());
+        assert!(!setting_warnings("cluster.join_token_expiry", "1d").is_empty());
+        assert!(setting_warnings("cluster.join_token_expiry", "1H").is_empty());
+        assert!(setting_warnings("cluster.join_token_expiry", "30M").is_empty());
+        assert!(!setting_warnings("images.auto_update_interval", "0").is_empty());
+        assert!(setting_warnings("images.auto_update_interval", "6").is_empty());
+        assert!(setting_warnings("images.auto_update_cached", "true").is_empty());
     }
 }

@@ -28,7 +28,7 @@ const WEB: &str = "shop-web-01";
 const DB: &str = "shop-db-01";
 
 /// Like `Lab::req`, with extra request headers.
-async fn call(
+pub(super) async fn call(
     state: AppState,
     method: &str,
     path: &str,

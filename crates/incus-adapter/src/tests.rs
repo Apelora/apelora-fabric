@@ -1077,3 +1077,69 @@ async fn each_request_is_counted_by_template_and_outcome_and_sets_reachability()
     let text = apelora_metrics::render(false);
     assert!(!text.contains("gone-one"), "names never become labels");
 }
+
+#[tokio::test]
+async fn cluster_settings_are_changed_with_only_the_named_keys_and_checked_values() {
+    let (base, seen) = recording_server(vec![("PATCH /1.0", sync(json!({})))]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let changes = std::collections::BTreeMap::from([
+        ("cluster.max_standby".to_owned(), Some("1".to_owned())),
+        ("cluster.join_token_expiry".to_owned(), None),
+    ]);
+    p.set_server_config(&changes).await.expect("changed");
+    {
+        let seen = seen.lock().expect("log");
+        assert_eq!(seen.len(), 1);
+        assert_eq!(seen[0].0, "PATCH /1.0");
+        assert_eq!(
+            seen[0].1,
+            json!({ "config": { "cluster.max_standby": "1", "cluster.join_token_expiry": "" } }),
+            "a removed key is sent empty; nothing else is sent"
+        );
+    }
+    // Refused before any request: an unknown key, a bad value, nothing at all.
+    for bad in [
+        std::collections::BTreeMap::from([(
+            "core.https_address".to_owned(),
+            Some(":8443".to_owned()),
+        )]),
+        std::collections::BTreeMap::from([("cluster.max_voters".to_owned(), Some("4".to_owned()))]),
+        std::collections::BTreeMap::new(),
+    ] {
+        let err = p.set_server_config(&bad).await.expect_err("refused");
+        assert!(matches!(err, AdapterError::InvalidConfig(_)), "{err:?}");
+    }
+    assert_eq!(
+        seen.lock().expect("log").len(),
+        1,
+        "no further request was made"
+    );
+}
+
+#[tokio::test]
+async fn the_mock_applies_and_removes_settings_in_its_own_configuration() {
+    let p = Provider::Mock(MockIncus::default());
+    let keys = ["cluster.max_standby", "cluster.max_voters"];
+    p.set_server_config(&std::collections::BTreeMap::from([
+        ("cluster.max_standby".to_owned(), Some("1".to_owned())),
+        ("cluster.max_voters".to_owned(), Some("5".to_owned())),
+    ]))
+    .await
+    .expect("set");
+    let now = p.server_config(&keys).await.expect("read");
+    assert_eq!(
+        (
+            now["cluster.max_standby"].as_str(),
+            now["cluster.max_voters"].as_str()
+        ),
+        ("1", "5")
+    );
+    p.set_server_config(&std::collections::BTreeMap::from([(
+        "cluster.max_standby".to_owned(),
+        None,
+    )]))
+    .await
+    .expect("unset");
+    let now = p.server_config(&keys).await.expect("read");
+    assert!(!now.contains_key("cluster.max_standby") && now["cluster.max_voters"] == "5");
+}

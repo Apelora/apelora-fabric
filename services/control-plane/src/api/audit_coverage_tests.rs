@@ -1119,6 +1119,17 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
     )
     .await;
     assert!(s.mock.join("mock-member-09", false), "joined");
+    // Cluster settings: the change and its audit row (a legacy admin token needs no approval).
+    s.step(
+        Audited,
+        "PATCH",
+        "/api/v1/cluster/settings",
+        "/api/v1/cluster/settings",
+        r,
+        json!({ "changes": { "cluster.max_standby": "1" } }),
+        "cluster.settings.change",
+    )
+    .await;
     let m9 = "/api/v1/cluster/members/mock-member-09";
     let confirm = json!({ "confirm": "mock-member-09" });
     s.step(

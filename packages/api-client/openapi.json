@@ -5016,6 +5016,95 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Changes cluster settings through Incus with the admin identity. Every key must be one the\nServers page lists and every value is checked. Settings that already hold the value are left\nout; nothing to change is refused. With `dryRun` it only reports (what each becomes and what\nto watch for). Applying needs `cluster.sensitive_change` and another person's approval of\n`cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is\naudited with the old and new values.",
+        "operationId": "change_cluster_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsChangeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/health": {
@@ -13423,6 +13512,31 @@
           }
         }
       },
+      "ChangeSettings": {
+        "type": "object",
+        "description": "A change to cluster settings: each key is one of the listed settings; an empty or null value\nremoves it so Incus's default applies again.",
+        "required": [
+          "changes"
+        ],
+        "properties": {
+          "changes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Only report what would change and what to watch for; nothing is changed and no approval\nis needed."
+          }
+        }
+      },
       "Check": {
         "type": "object",
         "required": [
@@ -21672,6 +21786,67 @@
                 "description": "Scheduled snapshots (`auto-…`, in the volume's pool); `null` turns them off."
               }
             ]
+          }
+        }
+      },
+      "SettingChange": {
+        "type": "object",
+        "description": "One setting in a change: what it is now, what it becomes, and what to know first.",
+        "required": [
+          "key",
+          "label",
+          "warnings"
+        ],
+        "properties": {
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value set now; absent when Incus's default applies."
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value after the change; absent when the setting is removed."
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SettingsChangeReport": {
+        "type": "object",
+        "required": [
+          "applied",
+          "changes",
+          "approvalTarget"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean",
+            "description": "False for a dry run."
+          },
+          "approvalTarget": {
+            "type": "string",
+            "description": "The approval target to ask for (`POST /approvals`, action `cluster.sensitive_change`)."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingChange"
+            }
           }
         }
       },

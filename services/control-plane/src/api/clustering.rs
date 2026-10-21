@@ -6,7 +6,8 @@
 //! deploy identity, which Incus lets see them (REAL INCUS TESTED read, 7.0.1). Incus shows the
 //! server configuration only to an unrestricted identity, so the settings use the admin
 //! identity (ADR 0003) and return only the keys in [`apelora_domain::clustering::CLUSTER_SETTINGS`].
-//! Nothing here changes Incus; every route needs `cluster.view`.
+//! Reads need `cluster.view`. The one change, to the cluster settings, needs
+//! `cluster.sensitive_change` and another person's approval, and is audited.
 
 use std::time::Duration;
 
@@ -15,11 +16,17 @@ use apelora_domain::clustering::{
     ClusterVersions,
 };
 use apelora_domain::{ClusterMember, Permission};
+use std::collections::BTreeMap;
+
 use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
+use axum::http::{HeaderMap, StatusCode};
 use axum::{Extension, Json};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use utoipa::ToSchema;
 
+use super::authz::{allow_platform, audit_alone, guard};
 use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 
 /// How long one member's version may take before it is reported as unreadable.
@@ -188,5 +195,138 @@ pub(super) async fn settings(
         source: source(admin.mode()),
         identity: "admin".into(),
         items: clustering::settings(&values, &defaults),
+    }))
+}
+
+/// A change to cluster settings: each key is one of the listed settings; an empty or null value
+/// removes it so Incus's default applies again.
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSettings {
+    pub changes: BTreeMap<String, Option<String>>,
+    /// Only report what would change and what to watch for; nothing is changed and no approval
+    /// is needed.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// One setting in a change: what it is now, what it becomes, and what to know first.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingChange {
+    pub key: String,
+    pub label: String,
+    /// The value set now; absent when Incus's default applies.
+    pub from: Option<String>,
+    /// The value after the change; absent when the setting is removed.
+    pub to: Option<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsChangeReport {
+    /// False for a dry run.
+    pub applied: bool,
+    pub changes: Vec<SettingChange>,
+    /// The approval target to ask for (`POST /approvals`, action `cluster.sensitive_change`).
+    pub approval_target: String,
+}
+
+/// The approval target for a set of settings: the same keys always give the same target.
+fn approval_target(keys: &[&str]) -> String {
+    format!("cluster-settings:{}", keys.join("/"))
+}
+
+const MAX_CHANGED_AT_ONCE: usize = 9;
+
+/// Changes cluster settings through Incus with the admin identity. Every key must be one the
+/// Servers page lists and every value is checked. Settings that already hold the value are left
+/// out; nothing to change is refused. With `dryRun` it only reports (what each becomes and what
+/// to watch for). Applying needs `cluster.sensitive_change` and another person's approval of
+/// `cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is
+/// audited with the old and new values.
+#[utoipa::path(patch, path = "/api/v1/cluster/settings", tag = "cluster", operation_id = "change_cluster_settings",
+    request_body = ChangeSettings,
+    responses((status = 200, body = SettingsChangeReport), (status = 400, body = ErrorBody),
+    (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody),
+    (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn change_settings(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    headers: HeaderMap,
+    body: Result<Json<ChangeSettings>, JsonRejection>,
+) -> Result<Json<SettingsChangeReport>, ApiError> {
+    allow_platform(&p, "cluster.sensitive_change")?;
+    let Json(req) =
+        body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
+    let bad = |m: String| ApiError::new(StatusCode::BAD_REQUEST, "invalid_setting", m);
+    if req.changes.is_empty() || req.changes.len() > MAX_CHANGED_AT_ONCE {
+        return Err(bad(format!(
+            "change one to {MAX_CHANGED_AT_ONCE} settings at a time"
+        )));
+    }
+    for (key, value) in &req.changes {
+        clustering::check_setting(key, value.as_deref().unwrap_or("")).map_err(bad)?;
+    }
+    let pool = super::cluster_admin::audit_store(&state)?;
+    let admin = super::cluster_admin::admin(&state)?;
+    let keys: Vec<&str> = CLUSTER_SETTINGS.iter().map(|(k, _, _)| *k).collect();
+    let current = admin.server_config(&keys).await?;
+
+    let mut changes = Vec::new();
+    let mut actual = BTreeMap::new();
+    for (key, label, _) in CLUSTER_SETTINGS {
+        let Some(wanted) = req.changes.get(*key) else {
+            continue;
+        };
+        let to = wanted.clone().filter(|v| !v.is_empty());
+        let from = current.get(*key).filter(|v| !v.is_empty()).cloned();
+        if from == to {
+            continue;
+        }
+        changes.push(SettingChange {
+            key: (*key).to_owned(),
+            label: (*label).to_owned(),
+            warnings: clustering::setting_warnings(key, to.as_deref().unwrap_or("")),
+            from,
+            to: to.clone(),
+        });
+        actual.insert((*key).to_owned(), to);
+    }
+    if changes.is_empty() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "nothing_to_change",
+            "every setting already has that value; nothing was changed",
+        ));
+    }
+    let target = approval_target(&changes.iter().map(|c| c.key.as_str()).collect::<Vec<_>>());
+    if req.dry_run {
+        return Ok(Json(SettingsChangeReport {
+            applied: false,
+            changes,
+            approval_target: target,
+        }));
+    }
+    let approval = guard(&state, &p, &headers, "cluster.sensitive_change", &target).await?;
+    admin.set_server_config(&actual).await?;
+    audit_alone(
+        pool,
+        &p,
+        "cluster.settings.change",
+        &target,
+        "success",
+        None,
+        &json!({
+            "changes": changes.iter().map(|c| json!({ "key": c.key, "from": c.from, "to": c.to })).collect::<Vec<_>>(),
+            "approval": approval,
+        }),
+    )
+    .await?;
+    Ok(Json(SettingsChangeReport {
+        applied: true,
+        changes,
+        approval_target: target,
     }))
 }

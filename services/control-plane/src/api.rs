@@ -277,7 +277,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/cluster", get(cluster))
         .route("/api/v1/cluster/members", get(clustering::members))
         .route("/api/v1/cluster/groups", get(clustering::groups))
-        .route("/api/v1/cluster/settings", get(clustering::settings))
+        .route(
+            "/api/v1/cluster/settings",
+            get(clustering::settings).patch(clustering::change_settings),
+        )
         .route("/api/v1/cluster/recovery", get(recovery::recovery))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
@@ -1574,7 +1577,7 @@ impl Modify for BearerAuth {
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
-        clustering::members, clustering::groups, clustering::settings,
+        clustering::members, clustering::groups, clustering::settings, clustering::change_settings,
         recovery::recovery, recovery::confirm,
         machines::list, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,

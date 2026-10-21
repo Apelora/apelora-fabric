@@ -343,6 +343,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/cluster/members", &["cluster.view"]),
     ("GET", "/api/v1/cluster/groups", &["cluster.view"]),
     ("GET", "/api/v1/cluster/settings", &["cluster.view"]),
+    (
+        "PATCH",
+        "/api/v1/cluster/settings",
+        &["cluster.sensitive_change"],
+    ),
     ("GET", "/api/v1/cluster/recovery", &["cluster.view"]),
     ("GET", "/api/v1/health/components", &["cluster.view"]),
     ("GET", "/api/v1/health/servers", &["cluster.view"]),

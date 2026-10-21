@@ -133,6 +133,22 @@ fn load_balancer_body(lb: &LoadBalancer, application: &str) -> Value {
     })
 }
 
+/// The `config` object of a settings change, after checking every key and value.
+pub(crate) fn settings_body(
+    changes: &std::collections::BTreeMap<String, Option<String>>,
+) -> Result<serde_json::Map<String, Value>, AdapterError> {
+    if changes.is_empty() {
+        return Err(AdapterError::InvalidConfig("no settings to change".into()));
+    }
+    let mut out = serde_json::Map::new();
+    for (key, value) in changes {
+        apelora_domain::clustering::check_setting(key, value.as_deref().unwrap_or(""))
+            .map_err(AdapterError::InvalidConfig)?;
+        out.insert(key.clone(), json!(value.as_deref().unwrap_or("")));
+    }
+    Ok(out)
+}
+
 fn owned_by_config(config: &std::collections::BTreeMap<String, String>, application: &str) -> bool {
     config.get(MANAGED_KEY).is_some_and(|v| v == "true")
         && config
@@ -1905,6 +1921,20 @@ impl IncusClient {
                 (k, v)
             })
             .collect())
+    }
+
+    /// Changes cluster settings: `PATCH /1.0` with only these keys. A `None` removes the key so
+    /// Incus's default applies again. Every key must be one Apelora changes and every value
+    /// must pass `check_setting`; anything else is refused before a request is made. Needs an
+    /// unrestricted identity.
+    pub async fn set_server_config(
+        &self,
+        changes: &std::collections::BTreeMap<String, Option<String>>,
+    ) -> Result<(), AdapterError> {
+        let config = settings_body(changes)?;
+        self.call::<Value>(Method::PATCH, "/1.0", Some(&json!({ "config": config })))
+            .await
+            .map(|_| ())
     }
 
     /// Incus's documented defaults for server configuration keys

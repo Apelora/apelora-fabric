@@ -246,6 +246,7 @@ describe("api client", () => {
       "GET /metrics",
       "PATCH /api/v1/applications/{name}",
       "PATCH /api/v1/applications/{name}/volumes/{volume}",
+      "PATCH /api/v1/cluster/settings",
       "POST /api/v1/alerts/channels",
       "POST /api/v1/alerts/channels/{id}/test",
       "POST /api/v1/alerts/silences",

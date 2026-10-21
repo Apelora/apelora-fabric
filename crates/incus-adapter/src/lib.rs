@@ -306,6 +306,33 @@ impl Provider {
         }
     }
 
+    /// Changes cluster settings (a `None` removes the key, so Incus's default applies). Only the
+    /// settings in `CLUSTER_SETTINGS`, with values `check_setting` accepts; call this on the admin
+    /// provider. The mock changes its own configuration and nothing else.
+    pub async fn set_server_config(
+        &self,
+        changes: &std::collections::BTreeMap<String, Option<String>>,
+    ) -> Result<(), AdapterError> {
+        match self {
+            Provider::Mock(m) => {
+                let body = client::settings_body(changes)?;
+                let mut config = m.config.lock().unwrap_or_else(|e| e.into_inner());
+                for (key, value) in body {
+                    match value.as_str().filter(|v| !v.is_empty()) {
+                        Some(v) => {
+                            config.insert(key, v.to_owned());
+                        }
+                        None => {
+                            config.remove(&key);
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Provider::Incus(c) => c.set_server_config(changes).await,
+        }
+    }
+
     /// Incus's defaults for server configuration keys, as the server documents them.
     pub async fn config_defaults(
         &self,
