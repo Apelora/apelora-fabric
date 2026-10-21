@@ -31,6 +31,8 @@ const ENROL_SCRIPT: &str = "scripts/enrol/enrol-member.sh";
 pub struct Machine {
     pub name: String,
     pub provider: ProvisionerKind,
+    /// The provisioner's own identifier (a MAAS system id); absent for manual machines.
+    pub provider_ref: Option<String>,
     /// What the provider can do without someone at the server.
     pub capabilities: Capabilities,
     pub description: String,
@@ -65,6 +67,9 @@ pub struct RegisterMachine {
     /// Defaults to `manual`.
     #[serde(default)]
     pub provider: Option<ProvisionerKind>,
+    /// For a `maas` machine: its MAAS system id (from `GET /api/v1/provisioners/maas/machines`).
+    #[serde(default)]
+    pub system_id: Option<String>,
     #[serde(default)]
     pub description: String,
 }
@@ -109,6 +114,7 @@ fn machine_view(
     Machine {
         capabilities: provider.capabilities(),
         provider,
+        provider_ref: r.provider_ref.clone(),
         state,
         member_status: member.map(|m| m.status.clone()),
         architecture: member.map(|m| m.architecture.clone()),
@@ -176,16 +182,13 @@ pub(super) async fn register(
         ));
     }
     let kind = req.provider.unwrap_or(ProvisionerKind::Manual);
-    if kind != ProvisionerKind::Manual {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "provisioner_not_configured",
-            format!(
-                "no {} provisioner is configured; register the machine as manual",
-                kind.as_str()
-            ),
-        ));
-    }
+    // A MAAS machine is checked against MAAS first: it must be configured and know the system id.
+    let provider_ref = match kind {
+        ProvisionerKind::Manual => None,
+        ProvisionerKind::Maas => {
+            Some(super::provisioners::check_registration(&state, req.system_id.as_deref()).await?)
+        }
+    };
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
     let members = provider.cluster_members().await?;
@@ -198,6 +201,7 @@ pub(super) async fn register(
         &req.name,
         kind.as_str(),
         req.description.trim(),
+        provider_ref.as_deref(),
         &p.actor_ref(),
         adopted,
     )
@@ -207,7 +211,7 @@ pub(super) async fn register(
         &p,
         "machine.register",
         &req.name,
-        &json!({ "role": p.role, "provider": kind, "adopted": adopted }),
+        &json!({ "role": p.role, "provider": kind, "providerRef": provider_ref, "adopted": adopted }),
     )
     .await?;
     super::authz::commit(tx).await?;

@@ -96,6 +96,8 @@ pub struct AppState {
     /// The settings variables this process started with (`settings::snapshot`), for the
     /// effective-settings view and the support bundle.
     environment: Arc<Vec<(String, String)>>,
+    /// The MAAS provisioner (`APELORA_MAAS_URL`); `Off`: only manual machines.
+    maas: provisioners::Maas,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -130,6 +132,7 @@ impl AppState {
             prober: Arc::default(),
             monitoring: Arc::default(),
             environment: Arc::default(),
+            maas: provisioners::Maas::Off,
         }
     }
 
@@ -147,6 +150,11 @@ impl AppState {
     /// This process terminates TLS itself: responses carry `Strict-Transport-Security`.
     pub fn with_tls(mut self, tls: bool) -> Self {
         self.headers.hsts = tls;
+        self
+    }
+
+    pub fn with_maas(mut self, maas: provisioners::Maas) -> Self {
+        self.maas = maas;
         self
     }
 
@@ -435,6 +443,10 @@ pub fn router(state: AppState) -> Router {
             get(machines::list).post(machines::register),
         )
         .route("/api/v1/machines/{name}", delete(machines::remove))
+        .route(
+            "/api/v1/provisioners/maas/machines",
+            get(provisioners::machines),
+        )
         .route("/api/v1/machines/{name}/approve", post(machines::approve))
         .route(
             "/api/v1/machines/{name}/approval",
@@ -1593,7 +1605,7 @@ impl Modify for BearerAuth {
         cluster_admin::preview_removal, cluster_admin::remove,
         clustering::members, clustering::groups, clustering::settings, clustering::change_settings,
         recovery::recovery, recovery::confirm,
-        machines::list, machines::register, machines::approve, machines::withdraw,
+        machines::list, provisioners::machines, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
         identity::environments, identity::create_environment, identity::users, identity::lookup_user,
@@ -1640,6 +1652,8 @@ mod admin;
 mod alerts;
 #[cfg(test)]
 mod alerts_tests;
+#[cfg(test)]
+mod provisioners_tests;
 pub(crate) use admin::token_lifetime_days;
 mod applications;
 mod audit;
@@ -1664,6 +1678,7 @@ pub mod metrics;
 mod mirrors;
 mod mobility;
 mod networks;
+pub mod provisioners;
 pub mod rate_limit;
 mod recovery;
 pub mod requests;

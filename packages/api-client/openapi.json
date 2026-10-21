@@ -11180,6 +11180,67 @@
         }
       }
     },
+    "/api/v1/provisioners/maas/machines": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "The machines MAAS manages, with the Apelora machine and Incus member each became. Needs\n`cluster.view`. Read-only: MAAS is asked to list, nothing else.",
+        "operationId": "maas_machines",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaasMachines"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -18274,6 +18335,116 @@
           }
         }
       },
+      "MaasMachineView": {
+        "type": "object",
+        "required": [
+          "systemId",
+          "hostname",
+          "status",
+          "powerState",
+          "powerType",
+          "architecture",
+          "cpuCount",
+          "memoryMib",
+          "os",
+          "addresses",
+          "zone",
+          "pool"
+        ],
+        "properties": {
+          "addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "cpuCount": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "hardwareUuid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The server's hardware UUID (needed for the BMC fence mapping); absent until commissioned."
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "memberStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Incus member status of that machine, once it has joined."
+          },
+          "memoryMib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "os": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "string"
+          },
+          "powerState": {
+            "type": "string",
+            "description": "`on`, `off`, `unknown` or `error`, as MAAS last read it from the BMC."
+          },
+          "powerType": {
+            "type": "string",
+            "description": "How MAAS switches it: `ipmi`, `redfish`, `manual`, `virsh`…"
+          },
+          "registeredAs": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The Apelora machine registered for it, when there is one."
+          },
+          "status": {
+            "type": "string",
+            "description": "`New`, `Commissioning`, `Ready`, `Allocated`, `Deploying`, `Deployed`, `Failed …`."
+          },
+          "systemId": {
+            "type": "string",
+            "description": "MAAS's identifier; give it when registering the machine."
+          },
+          "zone": {
+            "type": "string"
+          }
+        }
+      },
+      "MaasMachines": {
+        "type": "object",
+        "required": [
+          "source",
+          "configured",
+          "items"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean",
+            "description": "`false` when `APELORA_MAAS_URL` is not set: nothing to list, and what to do about it."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MaasMachineView"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "Machine": {
         "type": "object",
         "required": [
@@ -18348,6 +18519,13 @@
           },
           "provider": {
             "$ref": "#/components/schemas/ProvisionerKind"
+          },
+          "providerRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The provisioner's own identifier (a MAAS system id); absent for manual machines."
           },
           "registeredAt": {
             "type": "string"
@@ -21270,6 +21448,13 @@
                 "description": "Defaults to `manual`."
               }
             ]
+          },
+          "systemId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a `maas` machine: its MAAS system id (from `GET /api/v1/provisioners/maas/machines`)."
           }
         }
       },

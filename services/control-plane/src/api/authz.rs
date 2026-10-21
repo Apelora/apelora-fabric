@@ -682,6 +682,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["cluster.manage"],
     ),
     ("GET", "/api/v1/machines", &["cluster.view"]),
+    (
+        "GET",
+        "/api/v1/provisioners/maas/machines",
+        &["cluster.view"],
+    ),
     ("POST", "/api/v1/machines", &["machine.enrol"]),
     ("DELETE", "/api/v1/machines/{name}", &["hardware.delete"]),
     (

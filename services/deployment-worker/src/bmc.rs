@@ -17,8 +17,11 @@
 //! the system roots or the BMC's own `ca` file; there is no insecure mode) and the server's
 //! hardware `uuid`: the BMC must report exactly that system UUID before anything is read as
 //! evidence or sent, so a mapping that points at the wrong BMC refuses instead of switching off
-//! (or vouching for) another server. The `lima` provider is for the disposable lab only and needs
-//! `APELORA_BMC_ALLOW_LAB=1`.
+//! (or vouching for) another server. The `maas` provider asks MAAS to read and switch the power
+//! (`{ "provider": "maas", "systemId": "abc123", "uuid": "…" }`, with `APELORA_MAAS_URL`,
+//! `APELORA_MAAS_API_KEY` and optionally `APELORA_MAAS_CA`): the BMC credentials stay in MAAS, and
+//! MAAS's record of the machine must report the mapped hardware UUID. The `lima` provider is for
+//! the disposable lab only and needs `APELORA_BMC_ALLOW_LAB=1`.
 //!
 //! Settings: `APELORA_BMC_MAP` (file; absent: no BMC fencing), `APELORA_BMC_FENCE_AFTER_SECS`
 //! (default 30, at least 20: how long a member is Offline before it is switched off) and
@@ -66,6 +69,11 @@ enum Entry {
         system: Option<String>,
         uuid: String,
     },
+    #[serde(rename_all = "camelCase")]
+    Maas {
+        system_id: String,
+        uuid: String,
+    },
     Lima {
         vm: String,
     },
@@ -82,6 +90,8 @@ struct Target {
 pub struct Mapping {
     targets: BTreeMap<String, Target>,
     secrets: Option<SecretSource>,
+    /// The MAAS client for `maas` entries (from `APELORA_MAAS_URL` and `APELORA_MAAS_API_KEY`).
+    maas: Option<apelora_maas_adapter::MaasClient>,
     /// Plain HTTP to a loopback test server (tests only).
     plain: bool,
     settle: Option<(Duration, Duration)>,
@@ -203,6 +213,22 @@ impl Mapping {
                         ));
                     }
                 }
+                Entry::Maas { system_id, uuid } => {
+                    if !(3..=16).contains(&system_id.len())
+                        || !system_id
+                            .bytes()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+                    {
+                        return Err(format!(
+                            "{member}: systemId is a MAAS system id (lowercase letters and digits)"
+                        ));
+                    }
+                    if !valid_uuid(uuid) {
+                        return Err(format!(
+                            "{member}: uuid is the server's hardware UUID (8-4-4-4-12 hexadecimal)"
+                        ));
+                    }
+                }
                 Entry::Lima { vm } => {
                     if !allow_lab {
                         return Err(format!(
@@ -253,6 +279,25 @@ pub fn bmc_from_env(get: impl Fn(&str) -> Option<String>) -> Result<(Bmc, i64), 
     let mut mapping =
         Mapping::parse(&text, allow_lab).map_err(|e| format!("APELORA_BMC_MAP ({path}): {e}"))?;
     mapping.secrets = Some(Arc::new(|k: &str| std::env::var(k).ok()));
+    if mapping
+        .targets
+        .values()
+        .any(|t| matches!(t.entry, Entry::Maas { .. }))
+    {
+        let need = |k: &str| {
+            get(k)
+                .map(|v| v.trim().to_owned())
+                .filter(|v| !v.is_empty())
+                .ok_or_else(|| format!("a `maas` entry needs {k}"))
+        };
+        let key = apelora_maas_adapter::ApiKey::parse(&need("APELORA_MAAS_API_KEY")?)
+            .map_err(|e| e.to_string())?;
+        let ca = get("APELORA_MAAS_CA").map(PathBuf::from);
+        mapping.maas = Some(
+            apelora_maas_adapter::MaasClient::new(&need("APELORA_MAAS_URL")?, key, ca.as_deref())
+                .map_err(|e| e.to_string())?,
+        );
+    }
     Ok((Bmc::Mapped(mapping), after))
 }
 
@@ -349,6 +394,42 @@ fn status(r: &reqwest::Response, path: &str) -> Result<(), String> {
 }
 
 impl Mapping {
+    /// MAAS's power state of the machine, after MAAS's record of it reports the mapped hardware
+    /// UUID (a wrong system id refuses instead of vouching for another server).
+    async fn maas_state(
+        &self,
+        member: &str,
+        system_id: &str,
+        uuid: &str,
+    ) -> Result<PowerState, String> {
+        let client = self.maas.as_ref().ok_or("MAAS is not configured")?;
+        let machine = client.machine(system_id).await.map_err(|e| e.to_string())?;
+        match machine.hardware_uuid.as_deref() {
+            Some(u) if u.eq_ignore_ascii_case(uuid) => {}
+            Some(u) => {
+                return Err(format!(
+                    "MAAS reports hardware UUID {u:?} for {system_id}, not the mapped {uuid} for {member}: refusing, the mapping may point at another server"
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "MAAS has no hardware UUID for {system_id} (commission it first), so {member}'s identity cannot be checked"
+                ));
+            }
+        }
+        Ok(
+            match client
+                .query_power_state(system_id)
+                .await
+                .map_err(|e| e.to_string())?
+            {
+                apelora_maas_adapter::PowerState::On => PowerState::On,
+                apelora_maas_adapter::PowerState::Off => PowerState::Off,
+                other => PowerState::Other(format!("{other:?}").to_lowercase()),
+            },
+        )
+    }
+
     /// Connects, finds the system and checks its UUID against the mapping.
     async fn redfish<'a>(&'a self, member: &str, entry: &'a Entry) -> Result<Redfish<'a>, String> {
         let Entry::Redfish {
@@ -461,6 +542,7 @@ impl Bmc {
         match self {
             Bmc::Mapped(m) => match m.targets.get(member).map(|t| &t.entry) {
                 Some(Entry::Redfish { .. }) => "redfish",
+                Some(Entry::Maas { .. }) => "maas",
                 Some(Entry::Lima { .. }) => "lima",
                 None => "unknown",
             },
@@ -477,6 +559,7 @@ impl Bmc {
                 Some(Entry::Redfish { system, .. }) => system
                     .clone()
                     .unwrap_or_else(|| "/redfish/v1/Systems".into()),
+                Some(Entry::Maas { system_id, .. }) => system_id.clone(),
                 Some(Entry::Lima { vm }) => vm.clone(),
                 None => String::new(),
             },
@@ -523,6 +606,7 @@ impl Bmc {
                     .ok_or_else(|| format!("{member} is not in the BMC mapping"))?;
                 match &t.entry {
                     Entry::Redfish { .. } => m.redfish(member, &t.entry).await?.state().await,
+                    Entry::Maas { system_id, uuid } => m.maas_state(member, system_id, uuid).await,
                     Entry::Lima { vm } => Ok(
                         match lima(&["list", "--format", "{{.Status}}", vm])
                             .await?
@@ -623,6 +707,35 @@ impl Bmc {
                             if tokio::time::Instant::now() >= deadline {
                                 return Err(format!(
                                     "{member} still does not report Off {} s after the power-off request",
+                                    settle.as_secs()
+                                ));
+                            }
+                            tokio::time::sleep(every).await;
+                        }
+                    }
+                    Entry::Maas { system_id, uuid } => {
+                        let client = m.maas.as_ref().ok_or("MAAS is not configured")?;
+                        let before = m.maas_state(member, system_id, uuid).await?;
+                        let switched = before != PowerState::Off;
+                        if switched {
+                            client
+                                .power_off(system_id)
+                                .await
+                                .map_err(|e| e.to_string())?;
+                        }
+                        let deadline = tokio::time::Instant::now() + settle;
+                        loop {
+                            if m.maas_state(member, system_id, uuid).await? == PowerState::Off {
+                                return Ok(PowerOffReading {
+                                    provider: "maas".into(),
+                                    system: system_id.clone(),
+                                    at: now(),
+                                    switched_off: switched,
+                                });
+                            }
+                            if tokio::time::Instant::now() >= deadline {
+                                return Err(format!(
+                                    "MAAS still does not report {member} Off {} s after the power-off request",
                                     settle.as_secs()
                                 ));
                             }

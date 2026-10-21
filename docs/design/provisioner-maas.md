@@ -41,4 +41,14 @@ The API key can do whatever its MAAS user can do. Use a dedicated MAAS user that
 
 ## 5. Evidence
 
-Slice 1 is CONTRACT VERIFIED against a test server that answers in MAAS's documented shapes. A run against a real MAAS (in a Lima VM, with machines created with manual power) is recorded in [current state](../architecture/current-state.md) when done; nothing here has run against real hardware.
+Slice 1 is CONTRACT VERIFIED against a test server that answers in MAAS's documented shapes, and **REAL MAAS TESTED** on 2026-10-21 against MAAS 3.7.4 (snap, region and rack controller) in a Lima VM with TLS (`bash scripts/test-cluster/maas.sh up`, `machines`, `test`; the machines are records with manual power, not hardware):
+
+| Check | Result |
+|---|---|
+| List and read machines with the OAuth `PLAINTEXT` signature over HTTPS verified against the lab's certificate | Works; a new machine is `Commissioning` with no CPUs, memory or hardware UUID yet |
+| A wrong key, an unknown system id, a certificate the client does not trust | 401, 404, and no request is made |
+| Power state of a manual-power machine | MAAS answers 400: there is no BMC to ask. The fence provider reads that as unreadable; nothing is fenced |
+| Power-off of a manual-power machine | MAAS accepts the request; the read-back that follows is the 400 above, so it is not evidence |
+| A server certificate with `CA:TRUE` (what `openssl req -x509` makes by default) | The Rust TLS stack refuses it as a server's certificate although curl accepts it; the lab's certificate is a leaf (`CA:FALSE`) |
+
+Not run against real hardware, with a MAAS-managed BMC (Redfish, IPMI) or with a commissioned machine's hardware UUID; the Console list and registration have been tested against a stubbed API only.

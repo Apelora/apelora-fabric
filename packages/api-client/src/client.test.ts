@@ -233,6 +233,7 @@ describe("api client", () => {
       "GET /api/v1/networks/settings",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
+      "GET /api/v1/provisioners/maas/machines",
       "GET /api/v1/sessions",
       "GET /api/v1/settings",
       "GET /api/v1/sign-in",

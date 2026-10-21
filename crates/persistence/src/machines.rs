@@ -31,12 +31,13 @@ pub async fn register_machine(
     name: &str,
     provider: &str,
     description: &str,
+    provider_ref: Option<&str>,
     actor: &str,
     admitted: bool,
 ) -> Result<MachineRecord> {
     sqlx::query_as::<_, MachineRecord>(&format!(
-        "INSERT INTO machines (name, provider, description, registered_by, admitted_by, admitted_at)
-         VALUES ($1, $2, $3, $4, CASE WHEN $5 THEN $4 END, CASE WHEN $5 THEN now() END)
+        "INSERT INTO machines (name, provider, provider_ref, description, registered_by, admitted_by, admitted_at)
+         VALUES ($1, $2, $6, $3, $4, CASE WHEN $5 THEN $4 END, CASE WHEN $5 THEN now() END)
          ON CONFLICT (name) DO NOTHING
          RETURNING {COLUMNS}"
     ))
@@ -45,6 +46,7 @@ pub async fn register_machine(
     .bind(description)
     .bind(actor)
     .bind(admitted)
+    .bind(provider_ref)
     .fetch_optional(db)
     .await?
     .ok_or_else(|| StoreError::Conflict(format!("machine {name} is already registered")))

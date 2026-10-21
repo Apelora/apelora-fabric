@@ -473,6 +473,23 @@ pub const SETTINGS: &[Setting] = &[
         "File naming each server's BMC (ADR 0014): provider, address, user, the name of its password variable and its hardware UUID. No passwords in it; absent: no fencing through a BMC",
     ),
     s(
+        "APELORA_MAAS_URL",
+        Both,
+        None,
+        "Address of the MAAS region API (https://host:5240/MAAS); empty: only manual machines. The control plane lists its machines; the worker can fence through it",
+    ),
+    hidden(
+        "APELORA_MAAS_API_KEY",
+        Both,
+        "MAAS API key (consumer:token:secret) of a dedicated MAAS user; read once at start, never shown",
+    ),
+    s(
+        "APELORA_MAAS_CA",
+        Both,
+        None,
+        "PEM file of the authority that signed MAAS's certificate; default the system roots",
+    ),
+    s(
         "APELORA_BMC_FENCE_AFTER_SECS",
         Worker,
         Some("30"),

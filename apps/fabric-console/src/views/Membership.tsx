@@ -5,6 +5,7 @@ import type { EvacuationPreview, JoinTokenList, RemovalPreview } from "@apelora/
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
 import { MachinesSection } from "./Machines";
+import { MaasMachinesSection } from "./MaasMachines";
 
 /**
  * Evacuating a member for maintenance: first the dry run (what Incus does with each instance
@@ -168,6 +169,7 @@ export function MachinesTab({ onAuth }: { onAuth: (m: string) => void }) {
   return (
     <div className="flex flex-col gap-6">
       <MachinesSection onAuth={onAuth} onChanged={reload} />
+      <MaasMachinesSection onAuth={onAuth} onChanged={reload} />
       {error && <ErrorPanel message={error} testId="membership-error" />}
 
       <Section title="Unused join tokens" state={tokens} testId="join-tokens" onRetry={reload}>

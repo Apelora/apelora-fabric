@@ -1856,10 +1856,10 @@ async fn risky_actions_need_another_persons_approval_that_is_exact_and_single_us
     )
     .await;
     let (thw, tfa) = (l.token("sub-hw", "hw"), l.token("sub-fa", "fa"));
-    apelora_persistence::register_machine(&l.pool, "rack1-07", "manual", "", "test", false)
+    apelora_persistence::register_machine(&l.pool, "rack1-07", "manual", "", None, "test", false)
         .await
         .expect("machine");
-    apelora_persistence::register_machine(&l.pool, "rack1-08", "manual", "", "test", false)
+    apelora_persistence::register_machine(&l.pool, "rack1-08", "manual", "", None, "test", false)
         .await
         .expect("machine");
 

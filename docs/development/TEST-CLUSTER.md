@@ -67,6 +67,16 @@ api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/approve | jq -r
 api -X POST http://127.0.0.1:8080/api/v1/machines/apelora-test-4/admit | jq '.checks[] | [.id, .status]'
 ```
 
+A real MAAS (optional, 6 GiB, for the provisioner adapter; it manages no hardware, its machines are records with manual power; credentials in `~/.config/apelora/test-cluster/maas.env`, TLS with the certificate in `maas-ca.pem`):
+
+```sh
+bash scripts/test-cluster/maas.sh up        # VM, MAAS 3.7 (snap), TLS, admin and API key
+bash scripts/test-cluster/maas.sh machines  # waits for the boot images, then creates two test machines
+bash scripts/test-cluster/maas.sh test      # the adapter's ignored real-API test
+source ~/.config/apelora/test-cluster/maas.env   # APELORA_MAAS_URL, _API_KEY, _CA for the control plane
+bash scripts/test-cluster/maas.sh down      # delete it
+```
+
 Add OVN (optional, after `add-member.sh`) so network intents can be enforced:
 
 ```sh

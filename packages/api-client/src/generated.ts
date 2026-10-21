@@ -1842,6 +1842,38 @@ export type LogTail = {
   truncated: boolean;
 };
 
+export type MaasMachineView = {
+  addresses: string[];
+  architecture: string;
+  cpuCount: number;
+  /** The server's hardware UUID (needed for the BMC fence mapping); absent until commissioned. */
+  hardwareUuid?: string | null;
+  hostname: string;
+  /** The Incus member status of that machine, once it has joined. */
+  memberStatus?: string | null;
+  memoryMib: number;
+  os: string;
+  pool: string;
+  /** `on`, `off`, `unknown` or `error`, as MAAS last read it from the BMC. */
+  powerState: string;
+  /** How MAAS switches it: `ipmi`, `redfish`, `manual`, `virsh`… */
+  powerType: string;
+  /** The Apelora machine registered for it, when there is one. */
+  registeredAs?: string | null;
+  /** `New`, `Commissioning`, `Ready`, `Allocated`, `Deploying`, `Deployed`, `Failed …`. */
+  status: string;
+  /** MAAS's identifier; give it when registering the machine. */
+  systemId: string;
+  zone: string;
+};
+
+export type MaasMachines = {
+  /** `false` when `APELORA_MAAS_URL` is not set: nothing to list, and what to do about it. */
+  configured: boolean;
+  items: MaasMachineView[];
+  source: Source;
+};
+
 export type Machine = {
   admittedAt?: string | null;
   admittedBy?: string | null;
@@ -1859,6 +1891,8 @@ export type Machine = {
   /** What the administrator does next. */
   nextStep: string;
   provider: ProvisionerKind;
+  /** The provisioner's own identifier (a MAAS system id); absent for manual machines. */
+  providerRef?: string | null;
   registeredAt: string;
   registeredBy: string;
   state: MachineState;
@@ -2703,6 +2737,8 @@ export type RegisterMachine = {
   /** The name it will have as a cluster member. */
   name: string;
   provider?: null | ProvisionerKind;
+  /** For a `maas` machine: its MAAS system id (from `GET /api/v1/provisioners/maas/machines`). */
+  systemId?: string | null;
 };
 
 export type RemovalPlan = {
@@ -3547,6 +3583,7 @@ export const operations = {
   network_settings: { method: "GET", path: "/api/v1/networks/settings", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
+  maas_machines: { method: "GET", path: "/api/v1/provisioners/maas/machines", params: [], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
@@ -3891,6 +3928,8 @@ export type Responses = {
   preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
   projects: ProjectList;
+  /** The machines MAAS manages, with the Apelora machine and Incus member each became. Needs `cluster.view`. Read-only: MAAS is asked to list, nothing else. */
+  maas_machines: MaasMachines;
   /** Open sessions the caller started, and those on applications they may operate. */
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
@@ -4092,6 +4131,7 @@ export type Bodies = {
   network_settings: never;
   preflight: never;
   projects: never;
+  maas_machines: never;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

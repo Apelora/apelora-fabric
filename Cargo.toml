@@ -5,6 +5,7 @@ members = [
   "crates/domain",
   "crates/identity",
   "crates/incus-adapter",
+  "crates/maas-adapter",
   "crates/metrics",
   "crates/persistence", "crates/persistence",
   "services/control-plane",

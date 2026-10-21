@@ -220,6 +220,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_backup_pool(backup_pool)
         .with_rate_limits(rate_limits)
         .with_tls(listening.tls())
+        .with_maas(
+            api::provisioners::from_env(|k| std::env::var(k).ok())
+                .map_err(|e| format!("MAAS: {e}"))?,
+        )
         .with_image_mirrors(mirrors)
         .with_db_backup_dir(
             std::env::var("APELORA_DB_BACKUP_DIR")

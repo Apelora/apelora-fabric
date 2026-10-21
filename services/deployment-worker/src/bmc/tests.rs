@@ -360,3 +360,167 @@ async fn the_fixed_provider_records_what_it_was_asked() {
     assert_eq!(fixed.power_state("m1").await, Ok(PowerState::Off));
     assert!(fixed.fence("m2").await.is_err());
 }
+
+// ---- the maas provider: the BMC stays in MAAS (CONTRACT VERIFIED against a MAAS-shaped server) ----
+
+#[derive(Default)]
+struct FakeMaas {
+    on: bool,
+    uuid: Option<String>,
+    stays_on: bool,
+    offs: usize,
+}
+type SharedMaas = Arc<Mutex<FakeMaas>>;
+
+fn maas_json(f: &FakeMaas) -> Response {
+    json(
+        serde_json::json!({ "system_id": "abc123", "hostname": "rack-a-1", "status_name": "Deployed",
+        "power_state": if f.on { "on" } else { "off" }, "power_type": "redfish", "hardware_uuid": f.uuid }),
+    )
+}
+
+async fn maas_one(State(s): State<SharedMaas>) -> Response {
+    maas_json(&s.lock().expect("fake"))
+}
+
+async fn maas_query(State(s): State<SharedMaas>) -> Response {
+    json(serde_json::json!({ "state": if s.lock().expect("fake").on { "on" } else { "off" } }))
+}
+
+async fn maas_off(State(s): State<SharedMaas>, body: String) -> Response {
+    let mut f = s.lock().expect("fake");
+    assert_eq!(body, "stop_mode=hard");
+    f.offs += 1;
+    if !f.stays_on {
+        f.on = false;
+    }
+    maas_json(&f)
+}
+
+async fn maas(on: bool, uuid: Option<&str>) -> (Bmc, SharedMaas) {
+    let shared: SharedMaas = Arc::new(Mutex::new(FakeMaas {
+        on,
+        uuid: uuid.map(str::to_owned),
+        ..Default::default()
+    }));
+    let app = Router::new()
+        .route("/MAAS/api/2.0/machines/{id}/", get(maas_one))
+        .route(
+            "/MAAS/api/2.0/machines/{id}/op-query_power_state",
+            post(maas_query),
+        )
+        .route("/MAAS/api/2.0/machines/{id}/op-power_off", post(maas_off))
+        .with_state(shared.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    let mut m = Mapping::parse(
+        &format!(r#"{{ "m1": {{ "provider": "maas", "systemId": "abc123", "uuid": "{UUID}" }} }}"#),
+        false,
+    )
+    .expect("mapping");
+    m.maas = Some(apelora_maas_adapter::MaasClient::plain_for_tests(
+        &format!("http://{addr}/MAAS"),
+        apelora_maas_adapter::ApiKey::parse("c:t:s").expect("key"),
+    ));
+    m.settle = Some((Duration::from_millis(300), Duration::from_millis(20)));
+    (Bmc::Mapped(m), shared)
+}
+
+#[tokio::test]
+async fn maas_switches_a_server_off_and_the_state_is_read_back_from_maas() {
+    let (b, fake) = maas(true, Some(UUID)).await;
+    assert_eq!(
+        (b.provider_of("m1").as_str(), b.system_of("m1").as_str()),
+        ("maas", "abc123")
+    );
+    assert_eq!(b.power_state("m1").await, Ok(PowerState::On));
+    let r = b.fence("m1").await.expect("fenced");
+    assert_eq!(
+        (r.provider.as_str(), r.system.as_str(), r.switched_off),
+        ("maas", "abc123", true)
+    );
+    assert_eq!(fake.lock().expect("fake").offs, 1);
+    let again = b.fence("m1").await.expect("already off");
+    assert!(!again.switched_off);
+    assert_eq!(
+        fake.lock().expect("fake").offs,
+        1,
+        "nothing is sent to a server that is off"
+    );
+}
+
+#[tokio::test]
+async fn maas_refuses_another_servers_uuid_and_a_machine_it_has_not_commissioned() {
+    let (b, fake) = maas(true, Some(OTHER_UUID)).await;
+    let e = b.fence("m1").await.expect_err("wrong server");
+    assert!(e.contains("refusing") && e.contains(OTHER_UUID), "{e}");
+    assert!(b.power_state("m1").await.is_err());
+    assert_eq!(fake.lock().expect("fake").offs, 0);
+    let (b, fake) = maas(true, None).await;
+    let e = b.fence("m1").await.expect_err("no uuid");
+    assert!(e.contains("commission"), "{e}");
+    assert_eq!(fake.lock().expect("fake").offs, 0);
+}
+
+#[tokio::test]
+async fn maas_accepting_a_power_off_that_leaves_the_server_on_is_not_evidence() {
+    let (b, fake) = maas(true, Some(UUID)).await;
+    fake.lock().expect("fake").stays_on = true;
+    let e = b.fence("m1").await.expect_err("still on");
+    assert!(e.contains("still does not report"), "{e}");
+}
+
+#[test]
+fn a_maas_entry_needs_its_own_settings_and_a_valid_identity() {
+    let ok = |t: &str| Mapping::parse(t, false);
+    let entry = |extra: &str| {
+        format!(
+            r#"{{ "m1": {{ "provider": "maas", "systemId": "abc123", "uuid": "{UUID}" {extra} }} }}"#
+        )
+    };
+    assert!(ok(&entry("")).is_ok());
+    assert!(ok(&entry("").replace("abc123", "AB;c")).is_err());
+    assert!(
+        ok(&entry("").replace(UUID, "nope")).is_err(),
+        "the hardware UUID is required"
+    );
+    assert!(
+        ok(&entry(r#", "secretRef": "X""#)).is_err(),
+        "no credentials in the mapping"
+    );
+    let dir = std::env::temp_dir().join(format!("apelora-bmc-maas-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("dir");
+    let file = dir.join("map.json");
+    std::fs::write(&file, entry("")).expect("write");
+    let env = |with: &'static [(&'static str, &'static str)]| {
+        let f = file.display().to_string();
+        move |k: &str| match k {
+            "APELORA_BMC_MAP" => Some(f.clone()),
+            other => with
+                .iter()
+                .find(|(n, _)| *n == other)
+                .map(|(_, v)| (*v).to_owned()),
+        }
+    };
+    let e = bmc_from_env(env(&[])).expect_err("needs MAAS settings");
+    assert!(e.contains("APELORA_MAAS_API_KEY"), "{e}");
+    let e = bmc_from_env(env(&[("APELORA_MAAS_API_KEY", "c:t:s")])).expect_err("needs a url");
+    assert!(e.contains("APELORA_MAAS_URL"), "{e}");
+    let e = bmc_from_env(env(&[
+        ("APELORA_MAAS_API_KEY", "c:t:s"),
+        ("APELORA_MAAS_URL", "http://maas.example/MAAS"),
+    ]))
+    .expect_err("https");
+    assert!(e.contains("https"), "{e}");
+    assert!(!e.contains("c:t:s"), "{e}");
+    let (b, _) = bmc_from_env(env(&[
+        ("APELORA_MAAS_API_KEY", "c:t:s"),
+        ("APELORA_MAAS_URL", "https://maas.example/MAAS"),
+    ]))
+    .expect("configured");
+    assert_eq!(b.members(), vec!["m1".to_owned()]);
+    let _ = std::fs::remove_dir_all(dir);
+}
