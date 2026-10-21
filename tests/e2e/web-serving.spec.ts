@@ -134,7 +134,7 @@ test.describe("built applications under the serving policy", () => {
       "GET /api/v1/sign-in": { json: { providers: [], apiTokens: true } },
     });
     await page.goto(origin + "/");
-    await expect(page.getByTestId("sign-in-status")).toContainText("Apelora is running");
+    await expect(page.getByTestId("sign-in-status")).toHaveText(/^Apelora \d+\.\d+\.\d+, /);
     await w.check();
   });
 

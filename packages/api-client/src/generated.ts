@@ -643,7 +643,7 @@ export type GrowVolume = {
 /** The operating system inside a module, from its catalog class (never guessed from names). */
 export type GuestOs = "linux" | "windows";
 
-/** The public health answer: coarse status only. Versions and Incus error text are on the authenticated `GET /api/v1/system`. */
+/** The public health answer: coarse status and Apelora's version (shown at the foot of the sign-in page). Incus versions and error text are on the authenticated `GET /api/v1/system`. */
 export type Health = {
   apiVersion: string;
   auth: AuthMode;
@@ -654,6 +654,8 @@ export type Health = {
   service: string;
   /** `ok`: the control plane answers. */
   status: string;
+  /** Apelora's version. */
+  version: string;
 };
 
 /** A component's or server's state, worst last. */
@@ -1139,6 +1141,17 @@ export type MemberStateStarted = {
   member: string;
   /** Incus operation carrying out the evacuation or restore. */
   operation: string;
+};
+
+/** One place a collector scrapes. */
+export type MetricsEndpoint = {
+  /** `host:port` for listeners; absent for the API's own address (the one the caller used). */
+  address?: string | null;
+  /** `bearer` (a token with `fabric.metrics.read`) or `none` (keep it off public networks). */
+  authentication: string;
+  /** `control-plane`, `control-plane-listener` (separate, unauthenticated) or `worker`. */
+  component: string;
+  path: string;
 };
 
 /** One configured mirror and whether it answered. */
@@ -2109,6 +2122,7 @@ export const operations = {
   withdraw_machine_approval: { method: "DELETE", path: "/api/v1/machines/{name}/approval", params: ["name"], public: false },
   approve_machine: { method: "POST", path: "/api/v1/machines/{name}/approve", params: ["name"], public: false },
   change_password: { method: "PUT", path: "/api/v1/me/password", params: [], public: false },
+  monitoring: { method: "GET", path: "/api/v1/monitoring", params: [], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
@@ -2347,6 +2361,8 @@ export type Responses = {
   approve_machine: MachineApproved;
   /** Changes the caller's own password (local accounts only). Every other session of theirs is revoked; the one making the request stays. Counts towards the account's lock like a sign-in. */
   change_password: null;
+  /** Where each metrics endpoint is, whether the caller may scrape, and the region, site and sector labels. Needs `fabric.metrics.read` or `cluster.view`. */
+  monitoring: MonitoringInfo;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
   /** Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys into, and of the image mirrors (whether each image server the catalog uses is mirrored and whether the mirrors answer). Changes nothing. Needs `read-inventory`. */
@@ -2492,6 +2508,7 @@ export type Bodies = {
   withdraw_machine_approval: never;
   approve_machine: never;
   change_password: PasswordChangeRequest;
+  monitoring: never;
   networks: never;
   preflight: never;
   projects: never;

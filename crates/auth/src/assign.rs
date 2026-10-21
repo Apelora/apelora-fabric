@@ -260,6 +260,7 @@ mod tests {
                 "project.view",
                 "application.view",
                 "application.metrics.read",
+                "capacity.view",
             ]
             .map(String::from)
             .into(),

@@ -17,6 +17,8 @@ const AUDITOR_TOKEN_CAN: &[&str] = &[
     "application.view",
     "application.logs.read",
     "application.metrics.read",
+    "capacity.view",
+    "fabric.metrics.read",
     "user.view",
     "audit.read",
 ];
@@ -346,7 +348,7 @@ async fn revoking_a_role_needs_the_power_to_grant_it(pool: Pool) {
     );
     let project = json!({ "type": "project", "id": w.acme_prod });
     // pa may assign roles in the project, but holds only what a viewer holds there.
-    let (s, role) = l.req("POST", "/api/v1/identity/roles", &w.admin, Some(json!({ "name": "Membership clerk", "permissions": ["role.assign", "project.view", "application.view", "application.metrics.read"] }))).await;
+    let (s, role) = l.req("POST", "/api/v1/identity/roles", &w.admin, Some(json!({ "name": "Membership clerk", "permissions": ["role.assign", "project.view", "application.view", "application.metrics.read", "capacity.view"] }))).await;
     assert_eq!(s, StatusCode::CREATED, "{role}");
     let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "user", "id": pa }, "role": { "type": "custom", "id": role["reference"]["id"] }, "scope": project }))).await;
     assert_eq!(s, StatusCode::CREATED, "{b}");

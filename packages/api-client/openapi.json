@@ -5741,6 +5741,47 @@
         }
       }
     },
+    "/api/v1/image-mirrors": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Image mirrors: the configuration this control plane runs with (upstream → mirror pairs and\nwhether only mirrors may be used; URLs, not secrets), whether each mirror answers (probed at\nmost once a minute), and the image servers each deployable catalog class needs with whether\nit is covered. Read-only: configuration stays in the environment. Needs `read-inventory`.",
+        "operationId": "image_mirrors",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageMirrorsReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/instances": {
       "get": {
         "tags": [
@@ -7115,6 +7156,47 @@
         }
       }
     },
+    "/api/v1/monitoring": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Where each metrics endpoint is, whether the caller may scrape, and the region, site and\nsector labels. Needs `fabric.metrics.read` or `cluster.view`.",
+        "operationId": "monitoring",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringInfo"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/networks": {
       "get": {
         "tags": [
@@ -7171,7 +7253,7 @@
         "tags": [
           "inventory"
         ],
-        "summary": "Read-only readiness checks of the Incus server or cluster and of the projects Apelora\ndeploys into. Changes nothing. Needs `read-inventory`.",
+        "summary": "Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys\ninto, and of the image mirrors (whether each image server the catalog uses is mirrored and\nwhether the mirrors answer). Changes nothing. Needs `read-inventory`.",
         "operationId": "preflight",
         "responses": {
           "200": {
@@ -10053,6 +10135,7 @@
       },
       "Health": {
         "type": "object",
+        "description": "The public health answer: coarse status and Apelora's version (shown at the foot of the\nsign-in page). Incus versions and error text are on the authenticated `GET /api/v1/system`.",
         "required": [
           "status",
           "service",
@@ -10060,7 +10143,8 @@
           "apiVersion",
           "provider",
           "auth",
-          "incus"
+          "incus",
+          "checkedAt"
         ],
         "properties": {
           "apiVersion": {
@@ -10069,8 +10153,12 @@
           "auth": {
             "$ref": "#/components/schemas/AuthMode"
           },
+          "checkedAt": {
+            "type": "string",
+            "description": "When Incus was last asked (RFC 3339, UTC); answers are reused for up to 15 s."
+          },
           "incus": {
-            "$ref": "#/components/schemas/IncusStatus"
+            "$ref": "#/components/schemas/IncusSummary"
           },
           "provider": {
             "$ref": "#/components/schemas/ProviderMode"
@@ -10079,10 +10167,12 @@
             "type": "string"
           },
           "status": {
-            "type": "string"
+            "type": "string",
+            "description": "`ok`: the control plane answers."
           },
           "version": {
-            "type": "string"
+            "type": "string",
+            "description": "Apelora's version."
           }
         }
       },
@@ -10758,7 +10848,6 @@
       },
       "HealthWorker": {
         "type": "object",
-        "description": "The public health answer: coarse status only. Versions and Incus error text are on the\nauthenticated `GET /api/v1/system`.",
         "required": [
           "id",
           "host",
@@ -11737,6 +11826,35 @@
           "operation": {
             "type": "string",
             "description": "Incus operation carrying out the evacuation or restore."
+          }
+        }
+      },
+      "MetricsEndpoint": {
+        "type": "object",
+        "description": "One place a collector scrapes.",
+        "required": [
+          "component",
+          "path",
+          "authentication"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`host:port` for listeners; absent for the API's own address (the one the caller used)."
+          },
+          "authentication": {
+            "type": "string",
+            "description": "`bearer` (a token with `fabric.metrics.read`) or `none` (keep it off public networks)."
+          },
+          "component": {
+            "type": "string",
+            "description": "`control-plane`, `control-plane-listener` (separate, unauthenticated) or `worker`."
+          },
+          "path": {
+            "type": "string"
           }
         }
       },

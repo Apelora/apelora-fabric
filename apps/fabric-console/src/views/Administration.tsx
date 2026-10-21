@@ -22,7 +22,8 @@ function SystemSection({ onAuth }: { onAuth: (m: string) => void }) {
   return (
     <Section title="System" state={info} testId="system" onRetry={reload}>
       {(s) => {
-        const running = s.incus.serverVersion;
+        // An older control plane does not report Incus here.
+        const running = s.incus?.serverVersion;
         const pinned = s.incusPinned.replace(/^v/, "");
         return (
           <>
@@ -30,7 +31,7 @@ function SystemSection({ onAuth }: { onAuth: (m: string) => void }) {
             <dl className="divide-y divide-base-300 rounded-box border border-base-300 text-sm">
               {[
                 ["Apelora control plane", `${s.version} · API ${s.apiVersion}`],
-                ["Incus running", running ?? (s.incus.error ? `not reachable: ${s.incus.error}` : "not connected")],
+                ["Incus running", running ?? (s.incus?.error ? `not reachable: ${s.incus.error}` : "not connected")],
                 ["Incus pinned", `${pinned} (${s.incusSeries} LTS series)${running && running !== pinned ? ` · running ${running} differs` : ""}`],
                 ["Tested with", s.incusTestedWith || "not recorded"],
               ].map(([k, v]) => (

@@ -1490,8 +1490,8 @@ mod identity;
 mod ldap;
 mod machines;
 mod manage;
-mod mirrors;
 pub mod metrics;
+mod mirrors;
 mod mobility;
 pub mod rate_limit;
 pub mod requests;
@@ -1500,19 +1500,19 @@ pub mod sessions_auth;
 mod volumes;
 
 #[cfg(test)]
+mod containment_tests;
+#[cfg(test)]
 mod directories_tests;
 #[cfg(test)]
 mod fabric_health_tests;
-#[cfg(test)]
-mod containment_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]
 mod manage_tests;
 #[cfg(test)]
-mod sessions_auth_tests;
-#[cfg(test)]
 mod metrics_tests;
+#[cfg(test)]
+mod sessions_auth_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]
