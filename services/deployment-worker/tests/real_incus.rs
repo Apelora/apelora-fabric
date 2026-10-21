@@ -1260,15 +1260,18 @@ async fn an_application_is_shut_down_stopped_at_once_and_migrated(pool: Pool) {
     let done = run("shutdown", both("stop")).await;
     assert_eq!(done.state, "succeeded", "{:?}", done.error);
     assert_eq!(statuses().await, ["Stopped", "Stopped"]);
-    for n in &names {
-        converge(
-            &pool,
-            &provider,
-            "instance.start",
-            &json!({ "project": project, "name": n }),
-        )
-        .await;
-    }
+
+    // Start and Restart through their operations, providers first: both end up running.
+    let done = run("start", both("start")).await;
+    assert_eq!(done.state, "succeeded", "{:?}", done.error);
+    assert_eq!(statuses().await, ["Running", "Running"]);
+    let restart = json!([
+        { "action": "stop", "state": "pending", "steps": [step("web", &names[0], None)] },
+        { "action": "start", "state": "pending", "steps": [step("web", &names[0], None)] },
+    ]);
+    let done = run("restart", restart).await;
+    assert_eq!(done.state, "succeeded", "{:?}", done.error);
+    assert_eq!(statuses().await, ["Running", "Running"]);
 
     // Stop at once: the instance jobs say `force`, and Incus agrees they are stopped.
     let done = run("stop", both("poweroff")).await;
