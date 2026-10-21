@@ -1,6 +1,6 @@
 # Apelora Fabric — project rules for coding agents
 
-Authoritative rules for working in this repository, shared by all coding agents (Codex reads this file; Claude Code imports it from `CLAUDE.md`). Skills live in `.agents/skills/` (Claude sees them through symlinks in `.claude/skills/`). If a skill conflicts with this file, this file wins.
+Authoritative rules for working in this repository, shared by all coding agents (Codex reads this file; Claude Code imports it from `CLAUDE.md`). Skills live in `.agents/skills/` (Claude sees them through symlinks in `.claude/skills/`; Cursor sees them through symlinks in `.cursor/skills/`). If a skill conflicts with this file, this file wins.
 
 ## Architecture in one paragraph
 
