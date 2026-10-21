@@ -1631,6 +1631,144 @@ export type MoveRequest = {
   target: string;
 };
 
+export type NetApplication = {
+  application: string;
+  /** Which module may reach which, on what transport and port (from the design). */
+  connections: Connection[];
+  /** Differences between what Apelora intends and what Incus holds, for the whole application. */
+  drift: string[];
+  /** Connections are enforced on the application's own OVN network. */
+  enforced: boolean;
+  modules: NetModule[];
+  network: string;
+  networkObserved?: null | NetObservedNetwork;
+  project: string;
+  published: Published[];
+  /** The deployed revision these settings come from. */
+  revision: number;
+  serviceRange?: string | null;
+  services: NetService[];
+  uplink?: string | null;
+};
+
+export type NetApplications = {
+  /** Why Incus could not be read; the intended side is still shown. */
+  incusError?: string | null;
+  items: NetApplication[];
+  source: Source;
+};
+
+export type NetBackend = {
+  address: string;
+  /** The instance behind it (from the backend's description). */
+  instance: string;
+  name: string;
+};
+
+/** Something about the settings worth knowing, from comparing them with Incus. */
+export type NetFinding = {
+  message: string;
+  /** `warn`: Incus will refuse or traffic will not flow; `info`: a fact. */
+  severity: string;
+};
+
+export type NetModule = {
+  /** The module's ACL and address set. */
+  acl: string;
+  /** The ACL exists in Incus; `None` when Incus could not be read. */
+  aclPresent?: boolean | null;
+  /** The module's instances' addresses (its address set); `None` when not read. */
+  addresses?: string[] | null;
+  drift: string[];
+  egress: NetRule[];
+  ingress: NetRule[];
+  internet: Internet;
+  module: string;
+};
+
+export type NetObservedNetwork = {
+  ipv4Address?: string | null;
+  kind: string;
+  /** The network's address on the uplink (`volatile.network.ipv4.address`): outside traffic to published addresses is routed here. */
+  routerAddress?: string | null;
+  status: string;
+};
+
+export type NetPort = {
+  port: number;
+  transport: string;
+};
+
+/** A deploy project's network limits, as Incus reports them. */
+export type NetProjectLimits = {
+  /** Incus reports the project (the deploy identity can read it). */
+  found: boolean;
+  /** `features.networks`: the project has its own networks (needed for per-application OVN networks). */
+  ownNetworks: boolean;
+  project: string;
+  restricted: boolean;
+  /** `restricted.networks.subnets`: `<uplink>:<range>` its load balancers and forwards may listen on. */
+  subnets: string[];
+  /** `restricted.networks.uplinks`: uplinks its networks may use. */
+  uplinks: string[];
+};
+
+/** One ACL rule, intended or found in Incus, with how the two compare. */
+export type NetRule = {
+  action: string;
+  description: string;
+  destination: string;
+  /** Empty: any port. */
+  port: string;
+  protocol: string;
+  /** `$<address set>` (a module's instances), `@external` (outside), or empty (any). */
+  source: string;
+  /** `applied` (intended and in Incus), `missing` (intended, not in Incus), `unexpected` (in Incus, not intended) or `unknown` (Incus could not be read). */
+  state: string;
+};
+
+/** A module's service address: one load balancer over its replicas. */
+export type NetService = {
+  /** Allocated by Apelora; `None` while none is free (or before the first sync). */
+  address?: string | null;
+  /** The load balancer's backends in Incus; `None` when it is missing or Incus was not read. */
+  backends?: NetBackend[] | null;
+  drift: string[];
+  module: string;
+  ports: NetPort[];
+  /** Reachable from outside the application. */
+  published: boolean;
+};
+
+export type NetSettings = {
+  findings: NetFinding[];
+  projects: NetProjectLimits[];
+  /** Addresses the range holds; `None` without a range. */
+  serviceAddressesTotal?: number | null;
+  /** Service addresses held by applications. */
+  serviceAddressesUsed: number;
+  /** `APELORA_SERVICE_ADDRESSES`; `None`: no service addresses. */
+  serviceRange?: string | null;
+  source: Source;
+  /** `APELORA_NETWORK_UPLINK`; `None`: connections are not enforced. */
+  uplink?: string | null;
+  /** Why the uplink is not shown (identity, error). */
+  uplinkNote?: string | null;
+  uplinkObserved?: null | NetUplink;
+};
+
+/** The uplink network, as Incus reports it (read with the administrator identity). */
+export type NetUplink = {
+  ipv4Address?: string | null;
+  /** `ipv4.routes`: ranges routed to the uplink (service addresses must be in one). */
+  ipv4Routes: string[];
+  kind: string;
+  name: string;
+  /** `ipv4.ovn.ranges`: addresses OVN networks take on the uplink. */
+  ovnRanges: string[];
+  status: string;
+};
+
 export type Network = {
   description: string;
   kind: string;
@@ -1782,6 +1920,32 @@ export type OrganizationDto = {
 
 export type OrganizationList = {
   items: OrganizationDto[];
+};
+
+export type OrphanList = {
+  items: OrphanVolume[];
+  /** The projects looked at (Apelora's deploy projects). */
+  projects: string[];
+  source: Source;
+};
+
+export type OrphanVolume = {
+  /** `user.apelora.application`, when Apelora created it. */
+  application?: string | null;
+  /** `user.apelora.backup-of`, for a backup copy. */
+  backupOf?: string | null;
+  content: string;
+  createdAt: string;
+  /** Member of a member-local pool; empty otherwise. */
+  member: string;
+  name: string;
+  pool: string;
+  project: string;
+  /** Why it is listed, in words. */
+  reason: string;
+  /** Size as configured, `None` when Incus reports none in a unit Apelora reads. */
+  sizeMib?: number | null;
+  usedBy: string[];
 };
 
 /** The application and module an instance belongs to. */
@@ -2096,6 +2260,45 @@ export type ReplicaSummary = {
   unhealthy: number;
 };
 
+/** What restoring a volume from one of its backups would do (the dry run of a restore). The restore copies the backup over the volume (an Incus `refresh` copy): everything written since the backup is replaced and the volume's own snapshots are deleted, so a safety backup of the current data is taken first unless the person says otherwise. */
+export type RestorePlan = {
+  backup: string;
+  backupMember: string;
+  backupPool: string;
+  /** When the backup was taken (RFC 3339): everything written after it is replaced. */
+  backupTakenAt: string;
+  /** Why the restore cannot run now; empty when it can. */
+  blocked: string[];
+  /** Member of a member-local pool; empty on a standalone server. */
+  member: string;
+  pool: string;
+  /** Of those, the ones running now: they must be stopped first. */
+  running: string[];
+  /** The pool a safety backup of the current data goes to; `None` when none is taken. */
+  safetyBackupPool?: string | null;
+  sizeMib: number;
+  /** The volume's own snapshots, which the restore deletes. */
+  snapshotsDeleted: string[];
+  /** What the restore job will do, in order. */
+  steps: string[];
+  /** Instances using the volume. */
+  usedBy: string[];
+  /** The volume to overwrite (Incus name): what to type to confirm. */
+  volume: string;
+};
+
+export type RestorePreview = {
+  plan: RestorePlan;
+  source: Source;
+};
+
+export type RestoreVolumeRequest = {
+  /** The volume's Incus name again, typed by the person restoring it. */
+  confirm: string;
+  /** Take a safety backup of the current data first (default true). */
+  safetyBackup?: boolean;
+};
+
 /** Who may do what. Every API route names the permission it needs; roles map to permissions here and nowhere else. */
 export type Role = "fabric-admin" | "operator" | "studio-designer" | "auditor";
 
@@ -2150,6 +2353,24 @@ export type SavePolicy = {
   kind: string;
   name: string;
   parameters: Record<string, unknown>;
+};
+
+/** How often something is done for a volume and how many results are kept. */
+export type Schedule = {
+  /** Minutes between two runs: 15 minutes to one week. */
+  everyMinutes: number;
+  /** How many of the scheduled results are kept: 1 to 50. */
+  keep: number;
+};
+
+/** A schedule as set, and how its last run went. */
+export type ScheduleState = {
+  /** Why the last run failed; cleared by the next success. */
+  error?: string | null;
+  everyMinutes: number;
+  keep: number;
+  /** When it last ran successfully (RFC 3339). */
+  lastRunAt?: string | null;
 };
 
 export type Scope = {
@@ -2261,6 +2482,11 @@ export type SessionTicket = {
   ticket: string;
 };
 
+export type SetVolumeSchedules = {
+  backups?: null | Schedule;
+  snapshots?: null | Schedule;
+};
+
 export type SettingsWorker = {
   host: string;
   id: string;
@@ -2325,6 +2551,13 @@ export type StepDto = {
   state: string;
 };
 
+/** One member's share of a pool. */
+export type StorageMemberUsage = {
+  member: string;
+  totalBytes: number;
+  usedBytes: number;
+};
+
 export type StoragePool = {
   description: string;
   driver: string;
@@ -2336,6 +2569,58 @@ export type StoragePool = {
 
 export type StoragePoolList = {
   items: StoragePool[];
+  source: Source;
+};
+
+export type StoragePoolReport = {
+  backupPool?: string | null;
+  items: StoragePoolUsage[];
+  source: Source;
+  volumePool?: string | null;
+};
+
+export type StoragePoolUsage = {
+  description: string;
+  driver: string;
+  /** Use per member as Incus reports it; a shared pool lists the first member that reported it. */
+  members: StorageMemberUsage[];
+  name: string;
+  /** What Apelora uses it for: `volumes` (`APELORA_VOLUME_POOL`), `backups` (`APELORA_BACKUP_POOL`), or nothing. */
+  role?: string | null;
+  /** One pool every member reaches (clustered LVM, Ceph): its space is counted once. */
+  shared: boolean;
+  status: string;
+  total?: null | HealthUsage;
+  /** Members whose use could not be read, with the reason. */
+  unreadable: string[];
+};
+
+export type StorageVolume = {
+  application: string;
+  /** Backups recorded for it. */
+  backups: number;
+  class: string;
+  /** The Incus volume (`<instance>-<name>`). */
+  incusName: string;
+  instance: string;
+  lastBackupAt?: string | null;
+  member: string;
+  module: string;
+  /** The design's name (`data`). */
+  name: string;
+  pool: string;
+  schedules: VolumeSchedules;
+  sizeMib: number;
+  state?: null | VolumeUse;
+  usedBy: string[];
+};
+
+export type StorageVolumeList = {
+  /** Where backups go; `None`: backups cannot be taken (`APELORA_BACKUP_POOL` is unset). */
+  backupPool?: string | null;
+  /** Why Incus could not be read (the list still shows Apelora's records). */
+  incusError?: string | null;
+  items: StorageVolume[];
   source: Source;
 };
 
@@ -2414,6 +2699,30 @@ export type VersionList = {
   items: VersionInfo[];
 };
 
+export type VolumeBackupItem = {
+  /** The restore job that took it just before overwriting the volume. */
+  beforeRestore?: string | null;
+  member: string;
+  /** The backup's Incus name. */
+  name: string;
+  pool: string;
+  /** It exists in Incus; `None` when Incus could not be read. */
+  present?: boolean | null;
+  /** Made by the schedule (pruned to what the schedule keeps), not on request. */
+  scheduled: boolean;
+  sizeMib: number;
+  /** When it was taken (RFC 3339): a restore brings back the data as it was then. */
+  takenAt: string;
+};
+
+export type VolumeBackupList = {
+  backupPool?: string | null;
+  /** Oldest first. */
+  items: VolumeBackupItem[];
+  schedules: VolumeSchedules;
+  source: Source;
+};
+
 /** The policy a volume is created under. Only `data-local` exists so far: persistent, one writer, on the member's own pool; moving it means stopping the instance. */
 export type VolumeClass = "data-local";
 
@@ -2450,6 +2759,11 @@ export type VolumeMount = {
   /** The pool the class resolves to. Set by the control plane, never by a caller. */
   pool?: string | null;
   sizeMib: number;
+};
+
+export type VolumeSchedules = {
+  backups?: null | ScheduleState;
+  snapshots?: null | ScheduleState;
 };
 
 /** What Incus reports about a recorded volume now. */
@@ -2503,6 +2817,11 @@ export const operations = {
   application_volumes: { method: "GET", path: "/api/v1/applications/{name}/volumes", params: ["name"], public: false },
   grow_application_volume: { method: "PATCH", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   delete_application_volume: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
+  volume_backups: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
+  back_up_volume: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
+  preview_volume_restore: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
+  restore_volume_backup: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
+  set_volume_schedules: { method: "PUT", path: "/api/v1/applications/{name}/volumes/{volume}/schedules", params: ["name","volume"], public: false },
   volume_snapshots: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots", params: ["name","volume"], public: false },
   take_volume_snapshot: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots", params: ["name","volume"], public: false },
   delete_volume_snapshot: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}", params: ["name","volume","snapshot"], public: false },
@@ -2612,6 +2931,8 @@ export const operations = {
   rotate_my_token: { method: "POST", path: "/api/v1/me/tokens/{id}/rotate", params: ["id"], public: false },
   monitoring: { method: "GET", path: "/api/v1/monitoring", params: [], public: false },
   networks: { method: "GET", path: "/api/v1/networks", params: [], public: false },
+  application_networks: { method: "GET", path: "/api/v1/networks/applications", params: [], public: false },
+  network_settings: { method: "GET", path: "/api/v1/networks/settings", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
@@ -2622,6 +2943,9 @@ export const operations = {
   complete_password_setup: { method: "POST", path: "/api/v1/sign-in/setup", params: [], public: true },
   sign_out: { method: "POST", path: "/api/v1/sign-out", params: [], public: false },
   storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
+  orphan_volumes: { method: "GET", path: "/api/v1/storage/orphans", params: [], public: false },
+  storage_pool_usage: { method: "GET", path: "/api/v1/storage/pools", params: [], public: false },
+  storage_volumes: { method: "GET", path: "/api/v1/storage/volumes", params: [], public: false },
   support_bundle: { method: "GET", path: "/api/v1/support-bundle", params: [], public: false },
   system: { method: "GET", path: "/api/v1/system", params: [], public: false },
   tokens: { method: "GET", path: "/api/v1/tokens", params: [], public: false },
@@ -2679,6 +3003,16 @@ export type Responses = {
   grow_application_volume: null;
   /** Deletes one of the application's volumes and its snapshots, for good. The volume's Incus name must be typed again; refused while an instance uses it. Needs `application.delete` (and an approval where the policy asks for one); audited. */
   delete_application_volume: null;
+  /** The volume's backups, oldest first, whether each still exists, and its schedules. Needs `application.view`. */
+  volume_backups: VolumeBackupList;
+  /** Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on another member. Kept until someone deletes it (scheduled backups are pruned, these are not). Queues a `volume.backup` job. Needs `application.operate`; audited. */
+  back_up_volume: JobAccepted;
+  /** Dry run of restoring the volume from one of its backups: what is replaced (data written since the backup, the volume's snapshots), which instances must be stopped, where the safety backup goes, and the steps. Changes nothing. Needs `application.operate`. */
+  preview_volume_restore: RestorePreview;
+  /** Restores the volume from one of its backups, after the dry run passes again and the volume's name is typed: a safety backup of the current data first (unless declined), then the backup is copied over the volume. Every instance using it must be stopped; they stay stopped. Queues a `volume.restore` job. Needs `application.operate` (and an approval where a policy asks); audited with the job. */
+  restore_volume_backup: JobAccepted;
+  /** Sets or turns off the volume's snapshot and backup schedules. A new or changed schedule first runs at the worker's next pass (within a minute). Needs `application.deploy`; audited. */
+  set_volume_schedules: null;
   /** The volume's snapshots, oldest first. Needs `application.view`. */
   volume_snapshots: SnapshotList;
   /** Takes a snapshot of the volume, named after the time (`snap-YYYYMMDD-HHMMSS`). While an instance runs the snapshot is only crash-consistent; the response says which. Snapshots are not backups: they live in the same pool. Needs `application.operate`; audited. */
@@ -2897,6 +3231,10 @@ export type Responses = {
   monitoring: MonitoringInfo;
   /** Networks in all projects. Needs `read-inventory`. */
   networks: NetworkList;
+  /** Each application the caller may view that has a recorded deployment: its network, the rules compiled from its design, its service and published addresses, and what Incus holds for each, with the differences. Read-only. Needs `application.view` on each application. */
+  application_networks: NetApplications;
+  /** The network settings in effect: Apelora's uplink and service range, each deploy project's network limits, and the uplink as Incus reports it (with the administrator identity, when configured), with what does not fit together. Read-only. Needs `cluster.view`. */
+  network_settings: NetSettings;
   /** Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys into, and of the image mirrors (whether each image server the catalog uses is mirrored and whether the mirrors answer). Changes nothing. Needs `read-inventory`. */
   preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
@@ -2917,6 +3255,12 @@ export type Responses = {
   sign_out: null;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
+  /** Custom volumes in Apelora's projects that no application volume or backup record refers to, in every pool, with their size. Read-only: deleting one is a decision made in Incus or, for a kept application volume, on the application. Needs `cluster.view`. */
+  orphan_volumes: OrphanList;
+  /** Storage pools with how full each is, per member and in total (read from each member's state, like the Health page). Read-only. Needs `cluster.view`. */
+  storage_pool_usage: StoragePoolReport;
+  /** Every application volume the caller may see, with what Incus reports, its schedules and how many backups it has. Read-only. Needs `application.view` on each application. */
+  storage_volumes: StorageVolumeList;
   /** Downloads a support bundle (a tar file, streamed): manifest, versions, effective settings (secrets never included), health, preflight, jobs that failed in the last 24 hours with their attempts, a metrics snapshot and where to find logs. Never tokens, passwords, certificates or keys. Needs `support.bundle`; audited (`support.bundle.downloaded`) before it is sent. */
   support_bundle: Blob;
   /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire, and Incus as observed now (running version, or the error that keeps it unreachable). Needs `read-inventory`. */
@@ -2958,6 +3302,11 @@ export type Bodies = {
   application_volumes: never;
   grow_application_volume: GrowVolume;
   delete_application_volume: ConfirmVolume;
+  volume_backups: never;
+  back_up_volume: never;
+  preview_volume_restore: never;
+  restore_volume_backup: RestoreVolumeRequest;
+  set_volume_schedules: SetVolumeSchedules;
   volume_snapshots: never;
   take_volume_snapshot: never;
   delete_volume_snapshot: never;
@@ -3067,6 +3416,8 @@ export type Bodies = {
   rotate_my_token: RotatePersonalToken;
   monitoring: never;
   networks: never;
+  application_networks: never;
+  network_settings: never;
   preflight: never;
   projects: never;
   sessions: never;
@@ -3077,6 +3428,9 @@ export type Bodies = {
   complete_password_setup: PasswordSetupRequest;
   sign_out: never;
   storage_pools: never;
+  orphan_volumes: never;
+  storage_pool_usage: never;
+  storage_volumes: never;
   support_bundle: never;
   system: never;
   tokens: never;

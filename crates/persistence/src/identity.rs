@@ -201,6 +201,15 @@ pub async fn list_environments(pool: &PgPool, project_id: Uuid) -> Result<Vec<En
 }
 
 /// The environment that owns an Incus project, with the ancestry needed to authorise against it.
+/// The Incus projects environments map to, sorted.
+pub async fn environment_incus_projects(pool: &PgPool) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT incus_project FROM environments WHERE incus_project IS NOT NULL ORDER BY 1",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 pub async fn environment_by_incus_project(
     pool: &PgPool,
     incus_project: &str,

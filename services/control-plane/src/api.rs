@@ -50,6 +50,9 @@ pub struct AppState {
     /// Pool behind the `data-local` volume class (`APELORA_VOLUME_POOL`); `None`: designs with
     /// volumes are refused.
     volume_pool: Option<Arc<str>>,
+    /// Pool that receives volume backups (`APELORA_BACKUP_POOL`, also read by the worker);
+    /// `None`: backups cannot be asked for and restores take no safety backup.
+    backup_pool: Option<Arc<str>>,
     /// OIDC token validation; `None`: people cannot sign in with an identity provider yet.
     oidc: Option<Arc<apelora_identity::Verifier>>,
     /// How a browser signs people in with the identity provider (public client, PKCE);
@@ -98,6 +101,7 @@ impl AppState {
             network_uplink: None,
             service_range: None,
             volume_pool: None,
+            backup_pool: None,
             oidc: None,
             sign_in: None,
             auth_runtime: Arc::default(),
@@ -175,6 +179,11 @@ impl AppState {
 
     pub fn with_volume_pool(mut self, pool: Option<String>) -> Self {
         self.volume_pool = pool.map(Arc::from);
+        self
+    }
+
+    pub fn with_backup_pool(mut self, pool: Option<String>) -> Self {
+        self.backup_pool = pool.map(Arc::from);
         self
     }
 
@@ -404,7 +413,24 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/image-mirrors", get(mirrors::image_mirrors))
         .route("/api/v1/projects", get(projects))
         .route("/api/v1/networks", get(networks))
+        .route("/api/v1/networks/settings", get(networks::settings))
+        .route("/api/v1/networks/applications", get(networks::applications))
         .route("/api/v1/storage-pools", get(storage_pools))
+        .route("/api/v1/storage/pools", get(storage::pool_usage))
+        .route("/api/v1/storage/volumes", get(storage::volumes))
+        .route("/api/v1/storage/orphans", get(storage::orphans))
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/backups",
+            get(storage::backups).post(storage::back_up),
+        )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/schedules",
+            put(storage::set_schedules),
+        )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
+            get(storage::preview_restore).post(storage::restore),
+        )
         .route("/api/v1/audit", get(audit::list))
         .route("/api/v1/audit/export", get(audit::export))
         .route("/api/v1/monitoring", get(metrics::monitoring))
@@ -1508,7 +1534,10 @@ impl Modify for BearerAuth {
         identity::audit_history, identity::approvals, identity::request_approval,
         identity::approve_request, identity::reject_request, identity::cancel_request,
         sessions::access, sessions::open, sessions::list, sessions::terminate,
-        fabric_health::components, fabric_health::servers, fabric_health::capacity),
+        fabric_health::components, fabric_health::servers, fabric_health::capacity,
+        networks::settings, networks::applications,
+        storage::pool_usage, storage::volumes, storage::orphans, storage::backups, storage::back_up,
+        storage::set_schedules, storage::preview_restore, storage::restore),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"))
@@ -1554,11 +1583,13 @@ mod manage;
 pub mod metrics;
 mod mirrors;
 mod mobility;
+mod networks;
 pub mod rate_limit;
 pub mod requests;
 pub mod sessions;
 pub mod sessions_auth;
 pub mod settings;
+mod storage;
 mod support;
 mod volumes;
 
@@ -1586,6 +1617,8 @@ mod metrics_tests;
 mod sessions_auth_tests;
 #[cfg(test)]
 mod sessions_tests;
+#[cfg(test)]
+mod storage_tests;
 #[cfg(test)]
 mod surface_tests;
 #[cfg(test)]

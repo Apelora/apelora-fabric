@@ -258,9 +258,205 @@ pub fn backup_name(volume: &str, at: time::OffsetDateTime) -> String {
     format!("{}{suffix}", base.trim_end_matches('-'))
 }
 
+/// What restoring a volume from one of its backups would do (the dry run of a restore). The
+/// restore copies the backup over the volume (an Incus `refresh` copy): everything written since
+/// the backup is replaced and the volume's own snapshots are deleted, so a safety backup of the
+/// current data is taken first unless the person says otherwise.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct RestorePlan {
+    /// The volume to overwrite (Incus name): what to type to confirm.
+    pub volume: String,
+    pub pool: String,
+    /// Member of a member-local pool; empty on a standalone server.
+    pub member: String,
+    pub size_mib: u32,
+    pub backup: String,
+    pub backup_pool: String,
+    pub backup_member: String,
+    /// When the backup was taken (RFC 3339): everything written after it is replaced.
+    pub backup_taken_at: String,
+    /// The volume's own snapshots, which the restore deletes.
+    pub snapshots_deleted: Vec<String>,
+    /// Instances using the volume.
+    pub used_by: Vec<String>,
+    /// Of those, the ones running now: they must be stopped first.
+    pub running: Vec<String>,
+    /// The pool a safety backup of the current data goes to; `None` when none is taken.
+    pub safety_backup_pool: Option<String>,
+    /// Why the restore cannot run now; empty when it can.
+    pub blocked: Vec<String>,
+    /// What the restore job will do, in order.
+    pub steps: Vec<String>,
+}
+
+/// What [`plan_restore`] looks at.
+#[derive(Debug, Clone)]
+pub struct RestoreSubject<'a> {
+    pub volume: &'a str,
+    pub pool: &'a str,
+    pub member: &'a str,
+    pub size_mib: u32,
+    /// The volume exists in Incus.
+    pub volume_present: bool,
+    pub backup: &'a str,
+    pub backup_pool: &'a str,
+    pub backup_member: &'a str,
+    pub backup_taken_at: &'a str,
+    /// The backup exists in Incus.
+    pub backup_present: bool,
+    pub snapshots: &'a [String],
+    /// Instances using the volume, with whether each runs now.
+    pub users: &'a [(String, bool)],
+    /// Where a safety backup would go (the configured backup pool), if anywhere.
+    pub safety_pool: Option<&'a str>,
+    /// The person asked for a safety backup.
+    pub safety_backup: bool,
+}
+
+/// The dry run of a restore: what is replaced, what blocks it and the steps. Pure.
+pub fn plan_restore(s: &RestoreSubject<'_>) -> RestorePlan {
+    let running: Vec<String> = s
+        .users
+        .iter()
+        .filter(|(_, r)| *r)
+        .map(|(n, _)| n.clone())
+        .collect();
+    let mut blocked = Vec::new();
+    if !s.volume_present {
+        blocked.push(format!(
+            "volume {} is not in Incus (its member may be unreachable); nothing can be restored into it",
+            s.volume
+        ));
+    }
+    if !s.backup_present {
+        blocked.push(format!("backup {} is not in Incus", s.backup));
+    }
+    if !running.is_empty() {
+        blocked.push(format!(
+            "stop {} first: a volume is never overwritten under a running instance",
+            running.join(", ")
+        ));
+    }
+    let safety = if s.safety_backup {
+        match s.safety_pool {
+            Some(p) => Some(p.to_owned()),
+            None => {
+                blocked.push(
+                    "no backup pool is configured (APELORA_BACKUP_POOL) for the safety backup"
+                        .into(),
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let at = if s.member.is_empty() {
+        String::new()
+    } else {
+        format!(" on {}", s.member)
+    };
+    let mut steps = Vec::new();
+    if let Some(p) = &safety {
+        steps.push(format!(
+            "Copy the volume as it is now into pool {p} (a safety backup, listed with the others)"
+        ));
+    }
+    steps.push(format!(
+        "Copy backup {} over volume {}{at}",
+        s.backup, s.volume
+    ));
+    if !s.snapshots.is_empty() {
+        steps.push(format!(
+            "Incus deletes the volume's {} snapshot{} while copying",
+            s.snapshots.len(),
+            if s.snapshots.len() == 1 { "" } else { "s" }
+        ));
+    }
+    if !s.users.is_empty() {
+        steps.push(format!(
+            "Leave {} stopped: start {} again once the data is checked",
+            s.users
+                .iter()
+                .map(|(n, _)| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            if s.users.len() == 1 { "it" } else { "them" }
+        ));
+    }
+    RestorePlan {
+        volume: s.volume.to_owned(),
+        pool: s.pool.to_owned(),
+        member: s.member.to_owned(),
+        size_mib: s.size_mib,
+        backup: s.backup.to_owned(),
+        backup_pool: s.backup_pool.to_owned(),
+        backup_member: s.backup_member.to_owned(),
+        backup_taken_at: s.backup_taken_at.to_owned(),
+        snapshots_deleted: s.snapshots.to_vec(),
+        used_by: s.users.iter().map(|(n, _)| n.clone()).collect(),
+        running,
+        safety_backup_pool: safety,
+        blocked,
+        steps,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn subject<'a>(users: &'a [(String, bool)], snapshots: &'a [String]) -> RestoreSubject<'a> {
+        RestoreSubject {
+            volume: "shop-db-01-data",
+            pool: "local",
+            member: "m1",
+            size_mib: 1024,
+            volume_present: true,
+            backup: "shop-db-01-data-bk-20261021120000",
+            backup_pool: "backup",
+            backup_member: "m2",
+            backup_taken_at: "2026-10-21T12:00:00Z",
+            backup_present: true,
+            snapshots,
+            users,
+            safety_pool: Some("backup"),
+            safety_backup: true,
+        }
+    }
+
+    #[test]
+    fn a_restore_says_what_it_replaces_and_refuses_under_a_running_instance() {
+        let snaps = vec!["snap-1".to_owned(), "auto-2".to_owned()];
+        let stopped = vec![("shop-db-01".to_owned(), false)];
+        let p = plan_restore(&subject(&stopped, &snaps));
+        assert!(p.blocked.is_empty(), "{:?}", p.blocked);
+        assert_eq!(p.safety_backup_pool.as_deref(), Some("backup"));
+        assert_eq!(p.snapshots_deleted, snaps);
+        assert_eq!(p.steps.len(), 4, "{:?}", p.steps);
+        assert!(p.steps[0].contains("safety backup"));
+        assert!(p.steps[2].contains("2 snapshots"));
+
+        let running = vec![("shop-db-01".to_owned(), true)];
+        let p = plan_restore(&subject(&running, &[]));
+        assert_eq!(p.running, vec!["shop-db-01".to_owned()]);
+        assert!(p.blocked[0].starts_with("stop shop-db-01 first"));
+
+        let mut s = subject(&stopped, &[]);
+        s.safety_pool = None;
+        assert!(plan_restore(&s).blocked[0].contains("APELORA_BACKUP_POOL"));
+        s.safety_backup = false;
+        let p = plan_restore(&s);
+        assert!(p.blocked.is_empty() && p.safety_backup_pool.is_none());
+        assert!(p.steps[0].starts_with("Copy backup"));
+
+        let mut s = subject(&stopped, &[]);
+        s.volume_present = false;
+        s.backup_present = false;
+        assert_eq!(plan_restore(&s).blocked.len(), 2);
+    }
 
     fn fs(name: &str, path: &str) -> VolumeMount {
         VolumeMount {

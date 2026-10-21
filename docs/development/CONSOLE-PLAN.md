@@ -25,8 +25,8 @@ Priorities:
 | Applications | list, status, port checks, service addresses, volumes | start/restart/stop, versions, drafts and events in the Console (U, P1); archive and restore (A) |
 | Operations | job list; retry (a new linked job) and cancel at safe points (B); job detail `#/operations/{id}` with attempts, timings, request id, Incus operations, who queued it and linked jobs (B) | filters and paging (P1) |
 | Alerts and events | per-application events (Studio) | rules, notifications, acknowledgement, history (P0); Incus warnings and events (P1) |
-| Networks | Incus network list | per-application networks, rules and address sets (P1); uplink and address-range settings in the Console (P1); peers (P2) |
-| Storage | pools; volumes: grow, delete, snapshots, restore | backups: list and restore from a backup (P0); schedules (P1); pool usage and quotas (IP, P1); orphaned volumes (P1); volume classes (P2) |
+| Networks | Incus network list; `#/networks` (B, read-only, 2026-10-21): per application its OVN network, the ACL rules compiled from the stored deployment (`SyncRequest::intended_acls`, the same function `network.sync` writes with) next to Incus's rules with drift per rule, address sets, service and published addresses with their backends; settings in effect: uplink, service range and use, each Apelora project's network limits, the uplink's routes and ranges (administrator identity) with findings (MOCK VERIFIED; shapes checked read-only on the lab) | network forwards and DNS zones (not used by Apelora yet); peers (P2) |
+| Storage | pools; volumes: grow, delete, snapshots, restore; `#/storage` (B, 2026-10-21): pool use per server (a shared pool once), every application volume with its schedules and backups, backups per volume, back up now, restore from a backup (a `volume.restore` job: dry run, volume name typed, safety backup first, refused while an instance using it runs), schedules editing, volumes no application uses (read-only, with size and why) (MOCK VERIFIED; restore NOT YET REAL INCUS TESTED) | deleting a backup (P1); quotas (P1); volume classes (P2); restoring onto another member when the volume's member is lost (P1) |
 | Images and catalog | catalog in the Studio | Incus images: list, pin, prune (P2) |
 | Tenancy | organisations, projects, environments | create the environment's restricted Incus project with limits (P1); quotas (P1); delete and rename (P2) |
 | Identity and access | users, groups, roles, custom roles, assignments with preview, service identities, policies, approvals, emergency access, sign-in providers; personal tokens bound to a person, with rotation (an overlap window), under *Your tokens* in the user menu, and everyone's under Identity & Access → Sign-ins & tokens (B, 2026-10-21, MOCK VERIFIED); a person's active sign-ins, ended by them or by an administrator (B, 2026-10-21, MOCK VERIFIED) | local accounts, sign-out, change password (IP); directory sign-in (IP); access-review export (P2) |
@@ -85,8 +85,8 @@ Packages in one wave touch different files and can be built in parallel.
 **Wave 2 — clustering and infrastructure:**
 - Servers area: members with database roles and quorum, groups, settings with approvals, upgrades, certificates. **Built read-only (B, 2026-10-21)**; settings changed with an approval are still to come.
 - Upgrade assistant. Version skew, blockers and the written procedure are on Servers → Upgrades ([runbook](../runbooks/incus-rolling-upgrade.md)); the step-by-step assistant is not built.
-- Networks page (read-only first). A Networks page lists the managed Incus networks; per-application networks and rules are not built.
-- Storage page with backups, restore from backup, schedules and orphans.
+- Networks page (read-only first) (built): per-application networks with the rules compiled from the design next to what Incus has, drift, uplink and address ranges.
+- Storage page with backups, restore from backup, schedules and orphans (built).
 
 **Wave 3 — alerts, terminal, identity:**
 - Alerts: an evaluator in the worker, acknowledgement, a webhook channel holding only a secret reference.

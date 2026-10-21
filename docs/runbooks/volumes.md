@@ -46,6 +46,66 @@ Snapshots (protection against mistakes, not against losing the server: they live
 3. Delete snapshots you no longer need; they use space in the pool. REAL INCUS TESTED
    (2026-10-21, through the console against the cluster).
 
+## Back up a volume and set its schedules
+
+1. Fabric Console → Storage → *Backups…* next to the volume → *Back up now*. A backup is a copy,
+   through a short-lived snapshot, into the backup pool (`APELORA_BACKUP_POOL`, set for the
+   control plane and the worker) on another member where there is one. Needs
+   `application.operate`; the job is `volume.backup`. Backups made this way are kept until
+   someone deletes them; scheduled ones are pruned to what the schedule keeps.
+2. *Schedules…* sets snapshots and backups on a schedule (every 15 minutes to once a week, keep
+   1–50). Needs `application.deploy`. A failed scheduled run shows on the Storage page with its
+   reason and is retried within five minutes.
+
+## Restore a volume from a backup
+
+**Evidence:** MOCK VERIFIED (worker and API against a real PostgreSQL, browser with a stubbed
+control plane), 2026-10-21. The Incus `refresh` copy it relies on was tried on the test cluster
+earlier (it brings the data back and deletes the volume's snapshots); the job itself is NOT YET
+REAL INCUS TESTED.
+
+1. **Stop the module** that uses the volume (Applications or Instances → Stop). Apelora never
+   overwrites a volume under a running instance.
+2. Fabric Console → Storage → *Backups…* next to the volume → *Restore…* on the backup to go back
+   to. Read what it shows: the time of the backup (everything written since is replaced), the
+   volume's snapshots that will be deleted, the steps. If it says it cannot run now, do what it
+   says first.
+3. Leave *Take a safety backup of the current data first* on unless the current data is
+   worthless or the backup pool has no room: it is the only way back from a mistaken restore.
+4. Type the volume's name and choose *Restore volume*. The dialog follows the `volume.restore`
+   job; Operations shows it too, with its attempts. Needs `application.operate` (and an approval
+   where a policy asks for one).
+5. Check the data, then start the module again.
+
+API: `GET /api/v1/applications/<name>/volumes/<volume>/backups/<backup>/restore` (dry run,
+`?safetyBackup=false` to see it without the safety backup), then `POST` the same path with
+`{"confirm": "<volume>", "safetyBackup": true}` and an `Idempotency-Key`.
+
+If the job fails:
+
+- *nothing was changed: stop … first* — an instance using the volume runs (or was started while
+  the safety backup was taken). Stop it and restore again.
+- *backup … is not in Incus* — the backup copy was deleted outside Apelora or its member is
+  offline (`incus cluster list`).
+- A failure while copying — the volume may hold part of the backup. Restore again (a new
+  request; failed restores are not retried as they are), or restore the safety backup listed
+  as *Safety copy before a restore*.
+- *cancelled … before volume … was changed* — the job stopped at its safe point after the safety
+  backup; the volume is as it was.
+
+To undo a restore: restore again from the backup marked *Safety copy before a restore*.
+
+A volume whose member is lost cannot be restored in place: the restore needs the volume to exist
+on its member. Restoring onto another member is not built yet; copy the backup by hand with
+`incus storage volume copy` (administrator) and redeploy.
+
+## Volumes no application uses
+
+Storage → *Volumes no application uses* lists custom volumes in Apelora's projects that no
+application or backup record refers to (left behind outside Apelora, or created by Apelora for an
+application that no longer records them), with their size. Apelora does not delete them. Check
+the reason shown and the audit history, then delete them in Incus if nobody needs them.
+
 A volume shows *Not found in Incus*:
 
 1. Its member may be offline: `incus cluster list`. When the member returns, the volume returns.

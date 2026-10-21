@@ -1577,6 +1577,491 @@
         }
       }
     },
+    "/api/v1/applications/{name}/volumes/{volume}/backups": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "The volume's backups, oldest first, whether each still exists, and its schedules. Needs\n`application.view`.",
+        "operationId": "volume_backups",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolumeBackupList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on\nanother member. Kept until someone deletes it (scheduled backups are pruned, these are not).\nQueues a `volume.backup` job. Needs `application.operate`; audited.",
+        "operationId": "back_up_volume",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Dry run of restoring the volume from one of its backups: what is replaced (data written\nsince the backup, the volume's snapshots), which instances must be stopped, where the safety\nbackup goes, and the steps. Changes nothing. Needs `application.operate`.",
+        "operationId": "preview_volume_restore",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backup",
+            "in": "path",
+            "description": "The backup's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "safetyBackup",
+            "in": "query",
+            "description": "Take a safety backup of the current data first (default true).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestorePreview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Restores the volume from one of its backups, after the dry run passes again and the\nvolume's name is typed: a safety backup of the current data first (unless declined), then\nthe backup is copied over the volume. Every instance using it must be stopped; they stay\nstopped. Queues a `volume.restore` job. Needs `application.operate` (and an approval where\na policy asks); audited with the job.",
+        "operationId": "restore_volume_backup",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backup",
+            "in": "path",
+            "description": "The backup's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Makes the request safe to repeat",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreVolumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/volumes/{volume}/schedules": {
+      "put": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Sets or turns off the volume's snapshot and backup schedules. A new or changed schedule\nfirst runs at the worker's next pass (within a minute). Needs `application.deploy`; audited.",
+        "operationId": "set_volume_schedules",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVolumeSchedules"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/applications/{name}/volumes/{volume}/snapshots": {
       "get": {
         "tags": [
@@ -9007,6 +9492,98 @@
         }
       }
     },
+    "/api/v1/networks/applications": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Each application the caller may view that has a recorded deployment: its network, the\nrules compiled from its design, its service and published addresses, and what Incus holds\nfor each, with the differences. Read-only. Needs `application.view` on each application.",
+        "operationId": "application_networks",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetApplications"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/networks/settings": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "The network settings in effect: Apelora's uplink and service range, each deploy project's\nnetwork limits, and the uplink as Incus reports it (with the administrator identity, when\nconfigured), with what does not fit together. Read-only. Needs `cluster.view`.",
+        "operationId": "network_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NetSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/preflight": {
       "get": {
         "tags": [
@@ -9435,6 +10012,149 @@
             }
           },
           "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/storage/orphans": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Custom volumes in Apelora's projects that no application volume or backup record refers\nto, in every pool, with their size. Read-only: deleting one is a decision made in Incus or,\nfor a kept application volume, on the application. Needs `cluster.view`.",
+        "operationId": "orphan_volumes",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrphanList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/storage/pools": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "Storage pools with how full each is, per member and in total (read from each member's\nstate, like the Health page). Read-only. Needs `cluster.view`.",
+        "operationId": "storage_pool_usage",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoragePoolReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/storage/volumes": {
+      "get": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Every application volume the caller may see, with what Incus reports, its schedules and\nhow many backups it has. Read-only. Needs `application.view` on each application.",
+        "operationId": "storage_volumes",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageVolumeList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -15288,6 +16008,503 @@
           }
         }
       },
+      "NetApplication": {
+        "type": "object",
+        "required": [
+          "application",
+          "project",
+          "revision",
+          "enforced",
+          "network",
+          "connections",
+          "published",
+          "modules",
+          "services",
+          "drift"
+        ],
+        "properties": {
+          "application": {
+            "type": "string"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Connection"
+            },
+            "description": "Which module may reach which, on what transport and port (from the design)."
+          },
+          "drift": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Differences between what Apelora intends and what Incus holds, for the whole application."
+          },
+          "enforced": {
+            "type": "boolean",
+            "description": "Connections are enforced on the application's own OVN network."
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetModule"
+            }
+          },
+          "network": {
+            "type": "string"
+          },
+          "networkObserved": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetObservedNetwork",
+                "description": "`None`: missing in Incus, not enforced, or Incus could not be read (see `incusError`)."
+              }
+            ]
+          },
+          "project": {
+            "type": "string"
+          },
+          "published": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Published"
+            }
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The deployed revision these settings come from."
+          },
+          "serviceRange": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "services": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetService"
+            }
+          },
+          "uplink": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "NetApplications": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "incusError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why Incus could not be read; the intended side is still shown."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetApplication"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "NetBackend": {
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "instance"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "description": "The instance behind it (from the backend's description)."
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "NetFinding": {
+        "type": "object",
+        "description": "Something about the settings worth knowing, from comparing them with Incus.",
+        "required": [
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "description": "`warn`: Incus will refuse or traffic will not flow; `info`: a fact."
+          }
+        }
+      },
+      "NetModule": {
+        "type": "object",
+        "required": [
+          "module",
+          "acl",
+          "internet",
+          "ingress",
+          "egress",
+          "drift"
+        ],
+        "properties": {
+          "acl": {
+            "type": "string",
+            "description": "The module's ACL and address set."
+          },
+          "aclPresent": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "The ACL exists in Incus; `None` when Incus could not be read."
+          },
+          "addresses": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The module's instances' addresses (its address set); `None` when not read."
+          },
+          "drift": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "egress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetRule"
+            }
+          },
+          "ingress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetRule"
+            }
+          },
+          "internet": {
+            "$ref": "#/components/schemas/Internet"
+          },
+          "module": {
+            "type": "string"
+          }
+        }
+      },
+      "NetObservedNetwork": {
+        "type": "object",
+        "required": [
+          "kind",
+          "status"
+        ],
+        "properties": {
+          "ipv4Address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "routerAddress": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The network's address on the uplink (`volatile.network.ipv4.address`): outside traffic\nto published addresses is routed here."
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "NetPort": {
+        "type": "object",
+        "required": [
+          "transport",
+          "port"
+        ],
+        "properties": {
+          "port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "transport": {
+            "type": "string"
+          }
+        }
+      },
+      "NetProjectLimits": {
+        "type": "object",
+        "description": "A deploy project's network limits, as Incus reports them.",
+        "required": [
+          "project",
+          "found",
+          "restricted",
+          "ownNetworks",
+          "uplinks",
+          "subnets"
+        ],
+        "properties": {
+          "found": {
+            "type": "boolean",
+            "description": "Incus reports the project (the deploy identity can read it)."
+          },
+          "ownNetworks": {
+            "type": "boolean",
+            "description": "`features.networks`: the project has its own networks (needed for per-application OVN\nnetworks)."
+          },
+          "project": {
+            "type": "string"
+          },
+          "restricted": {
+            "type": "boolean"
+          },
+          "subnets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`restricted.networks.subnets`: `<uplink>:<range>` its load balancers and forwards may\nlisten on."
+          },
+          "uplinks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`restricted.networks.uplinks`: uplinks its networks may use."
+          }
+        }
+      },
+      "NetRule": {
+        "type": "object",
+        "description": "One ACL rule, intended or found in Incus, with how the two compare.",
+        "required": [
+          "action",
+          "source",
+          "destination",
+          "protocol",
+          "port",
+          "description",
+          "state"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "port": {
+            "type": "string",
+            "description": "Empty: any port."
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "`$<address set>` (a module's instances), `@external` (outside), or empty (any)."
+          },
+          "state": {
+            "type": "string",
+            "description": "`applied` (intended and in Incus), `missing` (intended, not in Incus), `unexpected` (in\nIncus, not intended) or `unknown` (Incus could not be read)."
+          }
+        }
+      },
+      "NetService": {
+        "type": "object",
+        "description": "A module's service address: one load balancer over its replicas.",
+        "required": [
+          "module",
+          "ports",
+          "published",
+          "drift"
+        ],
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Allocated by Apelora; `None` while none is free (or before the first sync)."
+          },
+          "backends": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/NetBackend"
+            },
+            "description": "The load balancer's backends in Incus; `None` when it is missing or Incus was not read."
+          },
+          "drift": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "module": {
+            "type": "string"
+          },
+          "ports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetPort"
+            }
+          },
+          "published": {
+            "type": "boolean",
+            "description": "Reachable from outside the application."
+          }
+        }
+      },
+      "NetSettings": {
+        "type": "object",
+        "required": [
+          "source",
+          "serviceAddressesUsed",
+          "projects",
+          "findings"
+        ],
+        "properties": {
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetFinding"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NetProjectLimits"
+            }
+          },
+          "serviceAddressesTotal": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Addresses the range holds; `None` without a range.",
+            "minimum": 0
+          },
+          "serviceAddressesUsed": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Service addresses held by applications."
+          },
+          "serviceRange": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`APELORA_SERVICE_ADDRESSES`; `None`: no service addresses."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "uplink": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`APELORA_NETWORK_UPLINK`; `None`: connections are not enforced."
+          },
+          "uplinkNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the uplink is not shown (identity, error)."
+          },
+          "uplinkObserved": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NetUplink"
+              }
+            ]
+          }
+        }
+      },
+      "NetUplink": {
+        "type": "object",
+        "description": "The uplink network, as Incus reports it (read with the administrator identity).",
+        "required": [
+          "name",
+          "kind",
+          "status",
+          "ipv4Routes",
+          "ovnRanges"
+        ],
+        "properties": {
+          "ipv4Address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ipv4Routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`ipv4.routes`: ranges routed to the uplink (service addresses must be in one)."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ovnRanges": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`ipv4.ovn.ranges`: addresses OVN networks take on the uplink."
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
       "Network": {
         "type": "object",
         "required": [
@@ -15803,6 +17020,99 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/OrganizationDto"
+            }
+          }
+        }
+      },
+      "OrphanList": {
+        "type": "object",
+        "required": [
+          "source",
+          "projects",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrphanVolume"
+            }
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The projects looked at (Apelora's deploy projects)."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "OrphanVolume": {
+        "type": "object",
+        "required": [
+          "project",
+          "pool",
+          "name",
+          "member",
+          "content",
+          "usedBy",
+          "createdAt",
+          "reason"
+        ],
+        "properties": {
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`user.apelora.application`, when Apelora created it."
+          },
+          "backupOf": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`user.apelora.backup-of`, for a backup copy."
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "member": {
+            "type": "string",
+            "description": "Member of a member-local pool; empty otherwise."
+          },
+          "name": {
+            "type": "string"
+          },
+          "pool": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it is listed, in words."
+          },
+          "sizeMib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Size as configured, `None` when Incus reports none in a unit Apelora reads.",
+            "minimum": 0
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           }
         }
@@ -16889,6 +18199,129 @@
           }
         }
       },
+      "RestorePlan": {
+        "type": "object",
+        "description": "What restoring a volume from one of its backups would do (the dry run of a restore). The\nrestore copies the backup over the volume (an Incus `refresh` copy): everything written since\nthe backup is replaced and the volume's own snapshots are deleted, so a safety backup of the\ncurrent data is taken first unless the person says otherwise.",
+        "required": [
+          "volume",
+          "pool",
+          "member",
+          "sizeMib",
+          "backup",
+          "backupPool",
+          "backupMember",
+          "backupTakenAt",
+          "snapshotsDeleted",
+          "usedBy",
+          "running",
+          "blocked",
+          "steps"
+        ],
+        "properties": {
+          "backup": {
+            "type": "string"
+          },
+          "backupMember": {
+            "type": "string"
+          },
+          "backupPool": {
+            "type": "string"
+          },
+          "backupTakenAt": {
+            "type": "string",
+            "description": "When the backup was taken (RFC 3339): everything written after it is replaced."
+          },
+          "blocked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Why the restore cannot run now; empty when it can."
+          },
+          "member": {
+            "type": "string",
+            "description": "Member of a member-local pool; empty on a standalone server."
+          },
+          "pool": {
+            "type": "string"
+          },
+          "running": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Of those, the ones running now: they must be stopped first."
+          },
+          "safetyBackupPool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pool a safety backup of the current data goes to; `None` when none is taken."
+          },
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "snapshotsDeleted": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The volume's own snapshots, which the restore deletes."
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the restore job will do, in order."
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Instances using the volume."
+          },
+          "volume": {
+            "type": "string",
+            "description": "The volume to overwrite (Incus name): what to type to confirm."
+          }
+        }
+      },
+      "RestorePreview": {
+        "type": "object",
+        "required": [
+          "source",
+          "plan"
+        ],
+        "properties": {
+          "plan": {
+            "$ref": "#/components/schemas/RestorePlan"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "RestoreVolumeRequest": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The volume's Incus name again, typed by the person restoring it."
+          },
+          "safetyBackup": {
+            "type": "boolean",
+            "description": "Take a safety backup of the current data first (default true)."
+          }
+        }
+      },
       "Role": {
         "type": "string",
         "description": "Who may do what. Every API route names the permission it needs; roles map to permissions\nhere and nowhere else.",
@@ -17086,6 +18519,60 @@
           },
           "parameters": {
             "type": "object"
+          }
+        }
+      },
+      "Schedule": {
+        "type": "object",
+        "description": "How often something is done for a volume and how many results are kept.",
+        "required": [
+          "everyMinutes",
+          "keep"
+        ],
+        "properties": {
+          "everyMinutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes between two runs: 15 minutes to one week.",
+            "minimum": 0
+          },
+          "keep": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of the scheduled results are kept: 1 to 50.",
+            "minimum": 0
+          }
+        }
+      },
+      "ScheduleState": {
+        "type": "object",
+        "description": "A schedule as set, and how its last run went.",
+        "required": [
+          "everyMinutes",
+          "keep"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the last run failed; cleared by the next success."
+          },
+          "everyMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "keep": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastRunAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When it last ran successfully (RFC 3339)."
           }
         }
       },
@@ -17498,6 +18985,33 @@
           }
         }
       },
+      "SetVolumeSchedules": {
+        "type": "object",
+        "properties": {
+          "backups": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Schedule",
+                "description": "Scheduled backups (into the backup pool, on another member); `null` turns them off."
+              }
+            ]
+          },
+          "snapshots": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Schedule",
+                "description": "Scheduled snapshots (`auto-…`, in the volume's pool); `null` turns them off."
+              }
+            ]
+          }
+        }
+      },
       "SettingsWorker": {
         "type": "object",
         "required": [
@@ -17690,6 +19204,30 @@
           }
         }
       },
+      "StorageMemberUsage": {
+        "type": "object",
+        "description": "One member's share of a pool.",
+        "required": [
+          "member",
+          "usedBytes",
+          "totalBytes"
+        ],
+        "properties": {
+          "member": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usedBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "StoragePool": {
         "type": "object",
         "required": [
@@ -17731,6 +19269,210 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/StoragePool"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "StoragePoolReport": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "backupPool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoragePoolUsage"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "volumePool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "StoragePoolUsage": {
+        "type": "object",
+        "required": [
+          "name",
+          "driver",
+          "status",
+          "description",
+          "shared",
+          "members",
+          "unreadable"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "driver": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageMemberUsage"
+            },
+            "description": "Use per member as Incus reports it; a shared pool lists the first member that reported it."
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "What Apelora uses it for: `volumes` (`APELORA_VOLUME_POOL`), `backups`\n(`APELORA_BACKUP_POOL`), or nothing."
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "One pool every member reaches (clustered LVM, Ceph): its space is counted once."
+          },
+          "status": {
+            "type": "string"
+          },
+          "total": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthUsage",
+                "description": "Used of total over all members (a shared pool once); `None` when no member reported it."
+              }
+            ]
+          },
+          "unreadable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Members whose use could not be read, with the reason."
+          }
+        }
+      },
+      "StorageVolume": {
+        "type": "object",
+        "required": [
+          "application",
+          "module",
+          "instance",
+          "name",
+          "incusName",
+          "pool",
+          "member",
+          "sizeMib",
+          "class",
+          "usedBy",
+          "schedules",
+          "backups"
+        ],
+        "properties": {
+          "application": {
+            "type": "string"
+          },
+          "backups": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Backups recorded for it."
+          },
+          "class": {
+            "type": "string"
+          },
+          "incusName": {
+            "type": "string",
+            "description": "The Incus volume (`<instance>-<name>`)."
+          },
+          "instance": {
+            "type": "string"
+          },
+          "lastBackupAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "member": {
+            "type": "string"
+          },
+          "module": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The design's name (`data`)."
+          },
+          "pool": {
+            "type": "string"
+          },
+          "schedules": {
+            "$ref": "#/components/schemas/VolumeSchedules"
+          },
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VolumeUse",
+                "description": "What Incus reports now; `None` when Incus could not be read."
+              }
+            ]
+          },
+          "usedBy": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "StorageVolumeList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items"
+        ],
+        "properties": {
+          "backupPool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Where backups go; `None`: backups cannot be taken (`APELORA_BACKUP_POOL` is unset)."
+          },
+          "incusError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why Incus could not be read (the list still shows Apelora's records)."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageVolume"
             }
           },
           "source": {
@@ -18000,6 +19742,85 @@
           }
         }
       },
+      "VolumeBackupItem": {
+        "type": "object",
+        "required": [
+          "name",
+          "pool",
+          "member",
+          "sizeMib",
+          "takenAt",
+          "scheduled"
+        ],
+        "properties": {
+          "beforeRestore": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The restore job that took it just before overwriting the volume."
+          },
+          "member": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The backup's Incus name."
+          },
+          "pool": {
+            "type": "string"
+          },
+          "present": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "It exists in Incus; `None` when Incus could not be read."
+          },
+          "scheduled": {
+            "type": "boolean",
+            "description": "Made by the schedule (pruned to what the schedule keeps), not on request."
+          },
+          "sizeMib": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "takenAt": {
+            "type": "string",
+            "description": "When it was taken (RFC 3339): a restore brings back the data as it was then."
+          }
+        }
+      },
+      "VolumeBackupList": {
+        "type": "object",
+        "required": [
+          "source",
+          "schedules",
+          "items"
+        ],
+        "properties": {
+          "backupPool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VolumeBackupItem"
+            },
+            "description": "Oldest first."
+          },
+          "schedules": {
+            "$ref": "#/components/schemas/VolumeSchedules"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "VolumeClass": {
         "type": "string",
         "description": "The policy a volume is created under. Only `data-local` exists so far: persistent, one\nwriter, on the member's own pool; moving it means stopping the instance.",
@@ -18114,6 +19935,33 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          }
+        }
+      },
+      "VolumeSchedules": {
+        "type": "object",
+        "properties": {
+          "backups": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScheduleState",
+                "description": "`None`: no scheduled backups."
+              }
+            ]
+          },
+          "snapshots": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScheduleState",
+                "description": "`None`: no scheduled snapshots."
+              }
+            ]
           }
         }
       },

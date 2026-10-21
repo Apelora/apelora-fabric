@@ -466,9 +466,137 @@ pub struct LoadBalancer {
     pub ports: Vec<(String, u16)>,
 }
 
+/// One module's ACL as Apelora intends it: exactly the rules `network.sync` writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IntendedAcl {
+    pub module: String,
+    /// The ACL's (and the address set's) name.
+    pub acl: String,
+    pub ingress: Vec<AclRule>,
+    pub egress: Vec<AclRule>,
+}
+
+impl SyncRequest {
+    /// Every module's ACL rules: the connections (both sides), published ports and internet
+    /// access. `network.sync` writes these and the Console compares them with Incus.
+    pub fn intended_acls(&self) -> Vec<IntendedAcl> {
+        let app = self.application.as_str();
+        self.modules
+            .iter()
+            .map(|a| {
+                let (mut ingress, mut egress) = acl_rules(app, a, &self.connections);
+                ingress.extend(published_rules(a, &self.published));
+                egress.extend(internet_rules(
+                    self.internet.get(a).copied().unwrap_or_default(),
+                ));
+                IntendedAcl {
+                    module: a.clone(),
+                    acl: acl_name(app, a),
+                    ingress,
+                    egress,
+                }
+            })
+            .collect()
+    }
+}
+
+/// How the rules Incus holds differ from the intended ones: `(missing, unexpected)`. Order does
+/// not matter; Incus may report rule fields Apelora never writes, which are not compared.
+pub fn rule_drift(intended: &[AclRule], observed: &[AclRule]) -> (Vec<AclRule>, Vec<AclRule>) {
+    let key = |r: &AclRule| {
+        (
+            r.action.clone(),
+            r.source.clone(),
+            r.destination.clone(),
+            r.protocol.clone(),
+            r.destination_port.clone(),
+            r.state.clone(),
+        )
+    };
+    let mut rest: Vec<&AclRule> = observed.iter().collect();
+    let mut missing = Vec::new();
+    for r in intended {
+        match rest.iter().position(|o| key(o) == key(r)) {
+            Some(i) => {
+                rest.remove(i);
+            }
+            None => missing.push(r.clone()),
+        }
+    }
+    (missing, rest.into_iter().cloned().collect())
+}
+
+/// Whether the IPv4 range `inner` (`a.b.c.d/len`) lies inside `outer`. `false` when either
+/// is not an IPv4 range.
+pub fn ipv4_range_within(inner: &str, outer: &str) -> bool {
+    fn parse(r: &str) -> Option<(u32, u32)> {
+        let (a, l) = r.trim().split_once('/')?;
+        let a: Ipv4Addr = a.parse().ok()?;
+        let l: u32 = l.parse().ok()?;
+        if l > 32 {
+            return None;
+        }
+        let mask = if l == 0 { 0 } else { u32::MAX << (32 - l) };
+        Some((u32::from(a) & mask, l))
+    }
+    match (parse(inner), parse(outer)) {
+        (Some((i, il)), Some((o, ol))) => {
+            let mask = if ol == 0 { 0 } else { u32::MAX << (32 - ol) };
+            il >= ol && i & mask == o
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intended_acls_are_what_sync_writes_and_drift_ignores_order() {
+        let s = SyncRequest {
+            project: "apelora".into(),
+            application: "shop".into(),
+            uplink: "br0".into(),
+            modules: vec!["web".into(), "db".into()],
+            connections: vec![c("web", "db", Some(5432))],
+            replicas: BTreeMap::new(),
+            stateless: vec![],
+            service_range: None,
+            published: vec![Published {
+                module: "web".into(),
+                transport: "tcp".into(),
+                port: 443,
+            }],
+            internet: BTreeMap::from([("web".to_owned(), Internet::Web)]),
+        };
+        let acls = s.intended_acls();
+        let web = acls.iter().find(|a| a.module == "web").expect("web");
+        assert_eq!(web.acl, "shop-web");
+        assert_eq!(web.egress.len(), 1 + 3, "to db, plus web internet access");
+        assert_eq!(web.ingress.len(), 1, "published 443");
+        let db = acls.iter().find(|a| a.module == "db").expect("db");
+        assert_eq!(db.ingress[0].source, "$shop-web");
+        assert_eq!(db.ingress[0].destination_port, "5432");
+        let mut reversed = web.egress.clone();
+        reversed.reverse();
+        assert_eq!(rule_drift(&web.egress, &reversed), (vec![], vec![]));
+        let mut changed = web.egress.clone();
+        changed[0].destination_port = "5433".into();
+        let (missing, extra) = rule_drift(&web.egress, &changed);
+        assert_eq!((missing.len(), extra.len()), (1, 1));
+        assert_eq!(missing[0].destination_port, "5432");
+        assert_eq!(rule_drift(&web.egress, &[]).0.len(), 4);
+    }
+
+    #[test]
+    fn ranges_inside_ranges() {
+        assert!(ipv4_range_within("198.18.100.0/28", "198.18.100.0/28"));
+        assert!(ipv4_range_within("198.18.100.16/28", "198.18.100.0/24"));
+        assert!(!ipv4_range_within("198.18.101.0/28", "198.18.100.0/24"));
+        assert!(!ipv4_range_within("198.18.100.0/24", "198.18.100.0/28"));
+        assert!(!ipv4_range_within("not a range", "198.18.100.0/24"));
+    }
 
     fn c(from: &str, to: &str, port: Option<u16>) -> Connection {
         Connection {

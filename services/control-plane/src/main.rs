@@ -146,6 +146,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         tracing::info!(pool = %p, "volumes of class data-local are created in this pool");
     }
+    // The worker reads the same setting for scheduled backups; the control plane needs it to
+    // queue backups and the safety backup of a restore.
+    let backup_pool = std::env::var("APELORA_BACKUP_POOL")
+        .ok()
+        .filter(|p| !p.trim().is_empty());
+    if let Some(p) = &backup_pool {
+        if !apelora_domain::is_valid_name(p) {
+            return Err(format!("APELORA_BACKUP_POOL: invalid pool name {p:?}").into());
+        }
+        tracing::info!(pool = %p, "volume backups go to this pool");
+    }
     let oidc = oidc_from_env(|k| std::env::var(k).ok())?;
     let sign_in = sign_in_from_env(|k| std::env::var(k).ok())?;
     if sign_in.is_some() && oidc.is_none() {
@@ -182,6 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_network_uplink(uplink)
         .with_service_range(services)
         .with_volume_pool(volume_pool)
+        .with_backup_pool(backup_pool)
         .with_rate_limits(rate_limits)
         .with_tls(listening.tls())
         .with_image_mirrors(mirrors)

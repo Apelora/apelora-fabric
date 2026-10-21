@@ -7,7 +7,7 @@ import { client, messageOf, useLoad } from "../lib/api";
 import { holdsPlatform } from "../lib/identity";
 import { EffectiveSettingsSection } from "./EffectiveSettings";
 import { ImageMirrorsSection } from "./ImageMirrors";
-import { ProjectsSection } from "./Infrastructure";
+import { ProjectsSection } from "./Projects";
 import { LicenceNoticesSection } from "./LicenceNotices";
 import { MonitoringSection } from "./Monitoring";
 import { SupportBundleSection } from "./SupportBundle";

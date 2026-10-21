@@ -183,6 +183,7 @@ async fn authority(
             | "instance.stop"
             | "instance.restart"
             | "volume.backup"
+            | "volume.restore"
     );
     let app_permission = if operate {
         "application.operate"
@@ -256,6 +257,11 @@ fn actions(job: &Job, permitted: Result<(), String>) -> JobActions {
         state(
             false,
             "Start, stop or restart the application again from its page: an operation is planned anew from what runs now.",
+        )
+    } else if job.kind == "volume.restore" {
+        state(
+            false,
+            "Restore again from the volume's backups: a restore overwrites data, so its dry run is read and the volume's name typed each time.",
         )
     } else if let Some(newer) = job.retried_by {
         state(false, format!("Retried already by job {newer}."))
@@ -387,6 +393,10 @@ pub(super) async fn retry(
     if job.kind == "application.operation" {
         return Err(refuse(pool, &p, "job.retry", &job, "not_retryable",
             "an application operation is not retried: start, stop or restart the application again; it is planned anew from what runs now".into()).await);
+    }
+    if job.kind == "volume.restore" {
+        return Err(refuse(pool, &p, "job.retry", &job, "not_retryable",
+            "a restore is not retried: restore again from the volume's backups, after reading what it replaces and typing the volume's name".into()).await);
     }
     let key = idempotency_key(&headers, &p)?;
     let actor = p.actor_ref();

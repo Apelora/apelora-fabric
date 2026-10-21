@@ -148,7 +148,11 @@ async fn set_audit_writable(pool: &Pool, writable: bool) {
 impl Story {
     async fn new(pool: Pool) -> Story {
         let (mut l, mock) = mock_lab(pool);
-        l.state = l.state.clone().with_volume_pool(Some("mock-local".into()));
+        l.state = l
+            .state
+            .clone()
+            .with_volume_pool(Some("mock-local".into()))
+            .with_backup_pool(Some("mock-backup".into()));
         l.state.sign_in_attempts = std::sync::Arc::new(sessions_auth::Attempts::new(
             1000,
             std::time::Duration::from_secs(60),
@@ -927,6 +931,45 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         "application.volume.snapshot.delete",
     )
     .await;
+    // Schedules, a backup on request and a restore from it: each queues or changes Apelora's
+    // records together with its audit row.
+    s.step(
+        Atomic,
+        "PUT",
+        "/api/v1/applications/{name}/volumes/{volume}/schedules",
+        &format!("{volume}/schedules"),
+        r,
+        json!({ "snapshots": { "everyMinutes": 60, "keep": 3 }, "backups": null }),
+        "application.volume.schedules",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/backups",
+        &format!("{volume}/backups"),
+        r,
+        Value::Null,
+        "application.volume.backup.requested",
+    )
+    .await;
+    settle(&s.l).await;
+    let backup: String =
+        sqlx::query_scalar("SELECT name FROM volume_backups ORDER BY created_at LIMIT 1")
+            .fetch_one(&s.l.pool)
+            .await
+            .expect("a backup was made");
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
+        &format!("{volume}/backups/{backup}/restore"),
+        r,
+        json!({ "confirm": "shop-db-01-data" }),
+        "application.volume.restore.requested",
+    )
+    .await;
+    settle(&s.l).await;
     s.step(
         Atomic,
         "POST",

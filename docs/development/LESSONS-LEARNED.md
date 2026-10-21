@@ -66,6 +66,8 @@ Read these first. Most entries below come from one of four causes:
 
 - **`npm run api:generate` failed again for the first file download (`GET /support-bundle`, a tar)** (2026-10-21) → the generator knew JSON and text only. → `application/x-tar`, `application/zip` and `application/octet-stream` map to `Blob`, and the client returns `res.blob()` (`client.test.ts`).
 - **Widening the secret scan to every Apelora token prefix flagged an existing test's all-zero `aps_` token** (2026-10-21) → the scan greps source text. → Tests build token- and key-shaped values at run time (`format!("aps_{}", "0".repeat(64))`, a PEM label joined from words), so the scan stays strict.
+- **Two handlers made `#[derive(OpenApi)]` fail with "`storage_pools_config` is defined multiple times"** (2026-10-21) → utoipa names a path's generated config after the module path joined with `_`, so `storage::pools` collided with the existing `storage_pools` handler. → Name new handlers so `module_fn` cannot equal an existing handler's name (`storage::pool_usage`).
+
 - **`npm run api:generate` failed on the first route that answers text (`GET /metrics`)** (2026-10-21) → the client generator accepted only JSON responses. → The generator maps a `text/plain` success to `string` and the client returns the text (`packages/api-client/src/client.test.ts` guards it). A new non-JSON route needs the same treatment.
 
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)

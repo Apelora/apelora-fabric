@@ -127,7 +127,7 @@ function Components({ report, now }: { report: HealthReport; now: number }) {
   );
 }
 
-function Meter({ label, used, total, text, testId }: { label: string; used: number; total: number; text: string; testId: string }) {
+export function Meter({ label, used, total, text, testId }: { label: string; used: number; total: number; text: string; testId: string }) {
   return (
     <div className="flex flex-col gap-1" data-testid={testId}>
       <div className="flex items-baseline justify-between gap-3 text-sm">

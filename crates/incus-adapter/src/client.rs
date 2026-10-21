@@ -140,6 +140,15 @@ fn owned_by_config(config: &std::collections::BTreeMap<String, String>, applicat
             .is_some_and(|v| v == application)
 }
 
+/// The application an object was created for, when it carries Apelora's marker.
+fn owner_of(config: &std::collections::BTreeMap<String, String>) -> Option<String> {
+    config
+        .get(MANAGED_KEY)
+        .is_some_and(|v| v == "true")
+        .then(|| config.get(APPLICATION_KEY).cloned())
+        .flatten()
+}
+
 fn owned_by(o: &wire::Owned, application: &str) -> bool {
     owned_by_config(&o.config, application)
 }
@@ -971,10 +980,15 @@ impl IncusClient {
         to: &str,
         content: &str,
         config: &std::collections::BTreeMap<String, String>,
+        refresh: bool,
     ) -> Result<Option<String>, AdapterError> {
         let mut source = json!({ "type": "copy", "pool": from_pool, "name": from });
         if let Some(m) = from_member {
             source["location"] = json!(m);
+        }
+        // Copies over an existing volume `to` (its own snapshots are deleted by Incus).
+        if refresh {
+            source["refresh"] = json!(true);
         }
         let body = json!({ "name": to, "type": "custom", "content_type": content, "config": config, "source": source });
         let mut path = format!("/1.0/storage-pools/{to_pool}/volumes/custom?project={project}");
@@ -982,6 +996,165 @@ impl IncusClient {
             path.push_str(&format!("&target={m}"));
         }
         self.maybe_operation(Method::POST, &path, Some(&body)).await
+    }
+
+    /// The custom volumes of `project` in `pool` (every member of a member-local pool).
+    pub async fn custom_volumes(
+        &self,
+        project: &str,
+        pool: &str,
+    ) -> Result<Vec<crate::CustomVolume>, AdapterError> {
+        let list: Vec<wire::Volume> = self
+            .get(&format!(
+                "/1.0/storage-pools/{pool}/volumes/custom?project={project}&recursion=1"
+            ))
+            .await?;
+        Ok(list
+            .into_iter()
+            .map(|v| crate::CustomVolume {
+                managed: v.config.get(MANAGED_KEY).is_some_and(|x| x == "true"),
+                application: v.config.get(APPLICATION_KEY).cloned(),
+                backup_of: v
+                    .config
+                    .get(apelora_domain::storage::BACKUP_OF_KEY)
+                    .cloned(),
+                size_mib: v.config.get("size").and_then(|s| parse_mib(s)),
+                name: v.name,
+                pool: pool.to_owned(),
+                location: v.location,
+                content: v.content_type,
+                used_by: v.used_by,
+                created_at: v.created_at,
+            })
+            .collect())
+    }
+
+    /// The network ACLs of `project`.
+    pub async fn network_acls(
+        &self,
+        project: &str,
+    ) -> Result<Vec<crate::ObservedAcl>, AdapterError> {
+        let list: Vec<wire::Acl> = self
+            .get(&format!("/1.0/network-acls?recursion=1&project={project}"))
+            .await?;
+        let rules = |r: Vec<wire::AclRuleWire>| {
+            r.into_iter()
+                .map(|r| AclRule {
+                    action: r.action,
+                    source: r.source,
+                    destination: r.destination,
+                    protocol: r.protocol,
+                    destination_port: r.destination_port,
+                    state: r.state,
+                    description: r.description,
+                })
+                .collect()
+        };
+        Ok(list
+            .into_iter()
+            .map(|a| crate::ObservedAcl {
+                application: owner_of(&a.config),
+                name: a.name,
+                ingress: rules(a.ingress),
+                egress: rules(a.egress),
+            })
+            .collect())
+    }
+
+    /// The network address sets of `project`.
+    pub async fn address_sets(
+        &self,
+        project: &str,
+    ) -> Result<Vec<crate::ObservedAddressSet>, AdapterError> {
+        let list: Vec<wire::AddressSet> = self
+            .get(&format!(
+                "/1.0/network-address-sets?recursion=1&project={project}"
+            ))
+            .await?;
+        Ok(list
+            .into_iter()
+            .map(|a| crate::ObservedAddressSet {
+                application: owner_of(&a.config),
+                name: a.name,
+                addresses: a.addresses,
+            })
+            .collect())
+    }
+
+    /// Every load balancer on `network`; empty when the network does not exist.
+    pub async fn load_balancers(
+        &self,
+        project: &str,
+        network: &str,
+    ) -> Result<Vec<crate::ObservedLoadBalancer>, AdapterError> {
+        let all: Vec<wire::LoadBalancer> = match self
+            .get(&format!(
+                "/1.0/networks/{network}/load-balancers?recursion=1&project={project}"
+            ))
+            .await
+        {
+            Ok(all) => all,
+            Err(AdapterError::NotFound(_)) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
+        };
+        Ok(all
+            .into_iter()
+            .map(|lb| crate::ObservedLoadBalancer {
+                application: owner_of(&lb.config),
+                module: apelora_domain::module_label(&lb.config).cloned(),
+                listen_address: lb.listen_address,
+                backends: lb
+                    .backends
+                    .into_iter()
+                    .map(|b| crate::ObservedBackend {
+                        name: b.name,
+                        target_address: b.target_address,
+                        description: b.description,
+                    })
+                    .collect(),
+                ports: lb
+                    .ports
+                    .into_iter()
+                    .map(|p| (p.protocol, p.listen_port))
+                    .collect(),
+            })
+            .collect())
+    }
+
+    /// One network with its configuration; `None` when it does not exist or is not visible.
+    pub async fn network(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<crate::ObservedNetwork>, AdapterError> {
+        match self
+            .get::<wire::NetworkFull>(&format!("/1.0/networks/{name}?project={project}"))
+            .await
+        {
+            Ok(n) => Ok(Some(crate::ObservedNetwork {
+                name: n.name,
+                kind: n.kind,
+                status: n.status,
+                config: n.config,
+            })),
+            Err(AdapterError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// A project's configuration; `None` when it does not exist or is not visible.
+    pub async fn project_config(
+        &self,
+        project: &str,
+    ) -> Result<Option<std::collections::BTreeMap<String, String>>, AdapterError> {
+        match self
+            .get::<wire::Project>(&format!("/1.0/projects/{project}"))
+            .await
+        {
+            Ok(p) => Ok(Some(p.config)),
+            Err(AdapterError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// Whether an operation of `project` that mentions any of `names` is still running. Used

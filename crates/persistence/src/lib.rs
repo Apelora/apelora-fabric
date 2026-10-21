@@ -40,8 +40,10 @@ pub use sqlx::postgres::PgListener;
 pub use sqlx::{PgConnection, PgExecutor};
 pub use tokens::{TokenRecord, authenticate, create_token, list_tokens, revoke_token};
 pub use volumes::{
-    BackupRecord, DueVolume, NewBackup, ScheduleKind, claim_due, forget_backup, instance_volumes,
-    record_backup, record_scheduled, set_volume_member, set_volume_schedules, volume_backups,
+    BackupRecord, BackupSummary, DueVolume, NewBackup, OwnedVolumeRecord, ScheduleKind,
+    backup_before_restore, backup_summaries, claim_due, forget_backup, instance_volumes,
+    record_backup, record_scheduled, referenced_volumes, set_volume_member, set_volume_schedules,
+    volume_backup, volume_backups, volumes_with_applications,
 };
 pub use volumes::{
     NewVolume, VolumeRecord, all_volumes, application_volume, application_volumes, forget_volume,
@@ -485,6 +487,15 @@ pub async fn application_services(
     .bind(application)
     .fetch_all(pool)
     .await?)
+}
+
+/// How many service addresses are held, by every application.
+pub async fn service_addresses_held(pool: &PgPool) -> Result<i64> {
+    Ok(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM service_addresses")
+            .fetch_one(pool)
+            .await?,
+    )
 }
 
 /// Frees the service addresses of the application's modules not in `keep`.

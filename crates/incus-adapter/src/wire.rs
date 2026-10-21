@@ -294,11 +294,56 @@ pub(crate) struct VolumeSnapshot {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct Volume {
+    pub name: String,
     pub config: BTreeMap<String, String>,
     pub description: String,
     pub content_type: String,
     pub location: String,
     pub used_by: Vec<String>,
+    pub created_at: String,
+}
+
+/// A network ACL (`/1.0/network-acls/<name>`). Rule fields Apelora does not write
+/// (`source_port`, `icmp_type`, `icmp_code`) are ignored.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct Acl {
+    pub name: String,
+    pub config: BTreeMap<String, String>,
+    pub ingress: Vec<AclRuleWire>,
+    pub egress: Vec<AclRuleWire>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct AclRuleWire {
+    pub action: String,
+    pub source: String,
+    pub destination: String,
+    pub protocol: String,
+    pub destination_port: String,
+    pub state: String,
+    pub description: String,
+}
+
+/// A network address set (`/1.0/network-address-sets/<name>`).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct AddressSet {
+    pub name: String,
+    pub config: BTreeMap<String, String>,
+    pub addresses: Vec<String>,
+}
+
+/// One network with its configuration (`/1.0/networks/<name>`).
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct NetworkFull {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub status: String,
+    pub config: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

@@ -537,7 +537,14 @@ test.describe("fabric console views", () => {
         { id: "project-apelora", title: "Project apelora", status: "warn", detail: "exists but is not restricted" },
         { id: "clock", title: "Clock agreement between members", status: "not-checked", detail: "not measurable through the Incus API" },
       ] } }),
-      "GET /api/v1/projects": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [{ name: "apelora", description: "", restricted: true }] } }),
+      "GET /api/v1/networks/applications": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
+      "GET /api/v1/networks/settings": () => ({ json: { source: { provider: "incus", observedAt: now }, uplink: null, serviceRange: null, serviceAddressesUsed: 0, serviceAddressesTotal: null,
+        projects: [{ project: "apelora", found: true, restricted: true, ownNetworks: true, uplinks: ["incusbr0"], subnets: [] }], uplinkObserved: null, uplinkNote: null,
+        findings: [{ severity: "info", message: "No uplink is set (APELORA_NETWORK_UPLINK): connections are not enforced and instances share their project's network" }] } }),
+      "GET /api/v1/storage/pools": () => ({ json: { source: { provider: "incus", observedAt: now }, volumePool: "local", backupPool: null, items: [
+        { name: "local", driver: "btrfs", status: "Created", description: "", shared: false, role: "volumes", members: [{ member: "node-1", usedBytes: 2 * 1024 ** 3, totalBytes: 20 * 1024 ** 3 }], total: { usedBytes: 2 * 1024 ** 3, totalBytes: 20 * 1024 ** 3 }, unreadable: [] }] } }),
+      "GET /api/v1/storage/volumes": () => ({ json: { source: { provider: "incus", observedAt: now }, backupPool: null, incusError: null, items: [] } }),
+      "GET /api/v1/storage/orphans": () => ({ json: { source: { provider: "incus", observedAt: now }, projects: ["apelora"], items: [] } }),
       "GET /api/v1/networks": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [
         { name: "incusbr0", project: "default", kind: "bridge", managed: true, status: "Created", description: "" },
         { name: "eth0", project: "default", kind: "physical", managed: false, status: "", description: "" },
@@ -549,13 +556,16 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("preflight-check")).toHaveCount(3);
     await expect(page.getByTestId("preflight-overall")).toContainText("need attention");
     await expect(page.getByTestId("preflight-check").nth(2)).toContainText("Not checked");
+    // The former "Networks & storage" address opens Networks.
     await page.goto("/#/infrastructure");
     await expect(page).toHaveURL(/#\/networks$/);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Networks/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Networks");
+    await expect(page.getByTestId("network-project-row")).toContainText("Yes");
     await expect(page.getByTestId("network-row")).toHaveCount(1);
     await expect(page.getByText("1 host interfaces not managed by Incus are not shown.")).toBeVisible();
     await page.goto("/#/storage");
-    await expect(page.getByTestId("pool-row")).toContainText("btrfs");
+    await expect(page.getByTestId("storage-pool-row")).toContainText("btrfs");
+    await expect(page.getByTestId("storage-pool-row")).toContainText("2.0 GiB of 20.0 GiB");
     await page.goto("/#/audit");
     await expect(page.getByTestId("audit-row")).toContainText("Cluster join token created");
   });

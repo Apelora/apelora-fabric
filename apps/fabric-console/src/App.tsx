@@ -8,13 +8,14 @@ import { AdministrationView } from "./views/Administration";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
 import { HealthView } from "./views/Health";
-import { NetworksView, StorageView } from "./views/Infrastructure";
 import { InstancesView } from "./views/Instances";
+import { NetworksView } from "./views/Networks";
 import { OperationsView } from "./views/Operations";
 import { ServersView, isServerTab, type ServerTab } from "./views/servers/Servers";
 import { UserMenu } from "./views/Account";
 import { SetPasswordPage, setupTokenFromHash } from "./views/SetPassword";
 import { SignInPage, type SignInReason } from "./views/SignIn";
+import { StorageView } from "./views/Storage";
 import { IdentityPage } from "./views/identity";
 import { IDENTITY_PAGES, isIdentityPage, type IdentityPageId } from "./views/identity/pages";
 import { holds } from "./lib/identity";
@@ -336,8 +337,8 @@ export function App() {
                   return r ? <InstanceDetailView key={route.hash} project={r.project} name={r.name} me={me} onAuth={onAuth} /> : <InstancesView me={me} onAuth={onAuth} />;
                 })()}
                 {current === "servers" && <ServersView tab={route.tab} me={me} onAuth={onAuth} />}
-                {current === "networks" && <NetworksView onAuth={onAuth} />}
-                {current === "storage" && <StorageView onAuth={onAuth} />}
+                {current === "networks" && <NetworksView me={me} onAuth={onAuth} />}
+                {current === "storage" && <StorageView me={me} onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
                 {current === "operations" && (() => {
                   const id = jobRoute(route.hash);

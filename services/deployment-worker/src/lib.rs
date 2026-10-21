@@ -45,6 +45,9 @@ async fn handle(
     if job.kind == "volume.backup" {
         return storage::run_backup_job(pool, provider, &job.payload).await;
     }
+    if job.kind == "volume.restore" {
+        return storage::run_restore_job(pool, provider, job).await;
+    }
     if job.kind == "network.sync" {
         return Ok(match network::from_payload(&job.payload) {
             Ok(s) => network::sync(pool, provider, &s).await,
@@ -177,7 +180,9 @@ async fn run_claimed(
 /// - `instance.move`: while the instance is still on its original member (started again there
 ///   if the move had stopped it); once on the new member the move is finished;
 /// - `application.operation`: between phases; the running phase's instance jobs finish;
-/// - `network.sync`, `volume.backup`: none after the start (each is one idempotent pass).
+/// - `network.sync`, `volume.backup`: none after the start (each is one idempotent pass);
+/// - `volume.restore`: after the safety backup, before the backup is copied over the volume
+///   (the safety backup is kept); none once that copy has started, which is one Incus operation.
 pub fn cancelled_before_start(job: &ClaimedJob) -> bool {
     job.cancel_requested
         && job.external_operation.is_none()

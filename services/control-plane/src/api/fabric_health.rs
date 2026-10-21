@@ -757,14 +757,14 @@ pub struct HealthServers {
 }
 
 /// A server and what was read about its resources.
-struct Reading {
-    member: ClusterMember,
-    resources: Result<HealthServerResources, String>,
+pub(super) struct Reading {
+    pub(super) member: ClusterMember,
+    pub(super) resources: Result<HealthServerResources, String>,
 }
 
 /// The servers (members, or the standalone server) with their resources, read concurrently,
 /// each within [`SERVER_BUDGET`].
-async fn read_servers(state: &AppState) -> Result<(bool, Vec<Reading>), ApiError> {
+pub(super) async fn read_servers(state: &AppState) -> Result<(bool, Vec<Reading>), ApiError> {
     let info = state.provider.server_info().await?;
     let members = if info.clustered {
         state.provider.cluster_members().await?

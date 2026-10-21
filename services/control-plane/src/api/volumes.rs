@@ -71,7 +71,7 @@ pub struct GrowVolume {
 }
 
 /// The instance names in Incus's `used_by` paths (`/1.0/instances/<name>?project=…`).
-fn instances_using(used_by: &[String]) -> Vec<String> {
+pub(super) fn instances_using(used_by: &[String]) -> Vec<String> {
     used_by
         .iter()
         .filter_map(|u| u.strip_prefix("/1.0/instances/"))
@@ -79,7 +79,7 @@ fn instances_using(used_by: &[String]) -> Vec<String> {
         .collect()
 }
 
-fn member_of(r: &apelora_persistence::VolumeRecord) -> Option<&str> {
+pub(super) fn member_of(r: &apelora_persistence::VolumeRecord) -> Option<&str> {
     Some(r.member.as_str()).filter(|m| !m.is_empty() && *m != "none")
 }
 

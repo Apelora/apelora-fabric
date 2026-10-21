@@ -100,6 +100,75 @@ pub struct VolumeState {
     pub used_by: Vec<String>,
 }
 
+/// A custom volume as Incus lists it in one pool (read-only views: storage, orphans).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomVolume {
+    pub name: String,
+    pub pool: String,
+    /// Member of a member-local pool; `none` (or empty) otherwise.
+    pub location: String,
+    /// `filesystem` or `block`.
+    pub content: String,
+    pub size_mib: Option<u32>,
+    /// Carries Apelora's ownership marker.
+    pub managed: bool,
+    /// `user.apelora.application`.
+    pub application: Option<String>,
+    /// `user.apelora.backup-of`: the volume it is a backup copy of.
+    pub backup_of: Option<String>,
+    /// Instances using it, as Incus API paths.
+    pub used_by: Vec<String>,
+    /// When Incus created it (RFC 3339), empty when not reported.
+    pub created_at: String,
+}
+
+/// A network ACL as Incus reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedAcl {
+    pub name: String,
+    /// `user.apelora.application` when Apelora created it.
+    pub application: Option<String>,
+    pub ingress: Vec<AclRule>,
+    pub egress: Vec<AclRule>,
+}
+
+/// A network address set as Incus reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedAddressSet {
+    pub name: String,
+    pub application: Option<String>,
+    pub addresses: Vec<String>,
+}
+
+/// One backend of a load balancer as Incus reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedBackend {
+    pub name: String,
+    pub target_address: String,
+    pub description: String,
+}
+
+/// A network load balancer (a service or published address) as Incus reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedLoadBalancer {
+    pub listen_address: String,
+    pub application: Option<String>,
+    /// `user.apelora.module`.
+    pub module: Option<String>,
+    pub backends: Vec<ObservedBackend>,
+    /// `(protocol, listen port)`.
+    pub ports: Vec<(String, String)>,
+}
+
+/// A network as Incus reports it, with its configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedNetwork {
+    pub name: String,
+    pub kind: String,
+    pub status: String,
+    pub config: std::collections::BTreeMap<String, String>,
+}
+
 /// The result of waiting on an Incus operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OperationOutcome {
@@ -1298,13 +1367,16 @@ impl Provider {
                     });
                 }
                 st.volumes.insert(
-                    key,
+                    key.clone(),
                     VolumeState {
                         used_by: Vec::new(),
                         location: to_member.unwrap_or("none").into(),
                         ..v.clone()
                     },
                 );
+                if let Some(b) = backup_of {
+                    st.backup_of.insert(key.clone(), b.to_owned());
+                }
                 st.copies.push(format!(
                     "{name}{} -> {to_pool}/{}/{to}",
                     snapshot.map(|s| format!("/{s}")).unwrap_or_default(),
@@ -1320,6 +1392,7 @@ impl Provider {
                 let op = c
                     .copy_volume(
                         project, pool, member, &from, to_pool, to_member, to, &v.content, &config,
+                        false,
                     )
                     .await?;
                 let what = format!("copying volume {name} to {to_pool}/{to}");
@@ -1400,6 +1473,309 @@ impl Provider {
                 c.delete_volume(project, pool, member, name, application)
                     .await
             }
+        }
+    }
+
+    /// The custom volumes of `project` in `pool`, on every member. Read-only.
+    pub async fn custom_volumes(
+        &self,
+        project: &str,
+        pool: &str,
+    ) -> Result<Vec<CustomVolume>, AdapterError> {
+        valid_names(&[project, pool])?;
+        match self {
+            Provider::Mock(m) => {
+                let prefix = format!("{project}/{pool}/");
+                let st = m.storage();
+                Ok(st
+                    .volumes
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        let rest = k.strip_prefix(&prefix)?;
+                        let (_, name) = rest.split_once('/')?;
+                        Some(CustomVolume {
+                            name: name.to_owned(),
+                            pool: pool.to_owned(),
+                            location: v.location.clone(),
+                            content: v.content.clone(),
+                            size_mib: v.size_mib,
+                            managed: v.managed,
+                            application: v.application.clone(),
+                            backup_of: st.backup_of.get(k).cloned(),
+                            used_by: v.used_by.clone(),
+                            created_at: String::new(),
+                        })
+                    })
+                    .collect())
+            }
+            Provider::Incus(c) => c.custom_volumes(project, pool).await,
+        }
+    }
+
+    /// Brings a copy's data back into an existing volume: Incus copies `from` (in `from_pool`,
+    /// on `from_member`) over the volume `to` with `refresh`. Both must be Apelora's volumes of
+    /// `application`. Incus deletes the target's own snapshots and accepts this while an
+    /// instance runs (REAL INCUS TESTED, TEST-CLUSTER.md): callers stop or refuse first.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn refresh_volume(
+        &self,
+        project: &str,
+        from_pool: &str,
+        from_member: Option<&str>,
+        from: &str,
+        to_pool: &str,
+        to_member: Option<&str>,
+        to: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        let source = self
+            .owned_volume(project, from_pool, from_member, from, application)
+            .await?;
+        let target = self
+            .owned_volume(project, to_pool, to_member, to, application)
+            .await?;
+        let op = match self {
+            Provider::Mock(m) => {
+                let mut st = m.storage();
+                if st.fail_create.contains(to) {
+                    return Err(AdapterError::Api {
+                        status: 500,
+                        message: format!("mock: pool {to_pool} is full"),
+                    });
+                }
+                st.snapshots
+                    .remove(&mock_key(project, to_pool, to_member, to));
+                st.copies.push(format!(
+                    "{from} -> {to_pool}/{}/{to} (refresh)",
+                    to_member.unwrap_or("-")
+                ));
+                None
+            }
+            Provider::Incus(c) => {
+                let size = target.size_mib.or(source.size_mib).ok_or_else(|| {
+                    AdapterError::Decode(format!("volume {to} has a size Apelora cannot read"))
+                })?;
+                let config = std::collections::BTreeMap::from([
+                    ("size".to_owned(), format!("{size}MiB")),
+                    (apelora_domain::MANAGED_KEY.to_owned(), "true".to_owned()),
+                    (
+                        apelora_domain::APPLICATION_KEY.to_owned(),
+                        application.to_owned(),
+                    ),
+                ]);
+                let op = c
+                    .copy_volume(
+                        project,
+                        from_pool,
+                        from_member,
+                        from,
+                        to_pool,
+                        to_member,
+                        to,
+                        &target.content,
+                        &config,
+                        true,
+                    )
+                    .await?;
+                let what = format!("restoring volume {to} from {from_pool}/{from}");
+                return match self.finish(op, &what).await {
+                    // As for copies: the receiving member's operation may not be readable for a
+                    // restricted identity; watch the project's operations instead.
+                    Err(AdapterError::Authentication(_)) => {
+                        let started = Instant::now();
+                        while c.project_operation_running(project, &[from, to]).await? {
+                            if started.elapsed() >= VOLUME_BUDGET {
+                                return Err(AdapterError::Api {
+                                    status: 504,
+                                    message: format!("{what} is still running"),
+                                });
+                            }
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                        }
+                        Ok(())
+                    }
+                    other => other,
+                };
+            }
+        };
+        self.finish(op, &format!("restoring volume {to}")).await
+    }
+
+    /// The network ACLs of `project`. Read-only.
+    pub async fn network_acls(&self, project: &str) -> Result<Vec<ObservedAcl>, AdapterError> {
+        valid_names(&[project])?;
+        match self {
+            Provider::Mock(m) => {
+                let net = m.net();
+                let prefix = format!("{project}/");
+                Ok(net
+                    .acls
+                    .iter()
+                    .filter_map(|(k, (ingress, egress))| {
+                        let name = k.strip_prefix(&prefix)?;
+                        Some(ObservedAcl {
+                            name: name.to_owned(),
+                            application: net.owners.get(&format!("Acl:{k}")).cloned(),
+                            ingress: ingress.clone(),
+                            egress: egress.clone(),
+                        })
+                    })
+                    .collect())
+            }
+            Provider::Incus(c) => c.network_acls(project).await,
+        }
+    }
+
+    /// The network address sets of `project`. Read-only.
+    pub async fn address_sets(
+        &self,
+        project: &str,
+    ) -> Result<Vec<ObservedAddressSet>, AdapterError> {
+        valid_names(&[project])?;
+        match self {
+            Provider::Mock(m) => {
+                let net = m.net();
+                let prefix = format!("{project}/");
+                Ok(net
+                    .address_sets
+                    .iter()
+                    .filter_map(|(k, addresses)| {
+                        let name = k.strip_prefix(&prefix)?;
+                        Some(ObservedAddressSet {
+                            name: name.to_owned(),
+                            application: net.owners.get(&format!("AddressSet:{k}")).cloned(),
+                            addresses: addresses.clone(),
+                        })
+                    })
+                    .collect())
+            }
+            Provider::Incus(c) => c.address_sets(project).await,
+        }
+    }
+
+    /// Every load balancer on `network` (service and published addresses); empty when the
+    /// network does not exist. Read-only.
+    pub async fn load_balancers(
+        &self,
+        project: &str,
+        network: &str,
+    ) -> Result<Vec<ObservedLoadBalancer>, AdapterError> {
+        valid_names(&[project, network])?;
+        match self {
+            Provider::Mock(m) => {
+                let prefix = format!("{project}/{network}/");
+                Ok(m.net()
+                    .load_balancers
+                    .iter()
+                    .filter(|(k, _)| k.starts_with(&prefix))
+                    .map(|(_, (app, lb))| ObservedLoadBalancer {
+                        listen_address: lb.listen_address.to_string(),
+                        application: Some(app.clone()),
+                        module: Some(lb.module.clone()),
+                        backends: lb
+                            .backends
+                            .iter()
+                            .map(|b| ObservedBackend {
+                                name: b.name.clone(),
+                                target_address: b.address.to_string(),
+                                description: b.description.clone(),
+                            })
+                            .collect(),
+                        ports: lb
+                            .ports
+                            .iter()
+                            .map(|(t, p)| (t.clone(), p.to_string()))
+                            .collect(),
+                    })
+                    .collect())
+            }
+            Provider::Incus(c) => c.load_balancers(project, network).await,
+        }
+    }
+
+    /// One network with its configuration, `None` when it does not exist (or the identity may
+    /// not see it). Read-only.
+    pub async fn network(
+        &self,
+        project: &str,
+        name: &str,
+    ) -> Result<Option<ObservedNetwork>, AdapterError> {
+        valid_names(&[project, name])?;
+        match self {
+            Provider::Mock(m) => {
+                if let Some(n) = m
+                    .networks
+                    .iter()
+                    .find(|n| n.project == project && n.name == name)
+                {
+                    return Ok(Some(ObservedNetwork {
+                        name: n.name.clone(),
+                        kind: n.kind.clone(),
+                        status: n.status.clone(),
+                        config: std::collections::BTreeMap::from([
+                            ("ipv4.address".to_owned(), "192.0.2.1/24".to_owned()),
+                            ("ipv4.routes".to_owned(), "198.18.100.0/28".to_owned()),
+                            (
+                                "ipv4.ovn.ranges".to_owned(),
+                                "192.0.2.100-192.0.2.150".to_owned(),
+                            ),
+                        ]),
+                    }));
+                }
+                let key = format!("{project}/{name}");
+                let net = m.net();
+                Ok(net.networks.contains(&key).then(|| ObservedNetwork {
+                    name: name.to_owned(),
+                    kind: "ovn".into(),
+                    status: "Created".into(),
+                    config: std::collections::BTreeMap::from([
+                        ("network".to_owned(), "mock-br0".to_owned()),
+                        ("ipv4.address".to_owned(), "10.99.0.1/24".to_owned()),
+                        (
+                            "volatile.network.ipv4.address".to_owned(),
+                            "192.0.2.100".to_owned(),
+                        ),
+                        (apelora_domain::MANAGED_KEY.to_owned(), "true".to_owned()),
+                        (
+                            apelora_domain::APPLICATION_KEY.to_owned(),
+                            net.owners
+                                .get(&format!("Network:{key}"))
+                                .cloned()
+                                .unwrap_or_default(),
+                        ),
+                    ]),
+                }))
+            }
+            Provider::Incus(c) => c.network(project, name).await,
+        }
+    }
+
+    /// A project's configuration (its `restricted.*` limits and features), `None` when it does
+    /// not exist. Read-only.
+    pub async fn project_config(
+        &self,
+        project: &str,
+    ) -> Result<Option<std::collections::BTreeMap<String, String>>, AdapterError> {
+        valid_names(&[project])?;
+        match self {
+            Provider::Mock(m) => Ok(m.projects.iter().find(|p| p.name == project).map(|p| {
+                let mut c = std::collections::BTreeMap::new();
+                if p.restricted {
+                    c.insert("restricted".to_owned(), "true".to_owned());
+                    c.insert("features.networks".to_owned(), "true".to_owned());
+                    c.insert(
+                        "restricted.networks.uplinks".to_owned(),
+                        "mock-br0".to_owned(),
+                    );
+                    c.insert(
+                        "restricted.networks.subnets".to_owned(),
+                        "mock-br0:198.18.100.0/28".to_owned(),
+                    );
+                    c.insert("restricted.snapshots".to_owned(), "allow".to_owned());
+                }
+                c
+            })),
+            Provider::Incus(c) => c.project_config(project).await,
         }
     }
 
@@ -1596,8 +1972,11 @@ pub struct MockStorage {
     pub snapshots: std::collections::BTreeMap<String, Vec<SnapshotInfo>>,
     /// Restores carried out, `volume/snapshot` (tests).
     pub restores: Vec<String>,
-    /// Copies made, `source[/snapshot] -> pool/member/name` (tests).
+    /// Copies made, `source[/snapshot] -> pool/member/name` (tests); a refresh ends in
+    /// ` (refresh)`.
     pub copies: Vec<String>,
+    /// `user.apelora.backup-of` of backup copies (same keys as `volumes`).
+    pub backup_of: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]

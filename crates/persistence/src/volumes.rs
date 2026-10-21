@@ -201,9 +201,9 @@ impl ScheduleKind {
 }
 
 /// Sets (or, with `None`, clears) a volume's snapshot and backup schedules. A new schedule
-/// first runs at the next pass of the worker.
+/// first runs at the next pass of the worker. Takes a pool or the caller's transaction.
 pub async fn set_volume_schedules(
-    pool: &Pool,
+    db: impl sqlx::PgExecutor<'_>,
     id: Uuid,
     snapshots: Option<(u32, u32)>,
     backups: Option<(u32, u32)>,
@@ -231,7 +231,7 @@ pub async fn set_volume_schedules(
     .bind(n(snapshots, |x| x.1))
     .bind(n(backups, |x| x.0))
     .bind(n(backups, |x| x.1))
-    .execute(pool)
+    .execute(db)
     .await?;
     Ok(())
 }
@@ -306,6 +306,8 @@ pub struct BackupRecord {
     pub size_mib: i32,
     pub scheduled: bool,
     pub created_at: OffsetDateTime,
+    /// The `volume.restore` job that took it just before overwriting the volume.
+    pub before_restore: Option<Uuid>,
 }
 
 pub struct NewBackup<'a> {
@@ -318,13 +320,15 @@ pub struct NewBackup<'a> {
     pub member: &'a str,
     pub size_mib: u32,
     pub scheduled: bool,
+    /// Set for the safety backup a `volume.restore` job takes (one per job).
+    pub before_restore: Option<Uuid>,
 }
 
 pub async fn record_backup(db: impl sqlx::PgExecutor<'_>, b: &NewBackup<'_>) -> Result<()> {
     sqlx::query(
         "INSERT INTO volume_backups (id, application_id, project, source, snapshot, name,
-                                     storage_pool, member, size_mib, scheduled)
-         SELECT $1, a.id, $3, $4, $5, $6, $7, $8, $9, $10 FROM applications a WHERE a.name = $2
+                                     storage_pool, member, size_mib, scheduled, before_restore)
+         SELECT $1, a.id, $3, $4, $5, $6, $7, $8, $9, $10, $11 FROM applications a WHERE a.name = $2
          ON CONFLICT (project, storage_pool, name) DO NOTHING",
     )
     .bind(Uuid::new_v4())
@@ -337,10 +341,14 @@ pub async fn record_backup(db: impl sqlx::PgExecutor<'_>, b: &NewBackup<'_>) -> 
     .bind(b.member)
     .bind(i32::try_from(b.size_mib).unwrap_or(i32::MAX))
     .bind(b.scheduled)
+    .bind(b.before_restore)
     .execute(db)
     .await?;
     Ok(())
 }
+
+const BACKUP_COLUMNS: &str = "b.id, b.project, b.source, b.snapshot, b.name, b.storage_pool,
+    b.member, b.size_mib, b.scheduled, b.created_at, b.before_restore";
 
 /// The backups of one of the application's volumes, oldest first.
 pub async fn volume_backups(
@@ -348,12 +356,11 @@ pub async fn volume_backups(
     application: &str,
     source: &str,
 ) -> Result<Vec<BackupRecord>> {
-    Ok(sqlx::query_as::<_, BackupRecord>(
-        "SELECT b.id, b.project, b.source, b.snapshot, b.name, b.storage_pool, b.member,
-                b.size_mib, b.scheduled, b.created_at
+    Ok(sqlx::query_as::<_, BackupRecord>(&format!(
+        "SELECT {BACKUP_COLUMNS}
          FROM volume_backups b JOIN applications a ON a.id = b.application_id
-         WHERE a.name = $1 AND b.source = $2 ORDER BY b.created_at, b.name",
-    )
+         WHERE a.name = $1 AND b.source = $2 ORDER BY b.created_at, b.name"
+    ))
     .bind(application)
     .bind(source)
     .fetch_all(pool)
@@ -367,4 +374,82 @@ pub async fn forget_backup(pool: &Pool, id: Uuid) -> Result<bool> {
         .await?
         .rows_affected()
         > 0)
+}
+
+/// One backup of one of the application's volumes, by the backup's Incus name.
+pub async fn volume_backup(
+    pool: &Pool,
+    application: &str,
+    source: &str,
+    name: &str,
+) -> Result<Option<BackupRecord>> {
+    Ok(sqlx::query_as::<_, BackupRecord>(&format!(
+        "SELECT {BACKUP_COLUMNS}
+         FROM volume_backups b JOIN applications a ON a.id = b.application_id
+         WHERE a.name = $1 AND b.source = $2 AND b.name = $3"
+    ))
+    .bind(application)
+    .bind(source)
+    .bind(name)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// The safety backup a `volume.restore` job took, if it took one.
+pub async fn backup_before_restore(pool: &Pool, job: Uuid) -> Result<Option<BackupRecord>> {
+    Ok(sqlx::query_as::<_, BackupRecord>(&format!(
+        "SELECT {BACKUP_COLUMNS} FROM volume_backups b WHERE b.before_restore = $1"
+    ))
+    .bind(job)
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// How many backups a volume has and when the newest was made.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct BackupSummary {
+    pub project: String,
+    pub source: String,
+    pub count: i64,
+    pub newest: Option<OffsetDateTime>,
+}
+
+/// One summary per backed-up volume (by project and Incus name).
+pub async fn backup_summaries(pool: &Pool) -> Result<Vec<BackupSummary>> {
+    Ok(sqlx::query_as::<_, BackupSummary>(
+        "SELECT project, source, count(*) AS count, max(created_at) AS newest
+         FROM volume_backups GROUP BY project, source ORDER BY project, source",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Every volume Apelora records, as `(project, pool, Incus name)`: application volumes and
+/// backups. Any other custom volume in Apelora's projects is not referenced by an application.
+pub async fn referenced_volumes(pool: &Pool) -> Result<Vec<(String, String, String)>> {
+    Ok(sqlx::query_as::<_, (String, String, String)>(
+        "SELECT project, storage_pool, incus_name FROM volumes
+         UNION SELECT project, storage_pool, name FROM volume_backups",
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// A recorded volume with the name of the application it belongs to.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct OwnedVolumeRecord {
+    pub application: String,
+    #[sqlx(flatten)]
+    pub volume: VolumeRecord,
+}
+
+/// Every recorded volume with its application, by application, module and name.
+pub async fn volumes_with_applications(pool: &Pool) -> Result<Vec<OwnedVolumeRecord>> {
+    Ok(sqlx::query_as::<_, OwnedVolumeRecord>(&format!(
+        "SELECT a.name AS application, {COLUMNS} FROM volumes v
+         JOIN applications a ON a.id = v.application_id
+         ORDER BY a.name, v.module, v.instance, v.name"
+    ))
+    .fetch_all(pool)
+    .await?)
 }

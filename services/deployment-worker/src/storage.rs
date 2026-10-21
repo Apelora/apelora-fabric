@@ -8,14 +8,22 @@
 //! volume as it was at a short-lived snapshot, in the backup pool and on another member where
 //! there is one, so it survives losing the volume's member; scheduled backups beyond what the
 //! schedule keeps are deleted, backups someone asked for are kept until someone deletes them.
+//!
+//! The `volume.restore` job brings a backup back into its volume: it refuses while an instance
+//! using the volume runs, copies the volume as it is now into the backup pool first (a safety
+//! backup, unless the person declined it), then copies the backup over the volume with an Incus
+//! `refresh` copy, which also deletes the volume's own snapshots. Each step re-reads Incus, and
+//! the safety backup is recorded with the job, so a retried attempt continues instead of
+//! starting over.
 
 use std::time::Duration;
 
 use apelora_domain::storage::{AUTO_SNAPSHOT_PREFIX, backup_name, snapshots_to_prune, stamped};
 use apelora_incus_adapter::{AdapterError, Provider};
 use apelora_persistence::{
-    DueVolume, NewBackup, Outcome, Pool, ScheduleKind, StoreError, audit, claim_due, forget_backup,
-    record_backup, record_scheduled, volume_backups,
+    ClaimedJob, DueVolume, NewBackup, Outcome, Pool, ScheduleKind, StoreError, audit,
+    backup_before_restore, claim_due, forget_backup, record_backup, record_scheduled,
+    volume_backups,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -129,7 +137,7 @@ pub async fn run_backup_job(
     };
     match back_up(provider, &req, time::OffsetDateTime::now_utc()).await {
         Ok((name, to, snapshot)) => {
-            record(pool, &req, &name, &to, &snapshot, false).await?;
+            record(pool, &req, &name, &to, &snapshot, false, None).await?;
             Ok(Outcome::Succeeded)
         }
         Err(e) => Ok(Outcome::Failed(e.to_string())),
@@ -143,6 +151,7 @@ async fn record(
     member: &str,
     snapshot: &str,
     scheduled: bool,
+    before_restore: Option<uuid::Uuid>,
 ) -> Result<(), StoreError> {
     // The backup's record and its audit row are written together.
     let mut tx = apelora_persistence::begin(pool).await?;
@@ -158,6 +167,7 @@ async fn record(
             member,
             size_mib: req.size_mib,
             scheduled,
+            before_restore,
         },
     )
     .await?;
@@ -166,7 +176,7 @@ async fn record(
         "storage-scheduler",
         if scheduled { "application.volume.backup.scheduled" } else { "application.volume.backup" },
         &format!("{}/{}", req.project, req.volume),
-        &json!({ "application": req.application, "module": req.module, "backup": name, "pool": req.backup_pool, "member": member }),
+        &json!({ "application": req.application, "module": req.module, "backup": name, "pool": req.backup_pool, "member": member, "beforeRestore": before_restore }),
     )
     .await?;
     apelora_persistence::commit(tx).await
@@ -254,7 +264,7 @@ async fn scheduled_backup(
     match back_up(provider, &req, time::OffsetDateTime::now_utc()).await {
         Ok((name, to, snapshot)) => {
             apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["backup", "ok"]);
-            record(pool, &req, &name, &to, &snapshot, true).await?;
+            record(pool, &req, &name, &to, &snapshot, true, None).await?;
             // Keep the newest scheduled backups; the ones someone asked for stay.
             let scheduled: Vec<_> = volume_backups(pool, &v.application, &v.incus_name)
                 .await?
@@ -291,6 +301,211 @@ async fn scheduled_backup(
             record_scheduled(pool, v.id, ScheduleKind::Backup, Some(&e.to_string())).await
         }
     }
+}
+
+/// What a `volume.restore` job carries; the control plane resolves every name from its records.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreRequest {
+    pub application: String,
+    pub project: String,
+    pub module: String,
+    /// The volume to overwrite (Incus name), its pool and member.
+    pub volume: String,
+    pub pool: String,
+    #[serde(default)]
+    pub member: String,
+    pub size_mib: u32,
+    /// The backup to bring back (Incus name), its pool and member.
+    pub backup: String,
+    pub backup_pool: String,
+    #[serde(default)]
+    pub backup_member: String,
+    /// Where the safety backup of the current data goes; `None`: none is taken.
+    #[serde(default)]
+    pub safety_pool: Option<String>,
+}
+
+/// Why a restore step stopped: Incus refused or failed, or the job store did.
+enum RestoreError {
+    Incus(AdapterError),
+    Store(StoreError),
+}
+
+impl From<AdapterError> for RestoreError {
+    fn from(e: AdapterError) -> Self {
+        RestoreError::Incus(e)
+    }
+}
+
+impl From<StoreError> for RestoreError {
+    fn from(e: StoreError) -> Self {
+        RestoreError::Store(e)
+    }
+}
+
+/// Instances using the volume that run now (from Incus's `used_by`).
+async fn running_users(
+    provider: &Provider,
+    project: &str,
+    used_by: &[String],
+) -> Result<Vec<String>, AdapterError> {
+    let mut running = Vec::new();
+    for path in used_by {
+        let Some(name) = path
+            .strip_prefix("/1.0/instances/")
+            .and_then(|r| r.split(['?', '/']).next())
+        else {
+            continue;
+        };
+        if provider
+            .instance(project, name)
+            .await?
+            .is_some_and(|s| s.status == "Running")
+        {
+            running.push(name.to_owned());
+        }
+    }
+    Ok(running)
+}
+
+/// Refuses (nothing changed) unless the volume and the backup exist and no instance using the
+/// volume runs. Checked before each step that changes something.
+async fn restore_preconditions(
+    provider: &Provider,
+    r: &RestoreRequest,
+) -> Result<Option<String>, AdapterError> {
+    let Some(v) = provider
+        .volume(&r.project, &r.pool, member(&r.member), &r.volume)
+        .await?
+    else {
+        return Ok(Some(format!("volume {} is not in Incus", r.volume)));
+    };
+    if provider
+        .volume(
+            &r.project,
+            &r.backup_pool,
+            member(&r.backup_member),
+            &r.backup,
+        )
+        .await?
+        .is_none()
+    {
+        return Ok(Some(format!("backup {} is not in Incus", r.backup)));
+    }
+    let running = running_users(provider, &r.project, &v.used_by).await?;
+    if !running.is_empty() {
+        return Ok(Some(format!(
+            "stop {} first: a volume is never overwritten under a running instance",
+            running.join(", ")
+        )));
+    }
+    Ok(None)
+}
+
+/// Runs a `volume.restore` job (see the module documentation for its steps and safe points).
+pub async fn run_restore_job(
+    pool: &Pool,
+    provider: &Provider,
+    job: &ClaimedJob,
+) -> Result<Outcome, StoreError> {
+    let r: RestoreRequest = match serde_json::from_value(job.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return Ok(Outcome::Rejected(format!("invalid payload: {e}"))),
+    };
+    match restore(pool, provider, job, &r).await {
+        Ok(outcome) => Ok(outcome),
+        Err(RestoreError::Incus(e)) => Ok(Outcome::Failed(e.to_string())),
+        Err(RestoreError::Store(e)) => Err(e),
+    }
+}
+
+async fn restore(
+    pool: &Pool,
+    provider: &Provider,
+    job: &ClaimedJob,
+    r: &RestoreRequest,
+) -> Result<Outcome, RestoreError> {
+    if let Some(why) = restore_preconditions(provider, r).await? {
+        return Ok(Outcome::Rejected(format!("nothing was changed: {why}")));
+    }
+    // 1. The safety backup: the volume as it is now, kept with the other backups. A retried
+    //    attempt finds the one an earlier attempt took (it is recorded with this job).
+    let mut safety = None;
+    if let Some(safety_pool) = &r.safety_pool {
+        safety = match backup_before_restore(pool, job.id).await? {
+            Some(b) => Some(b.name),
+            None => {
+                let req = BackupRequest {
+                    application: r.application.clone(),
+                    project: r.project.clone(),
+                    module: r.module.clone(),
+                    volume: r.volume.clone(),
+                    pool: r.pool.clone(),
+                    member: r.member.clone(),
+                    size_mib: r.size_mib,
+                    backup_pool: safety_pool.clone(),
+                };
+                let (name, to, snapshot) =
+                    back_up(provider, &req, time::OffsetDateTime::now_utc()).await?;
+                record(pool, &req, &name, &to, &snapshot, false, Some(job.id)).await?;
+                tracing::info!(volume = %r.volume, backup = %name, "restore: safety backup taken");
+                Some(name)
+            }
+        };
+    }
+    // 2. Safe point: nothing has been overwritten yet.
+    if let Some(by) = apelora_persistence::jobs::cancel_requested(pool, job.id).await? {
+        return Ok(Outcome::Cancelled(format!(
+            "cancelled by {by} before volume {} was changed{}",
+            r.volume,
+            safety
+                .as_deref()
+                .map(|b| format!("; the safety backup {b} is kept"))
+                .unwrap_or_default()
+        )));
+    }
+    // An instance may have been started while the safety backup was taken.
+    if let Some(why) = restore_preconditions(provider, r).await? {
+        return Ok(Outcome::Rejected(format!(
+            "nothing was overwritten: {why}{}",
+            safety
+                .as_deref()
+                .map(|b| format!(" (the safety backup {b} is kept)"))
+                .unwrap_or_default()
+        )));
+    }
+    // 3. Copy the backup over the volume. One Incus operation; a failure part-way leaves the
+    //    volume partly copied, and the next attempt copies the whole backup again.
+    let snapshots: Vec<String> = provider
+        .volume_snapshots(&r.project, &r.pool, member(&r.member), &r.volume)
+        .await?
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    tracing::info!(volume = %r.volume, backup = %r.backup, snapshots = snapshots.len(), "restore: copying the backup over the volume");
+    provider
+        .refresh_volume(
+            &r.project,
+            &r.backup_pool,
+            member(&r.backup_member),
+            &r.backup,
+            &r.pool,
+            member(&r.member),
+            &r.volume,
+            &r.application,
+        )
+        .await?;
+    audit(
+        pool,
+        "worker",
+        "application.volume.restored",
+        &format!("{}/{}", r.project, r.volume),
+        &json!({ "application": r.application, "module": r.module, "backup": r.backup,
+                 "safetyBackup": safety, "snapshotsDeleted": snapshots, "jobId": job.id }),
+    )
+    .await?;
+    Ok(Outcome::Succeeded)
 }
 
 /// One pass: every due snapshot, then every due backup.
@@ -407,6 +622,200 @@ mod tests {
         );
         let v = &application_volumes(&pool, "shop").await.expect("volumes")[0];
         assert!(v.last_snapshot_at.is_some() && v.snapshot_error.is_none());
+    }
+
+    /// A backup of the deployed volume, made through the `volume.backup` job.
+    async fn backed_up(pool: &Pool, provider: &Provider) -> apelora_persistence::BackupRecord {
+        enqueue_job(pool, "volume.backup", None, &json!({ "application": "shop", "project": "apelora", "module": "db-01",
+            "volume": "shop-db-01-data", "pool": "local", "member": "mock-member-01", "sizeMib": 1024, "backupPool": "backup" }), None)
+            .await
+            .expect("enqueue");
+        while crate::run_once(pool, provider, "test").await.expect("run") {}
+        volume_backups(pool, "shop", "shop-db-01-data")
+            .await
+            .expect("backups")
+            .pop()
+            .expect("a backup")
+    }
+
+    fn restore_payload(b: &apelora_persistence::BackupRecord, safety: bool) -> serde_json::Value {
+        json!({ "application": "shop", "project": "apelora", "module": "db-01", "volume": "shop-db-01-data",
+            "pool": "local", "member": "mock-member-01", "sizeMib": 1024, "backup": b.name,
+            "backupPool": b.storage_pool, "backupMember": b.member, "safetyPool": safety.then_some("backup") })
+    }
+
+    async fn run_restore(
+        pool: &Pool,
+        provider: &Provider,
+        payload: serde_json::Value,
+    ) -> (uuid::Uuid, String, Option<String>) {
+        let job = enqueue_job(pool, "volume.restore", None, &payload, None)
+            .await
+            .expect("enqueue")
+            .id();
+        while crate::run_once(pool, provider, "test").await.expect("run") {}
+        let j = apelora_persistence::get_job(pool, job).await.expect("job");
+        (job, j.status, j.last_error)
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_restore_takes_a_safety_backup_then_copies_the_backup_over_the_stopped_volume(
+        pool: Pool,
+    ) {
+        let (m, provider, _) = deployed(&pool).await;
+        let b = backed_up(&pool, &provider).await;
+        provider
+            .snapshot_volume(
+                "apelora",
+                "local",
+                Some("mock-member-01"),
+                "shop-db-01-data",
+                "shop",
+                "before",
+            )
+            .await
+            .expect("snapshot");
+
+        // Refused while the instance using the volume runs: nothing is copied.
+        m.storage()
+            .volumes
+            .get_mut("apelora/local/mock-member-01/shop-db-01-data")
+            .expect("volume")
+            .used_by = vec!["/1.0/instances/shop-db-01?project=apelora".into()];
+        let copies = m.storage().copies.len();
+        let (_, status, error) = run_restore(&pool, &provider, restore_payload(&b, true)).await;
+        assert_eq!(status, "failed");
+        assert!(error.unwrap_or_default().contains("stop shop-db-01 first"));
+        assert_eq!(m.storage().copies.len(), copies, "nothing was copied");
+
+        // Stopped: a safety backup, then the refresh copy, which drops the volume's snapshots.
+        provider
+            .change_state(
+                "apelora",
+                "shop-db-01",
+                apelora_domain::InstanceAction::Stop,
+                false,
+            )
+            .await
+            .expect("stop");
+        tokio::time::sleep(Duration::from_millis(1100)).await; // backup names carry the second
+        let (job, status, error) = run_restore(&pool, &provider, restore_payload(&b, true)).await;
+        assert_eq!(status, "succeeded", "{error:?}");
+        let safety = backup_before_restore(&pool, job)
+            .await
+            .expect("read")
+            .expect("a safety backup is recorded with the job");
+        assert!(!safety.scheduled);
+        let copies = m.storage().copies.clone();
+        assert!(
+            copies.iter().any(|c| c.starts_with("shop-db-01-data/bk-")),
+            "{copies:?}"
+        );
+        assert_eq!(
+            copies.last().map(String::as_str),
+            Some(
+                format!(
+                    "{} -> local/mock-member-01/shop-db-01-data (refresh)",
+                    b.name
+                )
+                .as_str()
+            )
+        );
+        assert!(
+            provider
+                .volume_snapshots(
+                    "apelora",
+                    "local",
+                    Some("mock-member-01"),
+                    "shop-db-01-data"
+                )
+                .await
+                .expect("snapshots")
+                .is_empty()
+        );
+        let restored = apelora_persistence::recent_audit(&pool, 20)
+            .await
+            .expect("audit")
+            .into_iter()
+            .find(|e| e.action == "application.volume.restored")
+            .expect("audited");
+        assert_eq!(restored.target, "apelora/shop-db-01-data");
+
+        // Without a safety backup only the copy is made; a missing backup is refused.
+        let before = volume_backups(&pool, "shop", "shop-db-01-data")
+            .await
+            .expect("backups")
+            .len();
+        let (_, status, _) = run_restore(&pool, &provider, restore_payload(&b, false)).await;
+        assert_eq!(status, "succeeded");
+        assert_eq!(
+            volume_backups(&pool, "shop", "shop-db-01-data")
+                .await
+                .expect("backups")
+                .len(),
+            before
+        );
+        let mut gone = restore_payload(&b, false);
+        gone["backup"] = json!("shop-db-01-data-bk-19990101000000");
+        let (_, status, error) = run_restore(&pool, &provider, gone).await;
+        assert_eq!(status, "failed");
+        assert!(error.unwrap_or_default().contains("is not in Incus"));
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_restore_cancelled_after_its_safety_backup_leaves_the_volume_and_keeps_the_backup(
+        pool: Pool,
+    ) {
+        let (m, provider, _) = deployed(&pool).await;
+        let b = backed_up(&pool, &provider).await;
+        provider
+            .change_state(
+                "apelora",
+                "shop-db-01",
+                apelora_domain::InstanceAction::Stop,
+                false,
+            )
+            .await
+            .expect("stop");
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let job = enqueue_job(
+            &pool,
+            "volume.restore",
+            None,
+            &restore_payload(&b, true),
+            None,
+        )
+        .await
+        .expect("enqueue")
+        .id();
+        let claimed = apelora_persistence::claim_job(&pool, "test", 30)
+            .await
+            .expect("claim")
+            .expect("claimed");
+        assert_eq!(claimed.id, job);
+        // Asked to cancel while it runs: it stops at the safe point after the safety backup.
+        sqlx::query("UPDATE jobs SET cancel_requested_at = now(), cancel_requested_by = 'user:x' WHERE id = $1")
+            .bind(job)
+            .execute(&pool)
+            .await
+            .expect("cancel");
+        let outcome = run_restore_job(&pool, &provider, &claimed)
+            .await
+            .expect("run");
+        let Outcome::Cancelled(note) = outcome else {
+            panic!("expected a cancellation, got {outcome:?}");
+        };
+        assert!(note.contains("the safety backup"), "{note}");
+        assert!(
+            backup_before_restore(&pool, job)
+                .await
+                .expect("read")
+                .is_some()
+        );
+        assert!(
+            !m.storage().copies.iter().any(|c| c.ends_with("(refresh)")),
+            "the volume was not overwritten"
+        );
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

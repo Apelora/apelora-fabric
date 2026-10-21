@@ -545,6 +545,32 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["application.operate"],
     ),
     (
+        "GET",
+        "/api/v1/applications/{name}/volumes/{volume}/backups",
+        &["application.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/backups",
+        &["application.operate"],
+    ),
+    (
+        "PUT",
+        "/api/v1/applications/{name}/volumes/{volume}/schedules",
+        &["application.deploy"],
+    ),
+    // The dry run is offered to whoever may restore; both check the application.
+    (
+        "GET",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
+        &["application.operate"],
+    ),
+    (
+        "POST",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
+        &["application.operate"],
+    ),
+    (
         "POST",
         "/api/v1/applications/{name}/plan",
         &["application.design", "application.deploy"],
@@ -662,7 +688,20 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/image-mirrors", &["cluster.view"]),
     ("GET", "/api/v1/projects", &["cluster.view"]),
     ("GET", "/api/v1/networks", &["cluster.view"]),
+    // Infrastructure settings in effect: uplink, address ranges, project limits.
+    ("GET", "/api/v1/networks/settings", &["cluster.view"]),
+    // Per application; the handler lists only applications the caller may view.
+    (
+        "GET",
+        "/api/v1/networks/applications",
+        &["application.view"],
+    ),
     ("GET", "/api/v1/storage-pools", &["cluster.view"]),
+    ("GET", "/api/v1/storage/pools", &["cluster.view"]),
+    // Per application; the handler lists only applications the caller may view.
+    ("GET", "/api/v1/storage/volumes", &["application.view"]),
+    // Custom volumes no application references: infrastructure, platform-wide.
+    ("GET", "/api/v1/storage/orphans", &["cluster.view"]),
     ("GET", "/api/v1/audit", &["audit.read"]),
     ("GET", "/api/v1/audit/export", &["audit.read"]),
     // Monitoring (metrics.rs): scraping needs the metrics permission; the set-up page also
