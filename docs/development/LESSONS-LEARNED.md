@@ -125,6 +125,10 @@ Read these first. Most entries below come from one of four causes:
 - **Test code was flagged by `clippy::unwrap_used` and by code scanning** (2026-10-21) → the workspace denies `unwrap` outside tests only by convention, and CodeQL reads inline `mod tests` with fixed keys as hard-coded secrets. → Test fixtures live in `tests.rs`/`*_tests.rs` (left out of scanning) with `#![allow(clippy::unwrap_used)]` and a reason; an inline test module with a fixed secret moves out.
 - **A CLI that prints a one-time token cannot satisfy the cleartext-logging query** (2026-10-21) → writing the secret straight to stdout instead of through `println!` only moved the finding. → Do not rewrite code to hide a deliberate flow from a scanner; decide to dismiss with a written reason, or change the design (for example write to an owner-only file).
 
+- **`clippy::large_enum_variant` flipped between failing and being an unfulfilled `expect` as the mock gained fields** (2026-10-21; `Provider` in the adapter) → which variant is larger changes whenever either side gains a field, and an unmet `#[expect]` is itself an error. → Use `#[allow(..., reason = ...)]` for a lint whose trigger depends on sizes.
+- **Every `sqlx::test` failed with `PoolTimedOut`** (2026-10-21) → the dev PostgreSQL container had stopped after a restart, and the tests give no hint. → Run `docker compose -f infra/dev/compose.yaml up -d` and wait a few seconds before concluding a Rust test is broken.
+- **A timing test (`concurrent_callers_share_one_probe`) failed in a full workspace run and passed alone, three times** (2026-10-21) → it depends on scheduling and the full run loads the machine. → Re-run a failing test alone before debugging it; if it only fails under load, make it wait for a condition instead of time (not done yet for this one).
+
 ## Git and collaboration
 
 - **Pre-staged deletions went into the wrong commit; Cargo.lock was left out** → check `git status` and `git diff --cached --stat` before each commit. Commit Cargo.lock with the change that alters it.

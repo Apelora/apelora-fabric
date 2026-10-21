@@ -1799,6 +1799,92 @@ impl IncusClient {
         Ok(LogTail::from_bytes(&kept, size, max))
     }
 
+    /// `POST /1.0/instances/<name>/exec` without a terminal, then waits for the operation and
+    /// reads the command's exit status from its metadata. The instance must be Apelora's and
+    /// running (checked first). A command still running at the time limit is cancelled.
+    pub(crate) async fn run_probe(
+        &self,
+        project: &str,
+        name: &str,
+        command: &[String],
+        uid: u32,
+        timeout_secs: u8,
+    ) -> Result<crate::ProbeRun, AdapterError> {
+        match self.instance(project, name).await? {
+            None => return Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Some(s) if !s.managed => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: "the instance is not managed by Apelora".into(),
+                });
+            }
+            Some(s) if s.status != "Running" => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: format!("the instance is {}", s.status.to_lowercase()),
+                });
+            }
+            Some(_) => {}
+        }
+        let body = json!({
+            "command": command,
+            "environment": { "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
+            "wait-for-websocket": false,
+            "interactive": false,
+            "record-output": false,
+            "user": uid,
+            "group": uid,
+            "cwd": "/",
+        });
+        let id = self
+            .start_operation(
+                Method::POST,
+                &format!("/1.0/instances/{name}/exec?project={project}"),
+                Some(&body),
+            )
+            .await?;
+        if !is_operation_id(&id) {
+            return Err(AdapterError::Decode("the exec operation has no id".into()));
+        }
+        let waited: Value = self
+            .get(&format!(
+                "/1.0/operations/{id}/wait?timeout={}",
+                timeout_secs.clamp(1, 15)
+            ))
+            .await?;
+        match waited["status"].as_str().unwrap_or_default() {
+            "Success" => Ok(crate::ProbeRun {
+                exit: waited["metadata"]["return"]
+                    .as_i64()
+                    .and_then(|r| i32::try_from(r).ok()),
+                timed_out: false,
+                error: None,
+            }),
+            "Failure" | "Cancelled" => Ok(crate::ProbeRun {
+                exit: None,
+                timed_out: false,
+                error: Some(
+                    waited["err"]
+                        .as_str()
+                        .filter(|e| !e.is_empty())
+                        .unwrap_or("Incus could not run the command")
+                        .to_owned(),
+                ),
+            }),
+            // Still running at the limit: stop it, and say it was too slow.
+            _ => {
+                let _ = self
+                    .call::<Value>(Method::DELETE, &format!("/1.0/operations/{id}"), None)
+                    .await;
+                Ok(crate::ProbeRun {
+                    exit: None,
+                    timed_out: true,
+                    error: None,
+                })
+            }
+        }
+    }
+
     /// Waits up to `timeout_secs` (kept below the request timeout) for an operation to finish
     /// and returns its state, which may still be running.
     pub async fn wait_operation(

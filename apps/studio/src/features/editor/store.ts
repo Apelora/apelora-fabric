@@ -3,8 +3,8 @@ import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/module-ca
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
   addModule, addPort, attachNew, connect, setPlatform, tidyLayout, type PlatformId, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupModules, ungroupModule, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectModule, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeModules, removePort,
-  renameModule, resetNodeSize, resizeNode, setDensity, setInternet, setLiveMigration, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
-  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port, type Volume,
+  renameModule, resetNodeSize, resizeNode, setDensity, setInternet, setLiveMigration, setReadiness, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
+  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port, type Readiness, type Volume,
 } from "@apelora/assembly-model";
 
 export interface Toast { id: number; kind: "info" | "success" | "warning" | "error"; text: string }
@@ -141,6 +141,7 @@ export interface StudioState {
   setModuleVolumes: (id: string, volumes: Volume[] | undefined) => void;
   /** A VM module keeps running when it is moved. */
   setModuleLiveMigration: (id: string, on: boolean) => void;
+  setModuleReadiness: (id: string, readiness: Readiness | undefined) => void;
   addPortTo: (id: string, direction: PortDirection, type?: PortType) => void;
   editPort: (id: string, portId: string, patch: Partial<Pick<Port, "name" | "type" | "optional" | "multiplicity">>) => void;
   deletePort: (id: string, portId: string) => void;
@@ -457,6 +458,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
       setInternetAccess: (id, level) => commit(setInternet(get().assembly, id, level)),
       setModuleVolumes: (id, volumes) => commit(setVolumes(get().assembly, id, volumes)),
       setModuleLiveMigration: (id, on) => commit(setLiveMigration(get().assembly, id, on)),
+      setModuleReadiness: (id, readiness) => commit(setReadiness(get().assembly, id, readiness)),
       addPortTo: (id, direction, type) => commit(addPort(get().assembly, id, direction, type).assembly),
       editPort: (id, portId, patch) => commit(updatePort(get().assembly, id, portId, patch)),
       deletePort: (id, portId) => {

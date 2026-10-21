@@ -2,7 +2,7 @@ import { API_VERSION, ASSEMBLY_KIND, LAYOUT_VERSION } from "./constants";
 import { DENSITY_SIZE, effectiveSize, minHeightForPorts } from "./geometry";
 import { explainConnection } from "./validate";
 import { MAX_REPLICAS } from "./schema";
-import type { InternetAccess, Volume } from "./schema";
+import type { InternetAccess, Readiness, Volume } from "./schema";
 import type { ModuleClass, ApplicationAssembly, ModuleInstance, ConfigValue, Connection, Density, Endpoint, Port, PortDirection, PortType } from "./schema";
 
 function dropLinks(a: ApplicationAssembly, pred: (l: NonNullable<ApplicationAssembly["spec"]["links"]>[number]) => boolean): ApplicationAssembly["spec"]["links"] {
@@ -152,6 +152,11 @@ export function setInternet(a: ApplicationAssembly, id: string, level: InternetA
 /** Sets a module's volumes; `undefined` goes back to its class's. */
 export function setVolumes(a: ApplicationAssembly, id: string, volumes: Volume[] | undefined): ApplicationAssembly {
   return updateModule(a, id, ({ volumes: _old, ...x }) => (volumes ? { ...x, volumes } : x));
+}
+
+/** Sets a module's application-level readiness check; `undefined` goes back to its class's. */
+export function setReadiness(a: ApplicationAssembly, id: string, readiness: Readiness | undefined): ApplicationAssembly {
+  return updateModule(a, id, ({ readiness: _old, ...x }) => (readiness ? { ...x, readiness } : x));
 }
 
 /** Turns live migration on or off for a (VM) module; off is stored as absent. */

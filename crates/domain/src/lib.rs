@@ -19,6 +19,7 @@ pub mod mobility;
 pub mod network;
 pub mod plan;
 pub mod preflight;
+pub mod readiness;
 pub mod recovery;
 pub mod removal;
 pub mod storage;

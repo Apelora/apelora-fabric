@@ -1,6 +1,6 @@
 import { trimHyphens } from "./ops";
 import { effectiveValue } from "./config";
-import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
+import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Readiness, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -116,6 +116,10 @@ export function instanceRequestFor(
 export const volumesOf = (cls: ModuleClass | undefined, module: { volumes?: Volume[] }): Volume[] =>
   module.volumes ?? cls?.runtime?.volumes ?? [];
 
+/** A module's application-level readiness check: its own when the design sets one, else its class's. */
+export const readinessOf = (cls: ModuleClass | undefined, module: { readiness?: Readiness }): Readiness | undefined =>
+  module.readiness ?? cls?.runtime?.readiness;
+
 /** Whether every volume (at least one) is on the shared pool, so the module restarts elsewhere after its server fails. */
 export const restartsElsewhere = (volumes: Volume[]): boolean => volumes.length > 0 && volumes.every((v) => v.class === "data-replicated");
 
@@ -138,6 +142,8 @@ export interface DeployableModule {
   availability: Availability;
   internet: InternetAccess;
   guestOs: GuestOs;
+  /** Runs inside each instance; exit 0 means the application is ready. */
+  readiness?: Readiness;
   /** What each instance gets (also in `spec.config` as Incus limits). */
   resources: Resources;
   /** Volumes each instance keeps (also in `spec.volumes`). */
@@ -170,7 +176,7 @@ export function deploymentModules(
     if (!cls) { skip(`unknown module class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), resources: a.resources, volumes: volumesOf(cls, a), liveMigration: a.liveMigration ?? false });
+    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), ...(readinessOf(cls, a) ? { readiness: readinessOf(cls, a) } : {}), resources: a.resources, volumes: volumesOf(cls, a), liveMigration: a.liveMigration ?? false });
     else skip(r.error);
   }
   return { deployable, designOnly };

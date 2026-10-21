@@ -1255,3 +1255,70 @@ async fn the_list_and_the_detail_agree_and_legacy_tokens_still_see_everything(po
         Some(1)
     );
 }
+
+#[allow(clippy::unwrap_used)] // test fixture: a failed unwrap is the failure
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_readiness_command_is_checked_before_a_deployment_is_queued_and_kept_with_its_desired_state(
+    pool: Pool,
+) {
+    let (l, _mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    let plan = |readiness: Value| {
+        let mut m = module("db-01", "stateful");
+        m["readiness"] = readiness;
+        let (l, owner) = (&l, s.owner.clone());
+        async move {
+            l.req("POST", "/api/v1/applications/shop/plan", &owner, Some(json!({ "project": "acme-prod-live", "document": {}, "modules": [m], "connections": [] }))).await
+        }
+    };
+    for (readiness, why) in [
+        (json!({ "command": ["sh", "-c", "pg_isready"] }), "a shell"),
+        (
+            json!({ "command": ["pg_isready; reboot"] }),
+            "metacharacters in the program",
+        ),
+        (json!({ "command": [] }), "nothing to run"),
+        (
+            json!({ "command": ["pg_isready"], "timeoutSecs": 99 }),
+            "too long",
+        ),
+    ] {
+        let (st, b) = plan(readiness).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{why}: {b}");
+        assert!(
+            b["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("readiness command"),
+            "{why}: {b}"
+        );
+    }
+    let (st, b) = plan(json!({ "command": ["pg_isready", "-q"], "timeoutSecs": 3 })).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+
+    // Deployed, the command is part of the recorded desired state.
+    let (st, v) = l
+        .req(
+            "POST",
+            "/api/v1/applications/shop/versions",
+            &s.owner,
+            Some(json!({ "label": "first" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let mut m = module("db-01", "stateful");
+    m["readiness"] = json!({ "command": ["pg_isready", "-q"], "timeoutSecs": 3 });
+    let (st, d) = l.req("POST", "/api/v1/applications/shop/deployments", &s.owner, Some(json!({ "project": "acme-prod-live", "document": {}, "version": v["revision"], "modules": [m], "connections": [] }))).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    let desired: Value = sqlx::query_scalar(
+        "SELECT desired FROM application_deployments ORDER BY updated_at DESC LIMIT 1",
+    )
+    .fetch_one(&l.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        desired[0]["readiness"],
+        json!({ "command": ["pg_isready", "-q"], "timeoutSecs": 3 }),
+        "{desired}"
+    );
+}

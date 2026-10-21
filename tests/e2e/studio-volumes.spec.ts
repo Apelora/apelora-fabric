@@ -143,3 +143,51 @@ test("a module's volumes can live on the shared pool, all of them or none, and t
   const saved = await page.evaluate((nodeId) => JSON.stringify((window as unknown as { __studio: { getState: () => { assembly: { spec: { modules: { id: string; volumes?: object[] }[] } } } } }).__studio.getState().assembly.spec.modules.find((m) => m.id === nodeId)?.volumes), id);
   expect(saved).not.toContain("class");
 });
+
+test("a module can declare an application check: it is validated, reviewed and sent with the plan", async ({ page }) => {
+  let planBody: { modules: { module: string; readiness?: { command: string[]; timeoutSecs?: number } }[] } | null = null;
+  await stub(page, {
+    "GET /api/v1/health": () => ({ json: health }),
+    "GET /api/v1/whoami": () => ({ json: operator }),
+    "POST /api/v1/applications/commerce-stack/plan": (req) => { planBody = req.postDataJSON(); return { json: { items: [], warnings: [] } }; },
+  });
+  await open(page);
+  await openProps(page, "nginx-01");
+  const command = page.getByTestId("readiness-command");
+  await expect(command).toHaveValue("");
+  await expect(page.getByTestId("readiness-timeout")).toBeDisabled();
+
+  // A shell and unsafe words are refused with the reason, and the field goes back.
+  await command.fill("sh -c true");
+  await command.press("Enter");
+  await expect(page.getByTestId("readiness-error")).toContainText("shell");
+  await expect(command).toHaveValue("");
+  await command.fill("curl;reboot");
+  await command.press("Enter");
+  await expect(page.getByTestId("readiness-error")).toContainText("program name");
+  await command.fill("curl -fsS http://127.0.0.1/health");
+  await command.press("Enter");
+  await expect(page.getByTestId("readiness-error")).toHaveCount(0);
+  await expect(page.getByTestId("readiness-timeout")).toBeEnabled();
+  await page.getByTestId("readiness-timeout").fill("3");
+  await page.getByTestId("readiness-timeout").press("Enter");
+  await page.getByTestId("readiness-timeout").fill("99");
+  await page.getByTestId("readiness-timeout").press("Enter");
+  await expect(page.getByTestId("readiness-timeout")).toHaveValue("3");
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("deploy-open").click();
+  const dialog = page.getByTestId("deploy-dialog");
+  await expect(dialog.getByTestId("deploy-readiness")).toContainText("curl -fsS http://127.0.0.1/health");
+  await dialog.getByTestId("deploy-preview").click();
+  await expect.poll(() => planBody).not.toBeNull();
+  expect(planBody!.modules.find((m) => m.module === "nginx-01")?.readiness).toEqual({ command: ["curl", "-fsS", "http://127.0.0.1/health"], timeoutSecs: 3 });
+  expect(planBody!.modules.find((m) => m.module === "haproxy-01")?.readiness, "other modules have none").toBeUndefined();
+  await page.keyboard.press("Escape");
+
+  // Clearing the field goes back to the class's (none): nothing stays in the design.
+  await openProps(page, "nginx-01");
+  await page.getByTestId("readiness-command").fill("");
+  await page.getByTestId("readiness-command").press("Enter");
+  await expect(page.getByTestId("readiness-timeout")).toBeDisabled();
+});

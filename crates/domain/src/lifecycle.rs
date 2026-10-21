@@ -308,6 +308,118 @@ mod tests {
         })
     }
 
+    fn inst(
+        name: &str,
+        project: &str,
+        owner: Option<(&str, &str)>,
+        managed: bool,
+        status: &str,
+    ) -> crate::Instance {
+        crate::Instance {
+            name: name.into(),
+            project: project.into(),
+            kind: crate::InstanceKind::Container,
+            status: status.into(),
+            location: "m1".into(),
+            architecture: "x86_64".into(),
+            description: String::new(),
+            managed,
+            owner: owner.map(|(app, module)| crate::Owner {
+                application: app.into(),
+                module: module.into(),
+                replica: 1,
+            }),
+            evacuate: None,
+            unreachable: false,
+        }
+    }
+
+    #[test]
+    fn the_observed_instances_are_only_this_applications_managed_ones_in_its_project() {
+        let all = vec![
+            inst(
+                "shop-web-01",
+                "p",
+                Some(("shop", "web-01")),
+                true,
+                "Running",
+            ),
+            inst("shop-db-01", "p", Some(("shop", "db-01")), true, "Stopped"),
+            inst(
+                "other-web-01",
+                "p",
+                Some(("other", "web-01")),
+                true,
+                "Running",
+            ),
+            inst(
+                "shop-web-01",
+                "elsewhere",
+                Some(("shop", "web-01")),
+                true,
+                "Running",
+            ),
+            inst("shop-x", "p", Some(("shop", "x")), false, "Running"),
+            inst("stray", "p", None, true, "Running"),
+        ];
+        let got = observed_for("shop", "p", &all, &|n| n == "shop-db-01");
+        assert_eq!(got.len(), 2, "{got:?}");
+        let web = got.iter().find(|o| o.module == "web-01").expect("web");
+        assert_eq!(
+            (
+                web.instance.as_str(),
+                web.status.as_str(),
+                web.unhealthy,
+                web.unreachable
+            ),
+            ("shop-web-01", "Running", false, false)
+        );
+        let db = got.iter().find(|o| o.module == "db-01").expect("db");
+        assert_eq!(
+            (db.status.as_str(), db.unhealthy),
+            ("Stopped", true),
+            "the supervisor's verdict is carried"
+        );
+        assert!(observed_for("shop", "nowhere", &all, &|_| false).is_empty());
+        assert!(observed_for("nobody", "p", &all, &|_| false).is_empty());
+    }
+
+    #[test]
+    fn replicas_are_listed_per_module_in_order() {
+        let d = |module: &str, replicas: u8| DesiredModule {
+            module: module.into(),
+            spec: crate::InstanceSpec {
+                project: String::new(),
+                name: String::new(),
+                kind: crate::InstanceKind::Container,
+                source: crate::ImageSource {
+                    protocol: crate::ImageProtocol::Simplestreams,
+                    server: "https://images.example".into(),
+                    alias: "debian/13".into(),
+                    fingerprint: None,
+                },
+                profiles: vec![],
+                config: Default::default(),
+                start: true,
+                architectures: vec![],
+                owner: None,
+                network: None,
+                volumes: vec![],
+                root_pool: None,
+            },
+            replicas,
+            availability: Availability::Stateless,
+            internet: Default::default(),
+            guest_os: Default::default(),
+            readiness: None,
+        };
+        assert_eq!(
+            replicas_of(&[d("web-01", 3), d("api-01", 1)]),
+            vec![("web-01".to_owned(), 3), ("api-01".to_owned(), 1)]
+        );
+        assert!(replicas_of(&[]).is_empty());
+    }
+
     #[test]
     fn providers_start_before_their_consumers_and_stop_after_them() {
         let a = names(&["web", "api", "db", "cache"]);
@@ -501,6 +613,7 @@ mod tests {
             availability,
             internet: Default::default(),
             guest_os: Default::default(),
+            readiness: None,
         };
         let list = [
             d("web", Availability::Stateless),

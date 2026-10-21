@@ -93,6 +93,27 @@ const volumeList = z.array(VolumeSchema).max(MAX_VOLUMES).superRefine((vs, ctx) 
   if (shared > 0 && shared < vs.length) ctx.addIssue({ code: "custom", path: [], message: "volumes of class data-replicated and data-local cannot be mixed: a data-local volume cannot follow the module to another server" });
 });
 
+/**
+ * An application-level readiness check: a program and its arguments (never a shell line) that
+ * runs inside each instance as an unprivileged user and exits 0 when the application is ready, for
+ * example `pg_isready -q`. The load balancer's port check cannot tell a hung application from a
+ * ready one; this can. The control plane enforces the same limits.
+ */
+export const MAX_READINESS_ARGS = 8;
+export const MAX_READINESS_SECONDS = 15;
+const SHELLS = new Set(["sh", "bash", "dash", "ash", "zsh", "ksh", "csh", "tcsh", "fish", "busybox"]);
+export const ReadinessSchema = z
+  .object({
+    command: z.array(z.string().min(1).max(200).refine((a) => [...a].every((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127), "no control characters")).min(1).max(MAX_READINESS_ARGS),
+    timeoutSecs: z.number().int().min(1).max(MAX_READINESS_SECONDS).optional(),
+  })
+  .superRefine((r, ctx) => {
+    const program = r.command[0] ?? "";
+    if (!/^[A-Za-z0-9_./+-]+$/.test(program)) ctx.addIssue({ code: "custom", path: ["command", 0], message: "start with a program name or path (letters, digits and _ . / - +)" });
+    else if (SHELLS.has(program.split("/").pop() ?? "")) ctx.addIssue({ code: "custom", path: ["command", 0], message: `a shell (${program}) is not allowed: name the program itself` });
+  });
+export type Readiness = z.infer<typeof ReadinessSchema>;
+
 export const ModuleInstanceSchema = z.object({
   id: entityId,
   name: z.string().min(1).max(48),
@@ -109,6 +130,8 @@ export const ModuleInstanceSchema = z.object({
   volumes: volumeList.optional(),
   /** A VM that keeps running when it is moved to another server; absent means off. */
   liveMigration: z.boolean().optional(),
+  /** Its application-level readiness check; absent means the class's (if any). */
+  readiness: ReadinessSchema.optional(),
 });
 
 /** Outbound access to the internet, per module. Inside the application only cables count. */
@@ -218,9 +241,9 @@ export type GuestOs = (typeof GUEST_OS)[number];
 const volumes = volumeList.optional();
 
 export const RuntimeSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, volumes }),
-  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional(), volumes }),
-  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes }),
+  z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, volumes, readiness: ReadinessSchema.optional() }),
+  z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional(), volumes, readiness: ReadinessSchema.optional() }),
+  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes, readiness: ReadinessSchema.optional() }),
 ]);
 
 /**

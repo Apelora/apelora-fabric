@@ -240,6 +240,12 @@ pub const SETTINGS: &[Setting] = &[
         "Shared storage pool behind the data-replicated volume class (modules that restart on another server after fencing)",
     ),
     s(
+        "APELORA_PROBE_UID",
+        Worker,
+        Some("65534"),
+        "User a module's readiness command runs as inside its instances (not root by default)",
+    ),
+    s(
         "APELORA_DB_BACKUP_DIR",
         Cp,
         None,

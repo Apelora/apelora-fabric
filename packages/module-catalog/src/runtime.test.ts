@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, restartsElsewhere, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
+import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, readinessOf, ReadinessSchema, restartsElsewhere, setReadiness, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
 import { MODULE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ModuleClass => {
@@ -252,5 +252,51 @@ describe("volume classes", () => {
     expect(restartsElsewhere([vol("a", "data-replicated")])).toBe(true);
     expect(restartsElsewhere([vol("a", "data-replicated"), vol("b", "data-replicated")])).toBe(true);
     expect(restartsElsewhere([vol("a", "data-replicated"), vol("b")])).toBe(false);
+  });
+});
+
+describe("application readiness check", () => {
+  const nginx = get("nginx");
+  const check = (command: string[], timeoutSecs?: number) => ReadinessSchema.safeParse({ command, ...(timeoutSecs !== undefined ? { timeoutSecs } : {}) });
+
+  it("is a program and arguments, never a shell, with the control plane's limits", () => {
+    expect(check(["pg_isready", "-q"]).success).toBe(true);
+    expect(check(["/usr/bin/curl", "-fsS", "http://127.0.0.1/health"], 3).success).toBe(true);
+    expect(check([]).success).toBe(false);
+    expect(check(Array(8).fill("x")).success).toBe(true);
+    expect(check(Array(9).fill("x")).success).toBe(false);
+    expect(check(["curl", ""]).success).toBe(false);
+    expect(check(["curl", "a".repeat(200)]).success).toBe(true);
+    expect(check(["curl", "a".repeat(201)]).success).toBe(false);
+    expect(check(["curl", "a\nb"]).success, "a control character").toBe(false);
+    for (const bad of ["curl; reboot", "$(id)", "a b", "a|b"]) expect(check([bad]).success, bad).toBe(false);
+    for (const shell of ["sh", "bash", "/bin/sh", "/usr/bin/bash", "dash", "busybox"]) {
+      const r = check([shell, "-c", "true"]);
+      expect(r.success, shell).toBe(false);
+      expect(!r.success && r.error.issues[0]?.message).toContain("shell");
+    }
+    expect(check(["shasum"]).success, "only exact shell names are refused").toBe(true);
+    expect(check(["pg_isready"], 0).success).toBe(false);
+    expect(check(["pg_isready"], 1).success).toBe(true);
+    expect(check(["pg_isready"], 15).success).toBe(true);
+    expect(check(["pg_isready"], 16).success).toBe(false);
+  });
+
+  it("the module's own check wins over its class's, and the deployable module carries it", () => {
+    const own = { command: ["curl", "-f", "http://127.0.0.1/"] };
+    const withClass = { ...nginx, runtime: { ...nginx.runtime!, readiness: { command: ["from-class"] } } } as ModuleClass;
+    expect(readinessOf(nginx, {})).toBeUndefined();
+    expect(readinessOf(withClass, {})).toEqual({ command: ["from-class"] });
+    expect(readinessOf(withClass, { readiness: own })).toEqual(own);
+    let a = sampleCommerceStack();
+    const id = a.spec.modules.find((m) => m.classRef.name === "nginx")!.id;
+    a = setReadiness(a, id, own);
+    const lookup = (n: string, v: string) => lookupClass(n, v);
+    const d = deploymentModules(a, lookup, "apelora").deployable.find((m) => m.module === id)!;
+    expect(d.readiness).toEqual(own);
+    expect(deploymentModules(sampleCommerceStack(), lookup, "apelora").deployable.every((m) => m.readiness === undefined)).toBe(true);
+    // Back to the class's: nothing is stored on the module.
+    const cleared = setReadiness(a, id, undefined);
+    expect(cleared.spec.modules.find((m) => m.id === id)).not.toHaveProperty("readiness");
   });
 });

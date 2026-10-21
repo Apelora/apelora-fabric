@@ -210,6 +210,11 @@ fn mirrored(spec: &InstanceSpec) -> Result<std::borrow::Cow<'_, InstanceSpec>, A
 }
 
 /// Where inventory comes from: a real Incus server or labelled mock data.
+// `allow`, not `expect`: which variant is larger changes whenever either side gains a field.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "built once at startup and shared; its size does not matter"
+)]
 #[derive(Debug, Clone)]
 pub enum Provider {
     Mock(MockIncus),
@@ -1093,6 +1098,83 @@ impl Provider {
         }
     }
 
+    /// Runs `command` (an argument list, no shell) inside a running, Apelora-owned instance as the
+    /// numeric user `uid`, waits at most `timeout_secs` (1–15) and reports how it ended. The
+    /// command's output is discarded. The caller decides what the exit status means.
+    pub async fn run_probe(
+        &self,
+        project: &str,
+        name: &str,
+        command: &[String],
+        uid: u32,
+        timeout_secs: u8,
+    ) -> Result<ProbeRun, AdapterError> {
+        if !is_valid_name(project) || !is_valid_name(name) || command.is_empty() {
+            return Err(AdapterError::InvalidConfig(
+                "invalid project, instance or command".into(),
+            ));
+        }
+        let timeout_secs = timeout_secs.clamp(1, 15);
+        match self {
+            Provider::Mock(m) => {
+                let found = m
+                    .instances
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .iter()
+                    .find(|i| i.instance.project == project && i.instance.name == name)
+                    .map(|i| (i.instance.managed, i.instance.status.clone()));
+                match found {
+                    None => {
+                        return Err(AdapterError::NotFound(format!("instance {project}/{name}")));
+                    }
+                    Some((false, _)) => {
+                        return Err(AdapterError::Api {
+                            status: 409,
+                            message: "the instance is not managed by Apelora".into(),
+                        });
+                    }
+                    Some((true, status)) if status != "Running" => {
+                        return Err(AdapterError::Api {
+                            status: 409,
+                            message: format!("the instance is {}", status.to_lowercase()),
+                        });
+                    }
+                    Some(_) => {}
+                }
+                m.probes_run
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push((name.to_owned(), command.to_vec()));
+                let behaviour = m
+                    .probe_results
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .get(name)
+                    .cloned()
+                    .unwrap_or(ProbeBehaviour::Exit(0));
+                Ok(match behaviour {
+                    ProbeBehaviour::Exit(code) => ProbeRun {
+                        exit: Some(code),
+                        timed_out: false,
+                        error: None,
+                    },
+                    ProbeBehaviour::TimesOut => ProbeRun {
+                        exit: None,
+                        timed_out: true,
+                        error: None,
+                    },
+                    ProbeBehaviour::CannotRun(why) => ProbeRun {
+                        exit: None,
+                        timed_out: false,
+                        error: Some(why),
+                    },
+                })
+            }
+            Provider::Incus(c) => c.run_probe(project, name, command, uid, timeout_secs).await,
+        }
+    }
+
     /// A running instance's global addresses; empty while it has none (e.g. stopped).
     pub async fn instance_addresses(
         &self,
@@ -1955,7 +2037,34 @@ pub struct MockIncus {
     /// Starts of an instance (by name) refused as Incus does while the shared storage's lock is
     /// still held by another host, this many times (tests).
     pub lock_refusals: Arc<Mutex<std::collections::BTreeMap<String, u32>>>,
+    /// What a readiness command inside an instance (by name) ends with (tests); unlisted
+    /// instances exit 0. `Err` makes the command unable to run at all.
+    pub probe_results: Arc<Mutex<std::collections::BTreeMap<String, ProbeBehaviour>>>,
+    /// Every readiness command run on the mock: (instance, command), oldest first.
+    pub probes_run: Arc<Mutex<Vec<ProbeCall>>>,
     next_op: Arc<Mutex<u64>>,
+}
+
+/// One readiness command the mock ran: the instance, and the argument list.
+pub type ProbeCall = (String, Vec<String>);
+
+/// How a readiness command ends on the mock.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProbeBehaviour {
+    Exit(i32),
+    TimesOut,
+    CannotRun(String),
+}
+
+/// How a command run inside an instance ended. Only its exit status is read, never its output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeRun {
+    /// The command's exit status, when it ran to the end.
+    pub exit: Option<i32>,
+    /// It was still running when the time limit passed (and was stopped).
+    pub timed_out: bool,
+    /// Why it could not be run, when Incus refused.
+    pub error: Option<String>,
 }
 
 /// Kinds of network objects Apelora owns.
@@ -2609,6 +2718,8 @@ impl Default for MockIncus {
             member_versions: Arc::default(),
             tenancy: Arc::new(Mutex::new(tenancy::MockTenancy::seeded())),
             lock_refusals: Arc::default(),
+            probe_results: Arc::default(),
+            probes_run: Arc::default(),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
             storage: Arc::default(),

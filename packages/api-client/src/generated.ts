@@ -848,6 +848,7 @@ export type DesiredModule = {
   internet?: Internet;
   /** The module's stable id in the design (e.g. `nginx-01`). */
   module: string;
+  readiness?: null | Readiness;
   /** How many instances (1–9); more than one only for stateless modules. */
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
@@ -2629,6 +2630,14 @@ export type QuotaView = {
   updatedBy?: string | null;
   usage?: null | QuotaUsage;
   usageError?: string | null;
+};
+
+/** What to run inside the instance and how long it may take. */
+export type Readiness = {
+  /** Program and arguments, as an argument list (no shell). Exit status 0 means ready. */
+  command: string[];
+  /** Longer than this counts as failing (1–15, default 5). */
+  timeoutSecs?: number;
 };
 
 /** What becomes of one instance of a failed member. */

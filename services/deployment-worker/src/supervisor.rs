@@ -228,6 +228,12 @@ impl Supervisor {
         self
     }
 
+    /// The numeric user readiness commands run as inside instances.
+    pub fn with_probe_uid(mut self, uid: u32) -> Self {
+        self.health.set_probe_uid(uid);
+        self
+    }
+
     /// One supervision pass. Returns the instances it queued for creation, restart or retirement.
     pub async fn pass(
         &mut self,
@@ -668,8 +674,18 @@ pub async fn supervise(
     });
     // Stop renewing when supervision stops (the task is aborted at shutdown).
     let _renewals = AbortOnDrop(renewals);
+    let probe_uid = std::env::var("APELORA_PROBE_UID")
+        .ok()
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .unwrap_or(crate::health::DEFAULT_PROBE_UID);
+    if probe_uid == 0 {
+        tracing::warn!(
+            "readiness commands run as root inside instances (APELORA_PROBE_UID=0); prefer an unprivileged user"
+        );
+    }
     let mut supervisor = Supervisor::new(recover_after)
         .with_health(health)
+        .with_probe_uid(probe_uid)
         .with_recovery(recovery);
     loop {
         let current = rx.borrow().clone();
@@ -754,6 +770,7 @@ mod tests {
             availability,
             internet: Default::default(),
             guest_os: Default::default(),
+            readiness: None,
         }
     }
 
@@ -766,13 +783,26 @@ mod tests {
 
     /// Deploys `shop` (two stateless web replicas, one stateful database) and records it.
     async fn deploy(pool: &Pool, provider: &Provider) {
+        deploy_with(pool, provider, false).await;
+    }
+
+    /// `deploy`, optionally with a readiness command on both modules.
+    async fn deploy_with(pool: &Pool, provider: &Provider, readiness: bool) {
         let app = apelora_persistence::ensure_application(pool, "shop")
             .await
             .expect("app");
-        let d = vec![
+        let mut d = vec![
             desired("web-01", 2, Availability::Stateless),
             desired("db-01", 1, Availability::Stateful),
         ];
+        if readiness {
+            for (x, cmd) in d.iter_mut().zip([["web-ready"], ["db-ready"]]) {
+                x.readiness = Some(apelora_domain::readiness::Readiness {
+                    command: cmd.iter().map(|c| (*c).to_owned()).collect(),
+                    timeout_secs: 5,
+                });
+            }
+        }
         for x in &d {
             for r in 1..=x.replicas {
                 let spec = deploy_spec("shop", PROJECT, x, r, None);
@@ -1214,6 +1244,124 @@ mod tests {
             2,
             "one instance per replica, none lost: {names:?}"
         );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn an_application_that_hangs_behind_an_open_port_is_caught_by_its_readiness_command(
+        pool: Pool,
+    ) {
+        use apelora_domain::plan::replica_name;
+        use apelora_incus_adapter::ProbeBehaviour;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy_with(&pool, &provider, true).await;
+        web_service(&pool, &provider).await;
+        let (r1, r2) = (
+            replica_name("shop", "web-01", 1),
+            replica_name("shop", "web-01", 2),
+        );
+        let db = replica_name("shop", "db-01", 1);
+        let policy = HealthPolicy {
+            restart_cooldown: 3600.0,
+            ..HealthPolicy::immediate()
+        };
+        let mut supervisor = Supervisor::new(Duration::ZERO).with_health(policy);
+        let health = |pool: Pool| async move {
+            apelora_persistence::application_health(&pool, "shop")
+                .await
+                .expect("health")
+                .into_iter()
+                .map(|h| (h.instance, h.health, h.detail))
+                .collect::<Vec<_>>()
+        };
+
+        // Port checks pass and every command exits 0: healthy, including the database, which has
+        // no service address and is checked by its command alone. Nothing runs as root.
+        assert!(
+            supervisor
+                .pass(&pool, &provider)
+                .await
+                .expect("pass")
+                .is_empty()
+        );
+        let all = health(pool.clone()).await;
+        let find = |name: &str| {
+            all.iter()
+                .find(|h| h.0 == name)
+                .unwrap_or_else(|| panic!("{name} in {all:?}"))
+                .clone()
+        };
+        assert_eq!(find(&r1).1, "healthy");
+        assert_eq!(find(&r1).2, "port check and readiness command passing");
+        assert_eq!(
+            (find(&db).1.as_str(), find(&db).2.as_str()),
+            ("healthy", "readiness command passing")
+        );
+        let ran = mock.probes_run.lock().expect("lock").clone();
+        assert!(
+            ran.iter().any(|(n, c)| n == &r1 && c == &["web-ready"]),
+            "{ran:?}"
+        );
+        assert!(
+            ran.iter().any(|(n, c)| n == &db && c == &["db-ready"]),
+            "{ran:?}"
+        );
+
+        // r2's port still answers but its application is not ready: unhealthy, restarted once.
+        mock.probe_results
+            .lock()
+            .expect("lock")
+            .insert(r2.clone(), ProbeBehaviour::Exit(1));
+        assert_eq!(
+            supervisor.pass(&pool, &provider).await.expect("pass"),
+            std::slice::from_ref(&r2)
+        );
+        drain(&pool, &provider).await;
+        assert_eq!(mock.net().restarts, std::slice::from_ref(&r2));
+        let after = health(pool.clone()).await;
+        let r2h = after.iter().find(|h| h.0 == r2).expect("r2");
+        assert_eq!(
+            (r2h.1.as_str(), r2h.2.as_str()),
+            ("unhealthy", "readiness command failing")
+        );
+        assert_eq!(
+            after.iter().find(|h| h.0 == r1).expect("r1").1,
+            "healthy",
+            "the sibling is untouched"
+        );
+
+        // A command that is too slow fails too. A stateful module is reported, never restarted.
+        mock.probe_results
+            .lock()
+            .expect("lock")
+            .insert(r2.clone(), ProbeBehaviour::Exit(0));
+        mock.probe_results
+            .lock()
+            .expect("lock")
+            .insert(db.clone(), ProbeBehaviour::TimesOut);
+        supervisor.pass(&pool, &provider).await.expect("pass");
+        drain(&pool, &provider).await;
+        let after = health(pool.clone()).await;
+        assert_eq!(after.iter().find(|h| h.0 == db).expect("db").1, "unhealthy");
+        assert_eq!(mock.net().restarts.len(), 1, "no restart of the database");
+
+        // A command Incus cannot run says nothing: a misdeclared command restarts nobody, and a
+        // healthy replica stays healthy on its port check.
+        mock.probe_results
+            .lock()
+            .expect("lock")
+            .insert(r1.clone(), ProbeBehaviour::CannotRun("no such file".into()));
+        assert!(
+            supervisor
+                .pass(&pool, &provider)
+                .await
+                .expect("pass")
+                .is_empty()
+        );
+        let after = health(pool.clone()).await;
+        let r1h = after.iter().find(|h| h.0 == r1).expect("r1");
+        assert_eq!(r1h.1, "healthy");
+        assert_eq!(mock.net().restarts.len(), 1);
     }
 
     /// `shop`'s web service with a load balancer over both replicas (as `network.sync` makes it).

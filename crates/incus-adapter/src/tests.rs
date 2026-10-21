@@ -1143,3 +1143,232 @@ async fn the_mock_applies_and_removes_settings_in_its_own_configuration() {
     let now = p.server_config(&keys).await.expect("read");
     assert!(!now.contains_key("cluster.max_standby") && now["cluster.max_voters"] == "5");
 }
+
+fn instance_detail(status: &str, managed: bool) -> (u16, Value) {
+    sync(json!({
+        "name": "web-01", "status": status, "architecture": "x86_64",
+        "config": if managed { json!({"user.apelora.managed": "true"}) } else { json!({}) },
+    }))
+}
+
+fn exec_result(status: &str, ret: Option<i64>, err: &str) -> (u16, Value) {
+    sync(
+        json!({ "id": OP, "class": "task", "status": status, "err": err,
+                 "metadata": ret.map_or(Value::Null, |r| json!({ "return": r })) }),
+    )
+}
+
+fn probe_command() -> Vec<String> {
+    vec!["pg_isready".into(), "-q".into()]
+}
+
+#[tokio::test]
+async fn a_readiness_command_runs_without_a_terminal_as_the_given_user_and_its_exit_status_is_read()
+{
+    let exec = "POST /1.0/instances/web-01/exec?project=apelora";
+    let wait = "GET /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c/wait?timeout=5";
+    for (ret, want) in [(0, 0), (3, 3)] {
+        let (base, seen) = recording_server(vec![
+            (
+                "GET /1.0/instances/web-01?project=apelora",
+                instance_detail("Running", true),
+            ),
+            (exec, accepted()),
+            (wait, exec_result("Success", Some(ret), "")),
+        ])
+        .await;
+        let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+        let run = p
+            .run_probe("apelora", "web-01", &probe_command(), 65534, 5)
+            .await
+            .expect("run");
+        assert_eq!(
+            run,
+            ProbeRun {
+                exit: Some(want),
+                timed_out: false,
+                error: None
+            }
+        );
+        let seen = seen.lock().expect("log");
+        let body = &seen.iter().find(|(k, _)| k == exec).expect("exec call").1;
+        assert_eq!(body["command"], json!(["pg_isready", "-q"]));
+        assert_eq!(body["interactive"], json!(false));
+        assert_eq!(body["wait-for-websocket"], json!(false));
+        assert_eq!(
+            body["record-output"],
+            json!(false),
+            "output is discarded, not stored in the instance"
+        );
+        assert_eq!(
+            (&body["user"], &body["group"]),
+            (&json!(65534), &json!(65534)),
+            "not root"
+        );
+        assert_eq!(body["cwd"], json!("/"));
+        assert!(body["environment"]["PATH"].is_string());
+    }
+}
+
+#[tokio::test]
+async fn a_command_still_running_at_the_limit_is_cancelled_and_reported_as_too_slow() {
+    let (base, seen) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            instance_detail("Running", true),
+        ),
+        (
+            "POST /1.0/instances/web-01/exec?project=apelora",
+            accepted(),
+        ),
+        (
+            "GET /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c/wait?timeout=3",
+            exec_result("Running", None, ""),
+        ),
+        (
+            "DELETE /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c",
+            sync(json!({})),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let run = p
+        .run_probe("apelora", "web-01", &probe_command(), 65534, 3)
+        .await
+        .expect("run");
+    assert_eq!(
+        run,
+        ProbeRun {
+            exit: None,
+            timed_out: true,
+            error: None
+        }
+    );
+    assert!(
+        seen.lock()
+            .expect("log")
+            .iter()
+            .any(|(k, _)| k == "DELETE /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c"),
+        "the stray command is stopped"
+    );
+}
+
+#[tokio::test]
+async fn a_command_incus_could_not_start_says_so_instead_of_an_exit_status() {
+    let (base, _) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            instance_detail("Running", true),
+        ),
+        (
+            "POST /1.0/instances/web-01/exec?project=apelora",
+            accepted(),
+        ),
+        (
+            "GET /1.0/operations/5f4c3b2a-1d0e-4f9a-8b7c-6d5e4f3a2b1c/wait?timeout=5",
+            exec_result("Failure", None, "Failed to run: no such file"),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let run = p
+        .run_probe("apelora", "web-01", &probe_command(), 65534, 5)
+        .await
+        .expect("run");
+    assert_eq!((run.exit, run.timed_out), (None, false));
+    assert_eq!(run.error.as_deref(), Some("Failed to run: no such file"));
+}
+
+#[tokio::test]
+async fn nothing_is_run_in_a_stopped_or_foreign_instance_or_with_a_bad_request() {
+    for (status, managed) in [("Stopped", true), ("Running", false)] {
+        let (base, seen) = recording_server(vec![(
+            "GET /1.0/instances/web-01?project=apelora",
+            instance_detail(status, managed),
+        )])
+        .await;
+        let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+        let err = p
+            .run_probe("apelora", "web-01", &probe_command(), 65534, 5)
+            .await
+            .expect_err("refused");
+        assert!(
+            matches!(err, AdapterError::Api { status: 409, .. }),
+            "{err:?}"
+        );
+        assert!(
+            !seen
+                .lock()
+                .expect("log")
+                .iter()
+                .any(|(k, _)| k.starts_with("POST")),
+            "no exec call"
+        );
+    }
+    let p = Provider::Mock(MockIncus::default());
+    for (project, name, command) in [
+        ("apelora", "../x", probe_command()),
+        ("", "web-01", probe_command()),
+        ("apelora", "web-01", vec![]),
+    ] {
+        assert!(matches!(
+            p.run_probe(project, name, &command, 65534, 5).await,
+            Err(AdapterError::InvalidConfig(_))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn the_mock_runs_nothing_and_answers_as_told() {
+    let mock = MockIncus::default();
+    let p = Provider::Mock(mock.clone());
+    let (project, name) = {
+        let all = mock.instances.lock().expect("lock");
+        let i = all
+            .iter()
+            .find(|i| i.instance.managed && i.instance.status == "Running");
+        match i {
+            Some(i) => (i.instance.project.clone(), i.instance.name.clone()),
+            None => return, // no managed running seed instance to probe
+        }
+    };
+    let ok = p
+        .run_probe(&project, &name, &probe_command(), 65534, 5)
+        .await
+        .expect("run");
+    assert_eq!(ok.exit, Some(0), "unlisted instances pass");
+    mock.probe_results
+        .lock()
+        .expect("lock")
+        .insert(name.clone(), ProbeBehaviour::Exit(2));
+    assert_eq!(
+        p.run_probe(&project, &name, &probe_command(), 65534, 5)
+            .await
+            .expect("run")
+            .exit,
+        Some(2)
+    );
+    mock.probe_results
+        .lock()
+        .expect("lock")
+        .insert(name.clone(), ProbeBehaviour::TimesOut);
+    assert!(
+        p.run_probe(&project, &name, &probe_command(), 65534, 5)
+            .await
+            .expect("run")
+            .timed_out
+    );
+    mock.probe_results.lock().expect("lock").insert(
+        name.clone(),
+        ProbeBehaviour::CannotRun("no such file".into()),
+    );
+    assert_eq!(
+        p.run_probe(&project, &name, &probe_command(), 65534, 5)
+            .await
+            .expect("run")
+            .error
+            .as_deref(),
+        Some("no such file")
+    );
+    assert_eq!(mock.probes_run.lock().expect("lock").len(), 4);
+}

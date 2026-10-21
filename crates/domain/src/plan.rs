@@ -107,6 +107,10 @@ pub struct DesiredModule {
     /// The operating system inside (from the class): decides which sessions it offers.
     #[serde(default)]
     pub guest_os: crate::access::GuestOs,
+    /// A command that runs inside each instance and exits 0 when the application is ready
+    /// (from the class); the port check alone cannot tell a hung application from a ready one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub readiness: Option<crate::readiness::Readiness>,
 }
 
 impl DesiredModule {
@@ -122,6 +126,9 @@ impl DesiredModule {
                 "{}: only stateless modules can have more than one replica",
                 self.module
             ));
+        }
+        if let Some(r) = &self.readiness {
+            r.validate(&self.module)?;
         }
         // A stateless replica may be recreated anywhere, which a member-local volume cannot follow.
         if !self.spec.volumes.is_empty() && self.availability == Availability::Stateless {
@@ -363,6 +370,7 @@ mod tests {
             availability: Availability::Singleton,
             internet: Default::default(),
             guest_os: Default::default(),
+            readiness: None,
         }
     }
 

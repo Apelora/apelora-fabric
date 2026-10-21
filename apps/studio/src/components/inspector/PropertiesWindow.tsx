@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
+import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, readinessOf, ReadinessSchema, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Readiness, type Volume } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/module-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -106,6 +106,46 @@ function VolumesSection({ appId, cls, volumes }: { appId: string; cls: ModuleCla
   );
 }
 
+/**
+ * The application check: a command run inside each instance, exit 0 meaning ready. The load
+ * balancer's port check only proves a port accepts connections. Arguments are separated by spaces
+ * (no shell, no quoting); the control plane checks it again.
+ */
+function ReadinessSection({ appId, cls, current, own }: { appId: string; cls: ModuleClass; current: Readiness | undefined; own: boolean }) {
+  const api = useStudioApi();
+  const [error, setError] = useState<string | null>(null);
+  const text = current?.command.join(" ") ?? "";
+  const save = (raw: string, secs: number | undefined) => {
+    const command = raw.trim().split(/\s+/).filter(Boolean);
+    if (command.length === 0) { setError(null); api.getState().setModuleReadiness(appId, undefined); return true; }
+    const r = ReadinessSchema.safeParse({ command, ...(secs ? { timeoutSecs: secs } : {}) });
+    if (!r.success) { setError(r.error.issues[0]?.message ?? "invalid command"); return false; }
+    setError(null);
+    api.getState().setModuleReadiness(appId, r.data);
+    return true;
+  };
+  return (
+    <Section title="Application check">
+      <div data-testid="readiness">
+        <p className="text-xs text-base-content/60">A command run inside each instance; it is ready when it exits 0. Catches an application that hangs behind an open port. Runs as an unprivileged user.</p>
+        <div className="mt-1 flex gap-1">
+          <input key={text} defaultValue={text} placeholder="pg_isready -q" aria-label="Readiness command" className="input input-xs min-w-0 flex-[3] font-mono" data-testid="readiness-command"
+            onBlur={(e) => { if (e.currentTarget.value.trim() !== text && !save(e.currentTarget.value, current?.timeoutSecs)) e.currentTarget.value = text; }}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+          <label className="flex min-w-0 flex-1 items-center gap-1 text-[11px] text-base-content/70">
+            <input key={current?.timeoutSecs ?? 5} type="number" min={1} max={15} defaultValue={current?.timeoutSecs ?? 5} aria-label="Seconds before the command counts as failing" className="input input-xs min-w-0 flex-1 tabular-nums" data-testid="readiness-timeout" disabled={!current}
+              onBlur={(e) => { const n = Number(e.currentTarget.value); if (current && n !== (current.timeoutSecs ?? 5) && !save(text, n)) e.currentTarget.value = String(current.timeoutSecs ?? 5); }}
+              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+            s
+          </label>
+        </div>
+        {error && <p role="alert" className="mt-1 text-xs text-error" data-testid="readiness-error">{error}</p>}
+        {!own && current && <p className="mt-1 text-xs text-base-content/60" data-testid="readiness-from-class">From {cls.displayName}'s class.</p>}
+      </div>
+    </Section>
+  );
+}
+
 function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "ports" | "issues" }) {
   const api = useStudioApi();
   const assembly = useStudio((s) => s.assembly);
@@ -173,6 +213,7 @@ function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "port
         </Section>
       )}
       {cls?.runtime && <VolumesSection appId={app.id} cls={cls} volumes={volumesOf(cls, app)} />}
+      {cls?.runtime && <ReadinessSection appId={app.id} cls={cls} current={readinessOf(cls, app)} own={!!app.readiness} />}
       {cls?.runtime && (
         <Section title="Internet access">
           <label className="fieldset">

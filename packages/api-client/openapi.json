@@ -14830,6 +14830,17 @@
             "type": "string",
             "description": "The module's stable id in the design (e.g. `nginx-01`)."
           },
+          "readiness": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Readiness",
+                "description": "A command that runs inside each instance and exits 0 when the application is ready\n(from the class); the port check alone cannot tell a hung application from a ready one."
+              }
+            ]
+          },
           "replicas": {
             "type": "integer",
             "format": "int32",
@@ -20944,6 +20955,28 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "Readiness": {
+        "type": "object",
+        "description": "What to run inside the instance and how long it may take.",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Program and arguments, as an argument list (no shell). Exit status 0 means ready."
+          },
+          "timeoutSecs": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Longer than this counts as failing (1–15, default 5).",
+            "minimum": 0
           }
         }
       },

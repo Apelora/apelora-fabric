@@ -276,6 +276,7 @@ mod tests {
             availability,
             internet: Default::default(),
             guest_os: Default::default(),
+            readiness: None,
         }
     }
 

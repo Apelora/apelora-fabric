@@ -3,7 +3,9 @@
 //! (`apelora_domain::health`) and restarts a stateless replica that has stayed unhealthy.
 //!
 //! The check is the OVN load balancer's port probe of each service backend, read through the
-//! load balancer's state; instances without a service address are not checked. Only running
+//! load balancer's state, and, for a module whose class declares one, a readiness command run
+//! inside each instance (`apelora_domain::readiness`): an open port with a hung application
+//! fails it. Instances with neither a service address nor a readiness command are not checked. Only running
 //! instances on online members are observed: a stopped or stranded instance is the replica
 //! supervisor's business. At most one replica of a module is restarted per pass, so a
 //! service whose replicas all fail is not taken down at once; a restart is audited, and the
@@ -17,6 +19,7 @@ use apelora_domain::Instance;
 use apelora_domain::health::{HealthPolicy, HealthState, Probe, Tracker, probe_of};
 use apelora_domain::network::network_name;
 use apelora_domain::plan::{Availability, DesiredModule, replica_name};
+use apelora_domain::readiness::{Readiness, combine, detail as probe_detail, probe_of_run};
 use apelora_incus_adapter::Provider;
 use apelora_persistence::{
     DeploymentRecord, Leadership, NewHealth, Pool, StoreError, begin_fenced,
@@ -24,10 +27,17 @@ use apelora_persistence::{
 use serde_json::json;
 use time::OffsetDateTime;
 
+/// `nobody`: a readiness command has no business being root.
+pub const DEFAULT_PROBE_UID: u32 = 65534;
+/// How many readiness commands run at once in one pass.
+const PROBES_AT_ONCE: usize = 8;
+
 /// Hysteresis state of every checked instance, across supervision passes.
 #[derive(Debug)]
 pub struct HealthWatch {
     policy: HealthPolicy,
+    /// The numeric user readiness commands run as inside instances (never root by default).
+    probe_uid: u32,
     epoch: Instant,
     trackers: HashMap<(String, String), Tracker>,
 }
@@ -36,9 +46,15 @@ impl HealthWatch {
     pub fn new(policy: HealthPolicy) -> Self {
         HealthWatch {
             policy,
+            probe_uid: DEFAULT_PROBE_UID,
             epoch: Instant::now(),
             trackers: HashMap::new(),
         }
+    }
+
+    /// The user readiness commands run as (`APELORA_PROBE_UID`).
+    pub fn set_probe_uid(&mut self, uid: u32) {
+        self.probe_uid = uid;
     }
 
     /// Forgets every tracker (a new leader starts from fresh observations).
@@ -98,33 +114,62 @@ impl HealthWatch {
             }
         }
         let now = self.now();
+        // Readiness commands first (they take time and run side by side), then the observations.
+        let running: Vec<&Instance> = observed
+            .iter()
+            .filter(|i| {
+                i.project == project
+                    && i.status == "Running"
+                    && !i.unreachable
+                    && !unavailable.contains(&i.location)
+                    && i.owner.as_ref().is_some_and(|o| o.application == app)
+            })
+            .collect();
+        let jobs: Vec<(String, Readiness)> = running
+            .iter()
+            .filter_map(|i| {
+                let module = &i.owner.as_ref()?.module;
+                let r = desired
+                    .iter()
+                    .find(|d| &d.module == module)?
+                    .readiness
+                    .clone()?;
+                Some((i.name.clone(), r))
+            })
+            .collect();
+        let commands = run_readiness(provider, project, jobs, self.probe_uid).await;
         // Observe every checked instance first, then pick restarts.
         let policy = self.policy;
-        let mut seen: Vec<(String, String, Probe)> = Vec::new();
-        for i in observed.iter().filter(|i| {
-            i.project == project
-                && i.status == "Running"
-                && !i.unreachable
-                && !unavailable.contains(&i.location)
-                && i.owner.as_ref().is_some_and(|o| o.application == app)
-        }) {
-            let Some((module, probe)) = probes.get(&i.name) else {
-                continue;
+        let mut seen: Vec<(String, String, Probe, &'static str)> = Vec::new();
+        for i in running {
+            let application = commands.get(&i.name).copied();
+            let lb = probes.get(&i.name);
+            let module = match (lb, i.owner.as_ref()) {
+                (Some((module, _)), _) => module.clone(),
+                (None, Some(o)) if application.is_some() => o.module.clone(),
+                _ => continue,
             };
+            let port = lb.map_or(Probe::Unknown, |(_, p)| *p);
+            let probe = combine(port, application);
             let tracker = self
                 .trackers
                 .entry((project.to_owned(), i.name.clone()))
                 .or_insert_with(|| Tracker::new(now));
-            match tracker.observe(*probe, now, &policy) {
+            match tracker.observe(probe, now, &policy) {
                 Some(HealthState::Unhealthy) => {
-                    tracing::warn!(application = app, instance = %i.name, "health: replica is failing its port check")
+                    tracing::warn!(application = app, instance = %i.name, check = probe_detail(port, application), "health: replica is failing its check")
                 }
                 Some(h) => {
-                    tracing::info!(application = app, instance = %i.name, health = h.as_str(), "health: replica is passing its port check")
+                    tracing::info!(application = app, instance = %i.name, health = h.as_str(), check = probe_detail(port, application), "health: replica is passing its check")
                 }
                 None => {}
             }
-            seen.push((i.name.clone(), module.clone(), *probe));
+            seen.push((
+                i.name.clone(),
+                module,
+                probe,
+                probe_detail(port, application),
+            ));
         }
         // Per stateless module, at most one restart per pass: the replica restarted least
         // recently (never first), so failing replicas take turns.
@@ -137,8 +182,8 @@ impl HealthWatch {
         for module in stateless {
             let mut due: Vec<(&String, Option<f64>)> = seen
                 .iter()
-                .filter(|(_, a, _)| a == module)
-                .filter_map(|(name, _, _)| {
+                .filter(|(_, a, _, _)| a == module)
+                .filter_map(|(name, _, _, _)| {
                     let t = self.trackers.get(&(project.to_owned(), name.clone()))?;
                     t.should_restart(now, &policy)
                         .then(|| (name, t.last_restart()))
@@ -185,14 +230,9 @@ impl HealthWatch {
         // The decided health of this application, written under the leader lease.
         let mut tx = begin_fenced(pool, lease).await?;
         let mut checked = Vec::new();
-        for (name, module, probe) in &seen {
+        for (name, module, _probe, detail) in &seen {
             let Some(tracker) = self.trackers.get(&(project.to_owned(), name.clone())) else {
                 continue;
-            };
-            let detail = match probe {
-                Probe::Passing => "port check passing",
-                Probe::Failing => "port check failing",
-                Probe::Unknown => "port check not reporting",
             };
             apelora_persistence::record_health(
                 &mut *tx,
@@ -218,6 +258,47 @@ impl HealthWatch {
         tx.commit().await?;
         Ok(restarted_now)
     }
+}
+
+/// Runs each instance's readiness command (at most [`PROBES_AT_ONCE`] at a time) and returns the
+/// verdict per instance. A command that could not be run at all (Incus refused it) says nothing
+/// and is logged: a misdeclared command must not restart healthy replicas.
+async fn run_readiness(
+    provider: &Provider,
+    project: &str,
+    jobs: Vec<(String, Readiness)>,
+    uid: u32,
+) -> HashMap<String, Probe> {
+    let mut out = HashMap::new();
+    for batch in jobs.chunks(PROBES_AT_ONCE) {
+        let mut set = tokio::task::JoinSet::new();
+        for (name, r) in batch.iter().cloned() {
+            let (provider, project) = (provider.clone(), project.to_owned());
+            set.spawn(async move {
+                let run = provider
+                    .run_probe(&project, &name, &r.command, uid, r.timeout_secs)
+                    .await;
+                (name, run)
+            });
+        }
+        while let Some(done) = set.join_next().await {
+            let Ok((name, run)) = done else { continue };
+            let probe = match run {
+                Ok(run) => {
+                    if let Some(why) = &run.error {
+                        tracing::warn!(instance = %name, error = %why, "health: the readiness command could not be run");
+                    }
+                    probe_of_run(run.exit, run.timed_out)
+                }
+                Err(e) => {
+                    tracing::warn!(instance = %name, error = %e, "health: the readiness command could not be started");
+                    Probe::Unknown
+                }
+            };
+            out.insert(name, probe);
+        }
+    }
+    out
 }
 
 /// Whether an instance of `project` belongs to `app` (trackers of other applications stay).
