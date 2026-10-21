@@ -32,6 +32,25 @@ fn dev(provider: Provider) -> AppState {
     AppState::new(provider, Auth::DisabledForDevelopment)
 }
 
+/// `docs/architecture/SETTINGS.md` is generated from the settings list. Regenerate with
+/// `npm run settings:doc` (or `UPDATE_SETTINGS_DOC=1 cargo test -p apelora-control-plane`).
+#[test]
+fn committed_settings_document_is_current() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/architecture/SETTINGS.md"
+    );
+    let current = super::settings::markdown();
+    if std::env::var_os("UPDATE_SETTINGS_DOC").is_some() {
+        std::fs::write(path, &current).expect("write SETTINGS.md");
+    }
+    let committed = std::fs::read_to_string(path).unwrap_or_default();
+    assert!(
+        committed == current,
+        "{path} is stale: run `npm run settings:doc`"
+    );
+}
+
 #[tokio::test]
 async fn health_reports_mock_provider_and_disabled_auth_in_development() {
     let (status, body, _) = call(

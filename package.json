@@ -23,7 +23,8 @@
     "dev:console": "npm run dev -w @apelora/fabric-console",
     "api:generate": "cargo run -q -p apelora-control-plane -- openapi > packages/api-client/openapi.json && npm run generate -w @apelora/api-client",
     "mutation": "stryker run",
-    "mutation:rust": "cargo mutants --no-shuffle -j 4"
+    "mutation:rust": "cargo mutants --no-shuffle -j 4",
+    "settings:doc": "cargo run -q -p apelora-control-plane -- settings > docs/architecture/SETTINGS.md"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

@@ -219,7 +219,7 @@ Refusals are not written to the audit history (anyone could fill it with bad req
 
 People can also sign in with the username and password of an existing directory that speaks LDAP. Apelora connects over TLS, signs in to the directory **as that person** (it binds with their name and password), reads their entry and groups with that same sign-in, and forgets the password. No directory service account or password is stored. Design: [ADR 0007](../adr/0007-sign-in-methods.md), [design note](../design/sign-in-methods.md).
 
-> **State:** directories are configured and checked in the Console (built, REAL DIRECTORY TESTED against the development directory). The username and password form on the sign-in page arrives with local accounts; until then a directory is not yet offered there.
+> **State:** directories are configured and checked in the Console (built, REAL DIRECTORY TESTED against the development directory). The sign-in page does not offer a directory's username and password form: people sign in through the identity provider, or with a token.
 
 ### Adding a directory
 
