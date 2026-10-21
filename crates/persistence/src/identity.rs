@@ -332,6 +332,56 @@ pub async fn recent_application_jobs(
     .await?)
 }
 
+/// Filters and the page position for the jobs list.
+#[derive(Debug, Default, Clone)]
+pub struct JobQuery {
+    /// `pending`, `running`, `succeeded`, `failed` or `cancelled`.
+    pub status: Option<String>,
+    /// Kinds starting with this, e.g. `instance.` or `volume.restore`.
+    pub kind_prefix: Option<String>,
+    /// The application's name, exactly.
+    pub application: Option<String>,
+    /// Only jobs older than this one: its creation time and id (the last job of the previous page).
+    pub after: Option<(OffsetDateTime, Uuid)>,
+}
+
+/// Jobs newest first (ties by id), at most `limit` (1-500). `scope: None` is the whole
+/// platform, including jobs that belong to no application; `Some` limits the list to the
+/// applications the filter reaches. Callers ask for one more than they show to learn whether
+/// another page exists.
+pub async fn job_history(
+    pool: &PgPool,
+    scope: Option<&AccessFilter>,
+    q: &JobQuery,
+    limit: i64,
+) -> Result<Vec<crate::JobView>> {
+    let (orgs, projects, apps) = scope.map(arrays).unwrap_or_default();
+    let (after_at, after_id) = q.after.unzip();
+    Ok(sqlx::query_as(&format!(
+        "SELECT {} FROM jobs j LEFT JOIN applications a ON a.id = j.application_id LEFT JOIN projects p ON p.id = a.project_id
+         WHERE (NOT $1 OR $2 OR p.organization_id = ANY($3) OR a.project_id = ANY($4) OR a.id = ANY($5))
+           AND ($6::text IS NULL OR j.status = $6)
+           AND ($7::text IS NULL OR j.kind LIKE $7 ESCAPE '\\')
+           AND ($8::text IS NULL OR a.name = $8)
+           AND ($9::timestamptz IS NULL OR j.created_at < $9 OR (j.created_at = $9 AND j.id > $10))
+         ORDER BY j.created_at DESC, j.id LIMIT $11",
+        crate::JOB_COLS
+    ))
+    .bind(scope.is_some())
+    .bind(scope.is_some_and(all))
+    .bind(orgs)
+    .bind(projects)
+    .bind(apps)
+    .bind(q.status.as_deref())
+    .bind(q.kind_prefix.as_deref().map(like_prefix))
+    .bind(q.application.as_deref())
+    .bind(after_at)
+    .bind(after_id)
+    .bind(limit.clamp(1, 500))
+    .fetch_all(pool)
+    .await?)
+}
+
 /// Creates the application inside a project and environment, or returns the existing one if it
 /// is already there. An application with that name in another project is a conflict.
 pub async fn ensure_application_in(

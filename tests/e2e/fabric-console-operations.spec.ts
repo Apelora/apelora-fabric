@@ -89,6 +89,52 @@ test("operations: retry and cancel where the server allows them, each row opens 
   await expect(page).toHaveURL(new RegExp(`#/operations/${J2}$`));
 });
 
+test("operations: filters are sent to the server and kept in the address; older operations are added page by page", async ({ page }) => {
+  const asked: URLSearchParams[] = [];
+  const POS = "2026-10-21T10:00:00Z|11111111-1111-4111-8111-111111111111";
+  await stub(page, {
+    ...base,
+    "GET /api/v1/jobs": (req) => {
+      const q = new URL(req.url()).searchParams;
+      asked.push(q);
+      if (q.get("status") === "failed") return { json: { items: [job(J2, "volume.restore", "failed", { lastError: "stop web-01 first" })], next: null } };
+      if (q.get("after") === POS) return { json: { items: [job(J3, "instance.stop", "succeeded")], next: null } };
+      return { json: { items: [job(J1, "instance.create", "succeeded"), job(J2, "volume.restore", "failed")], next: POS } };
+    },
+  });
+  await page.goto("/#/operations");
+  const rows = page.getByTestId("job-row");
+  await expect(rows).toHaveCount(2);
+  await expect(page.getByTestId("operations-end")).toHaveCount(0);
+  await page.getByTestId("operations-older").click();
+  await expect(rows).toHaveCount(3);
+  expect(asked.at(-1)!.get("after")).toBe(POS);
+  await expect(page.getByTestId("operations-end")).toBeVisible();
+  await expect(page.getByTestId("operations-older")).toHaveCount(0);
+
+  // A filter goes to the server, shows in the address, and a pasted address sets it again.
+  await page.getByTestId("operations-status-filter").selectOption("failed");
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText("Restore volume from a backup");
+  await expect(rows.first()).toContainText("stop web-01 first");
+  expect(asked.at(-1)!.get("status")).toBe("failed");
+  await expect(page).toHaveURL(/#\/operations\?status=failed$/);
+  await page.goto("/#/operations?status=failed&kind=volume.&application=shop&bogus=1");
+  await expect(page.getByTestId("operations-status-filter")).toHaveValue("failed");
+  await expect(page.getByTestId("operations-kind-filter")).toHaveValue("volume.");
+  await expect(page.getByTestId("operations-application-filter")).toHaveValue("shop");
+  await expect.poll(() => asked.at(-1)!.get("application")).toBe("shop");
+  expect(asked.at(-1)!.get("kind")).toBe("volume.");
+  // Values the page does not offer are ignored, not sent.
+  await page.goto("/#/operations?status=bogus&kind=%00");
+  await expect(page.getByTestId("operations-status-filter")).toHaveValue("");
+  await page.getByTestId("operations-status-filter").selectOption("failed");
+  await page.getByTestId("operations-clear").click();
+  await expect(page.getByTestId("operations-clear")).toHaveCount(0);
+  await expect(rows).toHaveCount(2);
+  expect(await serious(page)).toEqual([]);
+});
+
 test("job detail: state in words, attempts with their Incus operations, links, and a retry that opens the new job", async ({ page }) => {
   let retried = false;
   const failed = job(J2, "instance.stop", "failed", {

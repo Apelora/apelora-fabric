@@ -13,8 +13,10 @@ export const KIND: Record<string, string> = {
   "instance.restart": "Restart instance",
   "instance.resize": "Change instance resources",
   "instance.move": "Move instance",
+  "instance.recover": "Restart instance on another server",
   "network.sync": "Apply network rules",
   "volume.backup": "Back up volume",
+  "volume.restore": "Restore volume from a backup",
   "application.operation": "Application start, stop or restart",
 };
 export const kindLabel = (kind: string) => KIND[kind] ?? kind;

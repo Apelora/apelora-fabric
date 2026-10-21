@@ -367,22 +367,109 @@ pub(super) async fn delete_instance(
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct JobList {
     pub items: Vec<Job>,
+    /// Pass this as `after` for the next, older page; absent on the last page.
+    pub next: Option<String>,
 }
 
-/// The 100 most recent jobs, newest first. Needs `read-inventory`.
-#[utoipa::path(get, path = "/api/v1/jobs", tag = "deployment", operation_id = "jobs",
-    responses((status = 200, body = JobList), (status = 401, body = ErrorBody),
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct JobFilter {
+    /// `pending`, `running`, `succeeded`, `failed` or `cancelled`.
+    pub status: Option<String>,
+    /// Only kinds starting with this, e.g. `instance.` or `volume.restore`.
+    pub kind: Option<String>,
+    /// Only the jobs of this application.
+    pub application: Option<String>,
+    /// Paging: the `next` of the previous page.
+    pub after: Option<String>,
+    /// Jobs per page, 1 to 200 (default 100).
+    pub limit: Option<i64>,
+}
+
+fn invalid(message: &str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", message)
+}
+
+fn trimmed(v: Option<String>, what: &str) -> Result<Option<String>, ApiError> {
+    let Some(v) = v.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    if v.chars().count() > 120 || v.chars().any(char::is_control) {
+        return Err(invalid(&format!(
+            "{what} is at most 120 characters, without control characters"
+        )));
+    }
+    Ok(Some(v))
+}
+
+/// A page position: the creation time (RFC 3339) and id of the last job shown, joined by `|`.
+fn cursor(j: &JobView) -> String {
+    let at = j
+        .created_at
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    format!("{at}|{}", j.id)
+}
+
+fn parse_cursor(v: &str) -> Option<(time::OffsetDateTime, Uuid)> {
+    let (at, id) = v.split_once('|')?;
+    Some((
+        time::OffsetDateTime::parse(at, &time::format_description::well_known::Rfc3339).ok()?,
+        Uuid::parse_str(id).ok()?,
+    ))
+}
+
+impl JobFilter {
+    fn query(self) -> Result<apelora_persistence::identity::JobQuery, ApiError> {
+        let status = trimmed(self.status, "status")?;
+        if status.as_deref().is_some_and(|s| {
+            !matches!(
+                s,
+                "pending" | "running" | "succeeded" | "failed" | "cancelled"
+            )
+        }) {
+            return Err(invalid(
+                "status is pending, running, succeeded, failed or cancelled",
+            ));
+        }
+        let after = match trimmed(self.after, "after")? {
+            None => None,
+            Some(c) => {
+                Some(parse_cursor(&c).ok_or_else(|| invalid("after is not a page position"))?)
+            }
+        };
+        Ok(apelora_persistence::identity::JobQuery {
+            status,
+            kind_prefix: trimmed(self.kind, "kind")?,
+            application: trimmed(self.application, "application")?,
+            after,
+        })
+    }
+}
+
+/// Jobs newest first, filtered by status, kind and application and paged with `after`. Whole
+/// platform readers (`read-inventory`) see every job; anyone else the jobs of applications they
+/// may view.
+#[utoipa::path(get, path = "/api/v1/jobs", tag = "deployment", operation_id = "jobs", params(JobFilter),
+    responses((status = 200, body = JobList), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn jobs(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
+    axum::extract::Query(f): axum::extract::Query<JobFilter>,
 ) -> Result<Json<JobList>, ApiError> {
     let pool = store(&state)?;
+    let limit = f.limit.unwrap_or(100);
+    if !(1..=200).contains(&limit) {
+        return Err(invalid("limit is 1 to 200"));
+    }
+    let q = f.query()?;
     // Whole-platform readers see every job; anyone else sees the jobs of applications they may view.
-    let rows = if require(&p, Permission::ReadInventory).is_ok() {
-        apelora_persistence::recent_jobs(pool, 100).await?
+    let scope = if require(&p, Permission::ReadInventory).is_ok() {
+        None
     } else {
         let filter = filter_for(&p, "application.view");
         if filter.is_empty() {
@@ -392,10 +479,18 @@ pub(super) async fn jobs(
                 "you may not see jobs (cluster.view or application.view)",
             ));
         }
-        apelora_persistence::identity::recent_application_jobs(pool, &filter, 100).await?
+        Some(filter)
     };
+    // One more than shown tells whether another page exists.
+    let mut rows =
+        apelora_persistence::identity::job_history(pool, scope.as_ref(), &q, limit + 1).await?;
+    let next = (rows.len() as i64 > limit).then(|| {
+        rows.truncate(limit as usize);
+        rows.last().map(cursor)
+    });
     Ok(Json(JobList {
         items: super::jobs::with_actions(&state, &p, rows).await?,
+        next: next.flatten(),
     }))
 }
 

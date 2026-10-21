@@ -628,3 +628,96 @@ async fn the_instance_page_and_its_logs_follow_who_may_see_and_manage_it(pool: P
     );
     assert_eq!(b["actions"]["logs"]["allowed"], json!(true));
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn the_jobs_list_is_filtered_and_paged_newest_first_without_skipping_or_repeating(
+    pool: Pool,
+) {
+    let l = lab(pool);
+    let p = people(&l).await;
+    let mut ids = Vec::new();
+    for i in 1..=5 {
+        let name = format!("web-0{i}");
+        let (path, body) = if i == 5 {
+            (
+                "/api/v1/instances/acme-prod-live/web-01/state".to_owned(),
+                Some(json!({ "action": "stop" })),
+            )
+        } else {
+            ("/api/v1/instances".to_owned(), Some(spec(&name)))
+        };
+        ids.push(queue(&l, &p.alice, "POST", &path, body).await);
+    }
+    fail(&l, ids[1]).await;
+    fail(&l, ids[3]).await;
+    let list = |q: &str| {
+        let (l, t, q) = (&l, p.viewer.clone(), q.to_owned());
+        async move { l.req("GET", &format!("/api/v1/jobs{q}"), &t, None).await }
+    };
+
+    // Everything, newest first, no further page.
+    let (s, b) = list("").await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let all: Vec<&str> = b["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|j| j["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(all.len(), 5);
+    assert!(b["next"].is_null(), "{b}");
+
+    // Pages of two follow one another exactly.
+    let mut seen = Vec::new();
+    let mut after = String::new();
+    for round in 0..3 {
+        let (s, b) = list(&format!("?limit=2{after}")).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        seen.extend(
+            b["items"]
+                .as_array()
+                .expect("items")
+                .iter()
+                .map(|j| j["id"].as_str().expect("id").to_owned()),
+        );
+        match b["next"].as_str() {
+            Some(n) => {
+                assert!(round < 2, "no page after the last: {b}");
+                after = format!("&after={}", n.replace('|', "%7C").replace('+', "%2B"));
+            }
+            None => break,
+        }
+    }
+    assert_eq!(
+        seen, all,
+        "the pages are the whole list, in order, each job once"
+    );
+
+    // Filters: status, kind prefix, both together; an application nobody has gives nothing.
+    let (_, b) = list("?status=failed").await;
+    assert_eq!(b["items"].as_array().expect("items").len(), 2, "{b}");
+    let (_, b) = list("?kind=instance.stop").await;
+    assert_eq!(b["items"].as_array().expect("items").len(), 1, "{b}");
+    let (_, b) = list("?kind=instance.&status=pending").await;
+    assert_eq!(b["items"].as_array().expect("items").len(), 3, "{b}");
+    let (_, b) = list("?kind=100%25").await;
+    assert_eq!(
+        b["items"].as_array().expect("items").len(),
+        0,
+        "a percent sign is not a wildcard: {b}"
+    );
+    let (_, b) = list("?application=nobody").await;
+    assert_eq!(b["items"].as_array().expect("items").len(), 0, "{b}");
+
+    // Bad input is refused with the reason.
+    for q in [
+        "?status=done",
+        "?limit=0",
+        "?limit=201",
+        "?after=yesterday",
+        "?kind=a%00b",
+    ] {
+        let (s, b) = list(q).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}: {b}");
+    }
+}

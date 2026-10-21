@@ -1741,6 +1741,8 @@ export type JobDetail = {
 
 export type JobList = {
   items: Job[];
+  /** Pass this as `after` for the next, older page; absent on the last page. */
+  next?: string | null;
 };
 
 export type JoinTokenCreated = {
@@ -3837,7 +3839,7 @@ export type Responses = {
   move_instance: JobAccepted;
   /** Queues starting or stopping an Apelora instance. Needs `deploy`. */
   change_state: JobAccepted;
-  /** The 100 most recent jobs, newest first. Needs `read-inventory`. */
+  /** Jobs newest first, filtered by status, kind and application and paged with `after`. Whole platform readers (`read-inventory`) see every job; anyone else the jobs of applications they may view. */
   jobs: JobList;
   /** A queued job and its progress. Needs `read-inventory`. */
   job: Job;

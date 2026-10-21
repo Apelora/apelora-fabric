@@ -9360,8 +9360,56 @@
         "tags": [
           "deployment"
         ],
-        "summary": "The 100 most recent jobs, newest first. Needs `read-inventory`.",
+        "summary": "Jobs newest first, filtered by status, kind and application and paged with `after`. Whole\nplatform readers (`read-inventory`) see every job; anyone else the jobs of applications they\nmay view.",
         "operationId": "jobs",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`pending`, `running`, `succeeded`, `failed` or `cancelled`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Only kinds starting with this, e.g. `instance.` or `volume.restore`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "application",
+            "in": "query",
+            "description": "Only the jobs of this application.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "description": "Paging: the `next` of the previous page.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Jobs per page, 1 to 200 (default 100).",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -9369,6 +9417,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -17928,6 +17986,13 @@
             "items": {
               "$ref": "#/components/schemas/Job"
             }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass this as `after` for the next, older page; absent on the last page."
           }
         }
       },
