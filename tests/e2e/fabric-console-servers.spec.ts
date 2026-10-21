@@ -162,7 +162,7 @@ test("cluster settings: set values stand out, defaults are muted, and a missing 
   await expect(rows.nth(2)).toContainText("default 3H");
   await expect(rows.nth(2)).toHaveAttribute("data-default", "false");
   await expect(rows.nth(3)).toContainText("Default (not reported)");
-  await expect(page.getByTestId("cluster-settings")).toContainText("Read-only here");
+  await expect(page.getByTestId("cluster-settings")).toContainText("Each change is reviewed first");
   expect(await serious(page)).toEqual([]);
   configured = false;
   await page.reload();

@@ -1,21 +1,36 @@
-import type { CertificateStatus, ClusterMembersReport, ClusterSettingsReport, ClusterVersionComparison, ClusterVersionState, SystemInfo } from "@apelora/api-client";
+import { useState } from "react";
+
+import type { CertificateStatus, ClusterMembersReport, ClusterSetting, ClusterSettingsReport, ClusterVersionComparison, ClusterVersionState, SystemInfo, WhoAmI } from "@apelora/api-client";
 
 import { Badge, Notice, Section, SectionHeader, TableFrame, sentence, type Tone } from "../../components/ui";
 import { client, useLoad } from "../../lib/api";
+import { holdsPlatform } from "../../lib/identity";
+import { ChangeSetting } from "./ChangeSetting";
 
 const stop = (s: string) => `${sentence(s)}${/[.!?]$/.test(s) ? "" : "."}`;
 
 // ---- Cluster settings ---------------------------------------------------------------------------
 
-/** Servers → Cluster settings: read-only; a value that is not set shows Incus's default, muted. */
-export function SettingsTab({ onAuth }: { onAuth: (m: string) => void }) {
+/**
+ * Servers → Cluster settings. A value that is not set shows Incus's default, muted. People who may
+ * change settings get a *Change…* button per setting: a review, another person's approval and the
+ * change itself (legacy administrator tokens need no approval); everyone else reads.
+ */
+export function SettingsTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   const [settings, reload] = useLoad<ClusterSettingsReport>(() => client.get("cluster_settings"), onAuth);
+  const [editing, setEditing] = useState<ClusterSetting | null>(null);
+  const legacyAdmin = !!me && me.kind !== "user" && me.kind !== "service" && me.permissions.includes("manage-infrastructure");
+  const canChange = holdsPlatform(me, "cluster.sensitive_change") || legacyAdmin;
   return (
     <Section title="Cluster settings" state={settings} testId="cluster-settings" onRetry={reload}>
       {(s) => (
         <>
           <SectionHeader title="Cluster settings" source={s.source} />
-          <p className="text-sm text-base-content/70">Read-only here. Change them with <code className="rounded bg-base-200 px-1 py-0.5 text-xs">incus config set</code> on a member.</p>
+          <p className="text-sm text-base-content/70">
+            {canChange
+              ? "Each change is reviewed first, needs another person's approval, and is audited."
+              : <>Read-only here. Changing them needs the cluster.sensitive_change permission, or <code className="rounded bg-base-200 px-1 py-0.5 text-xs">incus config set</code> on a member.</>}
+          </p>
           <dl className="divide-y divide-base-300 rounded-box border border-base-300 text-sm">
             {s.items.map((i) => (
               <div key={i.key} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:justify-between sm:gap-6" data-testid="cluster-setting" data-default={i.usesDefault}>
@@ -24,7 +39,7 @@ export function SettingsTab({ onAuth }: { onAuth: (m: string) => void }) {
                   <span className="text-base-content/70">{i.meaning}</span>
                   <code className="text-xs text-base-content/60">{i.key}</code>
                 </dt>
-                <dd className="shrink-0 tabular-nums sm:text-right">
+                <dd className="flex shrink-0 flex-col gap-2 tabular-nums sm:items-end sm:text-right">
                   {i.usesDefault
                     ? <span className="text-base-content/70">{i.default != null ? `Default · ${i.default}` : "Default (not reported)"}</span>
                     : (
@@ -33,10 +48,12 @@ export function SettingsTab({ onAuth }: { onAuth: (m: string) => void }) {
                         {i.default != null && <span className="block text-xs text-base-content/60">default {i.default}</span>}
                       </>
                     )}
+                  {canChange && <button type="button" className="btn btn-xs btn-outline self-start sm:self-end" onClick={() => setEditing(i)} aria-label={`Change ${i.label}`} data-testid="change-setting-open">Change…</button>}
                 </dd>
               </div>
             ))}
           </dl>
+          {editing && <ChangeSetting key={editing.key} setting={editing} needsApproval={me?.credential !== "api-token" && me?.credential !== "development"} onClose={() => setEditing(null)} onChanged={reload} onAuth={onAuth} />}
           <p className="text-xs text-base-content/60">Read with Apelora's unrestricted Incus identity, the only one Incus shows its configuration to.</p>
         </>
       )}

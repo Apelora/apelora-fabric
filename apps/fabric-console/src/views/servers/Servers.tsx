@@ -36,7 +36,7 @@ export function ServersView({ tab, me, onAuth }: { tab: ServerTab; me: WhoAmI | 
       <div key={current}>
         {current === "members" && <MembersTab me={me} onAuth={onAuth} />}
         {current === "machines" && <MachinesTab onAuth={onAuth} />}
-        {current === "settings" && <SettingsTab onAuth={onAuth} />}
+        {current === "settings" && <SettingsTab me={me} onAuth={onAuth} />}
         {current === "certificates" && <CertificatesTab onAuth={onAuth} />}
         {current === "upgrades" && <UpgradesTab onAuth={onAuth} />}
         {current === "preflight" && <PreflightView onAuth={onAuth} level={2} />}
