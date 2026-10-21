@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
+import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Volume } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/module-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -51,14 +51,29 @@ function VolumesSection({ appId, cls, volumes }: { appId: string; cls: ModuleCla
     return true;
   };
   const change = (i: number, patch: Partial<Volume>) => commit(volumes.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+  // One choice for the whole module: its volumes are all on the shared pool or all on its server's own.
+  const shared = volumes.length > 0 && restartsElsewhere(volumes);
+  const withClass = (v: Volume, replicated: boolean): Volume => { const { class: _old, ...rest } = v; return replicated ? { ...rest, class: "data-replicated" } : rest; };
+  const setShared = (replicated: boolean) => commit(volumes.map((v) => withClass(v, replicated)));
   if (stateless) {
     return <Section title="Volumes"><p className="text-xs text-base-content/60" data-testid="volumes-stateless">Stateless modules keep no data: their replicas can be recreated on any server.</p></Section>;
   }
   return (
     <Section title={`Volumes (${volumes.length})`} right={volumes.length < MAX_VOLUMES ? (
-      <button className="btn btn-ghost btn-xs" data-testid="add-volume" onClick={() => commit([...volumes, { name: freeVolumeName(volumes), sizeMiB: 1024, path: `/srv/${freeVolumeName(volumes)}` }])}>Add volume</button>
+      <button className="btn btn-ghost btn-xs" data-testid="add-volume" onClick={() => commit([...volumes, withClass({ name: freeVolumeName(volumes), sizeMiB: 1024, path: `/srv/${freeVolumeName(volumes)}` }, shared)])}>Add volume</button>
     ) : undefined}>
       <div data-testid="volumes">
+        {volumes.length > 0 && (
+          <label className="mb-1.5 flex flex-col gap-0.5 text-[11px] text-base-content/70">
+            Where the data lives
+            <select className="select select-xs w-full" value={shared ? "data-replicated" : "data-local"} data-testid="volume-class" aria-label="Where the data lives"
+              onChange={(e) => setShared(e.currentTarget.value === "data-replicated")}>
+              <option value="data-local">On its server's own disks</option>
+              <option value="data-replicated">On the shared pool: restarts on another server</option>
+            </select>
+          </label>
+        )}
+        {shared && <p className="mb-1.5 text-[11px] text-base-content/60" data-testid="volume-shared-note">After its server fails and is fenced, this module restarts on another server with its data. The cluster needs a shared storage pool (<code>APELORA_SHARED_POOL</code>); without one the plan is refused.</p>}
         {volumes.length === 0 ? <p className="text-xs text-base-content/60">None. Add one for data that must survive restarts and redeployments.</p> : (
           <ul className="flex flex-col gap-1.5">
             {volumes.map((v, i) => (

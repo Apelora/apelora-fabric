@@ -96,3 +96,50 @@ test("a VM module can keep running when moved; the plan asks Incus for it", asyn
   expect(sent.spec.kind).toBe("virtual-machine");
   expect(sent.spec.config).toMatchObject({ "migration.stateful": "true", "cluster.evacuate": "live-migrate" });
 });
+
+test("a module's volumes can live on the shared pool, all of them or none, and the plan carries the class", async ({ page }) => {
+  let planBody: { modules: { module: string; spec: { volumes?: { name: string; class?: string }[] } }[] } | null = null;
+  await stub(page, {
+    "GET /api/v1/health": () => ({ json: health }),
+    "GET /api/v1/whoami": () => ({ json: operator }),
+    "POST /api/v1/applications/commerce-stack/plan": (req) => { planBody = req.postDataJSON(); return { json: { items: [], warnings: [] } }; },
+  });
+  await open(page);
+  await page.locator("[data-testid=catalog-tile][data-class-id=debian]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+  const debian = page.locator("[data-testid=module-node][data-node-id^=debian]");
+  await expect(debian).toHaveCount(1);
+  const id = (await debian.getAttribute("data-node-id"))!;
+  await openProps(page, id);
+  await expect(page.getByTestId("volume-class")).toHaveCount(0);
+  await page.getByTestId("add-volume").click();
+  await page.getByTestId("add-volume").click();
+  await expect(page.getByTestId("volume-row")).toHaveCount(2);
+  const choose = page.getByTestId("volume-class");
+  await expect(choose).toHaveValue("data-local");
+  await expect(page.getByTestId("volume-shared-note")).toHaveCount(0);
+
+  // One choice for the whole module: both volumes move together, and a new one follows.
+  await choose.selectOption("data-replicated");
+  await expect(page.getByTestId("volume-shared-note")).toContainText("restarts on another server");
+  await expect(page.getByTestId("volume-shared-note")).toContainText("APELORA_SHARED_POOL");
+  await page.getByTestId("add-volume").click();
+  await expect(page.getByTestId("volume-row")).toHaveCount(3);
+  await page.keyboard.press("Escape");
+
+  await page.getByTestId("deploy-open").click();
+  const dialog = page.getByTestId("deploy-dialog");
+  await expect(dialog.getByTestId("deploy-volumes")).toContainText("(shared, 1 GiB)");
+  await expect(dialog.getByTestId("deploy-volumes")).toContainText("Restarts on another server after its server fails and is fenced");
+  await dialog.getByTestId("deploy-preview").click();
+  await expect.poll(() => planBody).not.toBeNull();
+  const sent = planBody!.modules.find((a) => a.module === id)!.spec.volumes!;
+  expect(sent.map((v) => v.class)).toEqual(["data-replicated", "data-replicated", "data-replicated"]);
+  await page.keyboard.press("Escape");
+
+  // Back to local: the class is dropped from every volume, so the saved design stays as it was.
+  await openProps(page, id);
+  await page.getByTestId("volume-class").selectOption("data-local");
+  await expect(page.getByTestId("volume-shared-note")).toHaveCount(0);
+  const saved = await page.evaluate((nodeId) => JSON.stringify((window as unknown as { __studio: { getState: () => { assembly: { spec: { modules: { id: string; volumes?: object[] }[] } } } } }).__studio.getState().assembly.spec.modules.find((m) => m.id === nodeId)?.volumes), id);
+  expect(saved).not.toContain("class");
+});

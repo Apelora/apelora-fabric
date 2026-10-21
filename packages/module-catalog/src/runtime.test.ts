@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
+import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, restartsElsewhere, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
 import { MODULE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ModuleClass => {
@@ -215,5 +215,42 @@ describe("live migration", () => {
     const id = a.spec.modules[0]!.id;
     expect(setLiveMigration(a, id, true).spec.modules[0]!.liveMigration).toBe(true);
     expect("liveMigration" in setLiveMigration(setLiveMigration(a, id, true), id, false).spec.modules[0]!).toBe(false);
+  });
+});
+
+describe("volume classes", () => {
+  const nginx = get("nginx");
+  const debian = get("debian");
+  const vol = (name: string, cls?: "data-local" | "data-replicated") => ({ name, sizeMiB: 1024, path: `/srv/${name}`, ...(cls ? { class: cls } : {}) });
+
+  it("a module's volumes are all on the shared pool or all on its server, never mixed", () => {
+    const parse = (volumes: unknown[]) => ModuleInstanceSchema.shape.volumes.safeParse(volumes);
+    expect(parse([vol("a"), vol("b")]).success).toBe(true);
+    expect(parse([vol("a", "data-local"), vol("b", "data-local")]).success).toBe(true);
+    expect(parse([vol("a", "data-replicated"), vol("b", "data-replicated")]).success).toBe(true);
+    const mixed = parse([vol("a", "data-replicated"), vol("b")]);
+    expect(mixed.success).toBe(false);
+    expect(!mixed.success && mixed.error.issues[0]?.message).toContain("cannot be mixed");
+    expect(parse([vol("a", "data-replicated"), vol("b", "data-local")]).success).toBe(false);
+    expect(parse([{ ...vol("a"), class: "data-fast" }]).success, "an unknown class").toBe(false);
+  });
+
+  it("only a shared class is written to the request, so existing designs send what they always did", () => {
+    const send = (volumes: ReturnType<typeof vol>[]) => {
+      const r = instanceRequestFor(debian, { volumes }, target);
+      return r.ok ? r.request.volumes : r.error;
+    };
+    expect(send([vol("data")])).toEqual([{ name: "data", sizeMib: 1024, path: "/srv/data" }]);
+    expect(send([vol("data", "data-local")])).toEqual([{ name: "data", sizeMib: 1024, path: "/srv/data" }]);
+    expect(send([vol("data", "data-replicated")])).toEqual([{ name: "data", sizeMib: 1024, path: "/srv/data", class: "data-replicated" }]);
+    expect(instanceRequestFor(nginx, { volumes: [vol("data", "data-replicated")] }, target)).toMatchObject({ ok: false });
+  });
+
+  it("a module restarts elsewhere only when it has volumes and every one is shared", () => {
+    expect(restartsElsewhere([])).toBe(false);
+    expect(restartsElsewhere([vol("a")])).toBe(false);
+    expect(restartsElsewhere([vol("a", "data-replicated")])).toBe(true);
+    expect(restartsElsewhere([vol("a", "data-replicated"), vol("b", "data-replicated")])).toBe(true);
+    expect(restartsElsewhere([vol("a", "data-replicated"), vol("b")])).toBe(false);
   });
 });

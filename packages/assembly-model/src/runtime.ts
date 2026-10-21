@@ -1,6 +1,6 @@
 import { trimHyphens } from "./ops";
 import { effectiveValue } from "./config";
-import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume } from "./schema";
+import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -16,7 +16,7 @@ export interface InstanceRequest {
   /** Incus instance options; Apelora sets the resource limits here. */
   config?: Record<string, string>;
   /** Persistent volumes (filesystems); the control plane picks their pool. */
-  volumes?: { name: string; sizeMib: number; path?: string }[];
+  volumes?: { name: string; sizeMib: number; path?: string; class?: VolumeClass }[];
 }
 
 /**
@@ -107,7 +107,7 @@ export function instanceRequestFor(
         // Moves while running, also when its server is evacuated (docs/design/mobility-and-ha.md).
         ...(module.liveMigration ? { "migration.stateful": "true", "cluster.evacuate": "live-migrate" } : {}),
       },
-      ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path })) } : {}),
+      ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path, ...(v.class === "data-replicated" ? { class: v.class } : {}) })) } : {}),
     },
   };
 }
@@ -115,6 +115,9 @@ export function instanceRequestFor(
 /** A module's volumes: its own when the design sets them, else its class's. */
 export const volumesOf = (cls: ModuleClass | undefined, module: { volumes?: Volume[] }): Volume[] =>
   module.volumes ?? cls?.runtime?.volumes ?? [];
+
+/** Whether every volume (at least one) is on the shared pool, so the module restarts elsewhere after its server fails. */
+export const restartsElsewhere = (volumes: Volume[]): boolean => volumes.length > 0 && volumes.every((v) => v.class === "data-replicated");
 
 /** How a class's instances survive failures (`singleton` unless its runtime says otherwise). */
 export const availabilityOf = (cls: ModuleClass | undefined): Availability => cls?.runtime?.availability ?? "singleton";

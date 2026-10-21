@@ -213,6 +213,13 @@
                       "type": "string",
                       "maxLength": 255,
                       "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                    },
+                    "class": {
+                      "type": "string",
+                      "enum": [
+                        "data-local",
+                        "data-replicated"
+                      ]
                     }
                   },
                   "required": [
@@ -721,6 +728,13 @@
                               "type": "string",
                               "maxLength": 255,
                               "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            },
+                            "class": {
+                              "type": "string",
+                              "enum": [
+                                "data-local",
+                                "data-replicated"
+                              ]
                             }
                           },
                           "required": [
@@ -849,6 +863,13 @@
                               "type": "string",
                               "maxLength": 255,
                               "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            },
+                            "class": {
+                              "type": "string",
+                              "enum": [
+                                "data-local",
+                                "data-replicated"
+                              ]
                             }
                           },
                           "required": [
@@ -968,6 +989,13 @@
                               "type": "string",
                               "maxLength": 255,
                               "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                            },
+                            "class": {
+                              "type": "string",
+                              "enum": [
+                                "data-local",
+                                "data-replicated"
+                              ]
                             }
                           },
                           "required": [
@@ -1500,6 +1528,13 @@
                                 "type": "string",
                                 "maxLength": 255,
                                 "pattern": "^(?!.*(?:^|\\/)\\.\\.?(?:\\/|$))\\/[^\\0\\r\\n]+$"
+                              },
+                              "class": {
+                                "type": "string",
+                                "enum": [
+                                  "data-local",
+                                  "data-replicated"
+                                ]
                               }
                             },
                             "required": [

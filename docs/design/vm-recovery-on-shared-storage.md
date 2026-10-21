@@ -16,7 +16,7 @@ been drilled; every result will be labelled MOCK VERIFIED, CONTRACT VERIFIED or 
 | Stateless replicas replaced on other servers, failing replicas restarted | Built, REAL INCUS TESTED |
 | Restart of a failed server's stateful or single-instance **container** modules whose disks are all on the shared pool, after fencing (sanlock lease DEAD, or a person confirms the server is off) | Built; three drills, running again 144–155 s after the server stopped, data intact. REAL INCUS TESTED |
 | Same for **VM** modules on the shared pool | **Never drilled** |
-| `data-replicated` chosen in the Studio | Not built (the API accepts it) |
+| `data-replicated` chosen in the Studio | **Built (2026-10-21)**: one choice per module in Properties → Volumes (all its volumes on the shared pool or all on its server; mixing is refused by the schema and by the API), carried in the plan request and named in the deploy review. MOCK VERIFIED in the browser; whether the pool exists is the control plane's answer at plan time |
 | A BMC power-off as fencing evidence | Not built |
 | Partition drills (member cut off from the other servers but not from the SAN, and the reverse) | Not run |
 
@@ -58,7 +58,7 @@ real servers).
 - run *Confirm powered off…* end to end against the lab.
 *Needs:* a way to cut network paths per member in the lab (packet filter rules on the lab VMs).
 
-**3. The Studio can choose `data-replicated`.** The smallest package, and independent UI work.
+**3. The Studio can choose `data-replicated`. Done (2026-10-21).** The smallest package, and independent UI work.
 Add a storage-class choice to the volume editor (`setVolumes`/`volumesOf` in `assembly-model` and
 the inspector), refuse mixing with `data-local` the way the API does, and add a Playwright test
 and a real-browser check. *Needs:* nothing from the lab; this can be built and verified now.

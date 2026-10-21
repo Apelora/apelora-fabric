@@ -62,10 +62,19 @@ export const ResourcesSchema = z.object({
 export const MIN_VOLUME_MIB = 64;
 export const MAX_VOLUME_MIB = 4 * 1024 * 1024;
 export const MAX_VOLUMES = 4;
+/**
+ * Where a volume lives. `data-local` (the default, not written to the file) is on its server's own
+ * pool. `data-replicated` is on the cluster's shared pool, so the module restarts on another server
+ * after its server fails and is fenced; it needs the shared pool to be set up (`APELORA_SHARED_POOL`).
+ */
+export const VOLUME_CLASSES = ["data-local", "data-replicated"] as const;
+export type VolumeClass = (typeof VOLUME_CLASSES)[number];
 export const VolumeSchema = z.object({
   name: z.string().regex(/^[a-z](?:[a-z0-9-]{0,14}[a-z0-9])?$/, "lowercase letters, digits and hyphens, at most 16, starting with a letter"),
   sizeMiB: z.number().int().min(MIN_VOLUME_MIB).max(MAX_VOLUME_MIB),
   path: z.string().max(255).regex(/^(?!.*(?:^|\/)\.\.?(?:\/|$))\/[^\0\r\n]+$/, "an absolute path below /, without . or .. segments"),
+  /** Absent means `data-local`. */
+  class: z.enum(VOLUME_CLASSES).optional(),
 });
 const volumeList = z.array(VolumeSchema).max(MAX_VOLUMES).superRefine((vs, ctx) => {
   const seen = (key: (v: z.infer<typeof VolumeSchema>) => string, what: string) => {
@@ -78,6 +87,10 @@ const volumeList = z.array(VolumeSchema).max(MAX_VOLUMES).superRefine((vs, ctx) 
   };
   seen((v) => v.name, "name");
   seen((v) => v.path.replace(/\/+$/, ""), "mount path");
+  // A module restarts on another server only when everything it stores is on the shared pool, so
+  // the two classes cannot be mixed (the control plane refuses it too).
+  const shared = vs.filter((v) => v.class === "data-replicated").length;
+  if (shared > 0 && shared < vs.length) ctx.addIssue({ code: "custom", path: [], message: "volumes of class data-replicated and data-local cannot be mixed: a data-local volume cannot follow the module to another server" });
 });
 
 export const ModuleInstanceSchema = z.object({
