@@ -233,6 +233,12 @@ pub const PERMISSIONS: &[PermissionDef] = &[
         "Remove a physical machine from inventory or wipe it",
     ),
     i(
+        "fabric.metrics.read",
+        Plat,
+        false,
+        "Scrape the control plane's metrics (GET /metrics) and see how monitoring is set up",
+    ),
+    i(
         "machine.enrol",
         Plat,
         false,

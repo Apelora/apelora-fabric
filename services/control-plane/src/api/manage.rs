@@ -487,6 +487,60 @@ pub(super) async fn load(
     Ok((row, res))
 }
 
+/// How many applications that are not archived have each derived status, for the metrics
+/// endpoint. The same derivation as the list (`build_info`), from one inventory read
+/// (`instances`; `None` when Incus could not be read, which makes deployed applications
+/// `unknown`). No caller filter: the metrics permission is platform-wide and only counts leave.
+pub(super) async fn status_counts(
+    pool: &apelora_persistence::Pool,
+    instances: Option<&[Instance]>,
+) -> Res<BTreeMap<String, u64>> {
+    let rows = db::list_application_rows(pool, &apelora_auth::AccessFilter::All, false).await?;
+    let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
+    let ops: BTreeMap<Uuid, db::OperationRow> = db::latest_operations_by_application(pool, &ids)
+        .await?
+        .into_iter()
+        .map(|o| (o.application_id, o))
+        .collect();
+    let all_deployments = apelora_persistence::list_deployments(pool).await?;
+    let mut counts = BTreeMap::new();
+    for row in rows {
+        let mine: Vec<apelora_persistence::DeploymentRecord> = all_deployments
+            .iter()
+            .filter(|d| d.application_id == row.id)
+            .cloned()
+            .collect();
+        let dep = pick_deployment(&row, &mine);
+        let want = replicas_of(&dep.as_ref().map(desired_of).unwrap_or_default());
+        let health = if dep.is_some() {
+            apelora_persistence::application_health(pool, &row.name).await?
+        } else {
+            Vec::new()
+        };
+        let unhealthy = |instance: &str| {
+            health
+                .iter()
+                .any(|h| h.instance == instance && h.health == "unhealthy")
+        };
+        let observed: Option<Vec<Observed>> = match (instances, &dep) {
+            (Some(all), Some(d)) => Some(observed_for(&row.name, &d.project, all, &unhealthy)),
+            (Some(_), None) => Some(Vec::new()),
+            (None, _) => None,
+        };
+        let status = derive_status(&StatusInput {
+            desired: &want,
+            observed: observed.as_deref(),
+            latest_operation: ops.get(&row.id).and_then(activity),
+        });
+        let label = serde_json::to_value(status)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_else(|| "unknown".into());
+        *counts.entry(label).or_insert(0) += 1;
+    }
+    Ok(counts)
+}
+
 // ---- list and detail --------------------------------------------------------------------------
 
 /// Applications the caller may see, each with design status, derived runtime status, replica

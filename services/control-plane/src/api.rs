@@ -78,6 +78,8 @@ pub struct AppState {
     image_mirrors: Arc<apelora_domain::images::ImageMirrors>,
     /// Probes mirrors, at most once a minute each.
     prober: Arc<mirrors::Prober>,
+    /// How metrics are exposed, and their scrape-time cache (`metrics`).
+    monitoring: Arc<metrics::Monitoring>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -106,6 +108,7 @@ impl AppState {
             health: Arc::default(),
             image_mirrors: Arc::default(),
             prober: Arc::default(),
+            monitoring: Arc::default(),
         }
     }
 
@@ -122,6 +125,11 @@ impl AppState {
 
     pub fn with_image_mirrors(mut self, m: apelora_domain::images::ImageMirrors) -> Self {
         self.image_mirrors = Arc::new(m);
+        self
+    }
+
+    pub fn with_monitoring(mut self, config: metrics::MonitoringConfig) -> Self {
+        self.monitoring = Arc::new(metrics::Monitoring::new(config));
         self
     }
 
@@ -341,6 +349,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/storage-pools", get(storage_pools))
         .route("/api/v1/audit", get(audit))
+        .route("/api/v1/monitoring", get(metrics::monitoring))
+        .route("/metrics", get(metrics::metrics))
         .route(
             "/api/v1/identity/organizations",
             get(identity::organizations).post(identity::create_organization),
@@ -594,6 +604,7 @@ impl From<apelora_persistence::StoreError> for ApiError {
             E::Conflict(_) => ApiError::new(StatusCode::CONFLICT, "conflict", e.to_string()),
             // The database's own text stays in the server log; the client gets a next step.
             _ if e.is_unavailable() => {
+                apelora_metrics::STORE_ERRORS.inc(&["store_unavailable"]);
                 tracing::warn!(error = %e, "store: the database is not reachable");
                 ApiError::new(
                     StatusCode::SERVICE_UNAVAILABLE,
@@ -602,6 +613,7 @@ impl From<apelora_persistence::StoreError> for ApiError {
                 )
             }
             _ => {
+                apelora_metrics::STORE_ERRORS.inc(&["store_error"]);
                 tracing::error!(error = %e, "store: database error");
                 let id = requests::current();
                 ApiError::new(
@@ -777,6 +789,19 @@ async fn resolve_principal(
     }
 }
 
+/// The sign-in method of a credential, as a metrics label.
+fn auth_method(token: &str) -> &'static str {
+    if apelora_identity::looks_like_jwt(token) {
+        "oidc"
+    } else if token.starts_with("aps_") {
+        "service"
+    } else if token.starts_with("apl_") {
+        "api_token"
+    } else {
+        "unrecognised"
+    }
+}
+
 /// What kind of credential was presented, for logs: never any part of the token.
 fn credential_kind(token: &str) -> &'static str {
     if apelora_identity::looks_like_jwt(token) {
@@ -794,12 +819,15 @@ fn credential_kind(token: &str) -> &'static str {
 
 async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
     let principal = match &state.auth {
-        Auth::DisabledForDevelopment => Principal {
-            name: "development".into(),
-            role: Some(Role::FabricAdmin),
-            caller: None,
-            session: None,
-        },
+        Auth::DisabledForDevelopment => {
+            apelora_metrics::AUTH_ATTEMPTS.inc(&["development", "ok"]);
+            Principal {
+                name: "development".into(),
+                role: Some(Role::FabricAdmin),
+                caller: None,
+                session: None,
+            }
+        }
         Auth::Tokens(pool) => {
             let presented = req
                 .headers()
@@ -811,12 +839,22 @@ async fn authenticate(State(state): State<AppState>, mut req: Request, next: Nex
             let Some(token) = presented else {
                 // Method, path and request id come from the request span.
                 tracing::debug!("request without a bearer token");
+                apelora_metrics::AUTH_ATTEMPTS.inc(&["none", "refused"]);
                 return unauthenticated(
                     "a bearer token is required (Authorization: Bearer <token>)",
                 )
                 .into_response();
             };
-            match resolve_principal(&state, pool, token).await {
+            let result = resolve_principal(&state, pool, token).await;
+            apelora_metrics::AUTH_ATTEMPTS.inc(&[
+                auth_method(token),
+                match &result {
+                    Ok(_) => "ok",
+                    Err(e) if e.status.is_server_error() => "error",
+                    Err(_) => "refused",
+                },
+            ]);
+            match result {
                 Ok(p) => p,
                 Err(e) => {
                     // Refused credentials are logged (never the token itself), so a sign-in
@@ -1393,7 +1431,7 @@ impl Modify for BearerAuth {
     info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
-        admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors,
+        admin::list, admin::create, admin::revoke, admin::system, mirrors::image_mirrors, metrics::metrics, metrics::monitoring,
         manage::list, manage::create, manage::detail, manage::update, manage::get_draft, manage::put_draft, manage::versions, manage::publish, manage::version, manage::archive, manage::restore, manage::operations, manage::operate, manage::operation, manage::events, volumes::list, volumes::grow, volumes::delete, volumes::snapshots, volumes::take_snapshot, volumes::restore_snapshot, volumes::delete_snapshot, applications::preview, applications::deploy, applications::status,
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
@@ -1453,6 +1491,7 @@ mod ldap;
 mod machines;
 mod manage;
 mod mirrors;
+pub mod metrics;
 mod mobility;
 pub mod rate_limit;
 pub mod requests;
@@ -1472,6 +1511,8 @@ mod identity_tests;
 mod manage_tests;
 #[cfg(test)]
 mod sessions_auth_tests;
+#[cfg(test)]
+mod metrics_tests;
 #[cfg(test)]
 mod sessions_tests;
 #[cfg(test)]

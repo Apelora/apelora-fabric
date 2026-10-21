@@ -7837,6 +7837,47 @@
           }
         }
       }
+    },
+    "/metrics": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Metrics of this control plane in the text exposition format (OpenMetrics when the `Accept`\nheader asks for `application/openmetrics-text`). Needs `fabric.metrics.read` (built-in role\nMetrics Reader, for the collector's service identity). Labels never carry names, ids, paths\nwith ids, tokens or error texts; see docs/architecture/MONITORING.md.",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "description": "Metrics in the text exposition format",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11791,6 +11832,65 @@
           "status": {
             "type": "string",
             "description": "Incus status, e.g. `Running`."
+          }
+        }
+      },
+      "MonitoringInfo": {
+        "type": "object",
+        "description": "How monitoring is set up, for the Console's Monitoring panel.",
+        "required": [
+          "region",
+          "site",
+          "sector",
+          "provider",
+          "mayScrape",
+          "permission",
+          "role",
+          "endpoints",
+          "formats",
+          "incusMetricsPath"
+        ],
+        "properties": {
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetricsEndpoint"
+            }
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Media types `GET /metrics` can answer with."
+          },
+          "incusMetricsPath": {
+            "type": "string",
+            "description": "Incus's own metrics path on every member, scraped directly with a metrics certificate."
+          },
+          "mayScrape": {
+            "type": "boolean",
+            "description": "The caller holds `fabric.metrics.read` and could scrape `GET /metrics` with its credential."
+          },
+          "permission": {
+            "type": "string",
+            "description": "The permission a collector needs (`fabric.metrics.read`)."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "region": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "description": "The built-in role that holds only that permission."
+          },
+          "sector": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
           }
         }
       },

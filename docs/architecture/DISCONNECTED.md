@@ -18,10 +18,11 @@ What an air-gapped or disconnected installation needs, what Apelora already does
 | Certificates | an internal certificate authority for the API, Incus and OVN | provided by you; expiry shown in the Console |
 | Apelora itself | the release bundle (binaries, web apps, migrations, software inventory, licence notices, checksums, signature, documentation) carried in on approved media; `scripts/release/bundle.sh`, checked offline with `scripts/release/verify.sh` | **built** (built and verified locally; no release published yet) |
 | Updates | the next release bundle, verified, then installed; migrations run on start | **runbook** ([offline-update.md](../runbooks/offline-update.md), not yet carried out on an installation) |
+| Monitoring | a metrics collector, its storage and its alerting inside the site; it scrapes Apelora's `/metrics`, every Incus server's `/1.0/metrics` with a metrics-only certificate, PostgreSQL and the members ([monitoring](MONITORING.md)) | **built** (Apelora's endpoints); the collector is provided by you |
 
 ## What Apelora never does
 
-- Calls home, sends telemetry or checks a licence online.
+- Calls home, sends telemetry or checks a licence online. Metrics are only answered when the collector inside the site asks; nothing is pushed.
 - Loads fonts, scripts or styles from outside its own origin in the browser.
 - Installs packages on servers.
 - Pulls an image from a server that is not one of the installation's mirrors (with `APELORA_IMAGE_SERVERS=mirrors-only`).

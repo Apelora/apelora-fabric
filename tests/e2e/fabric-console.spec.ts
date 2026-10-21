@@ -961,3 +961,97 @@ const imageMirrors = {
     ] },
   ],
 };
+
+// Monitoring (Administration): only what GET /api/v1/monitoring returns; read-only, no primary action.
+const monitoring = (over: Record<string, unknown> = {}) => ({
+  region: "eu-west", site: "fra1", sector: "s01", provider: "incus", mayScrape: true,
+  permission: "fabric.metrics.read", role: "metrics-reader", incusMetricsPath: "/1.0/metrics",
+  formats: ["text/plain; version=0.0.4; charset=utf-8", "application/openmetrics-text; version=1.0.0; charset=utf-8"],
+  endpoints: [
+    { component: "control-plane", address: null, path: "/metrics", authentication: "bearer" },
+    { component: "worker", address: "127.0.0.1:9471", path: "/metrics", authentication: "none" },
+  ],
+  ...over,
+});
+const system = { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] };
+
+test.describe("fabric console monitoring", () => {
+  test.beforeEach(async ({ page }) => { await page.route("**/api/**", (route) => route.abort()); });
+
+  test("shows the endpoints, the labels on every metric and how to connect a collector", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+      "GET /api/v1/system": () => ({ json: system }),
+      "GET /api/v1/tokens": () => ({ json: { items: [] } }),
+      "GET /api/v1/monitoring": () => ({ json: monitoring() }),
+    });
+    await page.goto("/#/administration");
+    const panel = page.getByTestId("monitoring");
+    await expect(panel.getByRole("heading", { name: "Monitoring" })).toBeVisible();
+    await expect(page.getByTestId("monitoring-labels")).toHaveText("region=eu-west · site=fra1 · sector=s01");
+    await expect(page.getByTestId("monitoring-access")).toHaveText("Can read metrics");
+    const rows = page.getByTestId("metrics-endpoint");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText("Control plane");
+    await expect(rows.nth(0)).toContainText("/metrics on this API's address");
+    await expect(rows.nth(0)).toContainText("Token with fabric.metrics.read");
+    await expect(rows.nth(1)).toContainText("127.0.0.1:9471/metrics");
+    await expect(rows.nth(1)).toContainText("None (loopback or management network only)");
+    const steps = page.getByTestId("monitoring-steps").getByRole("listitem");
+    await expect(steps).toHaveCount(4);
+    await expect(steps.nth(0)).toContainText("Metrics Reader");
+    await expect(steps.nth(3)).toContainText("incus config trust add-certificate metrics.crt --type=metrics");
+    await expect(steps.nth(3)).toContainText("/1.0/metrics");
+    // Read-only: the panel offers no action of its own.
+    await expect(panel.getByRole("button")).toHaveCount(0);
+  });
+
+  test("says when the sign-in cannot read metrics, labels mock data and lists a separate listener", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("mock", false) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory", "read-audit"]) }),
+      "GET /api/v1/system": () => ({ json: system }),
+      "GET /api/v1/monitoring": () => ({ json: monitoring({ provider: "mock", mayScrape: false, region: "default", site: "default", sector: "default", endpoints: [
+        { component: "control-plane", address: null, path: "/metrics", authentication: "bearer" },
+        { component: "control-plane-listener", address: "10.0.0.5:9470", path: "/metrics", authentication: "none" },
+        { component: "worker", address: "127.0.0.1:9471", path: "/metrics", authentication: "none" },
+      ] }) }),
+    });
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("monitoring-access")).toContainText("Cannot read metrics. A collector needs fabric.metrics.read.");
+    await expect(page.getByTestId("monitoring")).toContainText("Mock · not a real cluster");
+    await expect(page.getByTestId("monitoring-labels")).toHaveText("region=default · site=default · sector=default");
+    await expect(page.getByTestId("metrics-endpoint")).toHaveCount(3);
+    await expect(page.getByTestId("metrics-endpoint").nth(1)).toContainText("Control plane (separate listener)");
+    await expect(page.getByTestId("metrics-endpoint").nth(1)).toContainText("10.0.0.5:9470/metrics");
+  });
+
+  test("an error from the API is shown with a retry, never an invented set-up", async ({ page }) => {
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health("incus", true) }),
+      "GET /api/v1/whoami": () => ({ json: whoami("operator", OPERATOR) }),
+      "GET /api/v1/system": () => ({ json: system }),
+      "GET /api/v1/monitoring": () => ({ status: 403, json: { error: { code: "forbidden", message: "you may not do this (fabric.metrics.read)" } } }),
+    });
+    await page.goto("/#/administration");
+    await expect(page.getByTestId("monitoring")).toContainText("you may not do this (fabric.metrics.read)");
+    await expect(page.getByTestId("metrics-endpoint")).toHaveCount(0);
+  });
+
+  test.describe("on a phone", () => {
+    test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    test("the panel fits without sideways scrolling", async ({ page }) => {
+      await stub(page, {
+        "GET /api/v1/health": () => ({ json: health("incus", true) }),
+        "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
+        "GET /api/v1/system": () => ({ json: system }),
+        "GET /api/v1/tokens": () => ({ json: { items: [] } }),
+        "GET /api/v1/monitoring": () => ({ json: monitoring() }),
+      });
+      await page.goto("/#/administration");
+      await expect(page.getByTestId("metrics-endpoint")).toHaveCount(2);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    });
+  });
+});

@@ -970,3 +970,52 @@ async fn mock_resources_follow_member_status() {
     ));
     assert!(p.server_resources(None).await.is_ok());
 }
+
+#[test]
+fn metrics_label_endpoints_by_template_never_by_name() {
+    let t = client::endpoint_template;
+    assert_eq!(t("/1.0"), "/1.0");
+    assert_eq!(
+        t("/1.0/instances/shop-web-01/state?project=apelora"),
+        "/1.0/instances/{id}/state"
+    );
+    // An instance called like a fixed segment is still a name.
+    assert_eq!(t("/1.0/instances/state"), "/1.0/instances/{id}");
+    assert_eq!(
+        t("/1.0/storage-pools/local/volumes/custom/shop-db-01-data?target=m1"),
+        "/1.0/storage-pools/{id}/volumes/custom/{id}"
+    );
+    assert_eq!(
+        t("/1.0/operations/0b7e4f3c-1111-2222-3333-444455556666/wait?timeout=15"),
+        "/1.0/operations/{id}/wait"
+    );
+    assert_eq!(
+        t("/1.0/networks/apelora-shop/load-balancers/10.0.0.5"),
+        "/1.0/networks/{id}/load-balancers/{id}"
+    );
+    assert_eq!(t("/1.0/something-new/x"), "/1.0/{id}/{id}");
+}
+
+#[tokio::test]
+async fn each_request_is_counted_by_template_and_outcome_and_sets_reachability() {
+    let base = fixture_server(vec![("/1.0", sync(server_json(true)))]).await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let ok_before = apelora_metrics::INCUS_REQUESTS.get(&["/1.0", "GET", "ok"]);
+    p.server_info().await.expect("info");
+    assert!(apelora_metrics::INCUS_REQUESTS.get(&["/1.0", "GET", "ok"]) >= ok_before + 1.0);
+    assert!(apelora_metrics::INCUS_LAST_SUCCESS.get(&[]).is_some());
+    let missing = "/1.0/instances/{id}";
+    let before = apelora_metrics::INCUS_REQUESTS.get(&[missing, "GET", "not_found"]);
+    assert_eq!(
+        p.instance("apelora", "gone-one").await.expect("absent"),
+        None
+    );
+    assert!(apelora_metrics::INCUS_REQUESTS.get(&[missing, "GET", "not_found"]) >= before + 1.0);
+    // Nothing listens on port 9 of the loopback address: counted as unreachable.
+    let down = Provider::Incus(IncusClient::plain_for_tests("http://127.0.0.1:9"));
+    let before = apelora_metrics::INCUS_REQUESTS.get(&["/1.0", "GET", "unreachable"]);
+    assert!(down.server_info().await.is_err());
+    assert!(apelora_metrics::INCUS_REQUESTS.get(&["/1.0", "GET", "unreachable"]) >= before + 1.0);
+    let text = apelora_metrics::render(false);
+    assert!(!text.contains("gone-one"), "names never become labels");
+}

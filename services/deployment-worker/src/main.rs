@@ -6,6 +6,8 @@
 //! replicas on a member offline for `APELORA_RECOVER_AFTER_SECS` (default 120) are substituted;
 //! a stateless replica failing its port check for `APELORA_HEALTH_FAIL_AFTER_SECS` (default 20)
 //! is unhealthy, and restarted once unhealthy for `APELORA_HEALTH_RESTART_AFTER_SECS` (60).
+//! Metrics and a liveness probe are served on `APELORA_WORKER_METRICS_ADDR` (default
+//! `127.0.0.1:9471`, `off` turns it off; no authentication, so loopback or a management network).
 
 use std::time::Duration;
 
@@ -16,6 +18,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!("DATABASE_URL is not set; the worker has no job queue to read and exits");
         return Ok(());
     };
+    let place = apelora_metrics::Place::from_env(|k| std::env::var(k).ok())?;
+    let metrics_addr = apelora_deployment_worker::metrics::listen_addr(|k| std::env::var(k).ok())?;
     let pool = apelora_persistence::connect(&url).await?;
     let worker = std::env::var("APELORA_WORKER_ID")
         .unwrap_or_else(|_| format!("worker-{}", std::process::id()));
@@ -30,6 +34,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     apelora_incus_adapter::set_image_mirrors(mirrors);
     tracing::info!(%worker, provider = ?provider.mode(), "deployment worker started");
+    apelora_metrics::set_place(place);
+    apelora_metrics::set_build("worker", env!("CARGO_PKG_VERSION"));
+    apelora_metrics::set_provider(if provider.mode() == apelora_domain::ProviderMode::Mock {
+        "mock"
+    } else {
+        "incus"
+    });
+    let metrics = match metrics_addr {
+        Some(at) => {
+            if !at.ip().is_loopback() {
+                tracing::warn!(%at, "worker metrics are served without authentication on a non-loopback address; keep it on a management network");
+            }
+            let l = tokio::net::TcpListener::bind(at).await?;
+            tracing::info!(%at, "worker metrics listener (GET /metrics, GET /healthz)");
+            Some(tokio::spawn(apelora_deployment_worker::metrics::serve(
+                l,
+                Some(pool.clone()),
+            )))
+        }
+        None => None,
+    };
     // The replica supervisor restores lost stateless replicas (0 turns it off).
     // A member must stay offline this long before replicas on it are substituted.
     let recover_after: u64 = std::env::var("APELORA_RECOVER_AFTER_SECS")
@@ -88,6 +113,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         s.abort();
     }
     storage.abort();
+    if let Some(m) = metrics {
+        m.abort();
+    }
     Ok(())
 }
 

@@ -32,7 +32,24 @@ A component is not done until you can tell, from outside, whether it is healthy 
 - Rust: `tracing` + `tracing-subscriber` JSON layer, spans per request and per reconcile cycle. TypeScript: a small logger wrapper; no stray `console.log` in committed code.
 - Aggregate logs centrally; keep retention aligned with the capacity estimate and privacy needs.
 
-## Metrics
+## Metrics in Apelora today (design: `docs/architecture/MONITORING.md`)
+
+- **One registry, no dependencies:** `crates/metrics` (`apelora-metrics`). Every family is a `static` in `crates/metrics/src/lib.rs` and listed in `FAMILIES`; `render()` writes the text exposition format (OpenMetrics when the collector's `Accept` asks for it). Constant labels `region`, `site`, `sector` (`APELORA_REGION/SITE/SECTOR`, validated, default `default`) are added to every series at render time.
+- **Endpoints:** control plane `GET /metrics` behind `fabric.metrics.read` (gate in `GATES`, built-in role Metrics Reader for the collector's service identity); optional unauthenticated listener `APELORA_METRICS_ADDR` (off by default); worker listener `APELORA_WORKER_METRICS_ADDR` (default `127.0.0.1:9471`, `/metrics` and `/healthz` only). `GET /api/v1/monitoring` feeds the Console's Administration → Monitoring panel.
+- **Adding a metric:**
+  1. Declare it in `crates/metrics/src/lib.rs` (name `apelora_<area>_<what>`, unit suffix `_seconds`/`_bytes`, counters without `_total`; the writer adds it), and add it to `FAMILIES`.
+  2. Record it at a **choke point** only: request middleware (`api/requests.rs`), authentication (`api.rs`), `authz::forbidden`, the job runner (`deployment-worker/src/lib.rs`), the supervisor loop, the storage schedule, the Incus client (`incus-adapter/src/client.rs::call`), or a scrape-time reader (`api/metrics.rs`, `persistence/src/monitoring.rs`). Never per request against PostgreSQL or Incus: scrape-time reads are cached (15 s database, 30 s inventory).
+  3. Add a test that the family appears with the expected labels (`api/metrics_tests.rs`, `deployment-worker/src/metrics.rs`).
+- **Cardinality rules:**
+  - Label values come from small fixed sets: route templates (`MatchedPath`, never the URI), Incus endpoint templates (`endpoint_template`), status classes (`status_class`), outcome classes, catalogue permission ids (others become `other`), and job kinds (`job_kind_label`).
+  - Never use a name, id, path, user, email address, token, certificate or error text as a label value.
+  - A new label *name* must be added to the allow-list in the crate's test `no_family_is_labelled_by_an_identifier`. Add it only when its values are a small fixed set.
+  - Each family keeps at most `MAX_SERIES` (1,000) label sets; extra ones are counted under `_overflow`. Seeing `_overflow` is a bug to fix.
+- **Whole-state gauges** (members by status, jobs by kind) use `Gauge::replace`, so a state that disappears is not kept at its last value.
+- **Lower layers** (Incus `/1.0/metrics` with a metrics-only certificate, PostgreSQL statistics views, OVN cluster status, SAN paths) are collected directly by the operator's collector. Do not proxy them through Apelora.
+- **Several API processes** expose the same queue and inventory gauges: aggregate them with `max`.
+
+## Metrics (target practice)
 
 Measure at three levels:
 
@@ -44,7 +61,7 @@ Measure at three levels:
 
 - Use the **RED** method for services (Rate, Errors, Duration) and **USE** for resources (Utilization, Saturation, Errors).
 - Histograms for latency (not averages); label cardinality kept low (never label by user id or resource id).
-- Expose Prometheus-format metrics on a separate admin port from the public API.
+- Expose metrics in the standard text exposition format; authenticated on the API address by default, an unauthenticated listener only on loopback or a management network.
 
 ## Tracing
 

@@ -149,6 +149,12 @@ async fn queue_audited(
     Ok(job)
 }
 
+/// Counts a replica action for metrics (`queued`, or `deferred` by a job in flight or the
+/// back-off after a failure).
+pub(crate) fn count_action(action: &str, outcome: &str) {
+    apelora_metrics::SUPERVISOR_ACTIONS.inc(&[action, outcome]);
+}
+
 /// One supervision pass with no memory: offline members count as failed at once, and one
 /// failing health observation is enough to act.
 pub async fn supervise_once(pool: &Pool, provider: &Provider) -> Result<Vec<String>, StoreError> {
@@ -349,6 +355,7 @@ impl Supervisor {
                             .await?
                         {
                             tracing::debug!(application = %d.application, instance = %format!("{}/{name}", d.project), "supervisor: substitute already queued or failed recently; not queued again");
+                            count_action("substitute", "deferred");
                             continue;
                         }
                         let uplink = d.uplink.as_deref().filter(|_| connections.is_some());
@@ -378,6 +385,7 @@ impl Supervisor {
                         )
                         .await?;
                         tracing::info!(application = %d.application, instance = %name, ?stranded, "supervisor: substituting a replica stranded on a failed member");
+                        count_action("substitute", "queued");
                         recreated.push(name);
                         queued_here += 1;
                     } else if slot.len() > 1
@@ -430,6 +438,7 @@ impl Supervisor {
                             )
                             .await?;
                             tracing::info!(application = %d.application, instance = %other.name, kept = %keep.name, "supervisor: retiring a duplicate replica");
+                            count_action("retire", "queued");
                             recreated.push(other.name.clone());
                             queued_here += 1;
                         }
@@ -492,6 +501,7 @@ impl Supervisor {
                     .await?
                 {
                     tracing::debug!(application = %d.application, instance = %format!("{}/{}", d.project, item.instance), kind, backoff_secs = BACKOFF_SECS, "supervisor: a job for the instance is in flight or failed recently; not queued again");
+                    count_action(if stopped { "restart" } else { "recreate" }, "deferred");
                     continue;
                 }
                 let payload = if stopped {
@@ -524,6 +534,7 @@ impl Supervisor {
                 )
                 .await?;
                 tracing::info!(application = %d.application, instance = %item.instance, %job, kind, "supervisor: restoring a stateless replica");
+                count_action(if stopped { "restart" } else { "recreate" }, "queued");
                 recreated.push(item.instance.clone());
                 queued_here += 1;
             }
@@ -643,7 +654,16 @@ pub async fn supervise(
     let mut supervisor = Supervisor::new(recover_after).with_health(health);
     loop {
         let current = rx.borrow().clone();
-        match supervisor.pass_if_leader(&pool, &provider, current).await {
+        let started = std::time::Instant::now();
+        let result = supervisor.pass_if_leader(&pool, &provider, current).await;
+        if !matches!(result, Ok(None)) {
+            apelora_metrics::SUPERVISOR_PASS.observe(
+                &[if result.is_ok() { "ok" } else { "error" }],
+                started.elapsed().as_secs_f64(),
+            );
+            apelora_metrics::SUPERVISOR_LAST_PASS.set(&[], apelora_metrics::now_secs());
+        }
+        match result {
             Ok(Some(_)) => {}
             Ok(None) => tracing::debug!(
                 "supervisor: another worker holds the leader lease; skipping this pass"

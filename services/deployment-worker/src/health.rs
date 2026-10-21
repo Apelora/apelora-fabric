@@ -176,6 +176,7 @@ impl HealthWatch {
                 .await?;
                 tx.commit().await?;
                 tracing::warn!(application = app, instance = %name, unhealthy_secs, "health: restarting a replica that keeps failing its port check");
+                crate::supervisor::count_action("health_restart", "queued");
                 tracker.restarted(now);
                 restarted_now.push(name.clone());
                 break;

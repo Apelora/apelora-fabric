@@ -96,6 +96,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     let mode = provider.mode();
+    let monitoring = api::metrics::MonitoringConfig::from_env(|k| std::env::var(k).ok())?;
+    apelora_metrics::set_place(monitoring.place.clone());
+    apelora_metrics::set_build("control-plane", env!("CARGO_PKG_VERSION"));
+    apelora_metrics::set_provider(if mode == apelora_domain::ProviderMode::Mock {
+        "mock"
+    } else {
+        "incus"
+    });
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!(%addr, provider = ?mode, tls = tls.is_some(), behind_proxy = listening == serve::Listening::BehindProxy, "control plane listening");
     let projects: Vec<String> = std::env::var("APELORA_DEPLOY_PROJECTS")
@@ -176,12 +184,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_volume_pool(volume_pool)
         .with_rate_limits(rate_limits)
         .with_tls(listening.tls())
-        .with_image_mirrors(mirrors);
+        .with_image_mirrors(mirrors)
+        .with_monitoring(monitoring.clone());
     // Identity providers saved in the Fabric Console (on top of the environment's).
     if let Err(e) = api::auth_config::reload(&state).await {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");
     }
     tokio::spawn(api::auth_config::retry_unreachable(state.clone()));
+    // Optional: metrics without authentication on their own address (loopback or a management
+    // network); GET /metrics on the API address always needs fabric.metrics.read.
+    if let Some(at) = monitoring.listener {
+        if !at.ip().is_loopback() {
+            tracing::warn!(%at, "metrics are served without authentication on a non-loopback address; keep it on a management network");
+        }
+        let l = tokio::net::TcpListener::bind(at).await?;
+        tracing::info!(%at, "metrics listener (no authentication)");
+        let router = api::metrics::listener_router(state.clone());
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(l, router).await {
+                tracing::error!(error = %e, "metrics listener stopped");
+            }
+        });
+    }
     let app = api::router(state).into_make_service_with_connect_info::<SocketAddr>();
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;

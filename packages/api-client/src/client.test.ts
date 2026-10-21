@@ -28,6 +28,15 @@ describe("api client", () => {
     expect(h[1]?.["idempotency-key"]).toBe("k-1");
   });
 
+  it("returns the metrics exposition as text, with the token", async () => {
+    const fetch = vi.fn(async () => new Response("# HELP apelora_build_info x\n", { status: 200, headers: { "content-type": "text/plain; version=0.0.4; charset=utf-8" } }));
+    const api = createClient({ token: () => "aps_x", fetch });
+    await expect(api.get("metrics")).resolves.toBe("# HELP apelora_build_info x\n");
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/metrics");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer aps_x");
+  });
+
   it("turns error bodies into typed errors with the stable code", async () => {
     const api = createClient({ fetch: async () => json(401, { error: { code: "unauthenticated", message: "token required" } }) });
     const err = await api.get("cluster").catch((e: unknown) => e);
@@ -165,6 +174,7 @@ describe("api client", () => {
       "GET /api/v1/jobs/{id}",
       "GET /api/v1/machines",
       "GET /api/v1/machines/{name}/admission",
+      "GET /api/v1/monitoring",
       "GET /api/v1/networks",
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
@@ -174,6 +184,7 @@ describe("api client", () => {
       "GET /api/v1/system",
       "GET /api/v1/tokens",
       "GET /api/v1/whoami",
+      "GET /metrics",
       "PATCH /api/v1/applications/{name}",
       "PATCH /api/v1/applications/{name}/volumes/{volume}",
       "POST /api/v1/applications",

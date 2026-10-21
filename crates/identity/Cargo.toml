@@ -10,6 +10,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+# Counts discovery and key-set reads by result (no dependencies of its own).
+apelora-metrics = { version = "0.0.0", path = "../metrics" }
 # Already in the workspace (incus-adapter): reading a token's issuer before choosing its verifier.
 base64 = "0.22.1"
 jsonwebtoken = { version = "10", default-features = false, features = ["aws_lc_rs"] }

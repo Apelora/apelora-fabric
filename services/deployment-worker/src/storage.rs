@@ -209,10 +209,12 @@ async fn scheduled_snapshot(
     .await;
     match result {
         Ok(pruned) => {
+            apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["snapshot", "ok"]);
             record_scheduled(pool, v.id, ScheduleKind::Snapshot, None).await?;
             tracing::info!(volume = %v.incus_name, snapshot = %name, pruned, "scheduled snapshot taken");
         }
         Err(e) => {
+            apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["snapshot", "failed"]);
             record_scheduled(pool, v.id, ScheduleKind::Snapshot, Some(&e.to_string())).await?;
             tracing::warn!(volume = %v.incus_name, error = %e, "scheduled snapshot failed");
         }
@@ -227,6 +229,7 @@ async fn scheduled_backup(
     backup_pool: Option<&str>,
 ) -> Result<(), StoreError> {
     let Some(backup_pool) = backup_pool else {
+        apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["backup", "not_configured"]);
         return record_scheduled(
             pool,
             v.id,
@@ -247,6 +250,7 @@ async fn scheduled_backup(
     };
     match back_up(provider, &req, time::OffsetDateTime::now_utc()).await {
         Ok((name, to, snapshot)) => {
+            apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["backup", "ok"]);
             record(pool, &req, &name, &to, &snapshot, true).await?;
             // Keep the newest scheduled backups; the ones someone asked for stay.
             let scheduled: Vec<_> = volume_backups(pool, &v.application, &v.incus_name)
@@ -279,6 +283,7 @@ async fn scheduled_backup(
             record_scheduled(pool, v.id, ScheduleKind::Backup, None).await
         }
         Err(e) => {
+            apelora_metrics::VOLUME_SCHEDULE_RUNS.inc(&["backup", "failed"]);
             tracing::warn!(volume = %v.incus_name, error = %e, "scheduled backup failed");
             record_scheduled(pool, v.id, ScheduleKind::Backup, Some(&e.to_string())).await
         }

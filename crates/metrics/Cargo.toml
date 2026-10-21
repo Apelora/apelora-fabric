@@ -1,0 +1,15 @@
+[package]
+name = "apelora-metrics"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A small in-process registry and the text exposition format, written for Apelora. It has no
+# dependencies, so the services, the Incus adapter and the identity crate can share it without
+# adding anything to the tree (docs/architecture/MONITORING.md, "Why our own registry").
+[dependencies]
+
+[lints]
+workspace = true

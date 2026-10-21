@@ -76,7 +76,19 @@ impl Principal {
     }
 }
 
+/// Counts a refusal by the permission that was missing: a catalogue id, or `other` (a free
+/// text never becomes a label).
+fn count_denial(permission: &str) {
+    let label = if apelora_auth::permission(permission).is_some() {
+        permission
+    } else {
+        "other"
+    };
+    apelora_metrics::AUTHZ_DENIALS.inc(&[label]);
+}
+
 fn forbidden(permission: &str, mfa: bool) -> ApiError {
+    count_denial(permission);
     if mfa {
         ApiError::new(
             StatusCode::FORBIDDEN,
@@ -104,6 +116,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "application.logs.read"
         | "application.metrics.read"
         | "capacity.view"
+        | "fabric.metrics.read"
         | "user.view" => ReadInventory,
         "audit.read" => ReadAudit,
         "application.design" | "application.create" => DesignApplications,
@@ -212,11 +225,14 @@ pub(super) fn require(p: &Principal, perm: Permission) -> Result<(), ApiError> {
     match (&p.caller, p.role) {
         (Some(_), _) => allow(p, platform_permission(perm), &Resource::platform()),
         (None, Some(role)) if role.allows(perm) => Ok(()),
-        (None, Some(role)) => Err(ApiError::new(
-            StatusCode::FORBIDDEN,
-            "forbidden",
-            format!("role {} may not {perm:?}", role.as_str()),
-        )),
+        (None, Some(role)) => Err({
+            count_denial(platform_permission(perm));
+            ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                format!("role {} may not {perm:?}", role.as_str()),
+            )
+        }),
         (None, None) => Err(forbidden("access", false)),
     }
 }
@@ -575,6 +591,14 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ("GET", "/api/v1/networks", &["cluster.view"]),
     ("GET", "/api/v1/storage-pools", &["cluster.view"]),
     ("GET", "/api/v1/audit", &["audit.read"]),
+    // Monitoring (metrics.rs): scraping needs the metrics permission; the set-up page also
+    // opens to people who can see the cluster.
+    ("GET", "/metrics", &["fabric.metrics.read"]),
+    (
+        "GET",
+        "/api/v1/monitoring",
+        &["fabric.metrics.read", "cluster.view"],
+    ),
     // Identity and access (see identity.rs)
     (
         "GET",
@@ -749,6 +773,7 @@ pub(super) async fn route_gate(matched: Option<MatchedPath>, req: Request, next:
             return forbidden(any_of.first().copied().unwrap_or("access"), false).into_response();
         }
         None => {
+            apelora_metrics::AUTHZ_DENIALS.inc(&["no_route_rule"]);
             return ApiError::new(
                 StatusCode::FORBIDDEN,
                 "route_not_authorizable",

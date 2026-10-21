@@ -12,7 +12,7 @@ flowchart LR
   G["Group<br/>(from the groups claim<br/>or created in Apelora)"] --> A
   S["Service identity<br/>(automation)"] --> A
   A["Role assignment<br/>role + scope + optional<br/>conditions and expiry"] --> E["Evaluator<br/>deny by default"]
-  R["Role<br/>(10 predefined, custom)"] --> A
+  R["Role<br/>(11 predefined, custom)"] --> A
   E --> D{"Allowed?"}
   D -- "needs approval" --> AP["Approval by a<br/>different person"]
   D -- yes --> ACT["Action"]

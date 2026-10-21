@@ -114,6 +114,8 @@ Each row says what holds at every size, what changes as the installation grows, 
 | Network | one site | between sites and regions | summaries up, not lists; image caches per region; incremental copies for moves and backups (`--refresh`) |
 | Browser | — | — | Console lists are paged on the server; detail is loaded on demand; live views refresh by interval with back-off when the tab is hidden |
 
+Where time goes is measured, not guessed: request latency by route, job duration by kind, Incus call latency by endpoint and the database pool's acquire time ([monitoring](MONITORING.md), built).
+
 Efficiency for the servers themselves:
 - system containers by default, VMs only where a class needs them (built);
 - capacity views and placement that refuse what does not fit (health and capacity work in progress);
@@ -128,10 +130,21 @@ Efficiency for the servers themselves:
   - a job detail page with each step, its duration and the Incus operation it waited on (wave 1);
   - log level changed at run time by an administrator, audited, and reverting by itself after an hour;
   - a support bundle: versions, effective settings with secrets removed, the last hour of errors, health, preflight, recent failed jobs (wave 4).
+- **Metrics** for requests, jobs, Incus calls and the database pool point at where to look; the request id in the logs then says what happened to one request ([monitoring](MONITORING.md)).
 - **Grows into:**
   - logs and metrics stay in the region;
   - "look up a request id" asks the regional plane that owns it, which the id itself names (a region prefix);
   - the global plane keeps only roll-ups.
+
+### Monitoring
+
+- **Every size:**
+  - each layer reports for itself, scraped by the collector the operator runs inside the site;
+  - Apelora exposes its own metrics on `GET /metrics` (control plane, behind `fabric.metrics.read`) and on the worker's loopback listener (built);
+  - Incus servers, PostgreSQL, OVN and the SAN are collected directly, never through Apelora, so Apelora is never a bottleneck or a single point of failure for metrics;
+  - labels are templates and outcome classes only, with constant `region`, `site` and `sector` labels (built).
+- **Grows into:** per-site collectors; regions keep aggregates by those labels; per-instance series stay in their site. The global plane sees only roll-ups (§2.6).
+- **Details:** [monitoring](MONITORING.md), with the signals, alert thresholds and runbooks for every layer.
 
 ### Failure detection
 

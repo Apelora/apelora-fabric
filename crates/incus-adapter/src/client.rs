@@ -189,6 +189,89 @@ pub(crate) fn loggable(path: &str) -> String {
     }
 }
 
+/// A request path as a metrics label: names and ids replaced by `{id}`, the query dropped, so
+/// the label has as many values as the adapter has endpoints, not as many as there are
+/// instances (`/1.0/instances/{id}/state`).
+pub fn endpoint_template(path: &str) -> String {
+    /// Collections whose next segment names one object.
+    const COLLECTIONS: &[&str] = &[
+        "instances",
+        "members",
+        "network-acls",
+        "network-address-sets",
+        "networks",
+        "load-balancers",
+        "forwards",
+        "operations",
+        "projects",
+        "storage-pools",
+        "custom",
+        "snapshots",
+        "backups",
+        "certificates",
+        "images",
+        "profiles",
+        "warnings",
+    ];
+    /// Fixed segments that do not name an object.
+    const FIXED: &[&str] = &[
+        "1.0",
+        "cluster",
+        "volumes",
+        "state",
+        "exec",
+        "wait",
+        "websocket",
+        "metrics",
+        "resources",
+        "events",
+        "console",
+        "logs",
+        "files",
+    ];
+    let base = path.split('?').next().unwrap_or("");
+    let mut out = String::new();
+    let mut expect_id = false;
+    for seg in base.split('/').filter(|s| !s.is_empty()) {
+        out.push('/');
+        if expect_id {
+            out.push_str("{id}");
+            expect_id = false;
+        } else if COLLECTIONS.contains(&seg) {
+            out.push_str(seg);
+            expect_id = true;
+        } else if FIXED.contains(&seg) {
+            out.push_str(seg);
+        } else {
+            out.push_str("{id}");
+        }
+    }
+    if out.is_empty() { "/".into() } else { out }
+}
+
+/// Counts one Incus request by endpoint template and outcome class (never the error text), and
+/// keeps the reachability gauge: any HTTP answer means Incus is reachable.
+fn record_call<T>(path: &str, method: &str, secs: f64, result: &Result<T, AdapterError>) {
+    let outcome = match result {
+        Ok(_) => "ok",
+        Err(AdapterError::NotFound(_)) => "not_found",
+        Err(AdapterError::Authentication(_)) => "auth_error",
+        Err(AdapterError::Api { status, .. }) if *status >= 500 => "server_error",
+        Err(AdapterError::Api { .. }) => "client_error",
+        Err(AdapterError::Connectivity(_)) => "unreachable",
+        Err(AdapterError::Decode(_)) => "bad_response",
+        Err(_) => "other",
+    };
+    let endpoint = endpoint_template(path);
+    apelora_metrics::INCUS_REQUESTS.inc(&[&endpoint, method, outcome]);
+    apelora_metrics::INCUS_DURATION.observe(&[&endpoint, method], secs);
+    let reachable = outcome != "unreachable";
+    apelora_metrics::INCUS_UP.set(&[], if reachable { 1.0 } else { 0.0 });
+    if outcome == "ok" {
+        apelora_metrics::INCUS_LAST_SUCCESS.set(&[], apelora_metrics::now_secs());
+    }
+}
+
 /// An error with its causes, e.g. "builder error: no crypto provider".
 fn chain(e: &dyn std::error::Error) -> String {
     let mut out = e.to_string();
@@ -318,6 +401,19 @@ impl IncusClient {
     /// (e.g. a proxy's error page) keeps its status. Request bodies are never logged: they can
     /// carry join secrets or certificates.
     pub(crate) async fn call<T: DeserializeOwned>(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Envelope<T>, AdapterError> {
+        let started = std::time::Instant::now();
+        let m = apelora_metrics::method_label(method.as_str());
+        let result = self.send(method, path, body).await;
+        record_call(path, m, started.elapsed().as_secs_f64(), &result);
+        result
+    }
+
+    async fn send<T: DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -1209,8 +1305,12 @@ impl IncusClient {
                 "invalid operation id {id:?}"
             )));
         }
-        self.get(&format!("/1.0/operations/{id}/wait?timeout={timeout_secs}"))
-            .await
+        let started = std::time::Instant::now();
+        let result = self
+            .get(&format!("/1.0/operations/{id}/wait?timeout={timeout_secs}"))
+            .await;
+        apelora_metrics::INCUS_OPERATION_WAIT.observe(&[], started.elapsed().as_secs_f64());
+        result
     }
 
     pub async fn server_info(&self) -> Result<ServerInfo, AdapterError> {

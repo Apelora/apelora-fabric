@@ -11,7 +11,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::extract::Request;
+use axum::extract::{MatchedPath, Request};
 use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::Response;
@@ -53,8 +53,33 @@ pub struct ErrorCode {
     pub message: String,
 }
 
+/// Keeps the in-flight gauge right even when a request is cancelled mid-way.
+struct InFlight;
+
+impl InFlight {
+    fn start() -> Self {
+        apelora_metrics::HTTP_IN_FLIGHT.add(&[], 1.0);
+        InFlight
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        apelora_metrics::HTTP_IN_FLIGHT.add(&[], -1.0);
+    }
+}
+
+/// The route template of a request for metrics (`/api/v1/applications/{name}`), never the
+/// path itself: a path carries names and ids. Requests that match no route share one label.
+fn route_label(req: &Request) -> String {
+    req.extensions()
+        .get::<MatchedPath>()
+        .map_or_else(|| "unmatched".to_owned(), |m| m.as_str().to_owned())
+}
+
 /// Outermost layer: assigns the request id, opens the request span and writes one line per
-/// completed request (debug for successes, info for 4xx, warn for 5xx).
+/// completed request (debug for successes, info for 4xx, warn for 5xx). Also counts the request
+/// for metrics by route template, method and status class, with its latency.
 pub async fn trace(req: Request, next: Next) -> Response {
     let id: Arc<str> = req
         .headers()
@@ -71,11 +96,24 @@ pub async fn trace(req: Request, next: Next) -> Response {
         path = req.uri().path(),
     );
     let started = Instant::now();
+    let route = route_label(&req);
+    let method = apelora_metrics::method_label(req.method().as_str());
+    let in_flight = InFlight::start();
     let mut res = REQUEST_ID
         .scope(id.clone(), next.run(req))
         .instrument(span.clone())
         .await;
+    drop(in_flight);
     let status = res.status();
+    apelora_metrics::HTTP_REQUESTS.inc(&[
+        &route,
+        method,
+        apelora_metrics::status_class(status.as_u16()),
+    ]);
+    apelora_metrics::HTTP_DURATION.observe(&[&route, method], started.elapsed().as_secs_f64());
+    if status == axum::http::StatusCode::TOO_MANY_REQUESTS {
+        apelora_metrics::HTTP_RATE_LIMITED.inc(&[&route]);
+    }
     let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let code = res.extensions().get::<ErrorCode>().map_or("-", |c| c.code);
     span.in_scope(|| {

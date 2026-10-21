@@ -212,7 +212,10 @@ impl Verifier {
                             res.json::<JwkSet>().await
                         }
                         .await
-                        .map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
+                        .map_err(|e| TokenError::KeysUnavailable(e.to_string()));
+                        apelora_metrics::IDP_KEY_FETCHES
+                            .inc(&["key_set", if fetched.is_ok() { "ok" } else { "error" }]);
+                        let fetched = fetched?;
                         c.set = Some(fetched);
                         c.fetched = Some(Instant::now());
                     }
@@ -408,6 +411,13 @@ pub fn secure_url(u: &str) -> bool {
 /// Reads a provider's discovery document and checks that it names the same issuer and secure
 /// endpoints; then reads its key set and returns how many signing keys it has.
 pub async fn discover(issuer: &str) -> Result<(Discovery, usize), TokenError> {
+    let result = discover_once(issuer).await;
+    apelora_metrics::IDP_KEY_FETCHES
+        .inc(&["discovery", if result.is_ok() { "ok" } else { "error" }]);
+    result
+}
+
+async fn discover_once(issuer: &str) -> Result<(Discovery, usize), TokenError> {
     let issuer = issuer.trim_end_matches('/');
     if !secure_url(issuer) {
         return Err(TokenError::KeysUnavailable(

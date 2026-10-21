@@ -5,6 +5,7 @@
 
 pub mod health;
 pub mod lifecycle;
+pub mod metrics;
 pub mod mobility;
 pub mod network;
 pub mod operations;
@@ -111,32 +112,59 @@ async fn run_claimed(
             loop {
                 tokio::time::sleep(Duration::from_secs((LEASE_SECS / 3) as u64)).await;
                 if let Err(e) = renew_lease(&pool, &job, &worker, LEASE_SECS).await {
+                    if matches!(e, StoreError::Conflict(_)) {
+                        apelora_metrics::LEASE_LOST.inc(&["renew"]);
+                    }
                     tracing::warn!(job = %job.id, error = %e, "job: lost the lease; stopping renewals");
                     return;
                 }
             }
         })
     };
+    let started = std::time::Instant::now();
     let outcome = handle(pool, provider, &job, worker).await;
     renew.abort();
+    let kind = apelora_metrics::job_kind_label(&job.kind);
+    let record = |outcome: &str| {
+        apelora_metrics::JOB_ATTEMPTS.inc(&[kind, outcome]);
+        apelora_metrics::JOB_DURATION.observe(&[kind, outcome], started.elapsed().as_secs_f64());
+    };
     let outcome = match outcome {
         Ok(o) => o,
         // Lost the job to another worker mid-way: its attempt owns the result now.
         Err(StoreError::Conflict(msg)) => {
+            record("lost");
+            apelora_metrics::LEASE_LOST.inc(&["handler"]);
             tracing::warn!(%msg, "job: stopped working on it (another worker holds it now)");
             return Ok(true);
         }
         Err(e) => return Err(e),
     };
     match complete_job(pool, &job, worker, &outcome).await {
-        Ok(()) => log_outcome(&job, &outcome),
+        Ok(()) => {
+            record(outcome_label(&job, &outcome));
+            log_outcome(&job, &outcome)
+        }
         // Another worker took over after our lease expired; its result wins.
         Err(StoreError::Conflict(msg)) => {
+            record("lost");
+            apelora_metrics::LEASE_LOST.inc(&["complete"]);
             tracing::warn!(%msg, "job: result discarded (another worker holds it now)")
         }
         Err(e) => return Err(e),
     }
     Ok(true)
+}
+
+/// The outcome of an attempt as a metrics label: a failure that will run again is a `retry`.
+fn outcome_label(job: &ClaimedJob, outcome: &Outcome) -> &'static str {
+    match outcome {
+        Outcome::Succeeded => "succeeded",
+        Outcome::Waiting(_) => "waiting",
+        Outcome::Failed(_) if job.attempts < job.max_attempts => "retry",
+        Outcome::Failed(_) => "failed",
+        Outcome::Rejected(_) => "rejected",
+    }
 }
 
 /// One line per finished attempt: info when it succeeded or waits, warn when it failed and will
@@ -176,6 +204,11 @@ pub async fn run(
         let worked = match run_once(&pool, &provider, &worker).await {
             Ok(w) => w,
             Err(e) => {
+                apelora_metrics::STORE_ERRORS.inc(&[if e.is_unavailable() {
+                    "store_unavailable"
+                } else {
+                    "store_error"
+                }]);
                 tracing::error!(error = %e, idle_secs = idle.as_secs_f64(), "job loop error; backing off");
                 false
             }

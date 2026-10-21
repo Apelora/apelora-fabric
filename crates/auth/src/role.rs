@@ -24,10 +24,11 @@ pub enum Builtin {
     InstanceAccess,
     Viewer,
     Auditor,
+    MetricsReader,
 }
 
 impl Builtin {
-    pub const ALL: [Builtin; 10] = [
+    pub const ALL: [Builtin; 11] = [
         Builtin::PlatformSuperAdmin,
         Builtin::FabricAdministrator,
         Builtin::HardwareOperator,
@@ -38,6 +39,7 @@ impl Builtin {
         Builtin::InstanceAccess,
         Builtin::Viewer,
         Builtin::Auditor,
+        Builtin::MetricsReader,
     ];
 
     pub fn key(self) -> &'static str {
@@ -52,6 +54,7 @@ impl Builtin {
             Builtin::InstanceAccess => "instance-access",
             Builtin::Viewer => "viewer",
             Builtin::Auditor => "auditor",
+            Builtin::MetricsReader => "metrics-reader",
         }
     }
 
@@ -71,6 +74,7 @@ impl Builtin {
             Builtin::InstanceAccess => "Instance Access",
             Builtin::Viewer => "Viewer",
             Builtin::Auditor => "Auditor",
+            Builtin::MetricsReader => "Metrics Reader",
         }
     }
 
@@ -104,6 +108,9 @@ impl Builtin {
             Builtin::Auditor => {
                 "Reads what the scope contains, plus its audit trail, changing nothing."
             }
+            Builtin::MetricsReader => {
+                "Scrapes the control plane's metrics and nothing else. Meant for the service identity of the installation's own metrics collector."
+            }
         }
     }
 
@@ -111,7 +118,9 @@ impl Builtin {
     pub fn scopes(self) -> &'static [Level] {
         use Level::*;
         match self {
-            Builtin::PlatformSuperAdmin | Builtin::FabricAdministrator => &[Platform],
+            Builtin::PlatformSuperAdmin | Builtin::FabricAdministrator | Builtin::MetricsReader => {
+                &[Platform]
+            }
             Builtin::HardwareOperator => &[Platform, Pool],
             Builtin::OrganizationOwner => &[Organization],
             Builtin::ProjectAdministrator => &[Project],
@@ -136,6 +145,7 @@ impl Builtin {
                 "network.manage",
                 "storage.manage",
                 "machine.enrol",
+                "fabric.metrics.read",
                 "hardware.view",
                 "organization.view",
                 "project.view",
@@ -197,6 +207,7 @@ impl Builtin {
                 "capacity.view",
                 "cluster.view",
                 "hardware.view",
+                "fabric.metrics.read",
             ],
             Builtin::Auditor => vec![
                 "organization.view",
@@ -208,7 +219,9 @@ impl Builtin {
                 "user.view",
                 "cluster.view",
                 "hardware.view",
+                "fabric.metrics.read",
             ],
+            Builtin::MetricsReader => vec!["fabric.metrics.read"],
         };
         list.into_iter().collect()
     }
@@ -387,7 +400,8 @@ mod tests {
                 .scopes()
                 .iter()
                 .any(|l| matches!(l, Level::Organization | Level::Project | Level::Application));
-            let only_view = |id: &str| matches!(id, "cluster.view" | "hardware.view");
+            let only_view =
+                |id: &str| matches!(id, "cluster.view" | "hardware.view" | "fabric.metrics.read");
             for p in b.permissions() {
                 let d = permission(p).expect("listed");
                 if below && d.class != Class::Tenant {

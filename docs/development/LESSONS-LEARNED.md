@@ -54,6 +54,8 @@ Read these first. Most entries below come from one of four causes:
 - **A token or role could reach further than the person who made it** (2026-10-21) → the escalation guard covered assignments only; tokens, revocation and legacy tokens (which skipped the route gate) had their own, weaker checks. → Every path that mints a credential or removes access applies the same containment (`beyond_caller`, `check_revocation`), and every caller passes the route gate.
 - **A persistence function generic over `impl sqlx::Acquire` broke `tokio::spawn` of the supervisor with "implementation of `Send` is not general enough"** (2026-10-21) → the borrowed-lifetime bound cannot be proven for every lifetime inside a spawned future. → Take `&PgPool`, or `&mut PgConnection` for work inside a transaction (`enqueue_job_in(&mut tx, …)`); `impl PgExecutor` for single statements is fine.
 
+- **`npm run api:generate` failed on the first route that answers text (`GET /metrics`)** (2026-10-21) → the client generator accepted only JSON responses. → The generator maps a `text/plain` success to `string` and the client returns the text (`packages/api-client/src/client.test.ts` guards it). A new non-JSON route needs the same treatment.
+
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)
 
 - **Waiting on a copy operation was refused for the restricted identity** ("permission for project default") → the operation is created in another project. → Fallback: poll the project's running operations for the names, then check that the target exists (`copy_volume`, `project_operation_running`).

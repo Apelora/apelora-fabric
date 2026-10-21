@@ -1168,6 +1168,25 @@ export type ModuleStatus = {
   status: string;
 };
 
+/** How monitoring is set up, for the Console's Monitoring panel. */
+export type MonitoringInfo = {
+  endpoints: MetricsEndpoint[];
+  /** Media types `GET /metrics` can answer with. */
+  formats: string[];
+  /** Incus's own metrics path on every member, scraped directly with a metrics certificate. */
+  incusMetricsPath: string;
+  /** The caller holds `fabric.metrics.read` and could scrape `GET /metrics` with its credential. */
+  mayScrape: boolean;
+  /** The permission a collector needs (`fabric.metrics.read`). */
+  permission: string;
+  provider: ProviderMode;
+  region: string;
+  /** The built-in role that holds only that permission. */
+  role: string;
+  sector: string;
+  site: string;
+};
+
 /** What the move does, decided before anything changes. */
 export type MovePlan = {
   /** Why the move is refused; empty when it may proceed. */
@@ -2105,6 +2124,7 @@ export const operations = {
   create_token: { method: "POST", path: "/api/v1/tokens", params: [], public: false },
   revoke_token: { method: "DELETE", path: "/api/v1/tokens/{id}", params: ["id"], public: false },
   whoami: { method: "GET", path: "/api/v1/whoami", params: [], public: false },
+  metrics: { method: "GET", path: "/metrics", params: [], public: false },
 } as const;
 
 /** Success body of each operation (`null` for 204 No Content). */
@@ -2357,6 +2377,8 @@ export type Responses = {
   revoke_token: null;
   /** Who is calling, with the role assignments and permissions in force. */
   whoami: WhoAmI;
+  /** Metrics of this control plane in the text exposition format (OpenMetrics when the `Accept` header asks for `application/openmetrics-text`). Needs `fabric.metrics.read` (built-in role Metrics Reader, for the collector's service identity). Labels never carry names, ids, paths with ids, tokens or error texts; see docs/architecture/MONITORING.md. */
+  metrics: string;
 };
 
 /** Request body of each operation (`never` when it takes none). */
@@ -2485,4 +2507,5 @@ export type Bodies = {
   create_token: CreateToken;
   revoke_token: never;
   whoami: never;
+  metrics: never;
 };
