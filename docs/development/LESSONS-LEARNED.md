@@ -33,6 +33,8 @@ Read these first. Most entries below come from one of four causes:
 - **Tests broke when a fixture list grew** (permission catalogue counts) → expected when you add to a shared fixture: update the counts in the same change.
 - **"One primary button" tests failed after adding dialogs** (2026-10-21) → `FormDialog` renders its children while closed, so a closed dialog's primary button counts. → Render a dialog's form only while it is open (`{open && <form>…}`), which also makes `autoFocus` work on opening.
 - **A new field in an API response broke stubbed pages** (2026-10-21) → the stubs in `tests/e2e/identity-fixtures.ts` (and `screenshots.spec.ts`) return the old shape, so the page read `undefined`. → When a response gains a field the UI reads, add it to every stub of that route in the same change.
+- **A new header chip pushed the platform badge under it at 390 px** (2026-10-21) → the Studio header's left group was `shrink-0 whitespace-nowrap`, so it could only grow sideways. → Header groups wrap (`flex-wrap`); a Playwright test opens the chip's panel at 390 px (`studio-capacity.spec.ts`).
+- **A ticking "checked 12 s ago" inside `aria-live` would be read out every few seconds** (2026-10-21) → live regions announce every text change. → Announce state changes (errors, stale data), never clocks; see the `fabric-console` skill.
 
 ## Control plane and identity
 
@@ -45,6 +47,7 @@ Read these first. Most entries below come from one of four causes:
 - **Any change to sign-in settings can lock everyone out** → the API enforces the guards, not just the UI (`lockout_guard`, `set_api_tokens`, `guard_leaving_local_accounts`). Every new way in (local accounts, directories) must be counted by all of them.
 - **`extract(epoch …)` came back as NUMERIC and failed to decode as `f64`** (2026-10-21) → PostgreSQL 14+ returns numeric. → Cast to `::float8` in queries that sqlx reads into floats.
 - **A real control plane on the shared development database would have broken other checkouts** (2026-10-21) → sqlx refuses to start when the database has a migration the binary does not know, and parallel sessions share `apelora` on port 15432. → For real end-to-end runs of a branch with a new migration, create a separate database on the same server (`docker exec apelora-dev-db psql -U apelora -c "CREATE DATABASE …"`), point `DATABASE_URL` at it, and drop it afterwards.
+- **A new `HealthState` schema silently replaced the instance `HealthState` in the OpenAPI document** (2026-10-21) → utoipa names schemas by the Rust type name only, so two types with one name collide without an error. → After `npm run api:generate`, check `git diff packages/api-client/src/generated.ts` for removed lines; give new schemas a distinct prefix (`Health*`, `Capacity*`).
 
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)
 
@@ -55,6 +58,9 @@ Read these first. Most entries below come from one of four causes:
 - **Attached custom volumes do not follow a live-migrating VM** unless marked dependent, which ties their lifetime to the instance. Design moves with that in mind (`docs/design/mobility-and-ha.md`).
 - **The mock copy ignored `fail_create`; the mock move did not carry `used_by`** → when the real adapter gains a behaviour, give the mock the same behaviour, failures included, in the same change.
 - **A real-move test passed too early** → it waited for the job, not for the result. → Wait until the instance's location has changed.
+- **Two "memory used" figures disagree by gigabytes** (2026-10-21, REAL INCUS TESTED) → `/1.0/cluster/members/<m>/state` gives total and free RAM (caches count as used), `/1.0/resources?target=<m>` gives used without caches. → Show the `/1.0/resources` figure (`HealthServerResources.memory`).
+- **A shared pool (clustered LVM, Ceph) appears in every member's state with the same space** (2026-10-21) → it is one pool. → Count it once (`capacity::pool_is_shared`); summing per member multiplied the test cluster's free space by four.
+- **The restricted deploy identity sees only its own projects' instances** → per-server instance lists from it are partial. Say so on screen (Health → Instances) instead of implying the server is empty.
 
 ## Lab, shell and tooling
 
@@ -68,6 +74,8 @@ Read these first. Most entries below come from one of four causes:
 - **A plain `sleep` was blocked in the agent shell** → wait with `until <condition>; do sleep 1; done`.
 - **The Incus CLI attach failed** → it needs a device name.
 - **A design-review tool refused SVGs with text** → review illustrations by rendering them and looking at screenshots instead.
+- **Another agent overwrote a helper script in the shared scratchpad mid-task** (2026-10-21) → parallel sessions share the scratchpad directory. → Keep your helpers in your own subfolder of the scratchpad, named after your worktree.
+- **A spacing measurement reported a 92 px gap that did not exist** (2026-10-21) → the snapshot had been trimmed to fit the tool call and lost a sibling. → Trim whole subtrees (e.g. keep `<main>`), never single siblings, and re-check any finding against the full capture.
 
 ## Git and collaboration
 

@@ -7,6 +7,7 @@ import { client, messageOf, readToken, useLoad, writeToken } from "./lib/api";
 import { AdministrationView } from "./views/Administration";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
+import { HealthView } from "./views/Health";
 import { InfrastructureView } from "./views/Infrastructure";
 import { InstancesView } from "./views/Instances";
 import { MembershipView } from "./views/Membership";
@@ -24,6 +25,7 @@ type ApiState = { kind: "checking" } | { kind: "up"; health: Health } | { kind: 
 /** Views, in navigation order. A view whose permission the caller lacks is not offered. */
 const VIEWS = [
   { id: "overview", label: "Overview" },
+  { id: "health", label: "Health", needs: "read-inventory" as Permission },
   { id: "applications", label: "Applications" },
   { id: "instances", label: "Instances" },
   { id: "operations", label: "Operations" },
@@ -268,6 +270,7 @@ export function App() {
             {ready && (
               <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
                 {current === "overview" && <Members onAuth={onAuth} />}
+                {current === "health" && <HealthView onAuth={onAuth} />}
                 {current === "applications" && <ApplicationsView onAuth={onAuth} />}
                 {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
                 {current === "preflight" && <PreflightView onAuth={onAuth} />}

@@ -66,6 +66,8 @@ pub struct AppState {
     sessions: Arc<sessions::Sessions>,
     /// Password sign-in attempts per client address (in this process's memory).
     sign_in_attempts: Arc<sessions_auth::Attempts>,
+    /// When this process started (the Health page's uptime).
+    started_at: jiff::Timestamp,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -88,6 +90,7 @@ impl AppState {
             console: Arc::new(sessions::ConsoleSettings::default()),
             sessions: Arc::new(sessions::Sessions::default()),
             sign_in_attempts: Arc::new(sessions_auth::Attempts::default()),
+            started_at: jiff::Timestamp::now(),
         }
     }
 
@@ -167,6 +170,9 @@ pub fn router(state: AppState) -> Router {
             put(sessions_auth::set_local_accounts),
         )
         .route("/api/v1/cluster", get(cluster))
+        .route("/api/v1/health/components", get(fabric_health::components))
+        .route("/api/v1/health/servers", get(fabric_health::servers))
+        .route("/api/v1/capacity", get(fabric_health::capacity))
         .route(
             "/api/v1/instances",
             get(instances).post(deploy::create_instance),
@@ -1338,7 +1344,8 @@ impl Modify for BearerAuth {
         directories::list, directories::create, directories::update, directories::delete, directories::check,
         identity::audit_history, identity::approvals, identity::request_approval,
         identity::approve_request, identity::reject_request, identity::cancel_request,
-        sessions::access, sessions::open, sessions::list, sessions::terminate),
+        sessions::access, sessions::open, sessions::list, sessions::terminate,
+        fabric_health::components, fabric_health::servers, fabric_health::capacity),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"))
@@ -1368,6 +1375,7 @@ mod cluster_admin;
 mod deploy;
 mod directories;
 mod document;
+mod fabric_health;
 mod identity;
 mod ldap;
 mod machines;
@@ -1380,6 +1388,8 @@ mod volumes;
 
 #[cfg(test)]
 mod directories_tests;
+#[cfg(test)]
+mod fabric_health_tests;
 #[cfg(test)]
 mod identity_tests;
 #[cfg(test)]

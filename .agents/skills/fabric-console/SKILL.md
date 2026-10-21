@@ -16,6 +16,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 | `src/components/ui.tsx` | `Section`/`SectionHeader`/`Heading`, `SourceNote`, `ErrorPanel`, `TableFrame`, `ConfirmDialog`, `FormDialog` |
 | `src/lib/identity.ts` | Identity helpers: `holds`/`holdsPlatform` (from `whoami.capabilities`/`platformPermissions`), `useDirectory` (names behind ids), `useRun` (one action, its error, 401 hand-off), `describeError`, scope/level vocabulary |
 | `src/views/identity/*` | Identity & Access pages (`#/identity/<page>`, list in `pages.ts`): Users, Groups, Organizations (→ projects → environments), Project memberships, Roles & permissions, Service identities, Access policies (+ Approvals tab), Audit history; plus `AssignmentDialog` (server preview before saving), `EmergencyAccessDialog`, `PersonLookup` |
+| `src/views/Health.tsx` | Health (`#/health`, needs `read-inventory`): component rows and server cards from `GET /health/components` and `/health/servers`, read every 20 s while visible (`usePolled`); a failed read keeps the last data with a notice of its age. States, reasons, next steps and warnings come from the server (`apelora_domain::capacity`) |
 | `src/views/*.tsx` | One file per view: Applications (deployed applications with instances, port checks, service addresses and volumes; a kept volume is deleted here with its name typed), Instances (+ deploy dialog), Operations (job queue), Preflight, Infrastructure, Membership (Machines: add, approve, check and admit — `views/Machines.tsx`; members with evacuate/restore and remove (after a check, name typed); unused join tokens), Audit, Administration (API tokens, System) |
 
 ## Rules
@@ -45,6 +46,8 @@ The console is a thin, honest client of the Rust API: every action goes through 
 - Design review (Better Design): `get-review-rules`, `check-comprehension` per view, `inspect-spacing` at 1440/1728/390. Keep the project's design system; do not restyle to another one.
 
 ## Patterns learned
+
+- **Live status pages** (Health): poll only while `document.visibilityState === "visible"`, say how old the data is, keep the last data when a read fails (notice with its age, never an empty or invented state), do not put a ticking "… ago" text in an `aria-live` region, and show a busy button only for reads the person asked for. Bars show *used of total* with both numbers in text; the server decides thresholds and warnings.
 
 - **High-impact actions** (evacuate a member, delete an instance): show what will happen first (a dry run from the API, never computed in the browser), then require the target's name typed; Cancel is the default focus and the destructive button stays secondary (`btn-ghost text-error`). `FormDialog wide` for dialogs holding a table.
 - **API messages** are clauses; show them with `sentence()` (capital first letter) rather than changing the API text.

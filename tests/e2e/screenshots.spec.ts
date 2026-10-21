@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { addPorts, node, open, openProps } from "./helpers";
 import { ME, base, health, stub, uid } from "./identity-fixtures";
+import { capacity, degraded, healthy, servers, troubledServers } from "./health-fixtures";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 test.skip(!process.env.SCREENSHOTS, "screenshots are generated on demand");
@@ -120,7 +121,7 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
 // Nothing here reaches a real server or shows a real token: every /api call is answered by a stub
 // (or aborted), and the identity providers' addresses are example domains.
 
-const CONSOLE = "http://127.0.0.1:5174";
+const CONSOLE = process.env.APELORA_CONSOLE_URL ?? "http://127.0.0.1:5174";
 const consoleHealth = { ...health, auth: "tokens" };
 const EXAMPLE_CORP = { issuer: "https://login.example.org/realms/staff", clientId: "apelora-console", scopes: ["openid", "profile", "email"], label: "Example Corp" };
 
@@ -218,5 +219,75 @@ test.describe("phone", () => {
     await expect(page.getByTestId("token-input")).toBeVisible();
     await settled(page);
     await page.screenshot({ path: "docs/screenshots/26-console-sign-in-phone-390x844.png" });
+  });
+});
+
+// Health page and the Studio's capacity chip, with stubbed data (made-up numbers, see health-fixtures.ts).
+const healthAdmin = { name: "alex", role: "fabric-admin", permissions: ["read-inventory", "read-audit", "manage-tokens", "manage-infrastructure", "design-applications", "deploy"], deployProjects: ["apelora"] };
+const incusHealth = { ...consoleHealth, provider: "incus", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true } };
+/** The console scrolls inside <main>: grow the window to the page's height for a whole-page image. */
+const fullHeight = async (page: Page, w: number, h: number) => {
+  const height = await page.evaluate(() => document.querySelector("main")!.scrollHeight + 48);
+  await page.setViewportSize({ width: w, height: Math.max(h, height) });
+};
+const healthStub = async (page: Page, report: unknown, list: unknown) => {
+  await page.route("**/api/**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const json = ({
+      "/api/v1/health": incusHealth, "/api/v1/whoami": healthAdmin, "/api/v1/health/components": report, "/api/v1/health/servers": list,
+      "/api/v1/capacity": capacity(), "/api/v1/cluster": { source: { provider: "incus", observedAt: "2026-10-21T10:00:00Z" }, server: { clustered: true }, members: [] },
+    } as Record<string, unknown>)[path];
+    return json ? route.fulfill({ json }) : route.abort();
+  });
+};
+
+for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
+  test(`console health screenshots ${w}x${h}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.clock.install({ time: new Date("2026-10-21T10:00:05Z") });
+    await healthStub(page, healthy(), servers());
+    await page.goto(`${CONSOLE}/#/health`);
+    await expect(page.getByTestId("server-card")).toHaveCount(3);
+    await fullHeight(page, w, h);
+    await settled(page);
+    await page.screenshot({ path: `docs/screenshots/27-console-health-${w}x${h}.png` });
+  });
+}
+
+test("console health degraded screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.clock.install({ time: new Date("2026-10-21T10:00:05Z") });
+  await healthStub(page, degraded(), troubledServers());
+  await page.goto(`${CONSOLE}/#/health`);
+  await expect(page.getByTestId("server-card")).toHaveCount(3);
+  await fullHeight(page, 1440, 900);
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/28-console-health-degraded-1440x900.png" });
+});
+
+test("studio capacity screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "apl_test_token_for_stub"));
+  await healthStub(page, healthy(), servers());
+  await open(page);
+  await page.getByTestId("capacity-chip").click();
+  await expect(page.getByTestId("capacity-verdict")).toBeVisible();
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/30-studio-capacity-1440x900.png", clip: { x: 0, y: 0, width: 900, height: 560 } });
+});
+
+test.describe("phone health", () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  test("console health screenshot 390x844", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.clock.install({ time: new Date("2026-10-21T10:00:05Z") });
+    await healthStub(page, degraded(), troubledServers());
+    await page.goto(`${CONSOLE}/#/health`);
+    await expect(page.getByTestId("server-card")).toHaveCount(3);
+    await settled(page);
+    await page.screenshot({ path: "docs/screenshots/29-console-health-phone-390x844.png" });
   });
 });

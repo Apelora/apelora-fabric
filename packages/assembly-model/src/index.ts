@@ -17,3 +17,4 @@ export * from "./totals";
 export * from "./layout";
 export * from "./diff";
 export * from "./suggest";
+export * from "./capacity";

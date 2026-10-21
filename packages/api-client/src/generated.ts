@@ -173,6 +173,45 @@ export type Capabilities = {
   powers: boolean;
 };
 
+/** Free capacity of the cluster for the Studio: per server and in total. */
+export type CapacityReport = {
+  /** Server names are shown (the caller holds `cluster.view`); otherwise servers are numbered. */
+  named: boolean;
+  servers: CapacityServer[];
+  source: Source;
+  totals: CapacityTotals;
+  /** The pool volumes are created in; `null`: designs with volumes cannot be deployed. */
+  volumePool?: string | null;
+  /** The volume pool is one pool all servers share (its free space is one budget, not one per server). */
+  volumePoolShared: boolean;
+};
+
+/** One server's free capacity, as the Studio compares it with a design. */
+export type CapacityServer = {
+  /** Online, not held out of placement, and its resources could be read. */
+  acceptsModules: boolean;
+  architecture: string;
+  cpuThreads?: number | null;
+  /** The server's name for callers with `cluster.view`; otherwise `Server 1`, `Server 2`, … */
+  label: string;
+  /** 1-minute load average (clustered servers only). */
+  load?: number | null;
+  memory?: null | HealthUsage;
+  /** Why it does not accept new modules. */
+  reason?: string | null;
+  volumePool?: null | HealthUsage;
+};
+
+export type CapacityTotals = {
+  cpuThreads: number;
+  memoryFreeBytes: number;
+  memoryTotalBytes: number;
+  /** Servers that accept new modules; the sums below are over these. */
+  serversAccepting: number;
+  /** `null` when no volume pool is configured. A shared pool (one pool every server uses) is counted once. */
+  volumePoolFreeBytes?: number | null;
+};
+
 export type CertificateStatus = {
   /** `deploy` (restricted client identity), `admin` (unrestricted client identity) or `server` (the pinned Incus server certificate). */
   certificate: string;
@@ -600,8 +639,209 @@ export type Health = {
   version: string;
 };
 
+/** A component's or server's state, worst last. */
+export type HealthCondition = "healthy" | "not-set-up" | "unknown" | "degraded" | "down";
+
+export type HealthControlPlane = {
+  apiVersion: string;
+  auth: AuthMode;
+  nextStep?: string | null;
+  /** Where inventory comes from: a real Incus server or labelled mock data. */
+  provider: ProviderMode;
+  reason?: string | null;
+  /** RFC 3339. */
+  startedAt: string;
+  state: HealthCondition;
+  uptimeSecs: number;
+  version: string;
+};
+
+export type HealthDatabase = {
+  /** The newest migration this build carries. */
+  expectedSchemaVersion: number;
+  nextStep?: string | null;
+  reason?: string | null;
+  /** Round trip of `SELECT 1` in milliseconds. */
+  roundTripMs?: number | null;
+  /** The newest migration applied. */
+  schemaVersion?: number | null;
+  state: HealthCondition;
+};
+
+export type HealthIdentityProvider = {
+  enabled: boolean;
+  error?: string | null;
+  name: string;
+  /** Its keys could be fetched at the last check (unreachable ones are retried every minute). */
+  reachable: boolean;
+  /** `environment` (set by the control plane's environment) or `console` (saved in the Console). */
+  source: string;
+};
+
+export type HealthIdentityProviders = {
+  /** Whether API tokens are accepted. */
+  apiTokens: boolean;
+  items: HealthIdentityProvider[];
+  nextStep?: string | null;
+  reason?: string | null;
+  state: HealthCondition;
+};
+
+export type HealthIncus = {
+  apiVersion?: string | null;
+  clustered?: boolean | null;
+  members?: null | HealthMemberCounts;
+  nextStep?: string | null;
+  provider: ProviderMode;
+  reason?: string | null;
+  /** Round trip of `GET /1.0` in milliseconds. */
+  roundTripMs?: number | null;
+  serverVersion?: string | null;
+  state: HealthCondition;
+};
+
+/** Networks or storage pools: how many, and which are not created everywhere they should be. */
+export type HealthInventory = {
+  nextStep?: string | null;
+  /** One line per problem, e.g. `br0: Errored` or `local: missing on node-3`. */
+  problems: string[];
+  reason?: string | null;
+  state: HealthCondition;
+  /** `null` when Incus could not be read. */
+  total?: number | null;
+};
+
+export type HealthJobQueue = {
+  counts?: null | HealthQueueCounts;
+  nextStep?: string | null;
+  reason?: string | null;
+  state: HealthCondition;
+};
+
+/** Cluster members by Incus status. */
+export type HealthMemberCounts = {
+  evacuated: number;
+  offline: number;
+  online: number;
+  /** Any other status (for example Blocked). */
+  other: number;
+  total: number;
+};
+
+/** One storage pool's space on one server. */
+export type HealthPoolUsage = {
+  name: string;
+  totalBytes: number;
+  usedBytes: number;
+};
+
+/** Counts of the job queue. */
+export type HealthQueueCounts = {
+  failedLastHour: number;
+  /** Age of the oldest job ready to run. */
+  oldestWaitingSecs?: number | null;
+  /** Waiting for a retry or a scheduled time. */
+  retrying: number;
+  running: number;
+  /** Running, but the worker's lease expired (the worker died or hangs); claimed again soon. */
+  stalled: number;
+  /** Ready to run, waiting for a worker. */
+  waiting: number;
+};
+
+/** One state per component of this installation, with the reason and next step when it is not healthy. */
+export type HealthReport = {
+  /** RFC 3339: when this report was made. */
+  checkedAt: string;
+  controlPlane: HealthControlPlane;
+  database: HealthDatabase;
+  identityProviders: HealthIdentityProviders;
+  incus: HealthIncus;
+  jobQueue: HealthJobQueue;
+  networks: HealthInventory;
+  /** The worst component state (`not-set-up` counts as healthy). */
+  overall: HealthCondition;
+  storagePools: HealthInventory;
+  workers: HealthWorkers;
+};
+
+/** One server ("minion"): an Incus cluster member, or the standalone Incus server. */
+export type HealthServer = {
+  architecture: string;
+  failureDomain: string;
+  /** Kept out of automatic placement (`scheduler.instance=manual`). */
+  held: boolean;
+  instances: HealthServerInstance[];
+  /** Incus's message for the status. */
+  message: string;
+  name: string;
+  resources?: null | HealthServerResources;
+  resourcesError?: string | null;
+  roles: string[];
+  state: HealthCondition;
+  /** Incus status: Online, Evacuated, Offline, Blocked, … */
+  status: string;
+  /** Warnings decided by the server (memory above 90 %, a pool above 85 %, CPU busy, …). */
+  warnings: string[];
+};
+
+export type HealthServerInstance = {
+  kind: InstanceKind;
+  /** Created and owned by Apelora. */
+  managed: boolean;
+  name: string;
+  project: string;
+  status: string;
+};
+
+/** What Incus reports about one server's resources. Fields Incus did not report are `None` (or empty), never zero. */
+export type HealthServerResources = {
+  /** CPU threads (all sockets and cores). */
+  cpuThreads?: number | null;
+  /** 1, 5 and 15-minute load averages (clustered servers only). */
+  loadAverages: number[];
+  memory?: null | HealthUsage;
+  pools: HealthPoolUsage[];
+  uptimeSecs?: number | null;
+};
+
+export type HealthServers = {
+  clustered: boolean;
+  items: HealthServer[];
+  source: Source;
+};
+
 /** The decided health of an instance. */
 export type HealthState = "unknown" | "healthy" | "unhealthy";
+
+/** Used of total for one resource, in bytes. */
+export type HealthUsage = {
+  totalBytes: number;
+  usedBytes: number;
+};
+
+export type HealthWorker = {
+  host: string;
+  id: string;
+  /** RFC 3339: the last heartbeat (written every 15 s). */
+  lastSeen: string;
+  secondsSinceSeen: number;
+  /** RFC 3339. */
+  startedAt: string;
+  state: HealthWorkerState;
+  version: string;
+};
+
+/** A worker's state from the age of its last heartbeat. */
+export type HealthWorkerState = "running" | "stopped" | "lost";
+
+export type HealthWorkers = {
+  /** Workers seen in the last day, most recently seen first. */
+  items: HealthWorker[];
+  nextStep?: string | null;
+  reason?: string | null;
+  state: HealthCondition;
+};
 
 /** Identity projects (`/api/v1/identity/projects`); not the Incus projects of `/api/v1/projects`, whose schema is `ProjectList`. */
 export type IdentityProjectList = {
@@ -1700,6 +1940,7 @@ export const operations = {
   cancel_request: { method: "POST", path: "/api/v1/approvals/{id}/cancel", params: ["id"], public: false },
   reject_request: { method: "POST", path: "/api/v1/approvals/{id}/reject", params: ["id"], public: false },
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
+  capacity: { method: "GET", path: "/api/v1/capacity", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
   list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   create_join_token: { method: "POST", path: "/api/v1/cluster/join-tokens", params: [], public: false },
@@ -1710,6 +1951,8 @@ export const operations = {
   remove_member: { method: "POST", path: "/api/v1/cluster/members/{member}/remove", params: ["member"], public: false },
   restore_member: { method: "POST", path: "/api/v1/cluster/members/{member}/restore", params: ["member"], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
+  health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
+  health_servers: { method: "GET", path: "/api/v1/health/servers", params: [], public: false },
   assignments: { method: "GET", path: "/api/v1/identity/assignments", params: [], public: false },
   create_assignment: { method: "POST", path: "/api/v1/identity/assignments", params: [], public: false },
   preview_assignment: { method: "POST", path: "/api/v1/identity/assignments/preview", params: [], public: false },
@@ -1857,6 +2100,8 @@ export type Responses = {
   reject_request: ApprovalDto;
   /** The most recent audit events the caller may read, newest first. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
+  /** How much CPU, memory and volume space the cluster has free, per server and in total, for comparing with a design. Read-only. With `cluster.view` servers are named; with `capacity.view` (held by designers and operators at any scope) they are numbered. */
+  capacity: CapacityReport;
   /** The Incus server and its cluster members. Needs `read-inventory`. */
   cluster: ClusterResponse;
   /** Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`. */
@@ -1877,6 +2122,10 @@ export type Responses = {
   restore_member: MemberStateStarted;
   /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
   health: Health;
+  /** The state of each part of this installation: control plane, database, deployment workers, job queue, Incus, networks, storage pools and identity providers. Read-only; needs `cluster.view`. */
+  health_components: HealthReport;
+  /** Each server's status, CPU, memory, storage and the instances on it, with warnings. Read-only; needs `cluster.view`. */
+  health_servers: HealthServers;
   /** Role assignments in the caller's scopes. Needs `user.view`. */
   assignments: AssignmentList;
   /** Grants a role to a person, group or automation identity at a scope. Needs `role.assign` there and every permission the role holds (no escalation); audited. */
@@ -2068,6 +2317,7 @@ export type Bodies = {
   cancel_request: never;
   reject_request: never;
   audit: never;
+  capacity: never;
   cluster: never;
   list_join_tokens: never;
   create_join_token: CreateJoinToken;
@@ -2078,6 +2328,8 @@ export type Bodies = {
   remove_member: ConfirmMember;
   restore_member: ConfirmMember;
   health: never;
+  health_components: never;
+  health_servers: never;
   assignments: never;
   create_assignment: NewAssignment;
   preview_assignment: NewAssignment;

@@ -317,3 +317,53 @@ impl<T> OperationList<T> {
         }
     }
 }
+
+/// `GET /1.0/resources` (subset): CPU threads and memory.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct Resources {
+    pub cpu: ResourcesCpu,
+    pub memory: ResourcesMemory,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct ResourcesCpu {
+    pub total: u64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct ResourcesMemory {
+    pub total: u64,
+    pub used: u64,
+}
+
+/// `GET /1.0/cluster/members/<name>/state`: load, uptime and each pool's space on the member.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct MemberState {
+    pub sysinfo: SysInfo,
+    pub storage_pools: BTreeMap<String, PoolState>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct SysInfo {
+    pub uptime: i64,
+    pub load_averages: Vec<f64>,
+}
+
+/// `GET /1.0/storage-pools/<name>/resources`, and each pool in a member's state.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct PoolState {
+    pub space: PoolSpace,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct PoolSpace {
+    pub used: u64,
+    pub total: u64,
+}

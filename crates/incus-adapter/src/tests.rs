@@ -877,3 +877,96 @@ fn volume_sizes_are_read_in_the_units_incus_stores() {
     assert_eq!(parse_mib("GiB"), None);
     assert_eq!(parse_mib(""), None);
 }
+
+// Shapes as the four-member test cluster answered them (Incus 7.0.1, 2026-10-21), trimmed.
+#[tokio::test]
+async fn reads_member_resources_and_state() {
+    let base = fixture_server(vec![
+        (
+            "/1.0/resources?target=node-1",
+            sync(json!({
+                "cpu": { "architecture": "aarch64", "sockets": [], "total": 4 },
+                "memory": { "total": 8_589_934_592u64, "used": 1_011_253_248u64, "hugepages_total": 0 },
+            })),
+        ),
+        (
+            "/1.0/cluster/members/node-1/state",
+            sync(json!({
+                "sysinfo": { "uptime": 82003, "load_averages": [0.0, 0.01, 0.0], "total_ram": 8_326_721_536u64, "free_ram": 1_637_445_632u64, "processes": 180 },
+                "storage_pools": {
+                    "local": { "space": { "used": 2_403_594_240u64, "total": 21_474_836_480u64 }, "inodes": { "used": 0, "total": 0 } },
+                },
+            })),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let r = p.server_resources(Some("node-1")).await.expect("resources");
+    assert_eq!(r.cpu_threads, Some(4));
+    // Memory "used" comes from /1.0/resources (without caches), not total minus free RAM.
+    let m = r.memory.expect("memory");
+    assert_eq!(
+        (m.used_bytes, m.total_bytes),
+        (1_011_253_248, 8_589_934_592)
+    );
+    assert_eq!(r.load_averages, [0.0, 0.01, 0.0]);
+    assert_eq!(r.uptime_secs, Some(82003));
+    assert_eq!(r.pools.len(), 1);
+    assert_eq!(r.pools[0].name, "local");
+    assert_eq!(r.pools[0].total_bytes, 21_474_836_480);
+    // A member that does not answer is an error, never zeros; bad names are refused first.
+    assert!(matches!(
+        p.server_resources(Some("node-2")).await,
+        Err(AdapterError::NotFound(_))
+    ));
+    assert!(matches!(
+        p.server_resources(Some("bad name")).await,
+        Err(AdapterError::InvalidConfig(_))
+    ));
+}
+
+#[tokio::test]
+async fn reads_standalone_resources_with_pool_space() {
+    let base = fixture_server(vec![
+        (
+            "/1.0/resources",
+            sync(json!({ "cpu": { "total": 2 }, "memory": { "total": 0, "used": 0 } })),
+        ),
+        (
+            "/1.0/storage-pools?recursion=1",
+            sync(json!([{ "name": "default", "driver": "dir", "status": "Created" }])),
+        ),
+        (
+            "/1.0/storage-pools/default/resources",
+            sync(json!({ "space": { "used": 10, "total": 100 } })),
+        ),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let r = p.server_resources(None).await.expect("resources");
+    assert_eq!(r.cpu_threads, Some(2));
+    assert_eq!(r.memory, None, "an unreported total is unknown, not zero");
+    assert!(r.load_averages.is_empty() && r.uptime_secs.is_none());
+    assert_eq!((r.pools[0].used_bytes, r.pools[0].total_bytes), (10, 100));
+}
+
+#[tokio::test]
+async fn mock_resources_follow_member_status() {
+    let mock = MockIncus::default();
+    let p = Provider::Mock(mock.clone());
+    let r = p
+        .server_resources(Some("mock-member-02"))
+        .await
+        .expect("mock");
+    assert_eq!(r.cpu_threads, Some(8));
+    mock.members.lock().expect("members")[1].status = "Offline".into();
+    assert!(matches!(
+        p.server_resources(Some("mock-member-02")).await,
+        Err(AdapterError::Connectivity(_))
+    ));
+    assert!(matches!(
+        p.server_resources(Some("nope")).await,
+        Err(AdapterError::NotFound(_))
+    ));
+    assert!(p.server_resources(None).await.is_ok());
+}

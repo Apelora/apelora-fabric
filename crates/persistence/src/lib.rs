@@ -18,6 +18,7 @@ pub mod identity;
 pub mod lifecycle;
 pub mod local_accounts;
 mod machines;
+pub mod status;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
 pub mod user_sessions;

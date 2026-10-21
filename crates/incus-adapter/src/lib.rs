@@ -22,6 +22,7 @@ pub use wire::Operation;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use apelora_domain::capacity::HealthServerResources;
 use apelora_domain::enrolment::HELD;
 use apelora_domain::network::{AclRule, LoadBalancer};
 use apelora_domain::storage::{VolumeMount, volume_name};
@@ -504,6 +505,22 @@ impl Provider {
                 Ok(m.server.clone())
             }
             Provider::Incus(c) => c.member_server_info(member).await,
+        }
+    }
+
+    /// A server's CPU, memory, load and storage-pool space, read-only. `member` is the cluster
+    /// member to read; `None` reads a standalone server. The mock answers with labelled
+    /// fixture numbers and fails for an offline member, as Incus does.
+    pub async fn server_resources(
+        &self,
+        member: Option<&str>,
+    ) -> Result<apelora_domain::capacity::HealthServerResources, AdapterError> {
+        if let Some(m) = member {
+            valid_member(m)?;
+        }
+        match self {
+            Provider::Mock(m) => m.server_resources(member),
+            Provider::Incus(c) => c.server_resources(member).await,
         }
     }
 
@@ -1316,6 +1333,9 @@ pub struct MockIncus {
     pub projects: Vec<Project>,
     pub networks: Vec<Network>,
     pub pools: Vec<StoragePool>,
+    /// Resources per member name (fixture numbers, labelled mock by the API); a member without
+    /// an entry gets [`mock_resources`] for its position.
+    pub resources: Arc<Mutex<std::collections::BTreeMap<String, HealthServerResources>>>,
     next_op: Arc<Mutex<u64>>,
 }
 
@@ -1706,6 +1726,42 @@ impl MockIncus {
         })
     }
 
+    fn server_resources(
+        &self,
+        member: Option<&str>,
+    ) -> Result<HealthServerResources, AdapterError> {
+        let members = self
+            .members
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let (at, m) = match member {
+            Some(name) => members
+                .iter()
+                .enumerate()
+                .find(|(_, x)| x.name == name)
+                .ok_or_else(|| AdapterError::NotFound(format!("cluster member {name}")))?,
+            None => members
+                .iter()
+                .enumerate()
+                .next()
+                .ok_or_else(|| AdapterError::NotFound("mock server".into()))?,
+        };
+        if m.status == "Offline" {
+            return Err(AdapterError::Connectivity(format!(
+                "GET /1.0/resources?target={}: mock: the member does not answer",
+                m.name
+            )));
+        }
+        Ok(self
+            .resources
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&m.name)
+            .cloned()
+            .unwrap_or_else(|| mock_resources(at)))
+    }
+
     pub fn with_extensions(extensions: &[&str]) -> Self {
         Self {
             server: ServerInfo {
@@ -1777,6 +1833,7 @@ impl Default for MockIncus {
                 .collect(),
             )),
             next_op: Arc::new(Mutex::new(0)),
+            resources: Arc::default(),
             join_tokens: Arc::new(Mutex::new(Vec::new())),
             network: Arc::default(),
             storage: Arc::default(),
@@ -1809,6 +1866,29 @@ impl Default for MockIncus {
                 locations: Vec::new(),
             }],
         }
+    }
+}
+
+/// Fixture resources for the mock's `n`-th member (from 0): 8 threads, 32 GiB, a 500 GiB pool,
+/// moderately used. Never shown without the mock label.
+pub fn mock_resources(n: usize) -> HealthServerResources {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    let used = [9, 13, 6][n % 3];
+    let disk = [120, 210, 80][n % 3];
+    let load = [0.6, 1.4, 0.3][n % 3];
+    HealthServerResources {
+        cpu_threads: Some(8),
+        load_averages: vec![load, load * 0.8, load * 0.6],
+        memory: Some(apelora_domain::capacity::HealthUsage {
+            used_bytes: used * GIB,
+            total_bytes: 32 * GIB,
+        }),
+        pools: vec![apelora_domain::capacity::HealthPoolUsage {
+            name: "mock-local".into(),
+            used_bytes: disk * GIB,
+            total_bytes: 500 * GIB,
+        }],
+        uptime_secs: Some(3 * 86_400 + 3_600 * n as u64),
     }
 }
 

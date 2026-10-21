@@ -7,6 +7,7 @@ import { useStudio, useStudioApi } from "../../features/editor/context";
 import type { DesignerBinding, DraftSync } from "../../features/applications/draftSync";
 import { onLinkClick, paths } from "../../features/router";
 import { DeployDialog } from "../deploy/DeployDialog";
+import { CapacityChip } from "./CapacityChip";
 import { IconChevron, IconClock, IconDownload, IconFile, IconHelp, IconImage, IconRedo, IconSearch, IconShare, IconUndo, IconUpload } from "../icons";
 import { assemblySvg, printSvg, saveBlob, svgToPng } from "../../features/export/image";
 
@@ -76,7 +77,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
 
   return (
     <header className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-base-300 bg-base-100 px-3 py-1" data-testid="header">
-      <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 whitespace-nowrap">
         <img src="/logo.svg" alt="" className="size-6 rounded" />
         <span className="text-sm font-semibold">Apelora Studio</span>
         {live ? (
@@ -87,6 +88,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
           <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
         )}
         <button type="button" className={`badge badge-sm ${PLATFORM_INFO[platform].status === "supported" ? "badge-outline" : "badge-warning badge-soft"}`} data-testid="platform-badge" title={`Design target: ${PLATFORM_INFO[platform].name}. Click to change.`} onClick={() => api.getState().openProps({ kind: "assembly" })}>{PLATFORM_INFO[platform].name}{PLATFORM_INFO[platform].status === "planned" ? " (planned)" : ""}</button>
+        <CapacityChip />
       </div>
       {designer ? (
         <nav className="flex min-w-0 items-center gap-1 whitespace-nowrap text-xs text-base-content/60" aria-label="Breadcrumb" data-testid="designer-breadcrumb">

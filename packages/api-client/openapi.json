@@ -2273,6 +2273,57 @@
         }
       }
     },
+    "/api/v1/capacity": {
+      "get": {
+        "tags": [
+          "inventory"
+        ],
+        "summary": "How much CPU, memory and volume space the cluster has free, per server and in total, for\ncomparing with a design. Read-only. With `cluster.view` servers are named; with\n`capacity.view` (held by designers and operators at any scope) they are numbered.",
+        "operationId": "capacity",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacityReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cluster": {
       "get": {
         "tags": [
@@ -3054,6 +3105,98 @@
         "security": [
           {}
         ]
+      }
+    },
+    "/api/v1/health/components": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "The state of each part of this installation: control plane, database, deployment workers,\njob queue, Incus, networks, storage pools and identity providers. Read-only; needs\n`cluster.view`.",
+        "operationId": "health_components",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/health/servers": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Each server's status, CPU, memory, storage and the instances on it, with warnings. Read-only;\nneeds `cluster.view`.",
+        "operationId": "health_servers",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthServers"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/identity/assignments": {
@@ -8258,6 +8401,152 @@
           }
         }
       },
+      "CapacityReport": {
+        "type": "object",
+        "description": "Free capacity of the cluster for the Studio: per server and in total.",
+        "required": [
+          "source",
+          "named",
+          "volumePoolShared",
+          "servers",
+          "totals"
+        ],
+        "properties": {
+          "named": {
+            "type": "boolean",
+            "description": "Server names are shown (the caller holds `cluster.view`); otherwise servers are numbered."
+          },
+          "servers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CapacityServer"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/CapacityTotals"
+          },
+          "volumePool": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pool volumes are created in; `null`: designs with volumes cannot be deployed."
+          },
+          "volumePoolShared": {
+            "type": "boolean",
+            "description": "The volume pool is one pool all servers share (its free space is one budget, not one\nper server)."
+          }
+        }
+      },
+      "CapacityServer": {
+        "type": "object",
+        "description": "One server's free capacity, as the Studio compares it with a design.",
+        "required": [
+          "label",
+          "acceptsModules",
+          "architecture"
+        ],
+        "properties": {
+          "acceptsModules": {
+            "type": "boolean",
+            "description": "Online, not held out of placement, and its resources could be read."
+          },
+          "architecture": {
+            "type": "string"
+          },
+          "cpuThreads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string",
+            "description": "The server's name for callers with `cluster.view`; otherwise `Server 1`, `Server 2`, …"
+          },
+          "load": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "1-minute load average (clustered servers only)."
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthUsage"
+              }
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it does not accept new modules."
+          },
+          "volumePool": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthUsage",
+                "description": "Space in the pool volumes are created in (`APELORA_VOLUME_POOL`), on this server."
+              }
+            ]
+          }
+        }
+      },
+      "CapacityTotals": {
+        "type": "object",
+        "required": [
+          "serversAccepting",
+          "cpuThreads",
+          "memoryFreeBytes",
+          "memoryTotalBytes"
+        ],
+        "properties": {
+          "cpuThreads": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "memoryFreeBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "memoryTotalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "serversAccepting": {
+            "type": "integer",
+            "description": "Servers that accept new modules; the sums below are over these.",
+            "minimum": 0
+          },
+          "volumePoolFreeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "`null` when no volume pool is configured. A shared pool (one pool every server uses)\nis counted once.",
+            "minimum": 0
+          }
+        }
+      },
       "CertificateStatus": {
         "type": "object",
         "required": [
@@ -9683,6 +9972,647 @@
           }
         }
       },
+      "HealthCondition": {
+        "type": "string",
+        "description": "A component's or server's state, worst last.",
+        "enum": [
+          "healthy",
+          "not-set-up",
+          "unknown",
+          "degraded",
+          "down"
+        ]
+      },
+      "HealthControlPlane": {
+        "type": "object",
+        "required": [
+          "state",
+          "version",
+          "apiVersion",
+          "startedAt",
+          "uptimeSecs",
+          "auth",
+          "provider"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/AuthMode"
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode",
+            "description": "Where inventory comes from: a real Incus server or labelled mock data."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          },
+          "uptimeSecs": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthDatabase": {
+        "type": "object",
+        "required": [
+          "state",
+          "expectedSchemaVersion"
+        ],
+        "properties": {
+          "expectedSchemaVersion": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The newest migration this build carries."
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roundTripMs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Round trip of `SELECT 1` in milliseconds."
+          },
+          "schemaVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The newest migration applied."
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          }
+        }
+      },
+      "HealthIdentityProvider": {
+        "type": "object",
+        "required": [
+          "name",
+          "source",
+          "enabled",
+          "reachable"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "reachable": {
+            "type": "boolean",
+            "description": "Its keys could be fetched at the last check (unreachable ones are retried every minute)."
+          },
+          "source": {
+            "type": "string",
+            "description": "`environment` (set by the control plane's environment) or `console` (saved in the Console)."
+          }
+        }
+      },
+      "HealthIdentityProviders": {
+        "type": "object",
+        "required": [
+          "state",
+          "items",
+          "apiTokens"
+        ],
+        "properties": {
+          "apiTokens": {
+            "type": "boolean",
+            "description": "Whether API tokens are accepted."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthIdentityProvider"
+            }
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          }
+        }
+      },
+      "HealthIncus": {
+        "type": "object",
+        "required": [
+          "state",
+          "provider"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clustered": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "members": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthMemberCounts",
+                "description": "`null` when Incus could not be read or is not clustered."
+              }
+            ]
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderMode"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roundTripMs": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Round trip of `GET /1.0` in milliseconds."
+          },
+          "serverVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          }
+        }
+      },
+      "HealthInventory": {
+        "type": "object",
+        "description": "Networks or storage pools: how many, and which are not created everywhere they should be.",
+        "required": [
+          "state",
+          "problems"
+        ],
+        "properties": {
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "One line per problem, e.g. `br0: Errored` or `local: missing on node-3`."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "`null` when Incus could not be read.",
+            "minimum": 0
+          }
+        }
+      },
+      "HealthJobQueue": {
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "counts": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthQueueCounts",
+                "description": "`null` when the database could not be read."
+              }
+            ]
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          }
+        }
+      },
+      "HealthMemberCounts": {
+        "type": "object",
+        "description": "Cluster members by Incus status.",
+        "required": [
+          "total",
+          "online",
+          "evacuated",
+          "offline",
+          "other"
+        ],
+        "properties": {
+          "evacuated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "offline": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "online": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "other": {
+            "type": "integer",
+            "description": "Any other status (for example Blocked).",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "HealthPoolUsage": {
+        "type": "object",
+        "description": "One storage pool's space on one server.",
+        "required": [
+          "name",
+          "usedBytes",
+          "totalBytes"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usedBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "HealthQueueCounts": {
+        "type": "object",
+        "description": "Counts of the job queue.",
+        "required": [
+          "waiting",
+          "retrying",
+          "running",
+          "stalled",
+          "failedLastHour"
+        ],
+        "properties": {
+          "failedLastHour": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "oldestWaitingSecs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Age of the oldest job ready to run."
+          },
+          "retrying": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Waiting for a retry or a scheduled time."
+          },
+          "running": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "stalled": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Running, but the worker's lease expired (the worker died or hangs); claimed again soon."
+          },
+          "waiting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Ready to run, waiting for a worker."
+          }
+        }
+      },
+      "HealthReport": {
+        "type": "object",
+        "description": "One state per component of this installation, with the reason and next step when it is not\nhealthy.",
+        "required": [
+          "checkedAt",
+          "overall",
+          "controlPlane",
+          "database",
+          "workers",
+          "jobQueue",
+          "incus",
+          "networks",
+          "storagePools",
+          "identityProviders"
+        ],
+        "properties": {
+          "checkedAt": {
+            "type": "string",
+            "description": "RFC 3339: when this report was made."
+          },
+          "controlPlane": {
+            "$ref": "#/components/schemas/HealthControlPlane"
+          },
+          "database": {
+            "$ref": "#/components/schemas/HealthDatabase"
+          },
+          "identityProviders": {
+            "$ref": "#/components/schemas/HealthIdentityProviders"
+          },
+          "incus": {
+            "$ref": "#/components/schemas/HealthIncus"
+          },
+          "jobQueue": {
+            "$ref": "#/components/schemas/HealthJobQueue"
+          },
+          "networks": {
+            "$ref": "#/components/schemas/HealthInventory"
+          },
+          "overall": {
+            "$ref": "#/components/schemas/HealthCondition",
+            "description": "The worst component state (`not-set-up` counts as healthy)."
+          },
+          "storagePools": {
+            "$ref": "#/components/schemas/HealthInventory"
+          },
+          "workers": {
+            "$ref": "#/components/schemas/HealthWorkers"
+          }
+        }
+      },
+      "HealthServer": {
+        "type": "object",
+        "description": "One server (\"minion\"): an Incus cluster member, or the standalone Incus server.",
+        "required": [
+          "name",
+          "status",
+          "message",
+          "state",
+          "roles",
+          "architecture",
+          "failureDomain",
+          "held",
+          "instances",
+          "warnings"
+        ],
+        "properties": {
+          "architecture": {
+            "type": "string"
+          },
+          "failureDomain": {
+            "type": "string"
+          },
+          "held": {
+            "type": "boolean",
+            "description": "Kept out of automatic placement (`scheduler.instance=manual`)."
+          },
+          "instances": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthServerInstance"
+            }
+          },
+          "message": {
+            "type": "string",
+            "description": "Incus's message for the status."
+          },
+          "name": {
+            "type": "string"
+          },
+          "resources": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthServerResources",
+                "description": "`null` when they could not be read (see `resourcesError`)."
+              }
+            ]
+          },
+          "resourcesError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          },
+          "status": {
+            "type": "string",
+            "description": "Incus status: Online, Evacuated, Offline, Blocked, …"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Warnings decided by the server (memory above 90 %, a pool above 85 %, CPU busy, …)."
+          }
+        }
+      },
+      "HealthServerInstance": {
+        "type": "object",
+        "required": [
+          "name",
+          "project",
+          "kind",
+          "status",
+          "managed"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/InstanceKind"
+          },
+          "managed": {
+            "type": "boolean",
+            "description": "Created and owned by Apelora."
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthServerResources": {
+        "type": "object",
+        "description": "What Incus reports about one server's resources. Fields Incus did not report are `None`\n(or empty), never zero.",
+        "required": [
+          "loadAverages",
+          "pools"
+        ],
+        "properties": {
+          "cpuThreads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "CPU threads (all sockets and cores).",
+            "minimum": 0
+          },
+          "loadAverages": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            },
+            "description": "1, 5 and 15-minute load averages (clustered servers only)."
+          },
+          "memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HealthUsage"
+              }
+            ]
+          },
+          "pools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthPoolUsage"
+            }
+          },
+          "uptimeSecs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "HealthServers": {
+        "type": "object",
+        "required": [
+          "source",
+          "clustered",
+          "items"
+        ],
+        "properties": {
+          "clustered": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthServer"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
       "HealthState": {
         "type": "string",
         "description": "The decided health of an instance.",
@@ -9691,6 +10621,104 @@
           "healthy",
           "unhealthy"
         ]
+      },
+      "HealthUsage": {
+        "type": "object",
+        "description": "Used of total for one resource, in bytes.",
+        "required": [
+          "usedBytes",
+          "totalBytes"
+        ],
+        "properties": {
+          "totalBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usedBytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "HealthWorker": {
+        "type": "object",
+        "required": [
+          "id",
+          "host",
+          "version",
+          "startedAt",
+          "lastSeen",
+          "secondsSinceSeen",
+          "state"
+        ],
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastSeen": {
+            "type": "string",
+            "description": "RFC 3339: the last heartbeat (written every 15 s)."
+          },
+          "secondsSinceSeen": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "string",
+            "description": "RFC 3339."
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthWorkerState"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthWorkerState": {
+        "type": "string",
+        "description": "A worker's state from the age of its last heartbeat.",
+        "enum": [
+          "running",
+          "stopped",
+          "lost"
+        ]
+      },
+      "HealthWorkers": {
+        "type": "object",
+        "required": [
+          "state",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HealthWorker"
+            },
+            "description": "Workers seen in the last day, most recently seen first."
+          },
+          "nextStep": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/HealthCondition"
+          }
+        }
       },
       "IdentityProjectList": {
         "type": "object",

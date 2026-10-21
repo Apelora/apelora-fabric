@@ -103,6 +103,7 @@ fn legacy_requirement(permission: &str) -> Option<Permission> {
         | "application.view"
         | "application.logs.read"
         | "application.metrics.read"
+        | "capacity.view"
         | "user.view" => ReadInventory,
         "audit.read" => ReadAudit,
         "application.design" | "application.create" => DesignApplications,
@@ -285,6 +286,14 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         ],
     ),
     ("GET", "/api/v1/cluster", &["cluster.view"]),
+    ("GET", "/api/v1/health/components", &["cluster.view"]),
+    ("GET", "/api/v1/health/servers", &["cluster.view"]),
+    // Server names only with cluster.view; capacity.view sees numbered servers (the handler decides).
+    (
+        "GET",
+        "/api/v1/capacity",
+        &["cluster.view", "capacity.view"],
+    ),
     ("GET", "/api/v1/instances", &["cluster.view"]),
     ("POST", "/api/v1/instances", &["instance.manage"]),
     (

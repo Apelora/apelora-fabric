@@ -114,6 +114,11 @@ pub const PERMISSIONS: &[PermissionDef] = &[
     t("application.logs.read", App, "Read application logs"),
     t("application.metrics.read", App, "Read application metrics"),
     t(
+        "capacity.view",
+        App,
+        "See how much CPU, memory and disk the cluster has free (totals and numbered servers, no names)",
+    ),
+    t(
         "instance.manage",
         Proj,
         "Create, change and delete single instances in a project's environments",

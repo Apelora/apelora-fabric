@@ -1368,6 +1368,66 @@ impl IncusClient {
             .collect())
     }
 
+    /// One server's resources, read-only: `GET /1.0/resources` (CPU threads, memory) and, for a
+    /// cluster member, `GET /1.0/cluster/members/<m>/state` (load, uptime, each pool's space);
+    /// a standalone server's pools are read with `GET /1.0/storage-pools/<p>/resources`.
+    pub async fn server_resources(
+        &self,
+        member: Option<&str>,
+    ) -> Result<apelora_domain::capacity::HealthServerResources, AdapterError> {
+        use apelora_domain::capacity::{HealthPoolUsage, HealthServerResources, HealthUsage};
+        let pool = |name: String, s: wire::PoolState| HealthPoolUsage {
+            name,
+            used_bytes: s.space.used,
+            total_bytes: s.space.total,
+        };
+        let (res, load_averages, uptime_secs, pools) = match member {
+            Some(m) => {
+                let (res_path, state_path) = (
+                    format!("/1.0/resources?target={m}"),
+                    format!("/1.0/cluster/members/{m}/state"),
+                );
+                let (res, state) = tokio::try_join!(
+                    self.get::<wire::Resources>(&res_path),
+                    self.get::<wire::MemberState>(&state_path),
+                )?;
+                let pools = state
+                    .storage_pools
+                    .into_iter()
+                    .map(|(n, s)| pool(n, s))
+                    .collect();
+                (
+                    res,
+                    state.sysinfo.load_averages,
+                    u64::try_from(state.sysinfo.uptime).ok(),
+                    pools,
+                )
+            }
+            None => {
+                let res: wire::Resources = self.get("/1.0/resources").await?;
+                let mut pools = Vec::new();
+                for p in self.storage_pools().await? {
+                    let s: wire::PoolState = self
+                        .get(&format!("/1.0/storage-pools/{}/resources", p.name))
+                        .await?;
+                    pools.push(pool(p.name, s));
+                }
+                (res, Vec::new(), None, pools)
+            }
+        };
+        Ok(HealthServerResources {
+            cpu_threads: Some(res.cpu.total).filter(|t| *t > 0),
+            load_averages,
+            memory: Some(HealthUsage {
+                used_bytes: res.memory.used,
+                total_bytes: res.memory.total,
+            })
+            .filter(|m| m.total_bytes > 0),
+            pools,
+            uptime_secs,
+        })
+    }
+
     /// `POST /1.0/cluster/members`: asks Incus for a single-use join token for `member`.
     /// The returned token carries the join secret; callers must not store or log it.
     pub async fn create_join_token(&self, member: &str) -> Result<JoinToken, AdapterError> {

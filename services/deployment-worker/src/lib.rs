@@ -161,6 +161,8 @@ pub async fn run(
     shutdown: impl std::future::Future<Output = ()>,
 ) {
     tokio::pin!(shutdown);
+    // Says "alive" from its own task, so a long job never makes the worker look dead.
+    let beats = tokio::spawn(heartbeat(pool.clone(), worker.clone(), HEARTBEAT));
     loop {
         let worked = match run_once(&pool, &provider, &worker).await {
             Ok(w) => w,
@@ -176,7 +178,61 @@ pub async fn run(
             }
         }
     }
+    beats.abort();
+    if let Err(e) = apelora_persistence::status::worker_stopped(&pool, &worker).await {
+        tracing::warn!(error = %e, "heartbeat: could not record the shutdown");
+    }
     tracing::info!("worker stopped");
+}
+
+/// How often a worker writes its heartbeat (the Health page calls it lost after 45 s).
+pub const HEARTBEAT: Duration = Duration::from_secs(15);
+
+/// The host name for the heartbeat: the kernel's (Linux), `HOSTNAME`, or `unknown`.
+fn host_name() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .ok()
+        .or_else(|| std::env::var("HOSTNAME").ok())
+        .map(|h| {
+            h.trim()
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(200)
+                .collect::<String>()
+        })
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+/// Registers the worker, then writes a heartbeat every `every` until aborted. A database
+/// outage is logged when it starts and when it ends, not on every beat.
+pub async fn heartbeat(pool: Pool, worker: String, every: Duration) {
+    let (host, version) = (host_name(), env!("CARGO_PKG_VERSION"));
+    let mut failing =
+        match apelora_persistence::status::worker_started(&pool, &worker, &host, version).await {
+            Ok(()) => false,
+            Err(e) => {
+                tracing::warn!(error = %e, "heartbeat: could not register the worker; retrying");
+                true
+            }
+        };
+    let mut tick = tokio::time::interval(every);
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        match apelora_persistence::status::worker_heartbeat(&pool, &worker, &host, version).await {
+            Ok(()) if failing => {
+                tracing::info!("heartbeat: written again");
+                failing = false;
+            }
+            Ok(()) => {}
+            Err(e) if !failing => {
+                tracing::warn!(error = %e, "heartbeat: could not be written; the Health page will show this worker as lost");
+                failing = true;
+            }
+            Err(_) => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -245,7 +301,7 @@ mod tests {
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn run_stops_on_shutdown(pool: Pool) {
         let handle = tokio::spawn(run(
-            pool,
+            pool.clone(),
             mock(),
             "test-worker".into(),
             Duration::from_millis(20),
@@ -255,6 +311,49 @@ mod tests {
             .await
             .expect("stops in time")
             .expect("join");
+        // It registered its heartbeat and said it stopped cleanly.
+        let w = apelora_persistence::status::workers(&pool)
+            .await
+            .expect("workers");
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, "test-worker");
+        assert_eq!(w[0].version, env!("CARGO_PKG_VERSION"));
+        assert!(w[0].stopped_at.is_some());
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn heartbeats_keep_coming_while_a_worker_runs(pool: Pool) {
+        let beats = tokio::spawn(heartbeat(
+            pool.clone(),
+            "w-beat".into(),
+            Duration::from_millis(50),
+        ));
+        let first_seen = || async {
+            apelora_persistence::status::workers(&pool)
+                .await
+                .expect("workers")
+                .first()
+                .map(|w| w.last_seen)
+        };
+        let mut first = None;
+        for _ in 0..100 {
+            first = first_seen().await;
+            if first.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let first = first.expect("registered");
+        let mut later = first;
+        for _ in 0..100 {
+            later = first_seen().await.expect("still there");
+            if later > first {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        beats.abort();
+        assert!(later > first, "a heartbeat moved last_seen forward");
     }
 
     async fn job(pool: &Pool, kind: &str, payload: serde_json::Value) -> uuid::Uuid {

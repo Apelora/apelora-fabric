@@ -168,6 +168,7 @@ impl Builtin {
                 "application.design",
                 "application.logs.read",
                 "application.metrics.read",
+                "capacity.view",
             ],
             Builtin::ApplicationOperator => vec![
                 "project.view",
@@ -176,6 +177,7 @@ impl Builtin {
                 "application.operate",
                 "application.logs.read",
                 "application.metrics.read",
+                "capacity.view",
                 "approval.request",
             ],
             Builtin::InstanceAccess => vec![
@@ -192,6 +194,7 @@ impl Builtin {
                 "project.view",
                 "application.view",
                 "application.metrics.read",
+                "capacity.view",
                 "cluster.view",
                 "hardware.view",
             ],

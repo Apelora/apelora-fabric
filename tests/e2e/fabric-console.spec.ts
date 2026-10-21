@@ -519,7 +519,7 @@ test.describe("fabric console views", () => {
     });
     await page.goto("/#/membership");
     const nav = page.getByRole("navigation", { name: "Console" });
-    await expect(nav.getByRole("link")).toHaveText(["Overview", "Applications", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Health", "Applications", "Instances", "Operations", "Preflight", "Networks & storage", "Administration"]);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
     await expect(page.getByTestId("whoami")).toHaveText("alex · operator");
   });
