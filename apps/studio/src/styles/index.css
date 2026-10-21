@@ -125,7 +125,8 @@ body[data-menu="open"] .apl-port-tip { display: none; }
 
 /* ---- category colours ---- */
 .apl-node-header { position: relative; }
-.apl-canvas-frame[data-category="on"] .apl-node-header { background: color-mix(in oklab, var(--apl-cat) 12%, var(--color-base-200)); box-shadow: inset 0 2px 0 var(--apl-cat); }
+/* Category as a soft header tint (no stripe): the name stays the strongest thing on the card. */
+.apl-canvas-frame[data-category="on"] .apl-node-header { background: color-mix(in oklab, var(--apl-cat) 16%, var(--color-base-100)); border-bottom-color: color-mix(in oklab, var(--apl-cat) 22%, var(--color-base-300)); }
 .apl-node-class { position: absolute; left: 0; right: 0; bottom: 3px; text-align: center; font-size: 8px; line-height: 1; letter-spacing: 0.02em; color: color-mix(in oklab, var(--color-base-content) 45%, transparent); pointer-events: none; padding: 0 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .apl-canvas-frame[data-category="off"] .apl-node-class { display: none; }
 .apl-tile-accent { border-bottom: 2px solid color-mix(in oklab, var(--apl-cat) 70%, transparent); }

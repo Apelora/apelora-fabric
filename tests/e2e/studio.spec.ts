@@ -362,9 +362,11 @@ test.describe("category colours and cable routing", () => {
   test("category accent on node headers, class footer, catalog; toggle and persistence", async ({ page }) => {
     await open(page);
     const hdr = (id: string) => node(page, id).locator(".apl-node-header");
-    const shadow = (id: string) => hdr(id).evaluate((el) => getComputedStyle(el).boxShadow);
-    expect(await shadow("nginx-01")).not.toBe(await shadow("postgresql-01")); // web vs database accent
-    expect(await shadow("nginx-01")).toBe(await shadow("nginx-02"));
+    // The category is a soft header tint (no stripe).
+    const tint = (id: string) => hdr(id).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(await hdr("nginx-01").evaluate((el) => getComputedStyle(el).boxShadow)).toBe("none");
+    expect(await tint("nginx-01")).not.toBe(await tint("postgresql-01")); // web vs database accent
+    expect(await tint("nginx-01")).toBe(await tint("nginx-02"));
     await expect(node(page, "nginx-01").getByTestId("node-class")).toHaveText("NGINX");
     await expect(page.locator("[data-testid=catalog-tile][data-class-id=nginx]")).toBeVisible();
     // toggle off via the canvas menu; survives reload
@@ -372,7 +374,7 @@ test.describe("category colours and cable routing", () => {
     await page.mouse.click(canvas.x + 80, canvas.y + 80, { button: "right" });
     await page.getByTestId("menu-category").click();
     await expect(node(page, "nginx-01").getByTestId("node-class")).toBeHidden();
-    expect(await shadow("nginx-01")).toBe("none");
+    expect(await tint("nginx-01")).toBe(await tint("postgresql-01")); // one neutral header for all
     await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.view.v1") ?? "")).toContain('"showCategory":false');
     await page.reload();
     await page.waitForSelector("[data-testid=module-node]");
