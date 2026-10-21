@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 
 import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, SnapshotList, VolumeItem, WhoAmI } from "@apelora/api-client";
 
+import { ApplicationActions, useApplicationOperations } from "../components/applicationOperations";
 import { TerminalDialog, type TerminalTarget } from "../components/TerminalDialog";
 import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -327,6 +328,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
   const [open, setOpen] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalTarget | null>(null);
   const canSession = holds(me ?? null, "instance.console");
+  const operations = useApplicationOperations(reload);
   useEffect(() => {
     if (list.kind !== "ok") return;
     let current = true;
@@ -351,7 +353,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
           </SectionHeader>
           {l.items.length === 0 ? <p className="text-sm text-base-content/70">Nothing deployed yet. Deploy a design from the Studio.</p> : (
             <TableFrame>
-              <thead><tr><th>Application</th><th>Instances</th><th className="max-sm:hidden">Service addresses</th><th><span className="sr-only">Details</span></th></tr></thead>
+              <thead><tr><th>Application</th><th>Instances</th><th className="max-sm:hidden">Service addresses</th><th><span className="sr-only">Actions</span></th><th><span className="sr-only">Details</span></th></tr></thead>
               <tbody>
                 {l.items.map((a) => {
                   const s = statuses[a.name];
@@ -368,6 +370,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
                             : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span></>}
                         </td>
                         <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.module}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.module}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
+                        <td className="text-right">{a.actions && <ApplicationActions name={a.name} actions={a.actions} control={operations} />}</td>
                         <td className="text-right">
                           <button type="button" className="btn btn-xs btn-ghost" disabled={!ok} aria-expanded={expanded} aria-controls={`details-${a.name}`} onClick={() => setOpen(expanded ? null : a.name)} data-testid="application-toggle">
                             {expanded ? "Hide details" : "Show details"}
@@ -375,7 +378,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
                         </td>
                       </tr>
                       {expanded && ok && (
-                        <tr id={`details-${a.name}`}><td colSpan={4} className="bg-base-200/40"><div className="flex flex-col gap-4 py-1"><Instances application={a.name} status={ok} onTerminal={canSession ? setTerminal : undefined} /><Volumes application={a.name} /></div></td></tr>
+                        <tr id={`details-${a.name}`}><td colSpan={5} className="bg-base-200/40"><div className="flex flex-col gap-4 py-1"><Instances application={a.name} status={ok} onTerminal={canSession ? setTerminal : undefined} /><Volumes application={a.name} /></div></td></tr>
                       )}
                     </Fragment>
                   );
@@ -384,6 +387,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
             </TableFrame>
           )}
           {list.kind === "ok" && Object.values(statuses).some((s) => "error" in s) && <ErrorPanel message="Some applications' state could not be read." onRetry={reload} />}
+          {operations.dialog}
           <TerminalDialog target={terminal} onClose={() => setTerminal(null)} onAuth={onAuth} />
         </>
       )}
