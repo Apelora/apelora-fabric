@@ -280,3 +280,88 @@ fn the_environment_makes_a_client_only_when_complete_and_never_echoes_the_key() 
         Ok(Maas::Client(_))
     ));
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn commissioning_and_deploy_are_audited_without_the_cloud_init(pool: Pool) {
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let s = state(
+        &pool,
+        fixed(Ok(vec![machine(
+            "abc123",
+            "rack-a-1",
+            "Ready",
+            PowerState::Off,
+        )])),
+    );
+    let (st, b) = send(
+        s.clone(),
+        "POST",
+        "/api/v1/provisioners/maas/machines/abc123/commission",
+        &admin,
+        Some(json!({ "confirm": "nope" })),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, b["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("confirmation_mismatch")),
+        "{b}"
+    );
+    let (st, b) = send(
+        s.clone(),
+        "POST",
+        "/api/v1/provisioners/maas/machines/abc123/commission",
+        &admin,
+        Some(json!({ "confirm": "rack-a-1" })),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    let cloud = "#cloud-config\nhostname: lab\n";
+    let (st, b) = send(
+        s.clone(),
+        "POST",
+        "/api/v1/provisioners/maas/machines/abc123/deploy",
+        &admin,
+        Some(json!({ "confirm": "rack-a-1", "distroSeries": "noble", "userData": cloud })),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    let rows = apelora_persistence::recent_audit(&pool, 10)
+        .await
+        .expect("audit");
+    let deploy = rows
+        .iter()
+        .find(|e| e.action == "maas.machine.deploy")
+        .expect("deploy audited");
+    assert_eq!(deploy.target, "abc123");
+    assert_eq!(deploy.detail["distroSeries"], "noble");
+    assert_eq!(deploy.detail["userDataBytes"], json!(cloud.len()));
+    assert!(
+        !deploy.detail.to_string().contains("#cloud-config"),
+        "the cloud-init is not in the audit"
+    );
+    assert!(rows.iter().any(|e| e.action == "maas.machine.commission"));
+    let (st, b) = send(
+        s,
+        "POST",
+        "/api/v1/provisioners/maas/machines/abc123/release",
+        &admin,
+        Some(json!({ "confirm": "rack-a-1", "eraseDisks": true })),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{b}");
+    let rows = apelora_persistence::recent_audit(&pool, 10)
+        .await
+        .expect("audit");
+    let release = rows
+        .iter()
+        .find(|e| e.action == "maas.machine.release")
+        .expect("release audited");
+    assert_eq!(release.detail["eraseDisks"], true);
+}

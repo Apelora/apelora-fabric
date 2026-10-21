@@ -1,7 +1,7 @@
-# Restarting VM modules after a server dies (planned; waits for the environment)
+# Restarting VM modules after a server dies
 
-Status: **planned, nothing built.** The work below is written down now and **not started until the
-environment can prove it** (see §6). Related: [ADR 0013](../adr/0013-fencing-before-restart.md),
+Status: **the same recovery plan as containers (unit test, 2026-10-22). The VM drill has not been
+run.** Related: [ADR 0013](../adr/0013-fencing-before-restart.md),
 [mobility and HA](mobility-and-ha.md), [lab shared storage](../development/TEST-CLUSTER.md),
 [implementation phases, 08](../development/IMPLEMENTATION-PHASES.md).
 
@@ -15,9 +15,9 @@ been drilled; every result will be labelled MOCK VERIFIED, CONTRACT VERIFIED or 
 | Live migration for planned moves (a VM moves running, 0.26 s longest pause; containers and data-local VMs stop, copy and start) | Built, REAL INCUS TESTED |
 | Stateless replicas replaced on other servers, failing replicas restarted | Built, REAL INCUS TESTED |
 | Restart of a failed server's stateful or single-instance **container** modules whose disks are all on the shared pool, after fencing (sanlock lease DEAD, or a person confirms the server is off) | Built; three drills, running again 144–155 s after the server stopped, data intact. REAL INCUS TESTED |
-| Same for **VM** modules on the shared pool | **Never drilled** |
+| Same for **VM** modules on the shared pool | The plan is Restart after fencing (unit test, MOCK VERIFIED). `HA_DRILL_VM=1` is in `ha-drill.sh`. **Not drilled** |
 | `data-replicated` chosen in the Studio | **Built (2026-10-21)**: one choice per module in Properties → Volumes (all its volumes on the shared pool or all on its server; mixing is refused by the schema and by the API), carried in the plan request and named in the deploy review. MOCK VERIFIED in the browser; whether the pool exists is the control plane's answer at plan time |
-| A BMC power-off as fencing evidence | Not built |
+| A BMC power-off as fencing evidence | Built (ADR 0014). The Console shows the audit history, not the mapping |
 | Partition drills (member cut off from the other servers but not from the SAN, and the reverse) | Not run |
 
 A dead server cannot hand over its memory, so this is restart-based recovery: the VM comes back

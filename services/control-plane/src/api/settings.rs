@@ -422,6 +422,12 @@ pub const SETTINGS: &[Setting] = &[
         "Offline time before replicas are substituted",
     ),
     s(
+        "APELORA_REBALANCE",
+        Worker,
+        None,
+        "1: move a stateless replica that shares a server with another of its module (off when unset)",
+    ),
+    s(
         "APELORA_HEALTH_FAIL_AFTER_SECS",
         Worker,
         Some("20"),

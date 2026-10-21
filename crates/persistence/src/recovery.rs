@@ -163,6 +163,61 @@ pub async fn others_powered_off(pool: &Pool, member: &str) -> Result<i64> {
     .await?)
 }
 
+/// Recent power-off attempts, newest first. `summary` is a sentence; the raw detail is not
+/// returned (it can name a BMC).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PowerOffEvent {
+    pub at: OffsetDateTime,
+    pub member: String,
+    pub outcome: String,
+    pub summary: String,
+}
+
+pub async fn power_offs(pool: &Pool, limit: i64) -> Result<Vec<PowerOffEvent>> {
+    let rows = sqlx::query_as::<_, (OffsetDateTime, String, String, Value)>(
+        "SELECT at, target, outcome, detail FROM audit_events
+         WHERE action = 'cluster.member.power_off'
+         ORDER BY id DESC LIMIT $1",
+    )
+    .bind(limit.clamp(1, 50))
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(at, member, outcome, detail)| PowerOffEvent {
+            at,
+            member,
+            summary: power_off_summary(&outcome, &detail),
+            outcome,
+        })
+        .collect())
+}
+
+fn power_off_summary(outcome: &str, detail: &Value) -> String {
+    let text = match outcome {
+        "denied" => detail
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("Refused"),
+        "failed" => detail
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("The power-off failed"),
+        _ => {
+            let provider = detail.get("provider").and_then(Value::as_str);
+            return match provider {
+                Some(p) if !p.is_empty() => format!("Switched off through {p}"),
+                _ => "Switched off".into(),
+            };
+        }
+    };
+    let mut s = text.to_owned();
+    if s.len() > 240 {
+        s.truncate(240);
+    }
+    s
+}
+
 /// A person confirmed that `member` is powered off: recorded on its open failure (created when
 /// the supervisor has not opened one yet).
 pub async fn confirm_powered_off(

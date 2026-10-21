@@ -119,17 +119,23 @@ pub fn discovery_env(
     connections: &[Connection],
     addresses: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    connections
-        .iter()
-        .filter(|c| c.from == consumer)
-        .map(|c| {
-            let target = addresses
-                .get(&c.to)
-                .cloned()
-                .unwrap_or_else(|| instance_name(application, &c.to));
-            (service_env_name(&c.to), target)
-        })
-        .collect()
+    let mut env = BTreeMap::new();
+    for c in connections.iter().filter(|c| c.from == consumer) {
+        let target = addresses
+            .get(&c.to)
+            .cloned()
+            .unwrap_or_else(|| instance_name(application, &c.to));
+        env.insert(service_env_name(&c.to), target);
+        // A service address is not an instance name, so OVN's DNS does not answer it.
+        // The name is published on the network (`user.apelora.dns`) for a resolver.
+        if addresses.contains_key(&c.to) {
+            env.insert(
+                crate::dns::name_env(&c.to),
+                crate::dns::service_name(&c.to, application),
+            );
+        }
+    }
+    env
 }
 
 /// Adds the discovery environment to an instance's configuration (`environment.*`).
@@ -824,6 +830,10 @@ mod tests {
                 (
                     "APELORA_SERVICE_CACHE_01".to_owned(),
                     "198.18.100.2".to_owned()
+                ),
+                (
+                    "APELORA_SERVICE_NAME_CACHE_01".to_owned(),
+                    "cache-01.shop.internal".to_owned()
                 ),
                 ("APELORA_SERVICE_DB_01".to_owned(), "shop-db-01".to_owned()),
             ])

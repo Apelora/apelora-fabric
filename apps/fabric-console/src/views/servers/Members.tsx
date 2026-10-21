@@ -216,6 +216,35 @@ export function MembersTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: stri
               {r.members.length === 0
                 ? <p className="text-sm text-base-content/70">{r.clustered ? "The cluster reports no members." : "This Incus server is not clustered."}</p>
                 : <MemberTable members={r.members} capacity={capacity} actions={actions} onEvacuate={setToEvacuate} onRestore={setToRestore} onRemove={setToRemove} />}
+              {(r.powerOffs ?? []).length > 0 && (
+                <div className="flex flex-col gap-2" data-testid="power-offs">
+                  <h3 className="text-sm font-semibold">Power-offs</h3>
+                  <p className="text-sm text-base-content/70">Recent attempts to switch a failed server off. The address of the controller is not shown.</p>
+                  <ul className="flex flex-col gap-1 text-sm">
+                    {(r.powerOffs ?? []).map((p) => (
+                      <li key={`${p.at}-${p.member}`} data-testid="power-off">
+                        <span className="font-medium">{p.member}</span>
+                        <span className="text-base-content/70"> · {p.summary}</span>
+                        <time className="block text-xs text-base-content/60" dateTime={p.at}>{p.at}</time>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {(r.rebalance ?? []).length > 0 && (
+                <div className="flex flex-col gap-2" data-testid="rebalance">
+                  <h3 className="text-sm font-semibold">Replica spread</h3>
+                  <p className="text-sm text-base-content/70">A dry run. Nothing moves unless the worker is started with <code className="font-mono text-xs">APELORA_REBALANCE=1</code>.</p>
+                  <ul className="flex flex-col gap-1 text-sm">
+                    {(r.rebalance ?? []).map((m) => (
+                      <li key={m.instance} data-testid="rebalance-move">
+                        <span className="font-mono text-xs">{m.instance}</span> from {m.from} to {m.target}
+                        <span className="block text-xs text-base-content/60">{m.reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {capacity.kind === "error" && r.members.length > 0 && <p className="text-xs text-base-content/60 max-lg:hidden" data-testid="capacity-unavailable">Capacity not shown: {capacity.message}</p>}
             </div>
           </div>

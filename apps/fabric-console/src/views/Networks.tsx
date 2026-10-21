@@ -160,6 +160,7 @@ function Details({ a }: { a: NetApplication }) {
                   <td className="align-top">{s.module}<span className="block text-xs text-base-content/70">{s.published ? "Published outside the application" : "Inside the application"}</span></td>
                   <td className="align-top">
                     <span className="font-mono">{s.address ?? "None yet"}</span>
+                    {s.address && <span className="block font-mono text-xs text-base-content/70" data-testid="network-service-name">{s.module}.{a.application}.internal</span>}
                     <span className="block font-mono text-xs text-base-content/70">{s.ports.map((p) => `${p.transport} ${p.port}`).join(", ")}</span>
                     {s.drift.map((d) => <span key={d} className="block text-xs text-error">{sentence(d)}</span>)}
                   </td>

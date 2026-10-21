@@ -2,7 +2,7 @@
 //! The Console's Storage area (docs/architecture/STORAGE.md, docs/development/CONSOLE-PLAN.md):
 //! pools with their use, every application volume with its schedules and backups, the custom
 //! volumes in Apelora's projects that no application references (orphans, read-only), and per
-//! volume: its backups, a backup on request, its schedules and a restore from a backup.
+//! volume: its backups, a backup on request, deleting one, its schedules and a restore from a backup.
 //!
 //! A restore is a `volume.restore` job (deployment worker, `storage.rs`): the dry run here says
 //! what it replaces (the data written since the backup and the volume's own snapshots), the
@@ -607,8 +607,9 @@ fn no_backup_pool() -> ApiError {
 }
 
 /// Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on
-/// another member. Kept until someone deletes it (scheduled backups are pruned, these are not).
-/// Queues a `volume.backup` job. Needs `application.operate`; audited.
+/// another member. Kept until someone deletes it (`delete_backup`); scheduled backups are
+/// pruned to what the schedule keeps. Queues a `volume.backup` job. Needs `application.operate`;
+/// audited.
 #[utoipa::path(post, path = "/api/v1/applications/{name}/volumes/{volume}/backups", tag = "applications", operation_id = "back_up_volume",
     params(("name" = String, Path, description = "Application name"), ("volume" = String, Path, description = "The volume's Incus name"),
         ("Idempotency-Key" = Option<String>, Header, description = "Makes the request safe to repeat")),
@@ -642,6 +643,82 @@ pub(super) async fn back_up(
         detail,
     )
     .await
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ConfirmBackup {
+    /// The backup's Incus name again, typed by the person deleting it.
+    pub confirm: String,
+}
+
+/// Deletes one backup copy. The volume it was taken from is left as it is. The backup's
+/// Incus name must be typed again. A copy Incus no longer has is forgotten anyway, so a
+/// record of a missing copy can be cleared. Needs `application.delete` (and an approval
+/// where a policy asks for one); audited.
+#[utoipa::path(delete, path = "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}", tag = "applications", operation_id = "delete_volume_backup",
+    params(BackupPath),
+    request_body = ConfirmBackup,
+    responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
+        (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody),
+        (status = 502, body = ErrorBody)))]
+pub(super) async fn delete_backup(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    headers: HeaderMap,
+    Path(BackupPath {
+        name,
+        volume,
+        backup,
+    }): Path<BackupPath>,
+    body: Result<Json<ConfirmBackup>, JsonRejection>,
+) -> Res<StatusCode> {
+    let (_, res) = load(&state, &p, &name).await?;
+    allow(&p, "application.delete", &res)?;
+    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    if req.confirm != backup {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "confirmation_mismatch",
+            format!("type the backup's name ({backup}) to confirm"),
+        ));
+    }
+    let record = apelora_persistence::volume_backup(store(&state)?, &name, &volume, &backup)
+        .await?
+        .ok_or_else(|| not_found(format!("backup {backup} of volume {volume}")))?;
+    let target = format!("{}/{}/{}", record.project, record.storage_pool, record.name);
+    let approval = guard(&state, &p, &headers, "application.delete", &target).await?;
+    // Incus first: the record and the audit row commit together afterwards, and a retry
+    // after a lost audit still forgets a copy that this attempt already removed.
+    let existed = state
+        .provider
+        .delete_volume(
+            &record.project,
+            &record.storage_pool,
+            member(&record.member),
+            &record.name,
+            &name,
+        )
+        .await?;
+    let mut tx = super::authz::begin(store(&state)?).await?;
+    if !apelora_persistence::forget_backup(&mut *tx, record.id).await? {
+        tx.rollback().await.ok();
+        return Err(not_found(format!("backup {backup} of volume {volume}")));
+    }
+    audit_scoped(
+        &mut tx,
+        &p,
+        "application.volume.backup.delete",
+        &target,
+        "success",
+        Some(&res),
+        &json!({ "application": name, "volume": volume, "backup": record.name,
+                 "pool": record.storage_pool, "member": record.member,
+                 "scheduled": record.scheduled, "beforeRestore": record.before_restore,
+                 "existed": existed, "approval": approval }),
+    )
+    .await?;
+    super::authz::commit(tx).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize, ToSchema)]

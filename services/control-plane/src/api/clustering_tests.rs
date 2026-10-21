@@ -456,3 +456,73 @@ async fn cluster_setting_changes_refuse_unknown_keys_bad_values_and_no_ops(pool:
         "{b}"
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_upgrade_walks_evacuate_package_and_restore(pool: Pool) {
+    use apelora_incus_adapter::Provider;
+    let l = lab(pool.clone());
+    let (token, _) = apelora_persistence::create_token(&pool, "ops", "fabric-admin", None)
+        .await
+        .expect("token");
+    let Provider::Mock(mock) = &*l.state.provider else {
+        unreachable!("lab")
+    };
+    for m in ["mock-member-01", "mock-member-02", "mock-member-03"] {
+        mock.member_versions
+            .lock()
+            .expect("lock")
+            .insert(m.into(), "7.0.1".into());
+    }
+    let (st, r) = l
+        .req(
+            "POST",
+            "/api/v1/cluster/upgrade",
+            &token,
+            Some(json!({ "action": "start", "confirm": "upgrade" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    assert_eq!(r["next"], "evacuate");
+    let member = r["member"].as_str().expect("member").to_owned();
+    assert_ne!(member, "mock-member-01", "the leader is last");
+    let (st, r) = l
+        .req(
+            "POST",
+            "/api/v1/cluster/upgrade",
+            &token,
+            Some(json!({ "action": "evacuate", "member": member, "confirm": member })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{r}");
+    assert_eq!(r["next"], "upgraded");
+    let (st, r) = l
+        .req(
+            "POST",
+            "/api/v1/cluster/upgrade",
+            &token,
+            Some(json!({ "action": "upgraded", "member": member, "confirm": member })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{r}");
+    assert_eq!(r["next"], "restore");
+    let (st, r) = l
+        .req(
+            "POST",
+            "/api/v1/cluster/upgrade",
+            &token,
+            Some(json!({ "action": "restore", "member": member, "confirm": member })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{r}");
+    let rows = apelora_persistence::recent_audit(&pool, 20)
+        .await
+        .expect("audit");
+    for action in [
+        "cluster.upgrade.start",
+        "cluster.upgrade.evacuate",
+        "cluster.upgrade.upgraded",
+        "cluster.upgrade.restore",
+    ] {
+        assert!(rows.iter().any(|e| e.action == action), "missing {action}");
+    }
+}

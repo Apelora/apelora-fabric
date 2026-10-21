@@ -300,6 +300,7 @@ pub fn router(state: AppState) -> Router {
             get(clustering::settings).patch(clustering::change_settings),
         )
         .route("/api/v1/cluster/recovery", get(recovery::recovery))
+        .route("/api/v1/cluster/upgrade", post(clustering::upgrade))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
         .route("/api/v1/capacity", get(fabric_health::capacity))
@@ -451,6 +452,18 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/provisioners/maas/machines",
             get(provisioners::machines),
         )
+        .route(
+            "/api/v1/provisioners/maas/machines/{system_id}/commission",
+            post(provisioners::commission),
+        )
+        .route(
+            "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+            post(provisioners::deploy),
+        )
+        .route(
+            "/api/v1/provisioners/maas/machines/{system_id}/release",
+            post(provisioners::release),
+        )
         .route("/api/v1/machines/{name}/approve", post(machines::approve))
         .route(
             "/api/v1/machines/{name}/approval",
@@ -486,6 +499,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
             get(storage::preview_restore).post(storage::restore),
+        )
+        .route(
+            "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}",
+            delete(storage::delete_backup),
         )
         .route("/api/v1/audit", get(audit::list))
         .route("/api/v1/audit/export", get(audit::export))
@@ -1607,9 +1624,9 @@ impl Modify for BearerAuth {
         cluster_admin::create, cluster_admin::list, cluster_admin::revoke,
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
-        clustering::members, clustering::groups, clustering::settings, clustering::change_settings,
+        clustering::members, clustering::groups, clustering::settings, clustering::change_settings, clustering::upgrade,
         recovery::recovery, recovery::confirm,
-        machines::list, provisioners::machines, machines::register, machines::approve, machines::withdraw,
+        machines::list, provisioners::machines, provisioners::commission, provisioners::deploy, provisioners::release, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
         identity::environments, identity::create_environment, identity::users, identity::lookup_user,
@@ -1629,7 +1646,7 @@ impl Modify for BearerAuth {
         fabric_health::components, fabric_health::servers, fabric_health::capacity,
         networks::settings, networks::applications,
         storage::pool_usage, storage::volumes, storage::orphans, storage::backups, storage::back_up,
-        storage::set_schedules, storage::preview_restore, storage::restore),
+        storage::delete_backup, storage::set_schedules, storage::preview_restore, storage::restore),
     modifiers(&BearerAuth),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"), (name = "alerts"))

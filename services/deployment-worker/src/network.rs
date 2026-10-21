@@ -141,6 +141,7 @@ async fn services(
     };
     let mut waiting = Vec::new();
     let mut kept: Vec<String> = Vec::new();
+    let mut names: Vec<(String, String)> = Vec::new();
     for a in &wanted {
         let Some(address) =
             apelora_persistence::service_address(pool, application_id, p, a, &candidates).await?
@@ -155,6 +156,7 @@ async fn services(
             continue;
         };
         kept.push(listen_address.to_string());
+        names.push((a.clone(), listen_address.to_string()));
         let mut backends = Vec::new();
         for replica in 1..=s.replicas.get(a).copied().unwrap_or(1).max(1) {
             let base = replica_name(app, a, replica);
@@ -221,6 +223,17 @@ async fn services(
         }
     }
     apelora_persistence::release_service_addresses(pool, application_id, p, &wanted).await?;
+    if !s.modules.is_empty() {
+        let records = apelora_domain::dns::records(app, &names);
+        provider
+            .publish_service_dns(
+                p,
+                &network,
+                app,
+                &apelora_domain::dns::records_text(&records),
+            )
+            .await?;
+    }
     Ok(waiting)
 }
 

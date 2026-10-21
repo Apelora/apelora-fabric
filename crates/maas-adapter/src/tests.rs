@@ -97,6 +97,18 @@ async fn off(
     json_response(machine(&id, "rack-a-1", &f.power))
 }
 
+async fn accept(State(s): State<Shared>, h: HeaderMap, req: axum::extract::Request) -> Response {
+    let path = req.uri().path().to_owned();
+    let body = axum::body::to_bytes(req.into_body(), 256 * 1024)
+        .await
+        .unwrap_or_default();
+    let line = format!("POST {path} {}", String::from_utf8_lossy(&body));
+    if let Some(r) = authed(&s, &h, line) {
+        return r;
+    }
+    json_response(machine("abc123", "rack-a-1", "on"))
+}
+
 async fn server(power: &str) -> (MaasClient, Shared) {
     let shared: Shared = Arc::new(Mutex::new(Fake {
         power: power.into(),
@@ -110,6 +122,9 @@ async fn server(power: &str) -> (MaasClient, Shared) {
             post(query),
         )
         .route("/MAAS/api/2.0/machines/{id}/op-power_off", post(off))
+        .route("/MAAS/api/2.0/machines/{id}/op-commission", post(accept))
+        .route("/MAAS/api/2.0/machines/{id}/op-deploy", post(accept))
+        .route("/MAAS/api/2.0/machines/{id}/op-release", post(accept))
         .with_state(shared.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -277,4 +292,39 @@ async fn refusals_unreachability_and_nonsense_are_told_apart_and_never_carry_the
         Machine::from_json(&json!({ "hostname": "x" })),
         Err(MaasError::Decode(_))
     ));
+}
+
+#[tokio::test]
+async fn commissioning_and_deploy_are_posted_and_the_cloud_init_is_encoded() {
+    let (c, fake) = server("on").await;
+    c.commission("abc123").await.expect("commission");
+    c.deploy("abc123", "noble", "#cloud-config\nhostname: lab\n")
+        .await
+        .expect("deploy");
+    let seen = fake.lock().expect("fake").seen.clone();
+    assert!(seen.iter().any(|l| l.contains("op-commission")), "{seen:?}");
+    let deploy = seen
+        .iter()
+        .find(|l| l.contains("op-deploy"))
+        .expect("deploy");
+    assert!(deploy.contains("distro_series=noble"), "{deploy}");
+    assert!(
+        !deploy.contains("#cloud-config"),
+        "cloud-init is base64, not the raw text: {deploy}"
+    );
+    c.release("abc123", false).await.expect("release");
+    let seen = fake.lock().expect("fake").seen.clone();
+    let release = seen
+        .iter()
+        .find(|l| l.contains("op-release"))
+        .expect("release");
+    assert!(release.contains("erase=false"), "{release}");
+    c.release("abc123", true).await.expect("erase");
+    let seen = fake.lock().expect("fake").seen.clone();
+    assert!(
+        seen.iter()
+            .any(|l| l.contains("op-release") && l.contains("erase=true"))
+    );
+    assert!(c.deploy("abc123", "noble", "   ").await.is_err());
+    assert!(c.deploy("no", "noble", "x").await.is_err());
 }

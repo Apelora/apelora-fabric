@@ -232,7 +232,7 @@ pub struct MemberStateStarted {
 
 /// The dry run: what evacuating `member` does to each instance on it, with what blocks it
 /// and what to accept. Uses the admin identity when configured, so every project is seen.
-async fn evacuation_plan(
+pub(super) async fn evacuation_plan(
     state: &AppState,
     member: &str,
 ) -> Result<

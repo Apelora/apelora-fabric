@@ -31,6 +31,12 @@ POOL=${APELORA_SHARED_POOL:-shared}
 declare -A VMS=([apelora-test-1]=apelora-incus [apelora-test-2]=apelora-incus-2 [apelora-test-3]=apelora-incus-3 [apelora-test-4]=apelora-incus-4)
 CORE=apelora-test-1   # the API address, the OVN central database: never stopped
 BMC=${HA_DRILL_BMC:-0}
+# HA_DRILL_VM=1 deploys the module as a virtual machine (the same shared-pool recovery).
+# Not run: it needs nested virtualisation or a physical server. Do not record a result from it
+# until three runs have been read back the way the container drill is.
+VM=${HA_DRILL_VM:-0}
+KIND=container
+if [ "$VM" = 1 ]; then KIND=virtual-machine; fi
 
 # shellcheck disable=SC1091
 source "$CONF/env"
@@ -197,7 +203,7 @@ for _ in $(seq 1 30); do curl -s "$API/health" >/dev/null 2>&1 && break; sleep 1
 say "control plane (pid $cp_pid) and worker (pid $worker_pid) running on database $DB"
 
 body=$(jq -n '{ project: "apelora", document: {apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly"},
-  modules: [{ module: "db", availability: "stateful", spec: { project: "", name: "", kind: "container", start: true,
+  modules: [{ module: "db", availability: "stateful", spec: { project: "", name: "", kind: "'"$KIND"'", start: true,
     source: { protocol: "simplestreams", server: "https://images.linuxcontainers.org", alias: "debian/13" },
     volumes: [{ name: "data", sizeMib: 256, path: "/srv/data", class: "data-replicated" }] } }], connections: [] }')
 res=$(api -X POST -H "Idempotency-Key: $APP-1" -d "$body" "$API/applications/$APP/deployments")

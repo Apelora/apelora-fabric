@@ -349,6 +349,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["cluster.sensitive_change"],
     ),
     ("GET", "/api/v1/cluster/recovery", &["cluster.view"]),
+    ("POST", "/api/v1/cluster/upgrade", &["cluster.evacuate"]),
     ("GET", "/api/v1/health/components", &["cluster.view"]),
     ("GET", "/api/v1/health/servers", &["cluster.view"]),
     // Server names only with cluster.view; capacity.view sees numbered servers (the handler decides).
@@ -570,6 +571,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["application.operate"],
     ),
     (
+        "DELETE",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}",
+        &["application.delete"],
+    ),
+    (
         "PUT",
         "/api/v1/applications/{name}/volumes/{volume}/schedules",
         &["application.deploy"],
@@ -691,6 +697,21 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "GET",
         "/api/v1/provisioners/maas/machines",
         &["cluster.view"],
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/commission",
+        &["hardware.commission"],
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+        &["hardware.deploy"],
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/release",
+        &["hardware.deploy"],
     ),
     ("POST", "/api/v1/machines", &["machine.enrol"]),
     ("DELETE", "/api/v1/machines/{name}", &["hardware.delete"]),

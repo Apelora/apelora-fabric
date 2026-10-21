@@ -71,6 +71,9 @@ pub struct Supervisor {
     leadership: Option<Leadership>,
     /// Failed members: fencing and restarts on shared storage (HA slice B, ADR 0013).
     recovery: crate::recovery::Recovery,
+    /// Spread stateless replicas that share a member (`APELORA_REBALANCE=1`). Off unless set:
+    /// a move stops a container briefly.
+    rebalance: bool,
 }
 
 /// The leader lease the replica supervisor runs under.
@@ -176,7 +179,14 @@ impl Supervisor {
             members_unreadable: false,
             leadership: None,
             recovery: crate::recovery::Recovery::default(),
+            rebalance: false,
         }
+    }
+
+    /// Spread stateless replicas that landed on the same member (slice C).
+    pub fn with_rebalance(mut self, on: bool) -> Self {
+        self.rebalance = on;
+        self
     }
 
     /// Restarts on shared storage after fencing, with this fence probe (ADR 0013).
@@ -311,7 +321,7 @@ impl Supervisor {
             .map(|(name, _)| name.clone())
             .collect();
         let mut recreated = std::mem::take(&mut recovered);
-        for d in deployments {
+        for d in &deployments {
             let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone())
             else {
                 tracing::warn!(application = %d.application, "supervisor: unreadable deployment record");
@@ -611,13 +621,25 @@ impl Supervisor {
                     .check(
                         pool,
                         provider,
-                        &d,
+                        d,
                         &desired,
                         &observed,
                         &unavailable,
                         self.leadership.as_ref(),
                     )
                     .await?,
+            );
+        }
+        if self.rebalance {
+            recreated.extend(
+                spread(
+                    pool,
+                    &deployments,
+                    &observed,
+                    &members,
+                    self.leadership.as_ref(),
+                )
+                .await?,
             );
         }
         Ok(recreated)
@@ -683,10 +705,14 @@ pub async fn supervise(
             "readiness commands run as root inside instances (APELORA_PROBE_UID=0); prefer an unprivileged user"
         );
     }
+    let rebalance = std::env::var("APELORA_REBALANCE")
+        .ok()
+        .is_some_and(|v| v.trim() == "1");
     let mut supervisor = Supervisor::new(recover_after)
         .with_health(health)
         .with_probe_uid(probe_uid)
-        .with_recovery(recovery);
+        .with_recovery(recovery)
+        .with_rebalance(rebalance);
     loop {
         let current = rx.borrow().clone();
         let started = std::time::Instant::now();
@@ -718,6 +744,82 @@ impl Drop for AbortOnDrop {
     fn drop(&mut self) {
         self.0.abort();
     }
+}
+
+/// Queues at most one move that puts a stateless module's replicas on different members.
+async fn spread(
+    pool: &Pool,
+    deployments: &[apelora_persistence::DeploymentRecord],
+    observed: &[Instance],
+    members: &[apelora_domain::ClusterMember],
+    lease: Option<&Leadership>,
+) -> Result<Vec<String>, StoreError> {
+    let mut held = Vec::new();
+    for d in deployments {
+        let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone()) else {
+            continue;
+        };
+        held.push((
+            d.application.clone(),
+            d.project.clone(),
+            d.application_id,
+            desired,
+        ));
+    }
+    let modules: Vec<apelora_domain::rebalance::SpreadModule<'_>> = held
+        .iter()
+        .flat_map(|(app, project, _, desired)| {
+            desired
+                .iter()
+                .map(move |module| apelora_domain::rebalance::SpreadModule {
+                    application: app,
+                    project,
+                    module,
+                })
+        })
+        .collect();
+    let Some(m) = apelora_domain::rebalance::plan(members, observed, &modules)
+        .into_iter()
+        .next()
+    else {
+        return Ok(Vec::new());
+    };
+    if apelora_persistence::job_in_flight(pool, "instance.move", &m.project, &m.instance).await?
+        || apelora_persistence::job_failed_recently(
+            pool,
+            "instance.move",
+            &m.project,
+            &m.instance,
+            BACKOFF_SECS,
+        )
+        .await?
+    {
+        return Ok(Vec::new());
+    }
+    let application_id = held
+        .iter()
+        .find(|(app, project, _, _)| app == &m.application && project == &m.project)
+        .map(|(_, _, id, _)| *id);
+    let payload = json!({
+        "project": m.project, "name": m.instance, "application": m.application,
+        "from": m.from, "target": m.target, "live": m.live, "startAfter": true, "volumes": [],
+    });
+    queue_audited(
+        pool,
+        lease,
+        ("instance.move", application_id, &payload),
+        "application.replica.rebalance",
+        &format!("{}/{}", m.project, m.instance),
+        |job| {
+            json!({
+                "application": m.application, "module": m.module, "from": m.from,
+                "target": m.target, "live": m.live, "reason": m.reason, "jobId": job,
+            })
+        },
+    )
+    .await?;
+    tracing::info!(application = %m.application, instance = %m.instance, from = %m.from, to = %m.target, "supervisor: rebalancing a replica onto another member");
+    Ok(vec![m.instance])
 }
 
 #[cfg(test)]
@@ -903,6 +1005,38 @@ mod tests {
                 .filter(|e| e.action == "application.replica.recreate" && e.actor == "supervisor")
                 .count(),
             1
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn rebalance_moves_one_replica_when_two_share_a_member(pool: Pool) {
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        {
+            let mut instances = mock.instances.lock().expect("lock");
+            for i in instances.iter_mut().filter(|i| i.instance.name.contains("web")) {
+                i.instance.location = "mock-member-01".into();
+            }
+        }
+        let moved = Supervisor::new(Duration::from_secs(3600))
+            .with_rebalance(true)
+            .pass(&pool, &provider)
+            .await
+            .expect("pass");
+        assert!(
+            moved.iter().any(|n| n.contains("web")),
+            "one web replica is queued to move: {moved:?}"
+        );
+        let jobs = recent_jobs(&pool, 20).await.expect("jobs");
+        assert!(
+            jobs.iter().any(|j| j.kind == "instance.move"),
+            "instance.move queued: {jobs:?}"
+        );
+        let audit = recent_audit(&pool, 20).await.expect("audit");
+        assert!(
+            audit.iter().any(|e| e.action == "application.replica.rebalance"),
+            "audited: {audit:?}"
         );
     }
 

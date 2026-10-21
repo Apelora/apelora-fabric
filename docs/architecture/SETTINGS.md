@@ -91,6 +91,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_HEALTH_RESTART_AFTER_SECS` | `60` | Unhealthy for this long: restarted |
 | `APELORA_OUTBOX_SINK` | `log` | Where audit messages are relayed |
 | `APELORA_PROBE_UID` | `65534` | User a module's readiness command runs as inside its instances (not root by default) |
+| `APELORA_REBALANCE` | none | 1: move a stateless replica that shares a server with another of its module (off when unset) |
 | `APELORA_RECOVER_AFTER_SECS` | `120` | Offline time before replicas are substituted |
 | `APELORA_RESTORE_DRILL_RECORD` | none | The restore drill's result file the restore-age alert reads |
 | `APELORA_SUPERVISE_SECS` | `30` | Seconds between replica supervisor passes |

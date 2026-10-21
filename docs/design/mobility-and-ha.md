@@ -1,6 +1,6 @@
 # Moving modules and surviving failures
 
-Status: **agreed; slices A and B built (see §3a, §3c for evidence), slice C next** · Date: 2026-10-21 · Related: [platform architecture §7](../architecture/PLATFORM-ARCHITECTURE.md), [storage](../architecture/STORAGE.md), [storage options](../assets/diagrams/storage-options.svg), [member failure](../runbooks/member-failure.md)
+Status: **agreed; slices A and B built (see §3a, §3c for evidence). Slice C is Apelora's own spread, MOCK VERIFIED 2026-10-22, not run on the lab** · Date: 2026-10-22 · Related: [platform architecture §7](../architecture/PLATFORM-ARCHITECTURE.md), [storage](../architecture/STORAGE.md), [storage options](../assets/diagrams/storage-options.svg), [member failure](../runbooks/member-failure.md)
 
 ## 1. What Incus does, measured on the test cluster (Incus 7.0.1, four members, btrfs local pools)
 
@@ -32,7 +32,7 @@ No interruption at all through a failure needs more than one copy running: repli
 
 **B. Failure recovery on shared storage, with fencing.** Shared pools (clustered LVM on a SAN, or distributed storage) back the `data-replicated` class. Apelora restarts a failed server's modules from a shared pool on another server only once that server is fenced: its storage lease is dead (sanlock, read on a healthy server), or a person confirmed it is off (typed name, approval); a BMC fence provider can be added later. Incus's own healing stays off. This applies to every Apelora instance whose disks are all on a shared pool, container or VM, and to nothing on a member-local pool. Design: §3b; decision: ADR 0013.
 
-**C. Rebalancing.** Expose Incus's rebalancing settings for live-migratable VMs and include replica spread in the decision.
+**C. Rebalancing.** Apelora plans the spread. It does not turn on Incus `cluster.rebalance.interval` (that setting stays warned against, and at 0). For a stateless module with two or more replicas on one Online member, the plan moves one (the highest name) to the least-loaded eligible member (Online, not held, same architecture). A VM is planned live; a container stops briefly. The members report always shows the dry run. The supervisor queues at most one `instance.move` per pass, and only when `APELORA_REBALANCE=1`. MOCK VERIFIED. Not run on the lab.
 
 ## 3a. Slice A as built
 

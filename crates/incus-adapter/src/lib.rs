@@ -660,6 +660,32 @@ impl Provider {
         }
     }
 
+    /// Publishes service names on an application network: `dns.domain` is
+    /// `<application>.internal` and `user.apelora.dns` is one `name address` per line.
+    /// The existing configuration is kept (a replace would drop the uplink and the addresses
+    /// Incus recorded). NOT REAL INCUS TESTED.
+    pub async fn publish_service_dns(
+        &self,
+        project: &str,
+        network: &str,
+        application: &str,
+        records: &str,
+    ) -> Result<(), AdapterError> {
+        valid_names(&[project, network, application])?;
+        match self {
+            Provider::Mock(m) => {
+                m.net()
+                    .dns
+                    .insert(format!("{project}/{network}"), records.to_owned());
+                Ok(())
+            }
+            Provider::Incus(c) => {
+                c.publish_service_dns(project, network, application, records)
+                    .await
+            }
+        }
+    }
+
     /// Network objects of an application (OVN network, module ACLs and address sets).
     /// Each is created only when missing and labelled with its application; one that exists
     /// for another application or without Apelora's marker is refused, never adopted.
@@ -2146,6 +2172,8 @@ pub struct MockNetwork {
     pub failing: std::collections::BTreeSet<String>,
     /// Instances restarted, in order (tests).
     pub restarts: Vec<String>,
+    /// `project/network` → the service-name records (`user.apelora.dns`).
+    pub dns: std::collections::BTreeMap<String, String>,
 }
 
 impl MockNetwork {

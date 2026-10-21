@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import type { CertificateStatus, ClusterMembersReport, ClusterSetting, ClusterSettingsReport, ClusterVersionComparison, ClusterVersionState, SystemInfo, WhoAmI } from "@apelora/api-client";
+import type { CertificateStatus, ClusterMembersReport, ClusterSetting, ClusterSettingsReport, ClusterVersionComparison, ClusterVersionState, SystemInfo, UpgradeView, WhoAmI } from "@apelora/api-client";
 
-import { Badge, Notice, Section, SectionHeader, TableFrame, sentence, type Tone } from "../../components/ui";
-import { client, useLoad } from "../../lib/api";
+import { Badge, ErrorPanel, FormDialog, Notice, Section, SectionHeader, TableFrame, sentence, type Tone } from "../../components/ui";
+import { client, messageOf, useLoad } from "../../lib/api";
 import { holdsPlatform } from "../../lib/identity";
 import { ChangeSetting } from "./ChangeSetting";
 
@@ -136,7 +136,7 @@ const AGAINST: Record<ClusterVersionComparison, string> = {
 const UPGRADE_RUNBOOK = "docs/runbooks/incus-rolling-upgrade.md";
 
 /** Servers → Upgrades: version skew against the pinned release and the rolling procedure. Read-only. */
-export function UpgradesTab({ onAuth }: { onAuth: (m: string) => void }) {
+export function UpgradesTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   const [report, reload] = useLoad<ClusterMembersReport>(() => client.get("cluster_members"), onAuth);
   return (
     <Section title="Upgrades" state={report} testId="upgrades" onRetry={reload}>
@@ -167,6 +167,10 @@ export function UpgradesTab({ onAuth }: { onAuth: (m: string) => void }) {
               {v.notes.map((n) => <p key={n} className="flex items-start gap-2 text-sm" data-testid="upgrade-note"><span className="status status-info mt-1.5 shrink-0" aria-hidden="true" />{stop(n)}</p>)}
             </div>
 
+            {r.upgrade && (holdsPlatform(me, "cluster.evacuate") || !!me?.permissions.includes("manage-infrastructure")) && (
+              <UpgradeAssistant view={r.upgrade} ready={v.ready} onDone={reload} />
+            )}
+
             <section className="flex flex-col gap-2" aria-labelledby="rolling-title" data-testid="rolling-procedure">
               <h2 id="rolling-title" className="font-semibold">Rolling upgrade, one member at a time</h2>
               <p className="text-sm text-base-content/70">Apelora does not install Incus. For each member:</p>
@@ -183,5 +187,98 @@ export function UpgradesTab({ onAuth }: { onAuth: (m: string) => void }) {
         );
       }}
     </Section>
+  );
+}
+
+/** Focuses `ref` once its dialog is visible. The modal is `visibility: hidden` while it opens. */
+function useFocusWhenShown(ref: { current: HTMLElement | null }, active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    let frames = 30;
+    let id = 0;
+    const focus = () => {
+      const el = ref.current;
+      el?.focus();
+      if (el && document.activeElement !== el && frames-- > 0) id = requestAnimationFrame(focus);
+    };
+    focus();
+    return () => cancelAnimationFrame(id);
+  }, [ref, active]);
+}
+
+const STEP: Record<string, string> = {
+  start: "Start the upgrade",
+  evacuate: "Evacuate this member",
+  upgraded: "Record the package upgrade",
+  restore: "Restore this member",
+};
+
+/**
+ * The guided run. Apelora evacuates and restores. The package upgrade is done on the server;
+ * recording it does not install anything.
+ */
+function UpgradeAssistant({ view, ready, onDone }: { view: UpgradeView; ready: boolean; onDone: () => void }) {
+  const [open, setOpen] = useState<"step" | "abandon" | null>(null);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const field = useRef<HTMLInputElement>(null);
+  useFocusWhenShown(field, open !== null);
+  const word = view.next === "start" || open === "abandon" ? "upgrade" : (view.member ?? "");
+  const label = STEP[view.next] ?? "Continue";
+
+  const send = async (action: string, member: string, confirm: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await client.request("cluster_upgrade", { body: { action, member, confirm } });
+      setOpen(null);
+      setTyped("");
+      onDone();
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="flex flex-col gap-2" aria-labelledby="assistant-title" data-testid="upgrade-assistant">
+      <h2 id="assistant-title" className="font-semibold">Upgrade assistant</h2>
+      <p className="text-sm" data-testid="upgrade-assistant-summary">{view.summary}</p>
+      {view.order.length > 0 && (
+        <ol className="list-decimal space-y-1 pl-5 text-sm" data-testid="upgrade-order">
+          {view.order.map((name) => <li key={name} className={name === view.member ? "font-medium" : undefined}>{name}{name === view.member ? " — this member" : ""}</li>)}
+        </ol>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {view.next !== "none" && (
+          <button type="button" className="btn btn-sm btn-primary" disabled={view.next === "start" && !ready} onClick={() => { setTyped(""); setError(null); setOpen("step"); }} data-testid="upgrade-next">{label}</button>
+        )}
+        {view.running && (
+          <button type="button" className="btn btn-sm btn-ghost text-error" onClick={() => { setTyped(""); setError(null); setOpen("abandon"); }} data-testid="upgrade-abandon">Abandon the run</button>
+        )}
+      </div>
+      <FormDialog open={open !== null} title={open === "abandon" ? "Abandon this upgrade?" : label} onClose={() => setOpen(null)} testId="upgrade-dialog">
+        <p className="text-sm text-base-content/80">
+          {open === "abandon"
+            ? "The run is forgotten. Members that were evacuated stay evacuated until you restore them from Members."
+            : view.next === "upgraded"
+              ? "This records that you upgraded Incus on the server. Apelora does not install the package."
+              : view.summary}
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          Type <span className="font-mono">{word}</span> to confirm
+          <input ref={field} className="input input-sm w-full font-mono" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} data-testid="upgrade-confirm" />
+        </label>
+        {error && <ErrorPanel message={error} testId="upgrade-error" />}
+        <div className="modal-action mt-0">
+          <button type="button" className="btn btn-sm btn-outline" onClick={() => setOpen(null)}>Cancel</button>
+          {open === "abandon"
+            ? <button type="button" className="btn btn-sm btn-ghost text-error" disabled={busy || typed !== "upgrade"} onClick={() => void send("abandon", "", typed)} data-testid="upgrade-abandon-confirm">{busy ? "Abandoning…" : "Abandon the run"}</button>
+            : <button type="button" className="btn btn-sm btn-primary" disabled={busy || typed !== word} onClick={() => void send(view.next, view.member ?? "", typed)} data-testid="upgrade-step-confirm">{busy ? "Working…" : label}</button>}
+        </div>
+      </FormDialog>
+    </section>
   );
 }

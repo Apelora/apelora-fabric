@@ -615,8 +615,13 @@ export type ClusterMembersReport = {
   clustered: boolean;
   /** Empty on a standalone server. */
   members: ClusterMemberDetail[];
+  /** Recent BMC power-offs, newest first. Empty when none have been recorded. */
+  powerOffs?: PowerOff[];
   quorum: ClusterQuorum;
+  /** Stateless replicas that share a server. The supervisor moves one only when `APELORA_REBALANCE=1`; this list is the dry run. */
+  rebalance?: RebalanceMove[];
   source: Source;
+  upgrade?: null | UpgradeView;
   /** Version skew against the pinned Incus release, and whether an upgrade could start. */
   versions: ClusterVersions;
 };
@@ -703,6 +708,11 @@ export type Conditions = {
   environments?: EnvKind[] | null;
   /** The grant counts only when the caller signed in with multi-factor authentication. */
   requireMfa?: boolean;
+};
+
+export type ConfirmBackup = {
+  /** The backup's Incus name again, typed by the person deleting it. */
+  confirm: string;
 };
 
 export type ConfirmDirectory = {
@@ -1847,6 +1857,25 @@ export type LogTail = {
   truncated: boolean;
 };
 
+export type MaasAccepted = {
+  action: string;
+  hostname: string;
+  systemId: string;
+};
+
+export type MaasConfirm = {
+  /** The machine's hostname, typed again. */
+  confirm: string;
+};
+
+export type MaasDeploy = {
+  confirm: string;
+  /** MAAS's series name, such as `noble`. */
+  distroSeries: string;
+  /** Cloud-init. Sent to MAAS and not stored. A join token in it is not kept. */
+  userData: string;
+};
+
 export type MaasMachineView = {
   addresses: string[];
   architecture: string;
@@ -1877,6 +1906,12 @@ export type MaasMachines = {
   configured: boolean;
   items: MaasMachineView[];
   source: Source;
+};
+
+export type MaasRelease = {
+  confirm: string;
+  /** Wipe the installed system. Off unless the caller sets it. A secure wipe is not offered. */
+  eraseDisks?: boolean;
 };
 
 export type Machine = {
@@ -2514,6 +2549,15 @@ export type PolicyList = {
   items: PolicyDto[];
 };
 
+/** One recorded power-off of a failed server (ADR 0014). No BMC address. */
+export type PowerOff = {
+  at: string;
+  member: string;
+  /** `success`, `failed` or `denied`. */
+  outcome: string;
+  summary: string;
+};
+
 export type PreflightReport = {
   checks: Check[];
   /** The worst status among the checks. */
@@ -2722,6 +2766,19 @@ export type Readiness = {
   command: string[];
   /** Longer than this counts as failing (1–15, default 5). */
   timeoutSecs?: number;
+};
+
+/** One replica to move so a module is spread again. */
+export type RebalanceMove = {
+  application: string;
+  from: string;
+  instance: string;
+  /** A virtual machine moves while it runs. A container stops briefly, then starts. */
+  live: boolean;
+  module: string;
+  project: string;
+  reason: string;
+  target: string;
 };
 
 /** What becomes of one instance of a failed member. */
@@ -3327,6 +3384,27 @@ export type UpdateApplication = {
   icon?: string | null;
 };
 
+export type UpgradeCommand = {
+  /** `start`, `evacuate`, `upgraded`, `restore` or `abandon`. */
+  action: string;
+  /** `upgrade` to start or abandon; the member's name for the other actions. */
+  confirm: string;
+  /** The member, for evacuate, upgraded and restore. */
+  member?: string;
+};
+
+/** What the Upgrades tab shows, whether or not a run has started. */
+export type UpgradeView = {
+  /** Whose turn it is, while a run is going. */
+  member?: string | null;
+  /** `start`, `evacuate`, `upgraded`, `restore` or `none`. */
+  next: string;
+  /** Spares, then stand-bys, then voters, the database leader last. */
+  order: string[];
+  running: boolean;
+  summary: string;
+};
+
 export type UserDto = {
   createdAt: string;
   disabled: boolean;
@@ -3493,6 +3571,7 @@ export const operations = {
   delete_application_volume: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}", params: ["name","volume"], public: false },
   volume_backups: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
   back_up_volume: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
+  delete_volume_backup: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}", params: ["name","volume","backup"], public: false },
   preview_volume_restore: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
   restore_volume_backup: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
   set_volume_schedules: { method: "PUT", path: "/api/v1/applications/{name}/volumes/{volume}/schedules", params: ["name","volume"], public: false },
@@ -3523,6 +3602,7 @@ export const operations = {
   cluster_recovery: { method: "GET", path: "/api/v1/cluster/recovery", params: [], public: false },
   cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
   change_cluster_settings: { method: "PATCH", path: "/api/v1/cluster/settings", params: [], public: false },
+  cluster_upgrade: { method: "POST", path: "/api/v1/cluster/upgrade", params: [], public: false },
   database_backups: { method: "GET", path: "/api/v1/database-backups", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
@@ -3618,6 +3698,9 @@ export const operations = {
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   maas_machines: { method: "GET", path: "/api/v1/provisioners/maas/machines", params: [], public: false },
+  maas_commission: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/commission", params: ["system_id"], public: false },
+  maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/deploy", params: ["system_id"], public: false },
+  maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/release", params: ["system_id"], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
@@ -3714,8 +3797,10 @@ export type Responses = {
   delete_application_volume: null;
   /** The volume's backups, oldest first, whether each still exists, and its schedules. Needs `application.view`. */
   volume_backups: VolumeBackupList;
-  /** Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on another member. Kept until someone deletes it (scheduled backups are pruned, these are not). Queues a `volume.backup` job. Needs `application.operate`; audited. */
+  /** Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on another member. Kept until someone deletes it (`delete_backup`); scheduled backups are pruned to what the schedule keeps. Queues a `volume.backup` job. Needs `application.operate`; audited. */
   back_up_volume: JobAccepted;
+  /** Deletes one backup copy. The volume it was taken from is left as it is. The backup's Incus name must be typed again. A copy Incus no longer has is forgotten anyway, so a record of a missing copy can be cleared. Needs `application.delete` (and an approval where a policy asks for one); audited. */
+  delete_volume_backup: null;
   /** Dry run of restoring the volume from one of its backups: what is replaced (data written since the backup, the volume's snapshots), which instances must be stopped, where the safety backup goes, and the steps. Changes nothing. Needs `application.operate`. */
   preview_volume_restore: RestorePreview;
   /** Restores the volume from one of its backups, after the dry run passes again and the volume's name is typed: a safety backup of the current data first (unless declined), then the backup is copied over the volume. Every instance using it must be stopped; they stay stopped. Queues a `volume.restore` job. Needs `application.operate` (and an approval where a policy asks); audited with the job. */
@@ -3776,6 +3861,8 @@ export type Responses = {
   cluster_settings: ClusterSettingsReport;
   /** Changes cluster settings through Incus with the admin identity. Every key must be one the Servers page lists and every value is checked. Settings that already hold the value are left out; nothing to change is refused. With `dryRun` it only reports (what each becomes and what to watch for). Applying needs `cluster.sensitive_change` and another person's approval of `cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is audited with the old and new values. */
   change_cluster_settings: SettingsChangeReport;
+  /** One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus: `upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`. */
+  cluster_upgrade: UpgradeView;
   /** Whether Apelora's database is being backed up and a restore has been proven, from the records the scripts leave in `APELORA_DB_BACKUP_DIR`. Needs `cluster.view`. */
   database_backups: DatabaseBackupReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
@@ -3966,6 +4053,12 @@ export type Responses = {
   projects: ProjectList;
   /** The machines MAAS manages, with the Apelora machine and Incus member each became. Needs `cluster.view`. Read-only: MAAS is asked to list, nothing else. */
   maas_machines: MaasMachines;
+  /** Starts commissioning. Needs `hardware.commission` and the hostname typed again. The cloud-init of a later deploy is not part of this. Audited; MAAS is asked first. */
+  maas_commission: MaasAccepted;
+  /** Installs an operating system. Needs `hardware.deploy` and the hostname typed again. `userData` is sent to MAAS and is not stored or written to the audit log. Audited. */
+  maas_deploy: MaasAccepted;
+  /** Returns the machine to MAAS's pool. Needs `hardware.deploy` and the hostname typed again. Disk erasure needs `hardware.delete` as well and is off unless asked. A secure wipe is not offered. Audited; MAAS is asked first. */
+  maas_release: MaasAccepted;
   /** Open sessions the caller started, and those on applications they may operate. */
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
@@ -4044,6 +4137,7 @@ export type Bodies = {
   delete_application_volume: ConfirmVolume;
   volume_backups: never;
   back_up_volume: never;
+  delete_volume_backup: ConfirmBackup;
   preview_volume_restore: never;
   restore_volume_backup: RestoreVolumeRequest;
   set_volume_schedules: SetVolumeSchedules;
@@ -4074,6 +4168,7 @@ export type Bodies = {
   cluster_recovery: never;
   cluster_settings: never;
   change_cluster_settings: ChangeSettings;
+  cluster_upgrade: UpgradeCommand;
   database_backups: never;
   health: never;
   health_components: never;
@@ -4169,6 +4264,9 @@ export type Bodies = {
   preflight: never;
   projects: never;
   maas_machines: never;
+  maas_commission: MaasConfirm;
+  maas_deploy: MaasDeploy;
+  maas_release: MaasRelease;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

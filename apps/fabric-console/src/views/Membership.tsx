@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { EvacuationPreview, JoinTokenList, RemovalPreview } from "@apelora/api-client";
+import type { EvacuationPreview, JoinTokenList, RemovalPreview, WhoAmI } from "@apelora/api-client";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -151,7 +151,7 @@ export function RemoveMemberDialog({ member, onClose, onRemoved }: { member: str
 
 
 /** Servers → Machines and join tokens: enrolment of new servers and the tokens still unused. */
-export function MachinesTab({ onAuth }: { onAuth: (m: string) => void }) {
+export function MachinesTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   const [tokens, reload] = useLoad<JoinTokenList>(() => client.get("list_join_tokens"), onAuth);
   const [error, setError] = useState<string | null>(null);
   const [toRevoke, setToRevoke] = useState<string | null>(null);
@@ -169,7 +169,7 @@ export function MachinesTab({ onAuth }: { onAuth: (m: string) => void }) {
   return (
     <div className="flex flex-col gap-6">
       <MachinesSection onAuth={onAuth} onChanged={reload} />
-      <MaasMachinesSection onAuth={onAuth} onChanged={reload} />
+      <MaasMachinesSection me={me} onAuth={onAuth} onChanged={reload} />
       {error && <ErrorPanel message={error} testId="membership-error" />}
 
       <Section title="Unused join tokens" state={tokens} testId="join-tokens" onRetry={reload}>

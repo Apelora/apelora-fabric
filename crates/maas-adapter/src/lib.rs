@@ -381,6 +381,97 @@ impl MaasClient {
         .await?;
         Ok(())
     }
+
+    /// Starts commissioning (inventory and testing). MAAS's answer says it accepted the
+    /// request; the machine's status is read afterwards.
+    pub async fn commission(&self, system_id: &str) -> Result<(), MaasError> {
+        check_id(system_id)?;
+        self.call(true, &format!("machines/{system_id}/op-commission"), &[])
+            .await?;
+        Ok(())
+    }
+
+    /// Asks MAAS to install `distro_series` and run `user_data` (cloud-init, sent base64-encoded,
+    /// the form MAAS documents). The text is not logged. Empty, or larger than 64 KiB, is refused
+    /// before anything is sent.
+    pub async fn deploy(
+        &self,
+        system_id: &str,
+        distro_series: &str,
+        user_data: &str,
+    ) -> Result<(), MaasError> {
+        check_id(system_id)?;
+        if distro_series.is_empty()
+            || distro_series.len() > 64
+            || !distro_series
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err(MaasError::Invalid(
+                "distro series is a short name such as noble".into(),
+            ));
+        }
+        if user_data.trim().is_empty() {
+            return Err(MaasError::Invalid("cloud-init is empty".into()));
+        }
+        if user_data.len() > 64 * 1024 {
+            return Err(MaasError::Invalid(
+                "cloud-init is larger than 64 KiB".into(),
+            ));
+        }
+        let encoded = base64(user_data.as_bytes());
+        self.call(
+            true,
+            &format!("machines/{system_id}/op-deploy"),
+            &[("distro_series", distro_series), ("user_data", &encoded)],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Returns the machine to the pool. `erase` is sent as MAAS's `erase` flag and is false
+    /// unless the caller asked. A secure wipe is not offered.
+    pub async fn release(&self, system_id: &str, erase: bool) -> Result<(), MaasError> {
+        check_id(system_id)?;
+        let flag = if erase { "true" } else { "false" };
+        self.call(
+            true,
+            &format!("machines/{system_id}/op-release"),
+            &[("erase", flag)],
+        )
+        .await?;
+        Ok(())
+    }
+}
+
+/// Base64 (the standard alphabet, padded). MAAS takes cloud-init that way.
+fn base64(data: &[u8]) -> String {
+    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    let mut i = 0;
+    while i + 3 <= data.len() {
+        let n = (u32::from(data[i]) << 16) | (u32::from(data[i + 1]) << 8) | u32::from(data[i + 2]);
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(T[((n >> 6) & 63) as usize] as char);
+        out.push(T[(n & 63) as usize] as char);
+        i += 3;
+    }
+    let rest = data.len() - i;
+    if rest == 1 {
+        let n = u32::from(data[i]) << 16;
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rest == 2 {
+        let n = (u32::from(data[i]) << 16) | (u32::from(data[i + 1]) << 8);
+        out.push(T[((n >> 18) & 63) as usize] as char);
+        out.push(T[((n >> 12) & 63) as usize] as char);
+        out.push(T[((n >> 6) & 63) as usize] as char);
+        out.push('=');
+    }
+    out
 }
 
 fn check_id(id: &str) -> Result<(), MaasError> {

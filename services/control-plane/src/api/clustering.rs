@@ -15,6 +15,9 @@ use apelora_domain::clustering::{
     self, CLUSTER_SETTINGS, ClusterGroupInfo, ClusterMemberDetail, ClusterQuorum, ClusterSetting,
     ClusterVersions,
 };
+use apelora_domain::plan::DesiredModule;
+use apelora_domain::rebalance::{self, RebalanceMove};
+use apelora_domain::upgrade::{self, UpgradeView};
 use apelora_domain::{ClusterMember, Permission};
 use std::collections::BTreeMap;
 
@@ -26,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use utoipa::ToSchema;
 
-use super::authz::{allow_platform, audit_alone, guard};
+use super::authz::{allow_platform, audit_alone, audit_scoped, begin, commit, guard};
 use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 
 /// How long one member's version may take before it is reported as unreadable.
@@ -43,6 +46,27 @@ pub struct ClusterMembersReport {
     pub quorum: ClusterQuorum,
     /// Version skew against the pinned Incus release, and whether an upgrade could start.
     pub versions: ClusterVersions,
+    /// Recent BMC power-offs, newest first. Empty when none have been recorded.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub power_offs: Vec<PowerOff>,
+    /// Stateless replicas that share a server. The supervisor moves one only when
+    /// `APELORA_REBALANCE=1`; this list is the dry run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rebalance: Vec<RebalanceMove>,
+    /// The rolling-upgrade assistant. Absent when there is no database.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upgrade: Option<UpgradeView>,
+}
+
+/// One recorded power-off of a failed server (ADR 0014). No BMC address.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerOff {
+    pub at: String,
+    pub member: String,
+    /// `success`, `failed` or `denied`.
+    pub outcome: String,
+    pub summary: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -144,13 +168,73 @@ pub(super) async fn members(
         );
         clustering::versions(&pinned, &[one], &quorum)
     };
+    let (power_offs, rebalance, upgrade) = server_extras(&state, &details).await;
     Ok(Json(ClusterMembersReport {
         source: source(state.provider.mode()),
         clustered: info.clustered,
         members: details,
         quorum,
         versions,
+        power_offs,
+        rebalance,
+        upgrade,
     }))
+}
+
+/// Power-off history, the rebalance dry run and the upgrade assistant. All empty when there
+/// is no database: the member list itself does not need one.
+async fn server_extras(
+    state: &AppState,
+    details: &[ClusterMemberDetail],
+) -> (Vec<PowerOff>, Vec<RebalanceMove>, Option<UpgradeView>) {
+    let Ok(pool) = super::cluster_admin::audit_store(state) else {
+        return (Vec::new(), Vec::new(), None);
+    };
+    let power_offs = apelora_persistence::recovery::power_offs(pool, 50)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| PowerOff {
+            at: super::admin::rfc3339(e.at),
+            member: e.member,
+            outcome: e.outcome,
+            summary: e.summary,
+        })
+        .collect();
+    let rebalance = match (
+        apelora_persistence::list_deployments(pool).await,
+        state.provider.instances().await,
+    ) {
+        (Ok(deployed), Ok(instances)) => {
+            let mut held = Vec::new();
+            for d in &deployed {
+                if let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone())
+                {
+                    held.push((d.application.clone(), d.project.clone(), desired));
+                }
+            }
+            let modules: Vec<rebalance::SpreadModule<'_>> = held
+                .iter()
+                .flat_map(|(app, project, desired)| {
+                    desired.iter().map(move |module| rebalance::SpreadModule {
+                        application: app,
+                        project,
+                        module,
+                    })
+                })
+                .collect();
+            let members = state.provider.cluster_members().await.unwrap_or_default();
+            rebalance::plan(&members, &instances, &modules)
+        }
+        _ => Vec::new(),
+    };
+    let steps = apelora_persistence::upgrades::running(pool)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| r.steps());
+    let upgrade = Some(upgrade::view(upgrade::order(details), steps.as_deref()));
+    (power_offs, rebalance, upgrade)
 }
 
 /// Cluster groups and their members (empty on a standalone server). Read-only; needs
@@ -329,4 +413,220 @@ pub(super) async fn change_settings(
         changes,
         approval_target: target,
     }))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UpgradeCommand {
+    /// `start`, `evacuate`, `upgraded`, `restore` or `abandon`.
+    pub action: String,
+    /// The member, for evacuate, upgraded and restore.
+    #[serde(default)]
+    pub member: String,
+    /// `upgrade` to start or abandon; the member's name for the other actions.
+    pub confirm: String,
+}
+
+/// One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus:
+/// `upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`.
+#[utoipa::path(post, path = "/api/v1/cluster/upgrade", tag = "cluster", operation_id = "cluster_upgrade",
+    request_body = UpgradeCommand,
+    responses((status = 200, body = UpgradeView), (status = 202, body = UpgradeView),
+        (status = 400, body = ErrorBody), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 409, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn upgrade(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    body: Result<Json<UpgradeCommand>, JsonRejection>,
+) -> Result<(StatusCode, Json<UpgradeView>), ApiError> {
+    allow_platform(&p, "cluster.evacuate")?;
+    let Json(cmd) =
+        body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
+    let pool = super::cluster_admin::audit_store(&state)?;
+    let info = state.provider.server_info().await?;
+    let members = if info.clustered {
+        state.provider.cluster_members().await?
+    } else {
+        Vec::new()
+    };
+    let details: Vec<ClusterMemberDetail> = member_versions(&state, &members)
+        .await
+        .into_iter()
+        .zip(&members)
+        .map(|(v, m)| clustering::member_detail(m, v))
+        .collect();
+    let order = upgrade::order(&details);
+    match cmd.action.as_str() {
+        "start" => {
+            if cmd.confirm != "upgrade" {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "confirmation_mismatch",
+                    "type upgrade to start",
+                ));
+            }
+            if apelora_persistence::upgrades::running(pool)
+                .await?
+                .is_some()
+            {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "upgrade_in_progress",
+                    "an upgrade is already in progress",
+                ));
+            }
+            let quorum = clustering::quorum(info.clustered, &details);
+            let versions = clustering::versions(&super::admin::pinned_incus(), &details, &quorum);
+            if !versions.ready {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "upgrade_blocked",
+                    versions.blockers.join("; "),
+                ));
+            }
+            if order.is_empty() {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "upgrade_blocked",
+                    "the cluster reports no members",
+                ));
+            }
+            let steps: Vec<apelora_domain::upgrade::UpgradeStep> = order
+                .iter()
+                .map(|m| apelora_domain::upgrade::UpgradeStep {
+                    member: m.clone(),
+                    phase: "pending".into(),
+                })
+                .collect();
+            let mut tx = begin(pool).await?;
+            apelora_persistence::upgrades::start(&mut tx, &p.actor_ref(), &steps).await?;
+            audit_scoped(
+                &mut tx,
+                &p,
+                "cluster.upgrade.start",
+                "cluster",
+                "success",
+                None,
+                &json!({ "order": order, "role": p.role }),
+            )
+            .await?;
+            commit(tx).await?;
+            Ok((StatusCode::OK, Json(upgrade::view(order, Some(&steps)))))
+        }
+        "abandon" => {
+            if cmd.confirm != "upgrade" {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "confirmation_mismatch",
+                    "type upgrade to abandon the run",
+                ));
+            }
+            let Some(run) = apelora_persistence::upgrades::running(pool).await? else {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "no_upgrade",
+                    "no upgrade is in progress",
+                ));
+            };
+            let mut tx = begin(pool).await?;
+            apelora_persistence::upgrades::abandon(&mut tx, run.id).await?;
+            audit_scoped(
+                &mut tx,
+                &p,
+                "cluster.upgrade.abandon",
+                "cluster",
+                "success",
+                None,
+                &json!({ "role": p.role }),
+            )
+            .await?;
+            commit(tx).await?;
+            Ok((StatusCode::OK, Json(upgrade::view(order, None))))
+        }
+        "evacuate" | "upgraded" | "restore" => {
+            if cmd.confirm != cmd.member || cmd.member.is_empty() {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "confirmation_mismatch",
+                    "type the member's name to take this step",
+                ));
+            }
+            let Some(run) = apelora_persistence::upgrades::running(pool).await? else {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "no_upgrade",
+                    "no upgrade is in progress",
+                ));
+            };
+            let mut steps = run.steps();
+            let current = upgrade::view(order.clone(), Some(&steps));
+            if current.next != cmd.action || current.member.as_deref() != Some(cmd.member.as_str())
+            {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "upgrade_step",
+                    current.summary,
+                ));
+            }
+            if cmd.action == "evacuate" {
+                let (plan, _) = super::cluster_admin::evacuation_plan(&state, &cmd.member).await?;
+                if !plan.blocked.is_empty() {
+                    return Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        "evacuation_blocked",
+                        format!("nothing was changed: {}", plan.blocked.join("; ")),
+                    ));
+                }
+                let provider = super::cluster_admin::admin(&state)?;
+                provider.member_state(&cmd.member, false).await?;
+            }
+            if cmd.action == "restore" {
+                let provider = super::cluster_admin::admin(&state)?;
+                provider.member_state(&cmd.member, true).await?;
+            }
+            let phase = upgrade::advance(
+                steps
+                    .iter()
+                    .find(|s| s.member == cmd.member)
+                    .map(|s| s.phase.as_str())
+                    .unwrap_or(""),
+                &cmd.action,
+            )
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::CONFLICT,
+                    "upgrade_step",
+                    "that step is not the next one",
+                )
+            })?;
+            if let Some(step) = steps.iter_mut().find(|s| s.member == cmd.member) {
+                step.phase = phase.into();
+            }
+            let done = steps.iter().all(|s| s.phase == "restored");
+            let mut tx = begin(pool).await?;
+            apelora_persistence::upgrades::save_steps(&mut tx, run.id, &steps, done).await?;
+            audit_scoped(
+                &mut tx,
+                &p,
+                &format!("cluster.upgrade.{}", cmd.action),
+                &cmd.member,
+                "success",
+                None,
+                &json!({ "phase": phase, "role": p.role }),
+            )
+            .await?;
+            commit(tx).await?;
+            let status = if cmd.action == "upgraded" {
+                StatusCode::OK
+            } else {
+                StatusCode::ACCEPTED
+            };
+            Ok((status, Json(upgrade::view(order, Some(&steps)))))
+        }
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "action is start, evacuate, upgraded, restore or abandon",
+        )),
+    }
 }

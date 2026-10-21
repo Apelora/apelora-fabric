@@ -236,6 +236,89 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
         (StatusCode::CONFLICT, Some("not_retryable")),
         "{e}"
     );
+
+    // Deleting a backup removes that copy only. The name must be typed; the volume stays.
+    let safety_name = safety["name"].as_str().expect("safety backup").to_owned();
+    let del = format!("{VOLUME}/backups/{backup}");
+    let (st, e) = l
+        .req("DELETE", &del, o, Some(json!({ "confirm": "nope" })))
+        .await;
+    assert_eq!(
+        (st, e["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("confirmation_mismatch")),
+        "{e}"
+    );
+    let (st, _) = l
+        .req(
+            "DELETE",
+            &format!("{VOLUME}/backups/missing-bk"),
+            o,
+            Some(json!({ "confirm": "missing-bk" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, _) = l
+        .req("DELETE", &del, o, Some(json!({ "confirm": backup })))
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'application.volume.backup.delete' AND detail->>'backup' = $1",
+    )
+    .bind(&backup)
+    .fetch_one(&l.pool)
+    .await
+    .expect("audit");
+    assert_eq!(audited, 1);
+    let (_, left) = l.req("GET", &format!("{VOLUME}/backups"), o, None).await;
+    let names: Vec<_> = left["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter_map(|b| b["name"].as_str())
+        .collect();
+    assert!(!names.contains(&backup.as_str()), "{names:?}");
+    assert!(names.contains(&safety_name.as_str()), "{names:?}");
+    let (st, vols) = l.req("GET", "/api/v1/storage/volumes", o, None).await;
+    assert_eq!(st, StatusCode::OK, "{vols}");
+    assert!(
+        vols["items"]
+            .as_array()
+            .expect("volumes")
+            .iter()
+            .any(|v| v["incusName"] == "shop-db-01-data"),
+        "{vols}"
+    );
+
+    // A record whose copy is already gone is still forgotten.
+    let keys: Vec<String> = mock
+        .storage()
+        .volumes
+        .keys()
+        .filter(|k| k.ends_with(safety_name.as_str()))
+        .cloned()
+        .collect();
+    assert_eq!(keys.len(), 1, "{keys:?}");
+    for k in keys {
+        mock.storage().volumes.remove(&k);
+    }
+    let (st, _) = l
+        .req(
+            "DELETE",
+            &format!("{VOLUME}/backups/{safety_name}"),
+            o,
+            Some(json!({ "confirm": safety_name })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (_, left) = l.req("GET", &format!("{VOLUME}/backups"), o, None).await;
+    assert!(
+        left["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .all(|b| b["name"] != safety_name),
+        "{left}"
+    );
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
@@ -371,6 +454,25 @@ async fn storage_routes_check_the_exact_application_and_infrastructure_needs_clu
         )
         .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = l
+        .req(
+            "DELETE",
+            &format!("{VOLUME}/backups/x"),
+            &viewer,
+            Some(json!({ "confirm": "x" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = super::tests::send(
+        l.state.clone(),
+        "DELETE",
+        &format!("{VOLUME}/backups/x"),
+        "",
+        Some(json!({ "confirm": "x" })),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
 
     // Pools, orphans and network settings are infrastructure: an organisation owner may not.
     for path in [

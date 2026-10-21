@@ -2629,7 +2629,7 @@
         "tags": [
           "applications"
         ],
-        "summary": "Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on\nanother member. Kept until someone deletes it (scheduled backups are pruned, these are not).\nQueues a `volume.backup` job. Needs `application.operate`; audited.",
+        "summary": "Backs the volume up now: a copy, through a short-lived snapshot, into the backup pool on\nanother member. Kept until someone deletes it (`delete_backup`); scheduled backups are\npruned to what the schedule keeps. Queues a `volume.backup` job. Needs `application.operate`;\naudited.",
         "operationId": "back_up_volume",
         "parameters": [
           {
@@ -2705,6 +2705,119 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}": {
+      "delete": {
+        "tags": [
+          "applications"
+        ],
+        "summary": "Deletes one backup copy. The volume it was taken from is left as it is. The backup's\nIncus name must be typed again. A copy Incus no longer has is forgotten anyway, so a\nrecord of a missing copy can be cleared. Needs `application.delete` (and an approval\nwhere a policy asks for one); audited.",
+        "operationId": "delete_volume_backup",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Application name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "volume",
+            "in": "path",
+            "description": "The volume's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "backup",
+            "in": "path",
+            "description": "The backup's Incus name.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmBackup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
             "description": "",
             "content": {
               "application/json": {
@@ -5131,6 +5244,107 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SettingsChangeReport"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cluster/upgrade": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus:\n`upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`.",
+        "operationId": "cluster_upgrade",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpgradeCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeView"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpgradeView"
                 }
               }
             }
@@ -11332,6 +11546,312 @@
         }
       }
     },
+    "/api/v1/provisioners/maas/machines/{system_id}/commission": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Starts commissioning. Needs `hardware.commission` and the hostname typed again. The cloud-init\nof a later deploy is not part of this. Audited; MAAS is asked first.",
+        "operationId": "maas_commission",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "description": "MAAS system id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaasConfirm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaasAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/provisioners/maas/machines/{system_id}/deploy": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Installs an operating system. Needs `hardware.deploy` and the hostname typed again.\n`userData` is sent to MAAS and is not stored or written to the audit log. Audited.",
+        "operationId": "maas_deploy",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "description": "MAAS system id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaasDeploy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaasAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/provisioners/maas/machines/{system_id}/release": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Returns the machine to MAAS's pool. Needs `hardware.deploy` and the hostname typed again.\nDisk erasure needs `hardware.delete` as well and is off unless asked. A secure wipe is not offered.\nAudited; MAAS is asked first.",
+        "operationId": "maas_release",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "description": "MAAS system id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaasRelease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaasAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -14251,11 +14771,36 @@
             },
             "description": "Empty on a standalone server."
           },
+          "powerOffs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PowerOff"
+            },
+            "description": "Recent BMC power-offs, newest first. Empty when none have been recorded."
+          },
           "quorum": {
             "$ref": "#/components/schemas/ClusterQuorum"
           },
+          "rebalance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RebalanceMove"
+            },
+            "description": "Stateless replicas that share a server. The supervisor moves one only when\n`APELORA_REBALANCE=1`; this list is the dry run."
+          },
           "source": {
             "$ref": "#/components/schemas/Source"
+          },
+          "upgrade": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpgradeView",
+                "description": "The rolling-upgrade assistant. Absent when there is no database."
+              }
+            ]
           },
           "versions": {
             "$ref": "#/components/schemas/ClusterVersions",
@@ -14555,6 +15100,18 @@
           "requireMfa": {
             "type": "boolean",
             "description": "The grant counts only when the caller signed in with multi-factor authentication."
+          }
+        }
+      },
+      "ConfirmBackup": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The backup's Incus name again, typed by the person deleting it."
           }
         }
       },
@@ -18438,6 +18995,58 @@
           }
         }
       },
+      "MaasAccepted": {
+        "type": "object",
+        "required": [
+          "systemId",
+          "hostname",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "systemId": {
+            "type": "string"
+          }
+        }
+      },
+      "MaasConfirm": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The machine's hostname, typed again."
+          }
+        }
+      },
+      "MaasDeploy": {
+        "type": "object",
+        "required": [
+          "confirm",
+          "distroSeries",
+          "userData"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "distroSeries": {
+            "type": "string",
+            "description": "MAAS's series name, such as `noble`."
+          },
+          "userData": {
+            "type": "string",
+            "description": "Cloud-init. Sent to MAAS and not stored. A join token in it is not kept."
+          }
+        }
+      },
       "MaasMachineView": {
         "type": "object",
         "required": [
@@ -18545,6 +19154,21 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "MaasRelease": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "eraseDisks": {
+            "type": "boolean",
+            "description": "Wipe the installed system. Off unless the caller sets it. A secure wipe is not offered."
           }
         }
       },
@@ -20707,6 +21331,31 @@
           }
         }
       },
+      "PowerOff": {
+        "type": "object",
+        "description": "One recorded power-off of a failed server (ADR 0014). No BMC address.",
+        "required": [
+          "at",
+          "member",
+          "outcome",
+          "summary"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "member": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`success`, `failed` or `denied`."
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
       "PreflightReport": {
         "type": "object",
         "required": [
@@ -21474,6 +22123,47 @@
             "format": "int32",
             "description": "Longer than this counts as failing (1–15, default 5).",
             "minimum": 0
+          }
+        }
+      },
+      "RebalanceMove": {
+        "type": "object",
+        "description": "One replica to move so a module is spread again.",
+        "required": [
+          "project",
+          "application",
+          "module",
+          "instance",
+          "from",
+          "target",
+          "live",
+          "reason"
+        ],
+        "properties": {
+          "application": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "A virtual machine moves while it runs. A container stops briefly, then starts."
+          },
+          "module": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
           }
         }
       },
@@ -23640,6 +24330,63 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UpgradeCommand": {
+        "type": "object",
+        "required": [
+          "action",
+          "confirm"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "`start`, `evacuate`, `upgraded`, `restore` or `abandon`."
+          },
+          "confirm": {
+            "type": "string",
+            "description": "`upgrade` to start or abandon; the member's name for the other actions."
+          },
+          "member": {
+            "type": "string",
+            "description": "The member, for evacuate, upgraded and restore."
+          }
+        }
+      },
+      "UpgradeView": {
+        "type": "object",
+        "description": "What the Upgrades tab shows, whether or not a run has started.",
+        "required": [
+          "running",
+          "order",
+          "next",
+          "summary"
+        ],
+        "properties": {
+          "member": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Whose turn it is, while a run is going."
+          },
+          "next": {
+            "type": "string",
+            "description": "`start`, `evacuate`, `upgraded`, `restore` or `none`."
+          },
+          "order": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Spares, then stand-bys, then voters, the database leader last."
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
           }
         }
       },

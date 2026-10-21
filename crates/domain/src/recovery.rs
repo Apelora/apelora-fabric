@@ -314,6 +314,38 @@ mod tests {
     }
 
     #[test]
+    fn a_vm_on_the_shared_pool_restarts_after_fencing() {
+        let members = vec![member("m1", "Online"), member("m2", "Offline")];
+        let mut vm = module(
+            "db",
+            Availability::Stateful,
+            Some("shared"),
+            Some(("shared", VolumeClass::DataReplicated)),
+        );
+        vm.spec.kind = InstanceKind::VirtualMachine;
+        let desired = vec![vm];
+        let deployed = [Deployed {
+            application: "shop",
+            project: "apelora",
+            desired: &desired,
+        }];
+        let mut inst = instance("shop-db", "m2", None);
+        inst.kind = InstanceKind::VirtualMachine;
+        let plan = plan_recovery(
+            &members[1],
+            true,
+            &members,
+            &[inst],
+            &deployed,
+            &[pool("shared", "lvmcluster")],
+        );
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].action, RecoveryAction::Restart);
+        assert_eq!(plan[0].target.as_deref(), Some("m1"));
+        assert!(plan[0].reason.contains("shared pool"), "{}", plan[0].reason);
+    }
+
+    #[test]
     fn shared_storage_restarts_after_fencing_and_local_data_waits() {
         let members = vec![
             member("m1", "Online"),

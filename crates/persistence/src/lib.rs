@@ -27,6 +27,7 @@ pub mod personal_tokens;
 pub mod recovery;
 pub mod status;
 pub mod tenancy;
+pub mod upgrades;
 pub use health::{HealthRecord, NewHealth, application_health, forget_health, record_health};
 mod tokens;
 pub mod user_sessions;

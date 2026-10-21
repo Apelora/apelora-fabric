@@ -122,6 +122,43 @@ test("a MAAS that cannot be reached is said plainly with a retry", async ({ page
   await expect(page.getByTestId("maas").getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
+test("commissioning and installing an operating system type the hostname and do not keep the cloud-init", async ({ page }) => {
+  const sent: { path: string; body: Record<string, unknown> }[] = [];
+  await stub(page, {
+    ...base,
+    "GET /api/v1/provisioners/maas/machines": { json: { source: src, configured: true, items: [maasMachine({ status: "Ready", powerState: "off" })] } },
+    "POST /api/v1/provisioners/maas/machines/abc123/commission": (req) => { sent.push({ path: "commission", body: req.postDataJSON() as Record<string, unknown> }); return { status: 202, json: { systemId: "abc123", hostname: "rack-a-1.maas", action: "commission" } }; },
+    "POST /api/v1/provisioners/maas/machines/abc123/deploy": (req) => { sent.push({ path: "deploy", body: req.postDataJSON() as Record<string, unknown> }); return { status: 202, json: { systemId: "abc123", hostname: "rack-a-1.maas", action: "deploy" } }; },
+    "POST /api/v1/provisioners/maas/machines/abc123/release": (req) => { sent.push({ path: "release", body: req.postDataJSON() as Record<string, unknown> }); return { status: 202, json: { systemId: "abc123", hostname: "rack-a-1.maas", action: "release" } }; },
+  });
+  await page.goto("/#/servers/machines");
+  await page.getByTestId("maas-commission").click();
+  const dialog = page.getByTestId("maas-action-dialog");
+  await expect(dialog.getByTestId("maas-action-go")).toBeDisabled();
+  await dialog.getByTestId("maas-action-confirm").fill("wrong");
+  await expect(dialog.getByTestId("maas-action-go")).toBeDisabled();
+  await dialog.getByTestId("maas-action-confirm").fill("rack-a-1.maas");
+  await dialog.getByTestId("maas-action-go").click();
+  await expect(page.getByTestId("maas-notice")).toContainText("being commissioned");
+
+  await page.getByTestId("maas-deploy").click();
+  await dialog.getByTestId("maas-distro").fill("noble");
+  await dialog.getByTestId("maas-userdata").fill("#cloud-config\nhostname: lab\n");
+  await dialog.getByTestId("maas-action-confirm").fill("rack-a-1.maas");
+  await dialog.getByTestId("maas-action-go").click();
+  await expect(page.getByTestId("maas-notice")).toContainText("not stored");
+  await page.getByTestId("maas-release").click();
+  await expect(dialog.getByTestId("maas-erase")).not.toBeChecked();
+  await dialog.getByTestId("maas-action-confirm").fill("rack-a-1.maas");
+  await dialog.getByTestId("maas-action-go").click();
+  await expect(page.getByTestId("maas-notice")).toContainText("disks were not erased");
+  expect(sent.map((s) => s.path)).toEqual(["commission", "deploy", "release"]);
+  expect(sent[1]?.body).toMatchObject({ confirm: "rack-a-1.maas", distroSeries: "noble", userData: "#cloud-config\nhostname: lab\n" });
+  expect(sent[2]?.body).toMatchObject({ confirm: "rack-a-1.maas", eraseDisks: false });
+  await expect(page.getByText("#cloud-config")).toHaveCount(0);
+  expect(await serious(page)).toEqual([]);
+});
+
 test.describe("phone", () => {
   test.use({ viewport: { width: 390, height: 800 } });
   test("the list fits at 390 px without sideways scrolling", async ({ page }) => {
@@ -132,6 +169,10 @@ test.describe("phone", () => {
     expect(overflow).toBeLessThanOrEqual(0);
     const small = await page.getByTestId("maas-register").first().boundingBox();
     expect((small?.height ?? 0) >= 24).toBe(true);
+    await page.getByTestId("maas-deploy").first().click();
+    await expect(page.getByTestId("maas-action-dialog")).toBeVisible();
+    const overflowOpen = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflowOpen).toBeLessThanOrEqual(0);
     expect(await serious(page)).toEqual([]);
   });
 });

@@ -367,10 +367,12 @@ pub async fn volume_backups(
     .await?)
 }
 
-pub async fn forget_backup(pool: &Pool, id: Uuid) -> Result<bool> {
+/// Drops the record. The caller has already removed the copy in Incus, or it was already gone.
+/// Takes a pool or a transaction, so the row and its audit can commit together.
+pub async fn forget_backup(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query("DELETE FROM volume_backups WHERE id = $1")
         .bind(id)
-        .execute(pool)
+        .execute(db)
         .await?
         .rows_affected()
         > 0)

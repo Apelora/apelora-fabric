@@ -8,6 +8,7 @@ pub mod alerts;
 pub mod capacity;
 pub mod clustering;
 pub mod dbbackup;
+pub mod dns;
 pub mod enrolment;
 pub mod evacuation;
 pub mod fencing;
@@ -20,10 +21,12 @@ pub mod network;
 pub mod plan;
 pub mod preflight;
 pub mod readiness;
+pub mod rebalance;
 pub mod recovery;
 pub mod removal;
 pub mod storage;
 pub mod tenancy;
+pub mod upgrade;
 
 /// Version segment of the Apelora REST API (`/api/v1`).
 pub const API_VERSION: &str = "v1";

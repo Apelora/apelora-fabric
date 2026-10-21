@@ -56,13 +56,20 @@ Snapshots (protection against mistakes, not against losing the server: they live
 2. *Schedules…* sets snapshots and backups on a schedule (every 15 minutes to once a week, keep
    1–50). Needs `application.deploy`. A failed scheduled run shows on the Storage page with its
    reason and is retried within five minutes.
+3. To delete one copy: *Delete…* on that row, then type the backup's name. The volume itself
+   is unchanged, and the copy cannot be brought back. A copy taken just before a restore is
+   the only way back to the data from before that restore; the dialog says so. A copy Incus
+   no longer has can still be deleted, which clears Apelora's record of it. Needs
+   `application.delete` (and an approval where a policy asks). Audited as
+   `application.volume.backup.delete`. MOCK VERIFIED (API against PostgreSQL and the mock,
+   and the dialog in a browser); not run on the lab.
 
 ## Restore a volume from a backup
 
 **Evidence:** MOCK VERIFIED (worker and API against a real PostgreSQL, browser with a stubbed
-control plane), 2026-10-21. The Incus `refresh` copy it relies on was tried on the test cluster
-earlier (it brings the data back and deletes the volume's snapshots); the job itself is NOT YET
-REAL INCUS TESTED.
+control plane), 2026-10-21. The restore job is REAL INCUS TESTED on the lab (the backup's data
+was read back from inside the instance; the dry run, the typed name and the Console dialog were
+not part of that run).
 
 1. **Stop the module** that uses the volume (Applications or Instances → Stop). Apelora never
    overwrites a volume under a running instance.

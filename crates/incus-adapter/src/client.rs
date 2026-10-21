@@ -1217,6 +1217,46 @@ impl IncusClient {
         }
     }
 
+    /// Adds the application's service names to the network without dropping the configuration
+    /// already there. Reads the network, then writes `config` and `description` back.
+    pub async fn publish_service_dns(
+        &self,
+        project: &str,
+        name: &str,
+        application: &str,
+        records: &str,
+    ) -> Result<(), AdapterError> {
+        let current = self
+            .get::<Value>(&format!("/1.0/networks/{name}?project={project}"))
+            .await?;
+        let mut config = current
+            .get("config")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        config.insert(
+            "dns.domain".into(),
+            Value::String(format!("{application}.internal")),
+        );
+        config.insert("user.apelora.dns".into(), Value::String(records.to_owned()));
+        config.insert(MANAGED_KEY.into(), Value::String("true".into()));
+        config.insert(
+            APPLICATION_KEY.into(),
+            Value::String(application.to_owned()),
+        );
+        let description = current
+            .get("description")
+            .cloned()
+            .unwrap_or(Value::String("Apelora application network".into()));
+        self.call::<Value>(
+            Method::PUT,
+            &format!("/1.0/networks/{name}?project={project}"),
+            Some(&json!({ "config": config, "description": description })),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// A project's configuration; `None` when it does not exist or is not visible.
     pub async fn project_config(
         &self,

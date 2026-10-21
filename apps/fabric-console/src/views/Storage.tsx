@@ -94,6 +94,21 @@ function useFollow() {
   return { job, setJob, error, follow };
 }
 
+/** Focus a field once the dialog that holds it is visible (daisyUI hides the modal while it opens). */
+function useFocusWhenShown(ref: { current: HTMLElement | null }) {
+  useEffect(() => {
+    let frames = 30;
+    let id = 0;
+    const focus = () => {
+      const el = ref.current;
+      el?.focus();
+      if (el && document.activeElement !== el && frames-- > 0) id = requestAnimationFrame(focus);
+    };
+    focus();
+    return () => cancelAnimationFrame(id);
+  }, [ref]);
+}
+
 /** The restore step of the backups dialog: the server's dry run, then the volume's name typed. */
 function RestoreStep({ target, backup, onBack, onDone }: { target: Target; backup: VolumeBackupItem; onBack: () => void; onDone: (message: string) => void }) {
   const [safety, setSafety] = useState(true);
@@ -178,19 +193,67 @@ function RestoreStep({ target, backup, onBack, onDone }: { target: Target; backu
   );
 }
 
-/** A volume's backups: back up now, and restore from one of them. */
-function BackupsDialog({ target, canOperate, onClose, onChanged }: { target: Target | null; canOperate: boolean; onClose: () => void; onChanged: () => void }) {
+/** Deletes one backup copy. The volume it was taken from stays as it is. */
+function DeleteStep({ target, backup, onBack, onDone }: { target: Target; backup: VolumeBackupItem; onBack: () => void; onDone: (message: string) => void }) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+  useFocusWhenShown(input);
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await client.request("delete_volume_backup", {
+        params: { name: target.application, volume: target.volume, backup: backup.name },
+        body: { confirm: typed },
+      });
+      onDone(`Backup from ${fmtTime(backup.takenAt)} deleted. ${target.volume} is unchanged.`);
+    } catch (e) {
+      setError(messageOf(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-3" data-testid="delete-backup-step">
+      <p className="text-sm">
+        {backup.present === false
+          ? "Incus no longer has this copy. Deleting it removes Apelora's record of it."
+          : `This removes the copy in pool ${backup.pool}${backup.member ? ` on ${backup.member}` : ""}. ${target.volume} is unchanged, and nothing can bring this copy back.`}
+      </p>
+      {backup.beforeRestore && (
+        <Notice tone="warn" testId="delete-backup-safety">This copy was taken just before a restore. Deleting it removes the way back to the data from before that restore.</Notice>
+      )}
+      <label className="flex flex-col gap-1 text-sm" htmlFor="delete-backup-name">
+        <span>Type <strong className="font-mono">{backup.name}</strong> to confirm</span>
+        <input ref={input} id="delete-backup-name" className="input input-sm w-full font-mono" autoComplete="off" spellCheck={false} value={typed} onChange={(e) => setTyped(e.target.value)} disabled={busy} data-testid="delete-backup-input" />
+      </label>
+      {error && <ErrorPanel message={sentence(error)} testId="delete-backup-error" />}
+      <div className="modal-action mt-0">
+        <button type="button" className="btn btn-sm btn-outline" onClick={onBack} disabled={busy}>Back to backups</button>
+        <button type="button" className="btn btn-sm btn-ghost text-error" disabled={typed !== backup.name || busy} onClick={() => void remove()} data-testid="delete-backup-confirm">
+          {busy ? "Deleting…" : "Delete backup"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A volume's backups: back up now, restore from one, or delete one. */
+function BackupsDialog({ target, canOperate, canDelete, onClose, onChanged }: { target: Target | null; canOperate: boolean; canDelete: boolean; onClose: () => void; onChanged: () => void }) {
   const [list, setList] = useState<VolumeBackupList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<VolumeBackupItem | null>(null);
+  const [removing, setRemoving] = useState<VolumeBackupItem | null>(null);
   const [round, setRound] = useState(0);
   const [busy, setBusy] = useState(false);
   const { job, setJob, follow } = useFollow();
   const last = useRef<Target | null>(null);
   if (target) last.current = target;
   const shown = target ?? last.current;
-  useEffect(() => { setNotice(null); setRestoring(null); setJob(null); }, [target, setJob]);
+  useEffect(() => { setNotice(null); setRestoring(null); setRemoving(null); setJob(null); }, [target, setJob]);
   useEffect(() => {
     if (!target) return;
     let current = true;
@@ -220,9 +283,11 @@ function BackupsDialog({ target, canOperate, onClose, onChanged }: { target: Tar
   };
   const items = list?.items ?? [];
   return (
-    <FormDialog open={!!target} title={restoring ? `Restore ${shown?.volume ?? ""} from a backup` : `Backups of ${shown?.volume ?? ""}`} onClose={onClose} testId="backups-dialog" wide>
+    <FormDialog open={!!target} title={restoring ? `Restore ${shown?.volume ?? ""} from a backup` : removing ? `Delete a backup of ${shown?.volume ?? ""}` : `Backups of ${shown?.volume ?? ""}`} onClose={onClose} testId="backups-dialog" wide>
       {!!target && shown && restoring ? (
         <RestoreStep target={shown} backup={restoring} onBack={() => setRestoring(null)} onDone={(m) => { setRestoring(null); setNotice(m); setRound((r) => r + 1); onChanged(); }} />
+      ) : !!target && shown && removing ? (
+        <DeleteStep target={shown} backup={removing} onBack={() => setRemoving(null)} onDone={(m) => { setRemoving(null); setNotice(m); setRound((r) => r + 1); onChanged(); }} />
       ) : !!target && shown && (
         <>
           <p className="text-sm text-base-content/80">Copies in another pool, on another server where there is one, so they survive losing this server.</p>
@@ -237,7 +302,7 @@ function BackupsDialog({ target, canOperate, onClose, onChanged }: { target: Tar
           {!list && !error && <p className="text-sm text-base-content/70" role="status">Reading backups…</p>}
           {list && (items.length === 0 ? <p className="text-sm text-base-content/70">No backups yet.</p> : (
             <TableFrame>
-              <thead><tr><th>Taken</th><th className="max-sm:hidden">Where</th><th className="max-sm:hidden">Size</th>{canOperate && <th><span className="sr-only">Actions</span></th>}</tr></thead>
+              <thead><tr><th>Taken</th><th className="max-sm:hidden">Where</th><th className="max-sm:hidden">Size</th>{(canOperate || canDelete) && <th><span className="sr-only">Actions</span></th>}</tr></thead>
               <tbody>
                 {[...items].reverse().map((b) => (
                   <tr key={b.name} data-testid="backup-row">
@@ -248,9 +313,12 @@ function BackupsDialog({ target, canOperate, onClose, onChanged }: { target: Tar
                     </td>
                     <td className="max-sm:hidden"><span className="font-mono text-xs">{b.name}</span><span className="block text-xs text-base-content/70">{b.pool}{b.member ? ` on ${b.member}` : ""}</span></td>
                     <td className="max-sm:hidden">{size(b.sizeMib)}</td>
-                    {canOperate && (
+                    {(canOperate || canDelete) && (
                       <td className="text-right">
-                        <button type="button" className="btn btn-xs btn-ghost" aria-label={`Restore from the backup taken ${fmtTime(b.takenAt)}`} disabled={b.present === false || busy} onClick={() => { setNotice(null); setRestoring(b); }} data-testid="backup-restore">Restore…</button>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {canOperate && <button type="button" className="btn btn-xs btn-ghost" aria-label={`Restore from the backup taken ${fmtTime(b.takenAt)}`} disabled={b.present === false || busy} onClick={() => { setNotice(null); setRestoring(b); }} data-testid="backup-restore">Restore…</button>}
+                          {canDelete && <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete the backup taken ${fmtTime(b.takenAt)}`} disabled={busy} onClick={() => { setNotice(null); setRemoving(b); }} data-testid="backup-delete">Delete…</button>}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -348,6 +416,7 @@ function Volumes({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => voi
   const [scheduling, setScheduling] = useState<StorageVolume | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const canOperate = can(me, "application.operate", "deploy");
+  const canDelete = can(me, "application.delete", "deploy");
   const canDeploy = can(me, "application.deploy", "deploy");
   return (
     <Section title="Application volumes" state={state} testId="storage-volumes" onRetry={reload}>
@@ -389,7 +458,7 @@ function Volumes({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => voi
               </tbody>
             </TableFrame>
           )}
-          <BackupsDialog target={backups} canOperate={canOperate} onClose={() => setBackups(null)} onChanged={reload} />
+          <BackupsDialog target={backups} canOperate={canOperate} canDelete={canDelete} onClose={() => setBackups(null)} onChanged={reload} />
           {scheduling && (
             <SchedulesDialog key={scheduling.incusName} volume={scheduling} backupPool={l.backupPool ?? null} onClose={() => setScheduling(null)}
               onSaved={(m) => { setScheduling(null); setDone(m); reload(); }} />

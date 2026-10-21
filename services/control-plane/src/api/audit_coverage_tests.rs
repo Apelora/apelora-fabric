@@ -28,6 +28,26 @@ use super::*;
 /// belongs here only when it changes nothing in Apelora's database, or when another test
 /// exercises it together with its audit row.
 const EXEMPT: &[(&str, &str, &str)] = &[
+    (
+        "POST",
+        "/api/v1/cluster/upgrade",
+        "exercised with its audit row in clustering_tests::an_upgrade_walks_evacuate_package_and_restore; evacuate and restore change Incus before the row",
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/commission",
+        "MAAS is asked first; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+        "MAAS is asked first and the cloud-init is not stored; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
+    ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/release",
+        "MAAS is asked first; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
+    ),
     // Dry runs and checks: they compute or probe, and change nothing.
     (
         "POST",
@@ -992,6 +1012,16 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
     )
     .await;
     settle(&s.l).await;
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}",
+        &format!("{volume}/backups/{backup}"),
+        r,
+        json!({ "confirm": backup }),
+        "application.volume.backup.delete",
+    )
+    .await;
     s.step(
         Atomic,
         "POST",

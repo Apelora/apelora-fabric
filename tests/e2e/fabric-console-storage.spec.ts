@@ -175,6 +175,48 @@ test("a restore shows the server's dry run, refuses while blocked, needs the vol
   expect(sent).toHaveLength(1);
   expect(sent[0]!.body).toEqual({ confirm: "shop-db-01-data", safetyBackup: true });
   expect(sent[0]!.key).toBeTruthy();
+  await expect(dialog.getByTestId("backup-delete")).toHaveCount(0);
+});
+
+test("deleting a backup types its name and leaves the volume", async ({ page }) => {
+  const deleter = person(["cluster.view", "application.view", "application.delete"]);
+  let items = [backup("shop-db-01-data-bk-20261020100000", { scheduled: true, takenAt: "2026-10-20T10:00:00Z", beforeRestore: "44444444-4444-4444-8444-444444444444" }), backup(BACKUP)];
+  let sent: unknown = null;
+  await stub(page, storageRoutes(deleter, {
+    "GET /api/v1/applications/shop/volumes/shop-db-01-data/backups": () => ({ json: { source: src, backupPool: "backup", schedules: { snapshots: schedule(60, 24), backups: schedule(1440, 7) }, items } }),
+    [`DELETE /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}`]: (req) => {
+      sent = req.postDataJSON();
+      items = items.filter((b) => b.name !== BACKUP);
+      return { status: 204 };
+    },
+  }));
+  await page.goto("/#/storage");
+  await page.getByRole("button", { name: "Backups of shop-db-01-data" }).click();
+  const dialog = page.getByTestId("backups-dialog");
+  await expect(dialog.getByTestId("backup-restore")).toHaveCount(0);
+  await expect(dialog.getByTestId("backup-now")).toHaveCount(0);
+  await expect(dialog.locator(".btn-primary")).toHaveCount(0);
+
+  // The copy taken before a restore says so, and the name must match exactly.
+  await dialog.getByTestId("backup-row").nth(1).getByTestId("backup-delete").click();
+  await expect(dialog.getByTestId("delete-backup-input")).toBeFocused();
+  await expect(dialog.getByTestId("delete-backup-safety")).toBeVisible();
+  await expect(dialog.getByTestId("delete-backup-confirm")).toBeDisabled();
+  await dialog.getByTestId("delete-backup-input").fill("shop-db-01-data");
+  await expect(dialog.getByTestId("delete-backup-confirm")).toBeDisabled();
+  await dialog.getByRole("button", { name: "Back to backups" }).click();
+
+  await dialog.getByTestId("backup-row").nth(0).getByTestId("backup-delete").click();
+  await expect(dialog.getByTestId("delete-backup-safety")).toHaveCount(0);
+  await expect(dialog.getByTestId("delete-backup-step")).toContainText("shop-db-01-data is unchanged");
+  await dialog.getByTestId("delete-backup-input").fill(BACKUP);
+  await expect(dialog.getByTestId("delete-backup-confirm")).toHaveClass(/text-error/);
+  await expect(dialog.locator(".btn-primary")).toHaveCount(0);
+  await dialog.getByTestId("delete-backup-confirm").click();
+  await expect(dialog.getByTestId("backups-notice")).toContainText("deleted");
+  await expect(dialog.getByTestId("backups-notice")).toContainText("unchanged");
+  await expect(dialog.getByTestId("backup-row")).toHaveCount(1);
+  expect(sent).toEqual({ confirm: BACKUP });
 });
 
 test("back up now follows its job, and schedules are saved as set", async ({ page }) => {
@@ -215,6 +257,7 @@ test("a viewer of an application sees its volumes and backups, but no restore, b
   const dialog = page.getByTestId("backups-dialog");
   await expect(dialog.getByTestId("backup-row")).toHaveCount(2);
   await expect(dialog.getByTestId("backup-restore")).toHaveCount(0);
+  await expect(dialog.getByTestId("backup-delete")).toHaveCount(0);
   await expect(dialog.getByTestId("backup-now")).toHaveCount(0);
 });
 
@@ -278,6 +321,7 @@ test("networks show each application's rules next to Incus, with differences, an
   await expect(db.getByTestId("network-module-drift")).toContainText("1 ingress rule not in Incus");
   await expect(details.getByTestId("network-module").nth(0).getByTestId("network-rule").nth(2)).toContainText("To Outside the application on tcp 80,443");
   await expect(details.getByTestId("network-service")).toContainText("198.18.100.1");
+  await expect(details.getByTestId("network-service-name")).toHaveText("web-01.shop.internal");
   await expect(details.getByTestId("network-service")).toContainText("shop-web-01-r2");
   await expect(details).toContainText("must be routed to 10.8.171.100");
   await expect(page.getByTestId("network-finding")).toContainText("not routed to uplink incusbr0");
@@ -303,7 +347,8 @@ test.describe("phones", () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
   test("storage and networks fit a phone without sideways scrolling, and pass axe", async ({ page }) => {
-    await stub(page, { ...storageRoutes(ADMIN), ...networkRoutes(ADMIN, true),
+    const phoneAdmin = person(["cluster.view", "application.view", "application.operate", "application.deploy", "application.delete"]);
+    await stub(page, { ...storageRoutes(phoneAdmin), ...networkRoutes(phoneAdmin, true),
       [`GET /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}/restore`]: { json: { source: src, plan: plan() } } });
     await page.goto("/#/storage");
     await expect(page.getByTestId("storage-volume-row")).toHaveCount(2);
@@ -315,6 +360,11 @@ test.describe("phones", () => {
     await page.getByTestId("backup-restore").first().click();
     await expect(page.getByTestId("restore-steps")).toBeVisible();
     expect(await fits()).toBe(true);
+    await page.getByRole("button", { name: "Back to backups" }).click();
+    await page.getByTestId("backup-delete").first().click();
+    await expect(page.getByTestId("delete-backup-input")).toBeVisible();
+    expect(await fits()).toBe(true);
+    expect(await serious(page)).toEqual([]);
     await page.goto("/#/networks");
     await page.reload();
     await page.getByTestId("network-application-toggle").click();

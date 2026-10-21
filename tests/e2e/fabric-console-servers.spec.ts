@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 
 import { servers as healthServers, server as healthServer } from "./health-fixtures";
 import { NOW, atRiskQuorum, groups, member, members, mixedBlocked, noRecovery, recovery, settings, system } from "./servers-fixtures";
@@ -15,10 +15,11 @@ const viewer = { ...admin, role: null, permissions: ["read-inventory"], capabili
 const designer = { ...admin, role: "studio-designer", permissions: ["design-applications"] };
 
 type Reply = { status?: number; json?: unknown; delay?: number } | "abort";
-async function stub(page: Page, routes: Record<string, Reply | (() => Reply)>) {
+async function stub(page: Page, routes: Record<string, Reply | ((req: Request) => Reply)>) {
   await page.route("**/api/**", async (route: Route) => {
-    const r0 = routes[new URL(route.request().url()).pathname];
-    const r = typeof r0 === "function" ? r0() : r0;
+    const req = route.request();
+    const r0 = routes[new URL(req.url()).pathname];
+    const r = typeof r0 === "function" ? r0(req) : r0;
     if (!r || r === "abort") return route.abort();
     // Real servers take a moment (LESSONS-LEARNED: stubs that answer at once hide races).
     await new Promise((res) => setTimeout(res, r.delay ?? 60));
@@ -210,6 +211,41 @@ test("upgrades: skew against the pin, what blocks the next member, and the rolli
   await expect(page.getByTestId("upgrade-ready")).toHaveCount(0);
 });
 
+test("power-offs, the replica spread and the upgrade assistant", async ({ page }) => {
+  const sent: unknown[] = [];
+  let upgrade = { running: false, order: ["node-4", "node-2", "node-3", "node-1"], next: "start", summary: "No upgrade is in progress." };
+  await stub(page, {
+    ...base(),
+    "/api/v1/cluster/members": () => ({ json: members({
+      powerOffs: [{ at: "2026-10-21T10:00:00Z", member: "node-3", outcome: "success", summary: "Switched off through lima" }],
+      rebalance: [{ project: "apelora", application: "shop", module: "web", instance: "shop-web-01-r2", from: "node-1", target: "node-2", live: false, reason: "two replicas share node-1" }],
+      upgrade,
+    }) }),
+    "/api/v1/cluster/upgrade": (req) => {
+      sent.push(req.postDataJSON());
+      upgrade = { running: true, order: ["node-4", "node-2", "node-3", "node-1"], member: "node-4", next: "evacuate", summary: "Next: evacuate node-4." } as typeof upgrade;
+      return { status: 200, json: upgrade };
+    },
+  });
+  await page.goto("/#/servers/members");
+  await expect(page.getByTestId("power-off")).toContainText("node-3");
+  await expect(page.getByTestId("power-off")).toContainText("Switched off through lima");
+  await expect(page.getByTestId("power-off")).not.toContainText("bmc");
+  await expect(page.getByTestId("rebalance-move")).toContainText("shop-web-01-r2");
+  await expect(page.getByTestId("rebalance")).toContainText("APELORA_REBALANCE=1");
+
+  await page.goto("/#/servers/upgrades");
+  await expect(page.getByTestId("upgrade-order").getByRole("listitem").first()).toContainText("node-4");
+  await page.getByTestId("upgrade-next").click();
+  const dialog = page.getByTestId("upgrade-dialog");
+  await expect(dialog.getByTestId("upgrade-step-confirm")).toBeDisabled();
+  await dialog.getByTestId("upgrade-confirm").fill("upgrade");
+  await dialog.getByTestId("upgrade-step-confirm").click();
+  await expect(page.getByTestId("upgrade-assistant-summary")).toContainText("evacuate node-4");
+  expect(sent).toEqual([{ action: "start", member: "", confirm: "upgrade" }]);
+  expect(await serious(page)).toEqual([]);
+});
+
 test("a failed server: fencing state, what restarts where, and confirming it is off", async ({ page }) => {
   let fenced = false;
   let confirmed: unknown = null;
@@ -316,9 +352,15 @@ test.describe("phone", () => {
   });
 
   test("upgrades and settings fit a phone", async ({ page }) => {
-    await stub(page, { ...base(), "/api/v1/cluster/settings": { json: settings() } });
+    await stub(page, {
+      ...base(),
+      "/api/v1/cluster/settings": { json: settings() },
+      "/api/v1/cluster/members": { json: members({ upgrade: { running: false, order: ["node-4", "node-1"], next: "start", summary: "No upgrade is in progress." } }) },
+    });
     await page.goto("/#/servers/upgrades");
     await expect(page.getByTestId("version-group")).toHaveCount(1);
+    await page.getByTestId("upgrade-next").click();
+    await expect(page.getByTestId("upgrade-dialog")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
     await page.goto("/#/servers/settings");
     await expect(page.getByTestId("cluster-setting")).toHaveCount(4);
