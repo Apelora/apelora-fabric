@@ -5,8 +5,8 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 
 # Secure remote access to modules
 
-**Built (MOCK VERIFIED and CONTRACT VERIFIED, never run on a real Incus):** brokered terminal and PowerShell sessions, `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, tickets, limits, audit, Studio right-click and Monitoring entries. Code: `services/control-plane/src/api/sessions.rs`, `crates/incus-adapter/src/shell.rs`, `crates/domain/src/access.rs`, `apps/studio/src/components/sessions/`. Reference: `docs/architecture/IDENTITY-AND-AUTHORIZATION.md` section 7.
-**Not built:** the RDP gateway (the API reports it unavailable and says why), SSH daemons (deliberately never), session recording, a session list in the Console. Anything below must keep meeting this contract.
+**Built (MOCK VERIFIED and CONTRACT VERIFIED, never run on a real Incus):** brokered terminal and PowerShell sessions, `instance.console`/`instance.desktop`, the **Instance Access** role, production approval, tickets, limits, audit, Studio right-click and Monitoring entries, and a second door in the Fabric Console (Terminal… on Instances and Applications, a Sessions page with "End session" and history from the audit trail). Code: `services/control-plane/src/api/sessions.rs`, `crates/incus-adapter/src/shell.rs`, `crates/domain/src/access.rs`, the shared browser side `packages/terminal` (`@apelora/terminal`: protocol, close reasons, the xterm `TerminalScreen`), `apps/studio/src/components/sessions/`, `apps/fabric-console/src/components/TerminalDialog.tsx` (+ `TerminalSession.tsx`), `apps/fabric-console/src/views/Sessions.tsx`. Reference: `docs/architecture/IDENTITY-AND-AUTHORIZATION.md` section 7; operators: `docs/guides/terminal-sessions.md`.
+**Not built:** the RDP gateway (the API reports it unavailable and says why), SSH daemons (deliberately never), session recording. Anything below must keep meeting this contract.
 
 ## Architecture
 
@@ -26,6 +26,8 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 ## Session controls
 
 - Short-lived, single-use session ticket issued by an authenticated POST (CSRF-safe), bound to user, instance and origin; the websocket upgrade checks Origin and the ticket. Tickets are never in URLs that get logged.
+- **Origins:** the API's own host (each application served on its own host name with `Host` kept by the proxy), or an origin listed in `APELORA_ALLOWED_ORIGINS` (Studio and Console by name, never a wildcard: `*` is refused at startup). The Studio and the Console are different origins (5173 and 5174 in development); a ticket issued to one does not work from the other. Guarded by `the_console_origin_is_configured_explicitly_and_a_third_origin_is_refused` and `the_studio_and_the_console_are_listed_explicitly_and_a_third_origin_is_refused`.
+- **One browser implementation:** both applications use `@apelora/terminal`; it opens the websocket on the next task so React's development double mount never spends the single-use ticket on a socket it closes at once. Do not add a second socket or protocol implementation.
 - Idle timeout, absolute maximum duration, concurrent-session cap per user, and an admin "terminate session" action.
 - Every session is audited: who, which instance, start, end, outcome, source address, approval id. **Do not record keystrokes or screen content by default**; if recording is later required, it is a separate, explicit, access-controlled feature with retention and a visible indicator to the user.
 - Rate-limit session creation; limit message size and rate on the websocket; no unbounded buffering.
@@ -35,6 +37,7 @@ description: Guardrails for giving people a terminal, PowerShell or RDP session 
 
 - Right-click on a module (`features/editor/menus.ts`): show "Open terminal" / "Open PowerShell" (Linux/Windows) and "Remote desktop (RDP)" for Windows classes only in the **runtime** view of a deployed application, never on the design canvas of an undeployed draft. Disabled with a reason (no permission, not running, status unknown, approval needed). Approval-gated actions say who must approve.
 - The same actions appear on the instance row in the Monitoring tab.
+- Fabric Console: **Terminal…** on Apelora instances of an application (Instances list for `instance.console` holders; Applications → details, which needs only `application.view`). The dialog asks `GET /applications/{name}/access` and shows the server's reason; in production it requests the approval, follows its state (`GET /approvals`, every 5 s while pending) and opens with the approved id. The Sessions page (`#/sessions`, Identity & Access) lists `GET /sessions` (last input, time left) with **End session** (confirmation) and reads history from `GET /identity/audit?action=session.`. A detail page mounts `TerminalDialog` with `{ application, instance }`.
 - Windows detection comes from the module class manifest, not from the name.
 
 ## Tests required

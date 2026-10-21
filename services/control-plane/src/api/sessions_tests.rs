@@ -735,6 +735,134 @@ async fn a_browser_ticket_only_works_from_the_page_it_was_issued_to(pool: Pool) 
     read_until(&mut ws, "$ ").await;
 }
 
+/// The Fabric Console is a second door into the same sessions. In development it runs on another
+/// origin than the Studio (5174 and 5173); both are configured by name, a ticket stays bound to
+/// the page it was issued to, and a third origin is refused.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn the_console_origin_is_configured_explicitly_and_a_third_origin_is_refused(pool: Pool) {
+    const STUDIO: &str = "http://127.0.0.1:5173";
+    const CONSOLE: &str = "http://127.0.0.1:5174";
+    const THIRD: &str = "http://127.0.0.1:5175";
+    let r = rig(pool).await;
+    let settings = ConsoleSettings::from_env(|k| {
+        (k == "APELORA_ALLOWED_ORIGINS").then(|| format!("{STUDIO},{CONSOLE}"))
+    })
+    .unwrap();
+    let state = r.l.state.clone().with_console(settings);
+    let addr = serve(state.clone()).await;
+    let ticket_from = |origin: &'static str| {
+        let (state, bob) = (state.clone(), r.bob.clone());
+        let r = &r;
+        async move {
+            let approval = r.approval(&bob, WEB).await;
+            let (s, t) = call(
+                state,
+                "POST",
+                &format!("/api/v1/applications/shop/instances/{WEB}/sessions"),
+                &bob,
+                Some(json!({ "kind": "terminal" })),
+                &[("apelora-approval", &approval), ("origin", origin)],
+            )
+            .await;
+            assert_eq!(s, StatusCode::CREATED, "{t}");
+            t
+        }
+    };
+
+    // A ticket the Console asked for opens from the Console.
+    let t = ticket_from(CONSOLE).await;
+    let mut ws = connect_ws(addr, &protocols(&t), Some(CONSOLE))
+        .await
+        .expect("the Console opens its own ticket");
+    read_until(&mut ws, "$ ").await;
+    drop(ws);
+
+    // The Studio is allowed too, but not with the Console's ticket.
+    let t = ticket_from(CONSOLE).await;
+    let other = connect_ws(addr, &protocols(&t), Some(STUDIO)).await;
+    assert_eq!(
+        other.as_ref().err().and_then(status_of),
+        Some(403),
+        "a Console ticket used from the Studio: {other:?}"
+    );
+
+    // A third origin is refused at the door, even with a ticket issued to it.
+    let t = ticket_from(THIRD).await;
+    let third = connect_ws(addr, &protocols(&t), Some(THIRD)).await;
+    assert_eq!(
+        third.as_ref().err().and_then(status_of),
+        Some(403),
+        "{THIRD} is not configured: {third:?}"
+    );
+    // Without the configuration the Console's origin is just another origin.
+    let plain = serve(r.l.state.clone()).await;
+    let t = ticket_from(CONSOLE).await;
+    let refused = connect_ws(plain, &protocols(&t), Some(CONSOLE)).await;
+    assert_eq!(
+        refused.as_ref().err().and_then(status_of),
+        Some(403),
+        "{refused:?}"
+    );
+}
+
+/// The sessions list says when the person last typed and when the session ends if they stop.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn the_sessions_list_shows_the_last_input_and_whose_session_it_is(pool: Pool) {
+    let r = rig(pool).await;
+    let addr = serve(r.l.state.clone()).await;
+    let mut ws = connect_ws(addr, &protocols(&r.ticket(WEB).await), None)
+        .await
+        .unwrap();
+    read_until(&mut ws, "$ ").await;
+    let list = |token: String| {
+        let state = r.l.state.clone();
+        async move {
+            let (s, v) = call(state, "GET", "/api/v1/sessions", &token, None, &[]).await;
+            assert_eq!(s, StatusCode::OK, "{v}");
+            v["items"][0].clone()
+        }
+    };
+    let first = list(r.bob.clone()).await;
+    assert_eq!(first["mine"], json!(true));
+    assert_eq!(first["lastActivityAt"], first["startedAt"], "{first}");
+    let at = |v: &Value, k: &str| {
+        time::OffsetDateTime::parse(
+            v[k].as_str().unwrap(),
+            &time::format_description::well_known::Rfc3339,
+        )
+        .unwrap()
+    };
+    assert_eq!(
+        at(&first, "idleEndsAt") - at(&first, "lastActivityAt"),
+        time::Duration::minutes(15)
+    );
+    assert_eq!(
+        at(&first, "endsBy") - at(&first, "startedAt"),
+        time::Duration::minutes(60)
+    );
+    // Typing moves the last activity (noted at most once a second).
+    tokio::time::sleep(Duration::from_millis(1100)).await;
+    ws.send(Message::Binary(b"x".to_vec().into()))
+        .await
+        .unwrap();
+    let mut later = first.clone();
+    for _ in 0..40 {
+        later = list(r.bob.clone()).await;
+        if later["lastActivityAt"] != first["lastActivityAt"] {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        at(&later, "lastActivityAt") > at(&first, "lastActivityAt"),
+        "{later}"
+    );
+    // An operator of the application sees it, as someone else's.
+    let theirs = list(r.erin.clone()).await;
+    assert_eq!(theirs["mine"], json!(false));
+    assert_eq!(theirs["person"], json!("bob"));
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn sessions_end_when_idle_when_too_long_when_terminated_and_when_access_is_revoked(
     pool: Pool,

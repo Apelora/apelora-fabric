@@ -208,6 +208,9 @@ struct Running {
     resource: Resource,
     started: time::OffsetDateTime,
     ends_by: time::OffsetDateTime,
+    /// The last time the person typed (or the start). Idle time counts from here.
+    last_input: time::OffsetDateTime,
+    idle: Duration,
     stop: Option<oneshot::Sender<&'static str>>,
 }
 
@@ -310,10 +313,20 @@ impl Sessions {
                 resource: t.resource.clone(),
                 started: now,
                 ends_by: now + cfg.max,
+                last_input: now,
+                idle: cfg.idle,
                 stop: Some(tx),
             },
         );
         Some((t, rx))
+    }
+
+    /// Notes that the person typed, for the sessions list (the idle timer itself runs in the
+    /// session's task).
+    fn touch(&self, id: Uuid) {
+        if let Some(r) = self.lock().running.get_mut(&id) {
+            r.last_input = time::OffsetDateTime::now_utc();
+        }
     }
 
     fn finish(&self, id: Uuid) {
@@ -420,7 +433,14 @@ pub struct SessionInfo {
     pub kind: SessionKind,
     pub person: String,
     pub started_at: String,
+    /// The absolute limit: the session ends then whatever happens.
     pub ends_by: String,
+    /// When the person last typed (the start until they do).
+    pub last_activity_at: String,
+    /// When the session ends unless the person types before then.
+    pub idle_ends_at: String,
+    /// The caller's own session.
+    pub mine: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -793,6 +813,9 @@ pub(super) async fn list(
             person: r.person.clone(),
             started_at: rfc3339(r.started),
             ends_by: rfc3339(r.ends_by),
+            last_activity_at: rfc3339(r.last_input),
+            idle_ends_at: rfc3339(r.last_input + r.idle),
+            mine: r.actor == actor,
         })
         .collect();
     items.sort_by(|a, b| b.started_at.cmp(&a.started_at));
@@ -1163,6 +1186,9 @@ async fn run(
     let (mut bytes_in, mut bytes_out) = (0usize, 0usize);
     let (mut window_start, mut window_bytes) = (Instant::now(), 0usize);
     let mut recheck_failures = 0u32;
+    // The sessions list shows the last input; noting it at most once a second keeps the shared
+    // lock off the typing path.
+    let mut noted = Instant::now();
 
     // `biased`: the limits and the stop signal are looked at before any traffic, and every send
     // is bounded, so neither a flood of output nor a peer that stopped reading can keep a
@@ -1207,6 +1233,10 @@ async fn run(
                     Some(Ok(Message::Binary(b))) => {
                         bytes_in += b.len();
                         idle_at = tokio::time::Instant::now() + cfg.idle;
+                        if noted.elapsed() >= Duration::from_secs(1) {
+                            noted = Instant::now();
+                            state.sessions.touch(ticket.id);
+                        }
                         let sent = tokio::time::timeout(SEND_TIMEOUT, shell.input.send(ShellInput::Data(b.to_vec()))).await;
                         match sent {
                             Ok(Ok(())) => {}
@@ -1288,6 +1318,36 @@ mod tests {
             Some("api.example.test"),
             &[]
         ));
+    }
+
+    /// The Studio and the Fabric Console are two doors into the same sessions. When they reach
+    /// the API on a host other than their own, each is listed by name; nothing else gets in.
+    #[test]
+    fn the_studio_and_the_console_are_listed_explicitly_and_a_third_origin_is_refused() {
+        let s = ConsoleSettings::from_env(|k| {
+            (k == "APELORA_ALLOWED_ORIGINS")
+                .then(|| "http://127.0.0.1:5173, http://127.0.0.1:5174".to_owned())
+        })
+        .unwrap();
+        let api = Some("127.0.0.1:8080");
+        let ok = |o: &str| origin_allowed(Some(o), api, &s.allowed_origins);
+        assert!(ok("http://127.0.0.1:5173"), "Studio");
+        assert!(ok("http://127.0.0.1:5174"), "Fabric Console");
+        assert!(ok("http://127.0.0.1:8080"), "the API's own host");
+        for third in [
+            "http://127.0.0.1:5175",
+            "http://localhost:5174",
+            "https://127.0.0.1:5174",
+            "http://127.0.0.1:51740",
+            "http://127.0.0.1",
+        ] {
+            assert!(!ok(third), "{third} is not configured");
+        }
+        // No wildcard: a `*` entry is refused as configuration.
+        assert!(
+            ConsoleSettings::from_env(|k| (k == "APELORA_ALLOWED_ORIGINS").then(|| "*".to_owned()))
+                .is_err()
+        );
     }
 
     #[test]

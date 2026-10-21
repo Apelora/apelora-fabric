@@ -4,8 +4,10 @@ import type { ClusterResponse, Instance, InstanceList, Job, MovePreview, WhoAmI 
 import { MODULE_CLASSES, logoUrl } from "@apelora/module-catalog";
 import { instanceRequestFor, type ModuleClass } from "@apelora/assembly-model";
 
+import { TerminalDialog, type TerminalTarget } from "../components/TerminalDialog";
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, followJob, idempotencyKey, messageOf, useLoad } from "../lib/api";
+import { holds } from "../lib/identity";
 
 const KIND_LABEL: Record<Instance["kind"], string> = { container: "Container", "virtual-machine": "Virtual machine", unknown: "Unknown" };
 const NAME = /^[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
@@ -210,7 +212,10 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
   const [deploying, setDeploying] = useState(false);
   const [toDelete, setToDelete] = useState<Instance | null>(null);
   const [toMove, setToMove] = useState<Instance | null>(null);
+  const [terminal, setTerminal] = useState<TerminalTarget | null>(null);
   const canDeploy = !!me?.permissions.includes("deploy");
+  // Sessions go into Apelora's instances of an application; the control plane decides each one.
+  const canSession = holds(me, "instance.console");
   const projects = me?.deployProjects ?? [];
 
   const track = (target: string, label: string, jobId: string) => {
@@ -278,17 +283,23 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
                         <td>{i.project}</td>
                         <td className="text-right">
                           {p?.error && <span className="mr-2 text-xs text-error" role="alert" data-testid="instance-error">{p.error}</span>}
-                          {actionable ? (
+                          {(actionable || (canSession && i.managed && i.owner)) && (
                             <span className="inline-flex flex-wrap justify-end gap-1">
-                              {i.status === "Running"
-                                ? <button type="button" className="btn btn-xs btn-ghost" aria-label={`Stop ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "stop")}>Stop</button>
-                                : <button type="button" className="btn btn-xs btn-ghost" aria-label={`Start ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "start")}>Start</button>}
-                              <button type="button" className="btn btn-xs btn-ghost" aria-label={`Move ${i.name}`} disabled={!!p && !p.error} onClick={() => setToMove(i)} data-testid="move-open">Move…</button>
-                              <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${i.name}`} disabled={!!p && !p.error} onClick={() => setToDelete(i)}>Delete</button>
+                              {canSession && i.managed && i.owner && (
+                                <button type="button" className="btn btn-xs btn-ghost" aria-label={`Terminal in ${i.name}`} onClick={() => setTerminal({ application: i.owner!.application, instance: i.name })} data-testid="terminal-open">Terminal…</button>
+                              )}
+                              {actionable && (
+                                <>
+                                  {i.status === "Running"
+                                    ? <button type="button" className="btn btn-xs btn-ghost" aria-label={`Stop ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "stop")}>Stop</button>
+                                    : <button type="button" className="btn btn-xs btn-ghost" aria-label={`Start ${i.name}`} disabled={!!p && !p.error} onClick={() => void act(i, "start")}>Start</button>}
+                                  <button type="button" className="btn btn-xs btn-ghost" aria-label={`Move ${i.name}`} disabled={!!p && !p.error} onClick={() => setToMove(i)} data-testid="move-open">Move…</button>
+                                  <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete ${i.name}`} disabled={!!p && !p.error} onClick={() => setToDelete(i)}>Delete</button>
+                                </>
+                              )}
                             </span>
-                          ) : (
-                            !i.managed && <span className="text-xs text-base-content/50" title="Apelora changes only instances it created.">Not managed by Apelora</span>
                           )}
+                          {!i.managed && <span className="text-xs text-base-content/50" title="Apelora changes only instances it created.">Not managed by Apelora</span>}
                         </td>
                       </tr>
                     );
@@ -302,6 +313,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
 
       {canDeploy && <DeployDialog open={deploying} projects={projects} onClose={() => setDeploying(false)} onQueued={track} />}
       <MoveDialog instance={toMove} onClose={() => setToMove(null)} onQueued={track} />
+      <TerminalDialog target={terminal} onClose={() => setTerminal(null)} onAuth={onAuth} />
       <ConfirmDialog
         open={!!toDelete}
         title={`Delete ${toDelete?.name ?? ""}?`}

@@ -1,12 +1,13 @@
 import { ApiRequestError, type AccessList, type InstanceAccess, type KindAccess, type SessionTicket } from "@apelora/api-client";
+import { KIND_ACTION, KIND_LABEL, approvalTarget, endedBecause, openSocket, permissionOf } from "@apelora/terminal";
 import { create } from "zustand";
 
 import { client, messageOf } from "../deploy/api";
 
 export type Kind = KindAccess["kind"];
 
-export const KIND_LABEL: Record<Kind, string> = { terminal: "Terminal", powershell: "PowerShell", rdp: "Remote desktop" };
-export const KIND_ACTION: Record<Kind, string> = { terminal: "Open terminal", powershell: "Open PowerShell", rdp: "Connect with RDP" };
+// The protocol (labels, socket, reasons) is shared with the Fabric Console.
+export { KIND_ACTION, KIND_LABEL, endedBecause, openSocket };
 
 /** What the person chose to open, and what the dialog needs to know about it. */
 export interface Target {
@@ -76,33 +77,8 @@ export async function openSession(t: Target, size: { cols: number; rows: number 
 
 /** Asks another person to approve this instance's session. Returns the approval id. */
 export async function requestApproval(t: Target, reason: string): Promise<string> {
-  const a = await client.request("request_approval", { body: { action: t.kind === "rdp" ? "instance.desktop" : "instance.console", target: `instance:${t.app}/${t.instance}`, reason } });
+  const a = await client.request("request_approval", { body: { action: permissionOf(t.kind), target: approvalTarget(t.app, t.instance), reason } });
   return a.id;
-}
-
-/** Opens the session's websocket. The ticket travels as a sub-protocol, never in the URL. */
-export function openSocket(t: SessionTicket): WebSocket {
-  const scheme = location.protocol === "https:" ? "wss" : "ws";
-  return new WebSocket(`${scheme}://${location.host}${t.connectPath}`, [t.protocol, `ticket.${t.ticket}`]);
-}
-
-const minutes = (secs: number) => (secs % 60 === 0 ? `${secs / 60} minute${secs === 60 ? "" : "s"}` : `${secs} seconds`);
-
-/** Plain words for why a session ended. */
-export function endedBecause(reason: string, idleSecs: number, maxSecs: number): string {
-  switch (reason) {
-    case "exited": return "The shell exited.";
-    case "idle": return `Ended after ${minutes(idleSecs)} without typing.`;
-    case "max-duration": return `Ended at the time limit of ${minutes(maxSecs)}. Open a new session to continue.`;
-    case "terminated": return "Ended by an administrator or from the sessions list.";
-    case "access-revoked": return "Ended because your access to this application changed.";
-    case "access-unverifiable": return "Ended because the control plane could not confirm your access.";
-    case "rate-limited": return "Ended because input arrived too fast.";
-    case "client-closed": return "You ended the session.";
-    case "stalled": return "Ended because the connection stopped accepting data.";
-    case "error": return "The session could not be kept open.";
-    default: return "The session ended.";
-  }
 }
 
 export { ApiRequestError };

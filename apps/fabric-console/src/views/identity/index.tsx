@@ -1,5 +1,6 @@
 import type { WhoAmI } from "@apelora/api-client";
 
+import { SessionsView } from "../Sessions";
 import { GroupsView } from "./Groups";
 import { IdentityAuditView } from "./IdentityAudit";
 import { MembershipsView } from "./Memberships";
@@ -23,5 +24,6 @@ export function IdentityPage({ id, me, onAuth }: { id: IdentityPageId; me: WhoAm
     case "identity/sign-in": return <SignInSettingsView onAuth={onAuth} />;
     case "identity/policies": return <PoliciesView me={me} onAuth={onAuth} />;
     case "identity/audit": return <IdentityAuditView me={me} onAuth={onAuth} />;
+    case "sessions": return <SessionsView me={me} onAuth={onAuth} />;
   }
 }

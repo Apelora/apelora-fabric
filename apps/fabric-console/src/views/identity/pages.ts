@@ -13,6 +13,8 @@ export const IDENTITY_PAGES = [
   { id: "identity/sign-in", label: "Sign-in", any: ["platform.security.manage"] },
   { id: "identity/policies", label: "Access policies", any: ["access_policy.manage", "audit.read", "approval.request", "approval.grant"] },
   { id: "identity/audit", label: "Audit history", any: ["audit.read"] },
+  // Who is inside which instance right now, and ending it (`#/sessions`; views/Sessions.tsx).
+  { id: "sessions", label: "Sessions", any: ["instance.console", "instance.desktop", "application.operate"] },
 ] as const;
 
 export type IdentityPageId = (typeof IDENTITY_PAGES)[number]["id"];

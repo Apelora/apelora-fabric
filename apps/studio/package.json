@@ -11,10 +11,9 @@
   },
   "dependencies": {
     "@apelora/api-client": "*",
-    "@apelora/module-catalog": "*",
     "@apelora/assembly-model": "*",
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
+    "@apelora/module-catalog": "*",
+    "@apelora/terminal": "*",
     "@xyflow/react": "^12.12.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

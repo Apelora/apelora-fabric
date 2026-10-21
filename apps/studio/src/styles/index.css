@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The shared session terminal (packages/terminal) uses utility classes too. */
+@source "../../../../packages/terminal/src";
 @import "@xyflow/react/dist/style.css";
 
 @plugin "daisyui" {

@@ -14037,24 +14037,40 @@
           "kind",
           "person",
           "startedAt",
-          "endsBy"
+          "endsBy",
+          "lastActivityAt",
+          "idleEndsAt",
+          "mine"
         ],
         "properties": {
           "application": {
             "type": "string"
           },
           "endsBy": {
-            "type": "string"
+            "type": "string",
+            "description": "The absolute limit: the session ends then whatever happens."
           },
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "idleEndsAt": {
+            "type": "string",
+            "description": "When the session ends unless the person types before then."
           },
           "instance": {
             "type": "string"
           },
           "kind": {
             "$ref": "#/components/schemas/SessionKind"
+          },
+          "lastActivityAt": {
+            "type": "string",
+            "description": "When the person last typed (the start until they do)."
+          },
+          "mine": {
+            "type": "boolean",
+            "description": "The caller's own session."
           },
           "person": {
             "type": "string"

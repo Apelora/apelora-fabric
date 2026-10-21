@@ -11,8 +11,9 @@
   },
   "dependencies": {
     "@apelora/api-client": "0.0.0",
-    "@apelora/module-catalog": "*",
     "@apelora/assembly-model": "*",
+    "@apelora/module-catalog": "*",
+    "@apelora/terminal": "*",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   }

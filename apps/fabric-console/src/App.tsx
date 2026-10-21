@@ -278,7 +278,7 @@ export function App() {
               <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
                 {current === "overview" && <Members onAuth={onAuth} onLoad={setClusterLoad} />}
                 {current === "health" && <HealthView onAuth={onAuth} />}
-                {current === "applications" && <ApplicationsView onAuth={onAuth} />}
+                {current === "applications" && <ApplicationsView me={me} onAuth={onAuth} />}
                 {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
                 {current === "preflight" && <PreflightView onAuth={onAuth} />}
                 {current === "infrastructure" && <InfrastructureView onAuth={onAuth} />}

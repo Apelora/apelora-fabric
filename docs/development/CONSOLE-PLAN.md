@@ -21,7 +21,7 @@ Priorities:
 | Overview | service status, members | "needs attention": failed jobs, waiting approvals, expiring certificates, open alerts (P1); recent changes (P2); capacity (IP) |
 | Health | — | per-component health, worker heartbeats, queue, member resources (IP); history and objectives (P2) |
 | Servers and clustering | member list; evacuate and restore with a dry run; remove; enrolment, admission and join tokens (REAL INCUS TESTED) | database roles, leader and quorum (P0); rolling upgrade with a version-skew check (P0); member detail (P1); cluster groups and failure domains (P1); cluster settings: offline and healing thresholds (P1); certificate rotation (P1) |
-| Instances | list, deploy, start/stop, delete, move with a dry run | instance and console logs (P0); restart in the Console (A → P1); detail page (P1); resize (P1); snapshots of a whole instance (P2); terminal (U) |
+| Instances | list, deploy, start/stop, delete, move with a dry run; terminal (MOCK VERIFIED) | instance and console logs (P0); restart in the Console (A → P1); detail page (P1); resize (P1); snapshots of a whole instance (P2) |
 | Applications | list, status, port checks, service addresses, volumes | start/restart/stop, versions, drafts and events in the Console (U, P1); archive and restore (A) |
 | Operations | job list | retry and cancel (P0); job detail and step log (A, P1) |
 | Alerts and events | per-application events (Studio) | rules, notifications, acknowledgement, history (P0); Incus warnings and events (P1) |
@@ -34,7 +34,7 @@ Priorities:
 | Debugging | request ids; preflight | log lookup by request id (P1); support bundle (P1) |
 | Security | certificate expiry | TLS on the API (P0); security headers (P0); rate limits on public routes (P0); a security-posture page (P1) |
 | Administration | API tokens; versions; backup of Apelora's own database with a restore drill: scripts and runbook, no Console view yet ([runbook](../runbooks/apelora-database-backup.md)) | upgrade (P0); age of the last verified restore in the Console (P0, the drill writes `restore-drill-last-verified.json`); effective settings (P1); licence notices (P1) |
-| Terminal | Studio sessions (MOCK and CONTRACT VERIFIED) | open from the Console and a sessions page (P1); run against real Incus (P0); recording, opt-in (P2) |
+| Terminal | Studio sessions; Console: Terminal… on Instances and Applications, production approval in the dialog, Sessions page with End session and history from the audit trail (MOCK and CONTRACT VERIFIED; [guide](../guides/terminal-sessions.md)) | run against real Incus (P0); recording, opt-in (P2) |
 | Disconnected (ADR 0010) | image mirrors, mirrors-only mode | preflight for mirrors; mirrors page; release bundle (P1) |
 
 ## Security and audit gaps in the code
@@ -88,7 +88,7 @@ Packages in one wave touch different files and can be built in parallel.
 
 **Wave 3 — alerts, terminal, identity:**
 - Alerts: an evaluator in the worker, acknowledgement, a webhook channel holding only a secret reference.
-- Terminal from the Console, reusing the Studio's brokered sessions, with a sessions page.
+- Terminal from the Console, reusing the Studio's brokered sessions, with a sessions page (built, MOCK VERIFIED).
 - Personal tokens and rotation.
 - Audited sign-ins.
 

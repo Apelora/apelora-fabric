@@ -1773,10 +1773,17 @@ export type ServiceStatus = {
 
 export type SessionInfo = {
   application: string;
+  /** The absolute limit: the session ends then whatever happens. */
   endsBy: string;
   id: string;
+  /** When the session ends unless the person types before then. */
+  idleEndsAt: string;
   instance: string;
   kind: SessionKind;
+  /** When the person last typed (the start until they do). */
+  lastActivityAt: string;
+  /** The caller's own session. */
+  mine: boolean;
   person: string;
   startedAt: string;
 };

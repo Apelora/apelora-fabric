@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
-import "@xterm/xterm/css/xterm.css";
 import type { SessionTicket } from "@apelora/api-client";
+import { TerminalScreen } from "@apelora/terminal/screen";
 
 import { messageOf } from "../../features/deploy/api";
-import { KIND_ACTION, KIND_LABEL, endedBecause, openSession, openSocket, requestApproval, useSessions, type Target } from "../../features/sessions/sessions";
+import { KIND_ACTION, KIND_LABEL, openSession, requestApproval, useSessions, type Target } from "../../features/sessions/sessions";
 
 type Phase = "prepare" | "connecting" | "live" | "ended";
-
-const THEME = { background: "#1b1f24", foreground: "#e6e8eb", cursor: "#e6e8eb", selectionBackground: "#3b4452" };
 
 function Session({ target, onClose }: { target: Target; onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>("prepare");
@@ -20,8 +16,7 @@ function Session({ target, onClose }: { target: Target; onClose: () => void }) {
   const [approval, setApproval] = useState("");
   const [asked, setAsked] = useState(false);
   const [ended, setEnded] = useState<string | null>(null);
-  const host = useRef<HTMLDivElement>(null);
-  const socket = useRef<WebSocket | null>(null);
+  const endSession = useRef<(() => void) | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => { dialog.current?.showModal(); }, []);
@@ -53,60 +48,8 @@ function Session({ target, onClose }: { target: Target; onClose: () => void }) {
     }
   }, [target, reason]);
 
-  useEffect(() => {
-    if (!ticket || !host.current) return;
-    const term = new Terminal({ cursorBlink: true, fontSize: 13, scrollback: 2000, theme: THEME, fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    term.open(host.current);
-    fit.fit();
-    const enc = new TextEncoder();
-    const ws = openSocket(ticket);
-    ws.binaryType = "arraybuffer";
-    socket.current = ws;
-    let finished = false;
-    const finish = (why: string) => {
-      if (finished) return;
-      finished = true;
-      setEnded(endedBecause(why, ticket.idleSecs, ticket.maxSecs));
-      setPhase("ended");
-      term.options.cursorBlink = false;
-    };
-    ws.onopen = () => {
-      setPhase("live");
-      ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-      term.focus();
-    };
-    ws.onmessage = (ev: MessageEvent) => {
-      if (typeof ev.data === "string") {
-        try {
-          const m = JSON.parse(ev.data) as { type?: string; reason?: string; message?: string };
-          if (m.type === "closed") finish(m.reason ?? "");
-          else if (m.type === "error") setError(m.message ?? "The session could not be opened.");
-        } catch { /* not ours */ }
-        return;
-      }
-      term.write(new Uint8Array(ev.data as ArrayBuffer));
-    };
-    ws.onclose = () => finish("client-closed");
-    ws.onerror = () => setError("The connection to the control plane failed.");
-    const typed = term.onData((d) => { if (ws.readyState === WebSocket.OPEN) ws.send(enc.encode(d)); });
-    const sized = term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols, rows })); });
-    const watch = new ResizeObserver(() => { try { fit.fit(); } catch { /* hidden */ } });
-    watch.observe(host.current);
-    return () => {
-      finished = true;
-      watch.disconnect();
-      typed.dispose();
-      sized.dispose();
-      ws.close();
-      socket.current = null;
-      term.dispose();
-    };
-  }, [ticket]);
-
   const connected = phase === "connecting" || phase === "live";
-  const end = () => { socket.current?.close(); if (!connected) onClose(); };
+  const end = () => { endSession.current?.(); if (!connected) onClose(); };
   const mock = ticket?.provider === "mock";
 
   return (
@@ -159,7 +102,16 @@ function Session({ target, onClose }: { target: Target; onClose: () => void }) {
 
         {phase !== "prepare" && (
           <>
-            <div ref={host} className="min-h-72 flex-1 overflow-hidden rounded-box bg-[#1b1f24] p-2" role="region" aria-label={`${KIND_LABEL[target.kind]} of ${target.instance}`} data-testid="session-terminal" />
+            {ticket && (
+              <TerminalScreen
+                ticket={ticket}
+                label={`${KIND_LABEL[target.kind]} of ${target.instance}`}
+                endRef={endSession}
+                onLive={() => setPhase("live")}
+                onEnded={(message) => { setEnded(message); setPhase("ended"); }}
+                onError={setError}
+              />
+            )}
             {ticket && phase === "live" && <p className="text-[11px] text-base-content/60">Ends after {Math.round(ticket.idleSecs / 60)} min without typing, and at {Math.round(ticket.maxSecs / 60)} min. Not recorded.</p>}
             {ended && <p role="status" className="rounded-box border border-base-300 bg-base-200 px-3 py-2 text-xs" data-testid="session-ended">{ended}</p>}
           </>

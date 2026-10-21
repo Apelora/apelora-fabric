@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 
-import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, SnapshotList, VolumeItem } from "@apelora/api-client";
+import type { ModuleStatus, ApplicationList, ApplicationStatus, ApplicationVolumes, SnapshotList, VolumeItem, WhoAmI } from "@apelora/api-client";
 
+import { TerminalDialog, type TerminalTarget } from "../components/TerminalDialog";
 import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
+import { holds } from "../lib/identity";
 
 type Statuses = Record<string, ApplicationStatus | { error: string }>;
 
@@ -285,13 +287,14 @@ function Volumes({ application }: { application: string }) {
   );
 }
 
-function Instances({ status }: { status: ApplicationStatus }) {
+/** `onTerminal`: offered to people who may open sessions somewhere; the control plane decides this instance. */
+function Instances({ application, status, onTerminal }: { application: string; status: ApplicationStatus; onTerminal?: (t: TerminalTarget) => void }) {
   return (
     <div className="flex flex-col gap-2 py-1">
       <h3 className="text-sm font-semibold">Instances</h3>
       {status.items.length === 0 ? <p className="text-sm text-base-content/70">No instances.</p> : (
       <TableFrame>
-        <thead><tr><th>Instance</th><th className="max-sm:hidden">Status</th><th className="max-sm:hidden">Member</th><th>Port check</th></tr></thead>
+        <thead><tr><th>Instance</th><th className="max-sm:hidden">Status</th><th className="max-sm:hidden">Member</th><th>Port check</th>{onTerminal && <th><span className="sr-only">Actions</span></th>}</tr></thead>
         <tbody>
           {status.items.map((i) => (
             <tr key={`${i.project}/${i.instance}`} data-testid="application-instance">
@@ -299,6 +302,11 @@ function Instances({ status }: { status: ApplicationStatus }) {
               <td className="max-sm:hidden"><span className={`status mr-2 ${dot(i)}`} aria-hidden="true" />{i.status}</td>
               <td className="max-sm:hidden">{i.location}</td>
               <td className="text-sm"><span className={`status mr-2 sm:hidden ${dot(i)}`} aria-hidden="true" /><span className="sm:hidden">{i.status === "Running" ? "" : `${i.status}. `}</span>{health(i)}</td>
+              {onTerminal && (
+                <td className="text-right">
+                  <button type="button" className="btn btn-xs btn-ghost" aria-label={`Terminal in ${i.instance}`} onClick={() => onTerminal({ application, instance: i.instance })} data-testid="terminal-open">Terminal…</button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -313,10 +321,12 @@ function Instances({ status }: { status: ApplicationStatus }) {
  * with a service address pass their port check, the addresses, and their volumes. Changes are
  * made by deploying from the Studio; the one thing done here is deleting a kept volume.
  */
-export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
+export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (m: string) => void }) {
   const [list, reload] = useLoad<ApplicationList>(() => client.get("applications"), onAuth);
   const [statuses, setStatuses] = useState<Statuses>({});
   const [open, setOpen] = useState<string | null>(null);
+  const [terminal, setTerminal] = useState<TerminalTarget | null>(null);
+  const canSession = holds(me ?? null, "instance.console");
   useEffect(() => {
     if (list.kind !== "ok") return;
     let current = true;
@@ -365,7 +375,7 @@ export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
                         </td>
                       </tr>
                       {expanded && ok && (
-                        <tr id={`details-${a.name}`}><td colSpan={4} className="bg-base-200/40"><div className="flex flex-col gap-4 py-1"><Instances status={ok} /><Volumes application={a.name} /></div></td></tr>
+                        <tr id={`details-${a.name}`}><td colSpan={4} className="bg-base-200/40"><div className="flex flex-col gap-4 py-1"><Instances application={a.name} status={ok} onTerminal={canSession ? setTerminal : undefined} /><Volumes application={a.name} /></div></td></tr>
                       )}
                     </Fragment>
                   );
@@ -374,6 +384,7 @@ export function ApplicationsView({ onAuth }: { onAuth: (m: string) => void }) {
             </TableFrame>
           )}
           {list.kind === "ok" && Object.values(statuses).some((s) => "error" in s) && <ErrorPanel message="Some applications' state could not be read." onRetry={reload} />}
+          <TerminalDialog target={terminal} onClose={() => setTerminal(null)} onAuth={onAuth} />
         </>
       )}
     </Section>

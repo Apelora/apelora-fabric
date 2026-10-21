@@ -147,5 +147,6 @@ export function base(me: unknown = SUPER): Record<string, Handler | Result> {
     "GET /api/v1/approvals": items([]),
     "GET /api/v1/identity/audit": items([]),
     "GET /api/v1/identity/assignments": items([]),
+    "GET /api/v1/sessions": items([]),
   };
 }

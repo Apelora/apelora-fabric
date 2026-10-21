@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import { base, stub } from "./identity-fixtures";
+import { base, stub, whoami } from "./identity-fixtures";
 
 // The production builds of both applications, served with exactly the response headers of
 // infra/serve/web-security-headers.conf. Proves two things in a real browser:
@@ -70,7 +70,8 @@ test.beforeAll(async () => {
     expect(headers["Content-Security-Policy"]).toContain("default-src 'none'; script-src 'self';");
     // The sign-in variable is empty in the example, as for an installation using API tokens only.
     expect(headers["Content-Security-Policy"]).toContain("connect-src 'self';");
-    if (name === "console") expect(headers["Content-Security-Policy"]).toContain("style-src-elem 'self';");
+    // Both host the terminal emulator, which writes <style> elements; scripts stay 'self' only.
+    expect(headers["Content-Security-Policy"]).toContain("style-src-elem 'self' 'unsafe-inline';");
     const dir = join(work, name);
     // A fresh production build, so the policy is checked against what would be shipped.
     execFileSync(join(ROOT, "node_modules/.bin/vite"), ["build", "--outDir", dir, "--emptyOutDir", "--logLevel", "error"], { cwd: join(ROOT, app), stdio: "inherit" });
@@ -122,6 +123,33 @@ test.describe("built applications under the serving policy", () => {
       await links.nth(i).click();
       await page.waitForLoadState("networkidle");
     }
+    await w.check();
+  });
+
+  test("a terminal session opened from the Console works without a violation or an outside request", async ({ page }) => {
+    const { origin } = built.console;
+    const w = await watch(page, origin);
+    const T = "2026-10-20T00:00:00Z";
+    await page.addInitScript(() => sessionStorage.setItem("apelora.apiToken", "eyJhbGciOiJFUzI1NiJ9.e30.stub"));
+    const instance = "shop-web-01";
+    // A person with instance.console who may also read the instance list.
+    await stub(page, {
+      ...base(whoami(["cluster.view", "application.view", "instance.console"], { platform: [] })),
+      "GET /api/v1/instances": { json: { source: { provider: "mock", observedAt: T }, items: [{ name: instance, project: "apelora", kind: "container", status: "Running", location: "node-1", architecture: "x86_64", description: "", managed: true, owner: { application: "shop", module: "web-01" } }] } },
+      "GET /api/v1/applications/shop/access": { json: { observed: true, provider: "mock", idleSecs: 900, maxSecs: 3600, items: [{ instance, module: "web-01", guestOs: "linux", status: "Running", kinds: [{ kind: "terminal", allowed: true, approvalRequired: false }] }] } },
+      [`POST /api/v1/applications/shop/instances/${instance}/sessions`]: { status: 201, json: { id: "11111111-2222-4333-8444-555555555555", ticket: "t".repeat(64), expiresAt: T, connectPath: "/api/v1/sessions/connect", protocol: "apelora.session.v1", kind: "terminal", instance, idleSecs: 900, maxSecs: 3600, provider: "mock" } },
+    });
+    await page.routeWebSocket(/\/api\/v1\/sessions\/connect/, (ws) => {
+      ws.send(Buffer.from("\x1b[1;32mMOCK\x1b[0m session for shop\r\n$ "));
+      ws.onMessage((m) => { if (typeof m !== "string") ws.send(Buffer.from(m)); });
+    });
+    await page.goto(origin + "/#/instances");
+    await page.getByTestId("instance-row").first().getByTestId("terminal-open").click();
+    const dialog = page.getByTestId("session-dialog");
+    await dialog.getByTestId("session-open").click();
+    await expect(dialog.getByTestId("session-terminal")).toContainText("MOCK session for shop", { timeout: 15_000 });
+    await page.keyboard.type("ls");
+    await expect(dialog.getByTestId("session-terminal")).toContainText("$ ls");
     await w.check();
   });
 
