@@ -3088,7 +3088,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Public. Reports the service, the inventory provider, the authentication mode and whether\nIncus is reachable.",
+        "summary": "Public. Reports that the service answers, the inventory provider, the authentication mode\nand whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate;\nversions and error text are only on `GET /api/v1/system` (signed in).",
         "operationId": "health",
         "responses": {
           "200": {
@@ -3097,6 +3097,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -7550,7 +7560,7 @@
         "tags": [
           "system"
         ],
-        "summary": "Versions of this control plane and the Incus release it is pinned to, and when the\ncertificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus\nversion is in `/api/v1/health`.",
+        "summary": "Versions of this control plane and the Incus release it is pinned to, and when the\ncertificates Apelora uses to reach Incus expire, and Incus as observed now (running version,\nor the error that keeps it unreachable). Needs `read-inventory`.",
         "operationId": "system",
         "responses": {
           "200": {
@@ -10669,6 +10679,7 @@
       },
       "HealthWorker": {
         "type": "object",
+        "description": "The public health answer: coarse status only. Versions and Incus error text are on the\nauthenticated `GET /api/v1/system`.",
         "required": [
           "id",
           "host",
@@ -10823,6 +10834,19 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "IncusSummary": {
+        "type": "object",
+        "description": "Whether the control plane can reach Incus, and nothing else.",
+        "required": [
+          "connected"
+        ],
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "description": "True only when a real Incus server answered (never for mock data)."
           }
         }
       },
@@ -13936,7 +13960,8 @@
           "incusPinned",
           "incusSeries",
           "incusTestedWith",
-          "certificates"
+          "certificates",
+          "incus"
         ],
         "properties": {
           "apiVersion": {
@@ -13948,6 +13973,10 @@
               "$ref": "#/components/schemas/CertificateStatus"
             },
             "description": "The certificates Apelora uses to reach Incus and when they expire (empty with the mock)."
+          },
+          "incus": {
+            "$ref": "#/components/schemas/IncusStatus",
+            "description": "Incus as observed now: running version, clustering, or why it cannot be reached. (The\npublic `/api/v1/health` says only whether it is reachable.)"
           },
           "incusPinned": {
             "type": "string",

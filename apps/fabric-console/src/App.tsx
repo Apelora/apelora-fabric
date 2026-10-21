@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiRequestError, completeOidcSignIn, type ClusterResponse, type Health, type Permission, type WhoAmI } from "@apelora/api-client";
 
 import { Section, SectionHeader, StatusRow, TableFrame } from "./components/ui";
-import { client, messageOf, readToken, useLoad, writeToken } from "./lib/api";
+import { client, messageOf, readToken, useLoad, writeToken, type Load } from "./lib/api";
 import { AdministrationView } from "./views/Administration";
 import { ApplicationsView } from "./views/Applications";
 import { AuditView } from "./views/Audit";
@@ -47,8 +47,10 @@ const viewFromHash = (): ViewId => {
   return (VIEWS.find((v) => v.id === id)?.id ?? "overview") as ViewId;
 };
 
-function Members({ onAuth }: { onAuth: (m: string) => void }) {
+/** The cluster members. Also reports what it loaded: the Incus version, or why Incus cannot be reached (signed-in detail the public health check does not give). */
+function Members({ onAuth, onLoad }: { onAuth: (m: string) => void; onLoad: (state: Load<ClusterResponse>) => void }) {
   const [cluster, reload] = useLoad<ClusterResponse>(() => client.get("cluster"), onAuth);
+  useEffect(() => onLoad(cluster), [cluster, onLoad]);
   return (
     <Section title="Cluster members" state={cluster} testId="members" onRetry={reload}>
       {(c) => (
@@ -97,6 +99,8 @@ export function App() {
   // `#/set-password?token=…`: a person choosing their password from a setup link.
   const [setupToken, setSetupToken] = useState(() => setupTokenFromHash(window.location.hash));
   const [attempt, setAttempt] = useState(0);
+  // What the cluster request said (signed in): the running Incus version or the reason it is unreachable.
+  const [clusterLoad, setClusterLoad] = useState<Load<ClusterResponse> | null>(null);
 
   useEffect(() => {
     const onHash = () => { setView(viewFromHash()); setSetupToken(setupTokenFromHash(window.location.hash)); };
@@ -121,6 +125,7 @@ export function App() {
   const check = useCallback(() => {
     setApi({ kind: "checking" });
     setAuthNeeded(null);
+    setClusterLoad(null);
     client.get("health")
       .then((health) => {
         setApi({ kind: "up", health });
@@ -168,12 +173,14 @@ export function App() {
       ? { tone: "pending" as const, value: "Checking…" }
       : api.kind === "down"
         ? { tone: "off" as const, value: "Not reachable" }
-        : { tone: "ok" as const, value: `Running · v${api.health.version} · ${api.health.provider === "mock" ? "mock data" : "Incus"}` };
+        : { tone: "ok" as const, value: `Running · ${api.health.provider === "mock" ? "mock data" : "Incus"}` };
   const incusConnected = !!up?.incus.connected;
+  const incusVersion = clusterLoad?.kind === "ok" ? clusterLoad.data.server.serverVersion : null;
+  const incusError = clusterLoad?.kind === "error" ? clusterLoad.message : null;
   const incus = up
     ? incusConnected
-      ? { tone: "ok" as const, value: `Connected${up.incus.serverVersion ? ` · Incus ${up.incus.serverVersion}` : ""}` }
-      : { tone: "off" as const, value: up.provider === "incus" && up.incus.error ? "Unreachable" : "Not connected" }
+      ? { tone: "ok" as const, value: `Connected${incusVersion ? ` · Incus ${incusVersion}` : ""}` }
+      : { tone: "off" as const, value: up.provider === "incus" ? "Unreachable" : "Not connected" }
     : { tone: "pending" as const, value: "Unknown" };
   const badge = incusConnected ? "Connected" : up?.provider === "mock" ? "Mock data" : "Not connected";
   const ready = !!up && !authNeeded;
@@ -255,7 +262,7 @@ export function App() {
                     Start the control plane with <code className="rounded bg-base-200 px-1 py-0.5 text-xs">cargo run -p apelora-control-plane</code>, then check again.
                   </p>
                 ) : up?.provider === "incus" ? (
-                  <p className="text-sm text-base-content/70">The control plane is configured for Incus but cannot reach it: {up.incus.error}</p>
+                  <p className="text-sm text-base-content/70">The control plane is configured for Incus but cannot reach it{incusError ? `: ${incusError}` : "."}</p>
                 ) : (
                   <p className="text-sm text-base-content/70">
                     The tables show mock data. Set <code className="rounded bg-base-200 px-1 py-0.5 text-xs">APELORA_INCUS_URL</code> and the certificate paths for the control plane to read a real cluster.
@@ -269,7 +276,7 @@ export function App() {
 
             {ready && (
               <div key={`${current}-${attempt}`} className="flex flex-col gap-6">
-                {current === "overview" && <Members onAuth={onAuth} />}
+                {current === "overview" && <Members onAuth={onAuth} onLoad={setClusterLoad} />}
                 {current === "health" && <HealthView onAuth={onAuth} />}
                 {current === "applications" && <ApplicationsView onAuth={onAuth} />}
                 {current === "instances" && <InstancesView me={me} onAuth={onAuth} />}
@@ -278,7 +285,7 @@ export function App() {
                 {current === "membership" && <MembershipView onAuth={onAuth} />}
                 {current === "audit" && <AuditView onAuth={onAuth} />}
                 {current === "operations" && <OperationsView onAuth={onAuth} />}
-                {current === "administration" && <AdministrationView me={me} health={up} onAuth={onAuth} />}
+                {current === "administration" && <AdministrationView me={me} onAuth={onAuth} />}
                 {me && isIdentityPage(current) && <IdentityPage id={current} me={me} onAuth={onAuth} />}
               </div>
             )}

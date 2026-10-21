@@ -14,6 +14,11 @@ import {
   STROKE_STYLES,
 } from "./constants";
 
+// No `eval`: the web applications run under a content security policy without 'unsafe-eval'
+// (infra/serve/). Zod would otherwise probe for it with `Function("")`, which the browser reports
+// as a violation even though the probe is caught (tests/e2e/web-serving.spec.ts).
+z.config({ jitless: true });
+
 const portId = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/, "port id must be kebab-case");
 const entityId = z.string().regex(/^[a-z][a-z0-9-]{0,62}$/, "id must be kebab-case");
 const finite = z.number().refine(Number.isFinite, "must be a finite number");

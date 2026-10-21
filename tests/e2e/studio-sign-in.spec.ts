@@ -11,7 +11,7 @@ async function controlPlane(page: Page, opts: { apiTokens: boolean; accept: bool
   let tokenRequests = 0;
   await page.route("**/api/**", (route) => {
     const p = new URL(route.request().url()).pathname;
-    if (p === "/api/v1/health") return route.fulfill({ json: { status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7" } } });
+    if (p === "/api/v1/health") return route.fulfill({ json: { status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" } });
     if (p === "/api/v1/sign-in") return route.fulfill({ json: { providers: [{ issuer, clientId: "apelora-console", scopes: ["openid"], label: "Example Corp" }], apiTokens: opts.apiTokens } });
     if (p === "/api/v1/whoami") {
       return opts.accept && route.request().headers()["authorization"] === `Bearer ${at}`

@@ -68,6 +68,12 @@ pub struct AppState {
     sign_in_attempts: Arc<sessions_auth::Attempts>,
     /// When this process started (the Health page's uptime).
     started_at: jiff::Timestamp,
+    /// Rate limits on the public surface and on writes (in this process's memory).
+    rate_limits: Arc<rate_limit::Limiter>,
+    /// Security headers; HSTS when this process serves TLS.
+    headers: headers::HeaderPolicy,
+    /// The public health summary, refreshed at most every 15 s.
+    health: Arc<health_cache::HealthCache>,
 }
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
@@ -91,7 +97,21 @@ impl AppState {
             sessions: Arc::new(sessions::Sessions::default()),
             sign_in_attempts: Arc::new(sessions_auth::Attempts::default()),
             started_at: jiff::Timestamp::now(),
+            rate_limits: Arc::default(),
+            headers: headers::HeaderPolicy::default(),
+            health: Arc::default(),
         }
+    }
+
+    pub fn with_rate_limits(mut self, config: rate_limit::RateLimitConfig) -> Self {
+        self.rate_limits = Arc::new(rate_limit::Limiter::new(config));
+        self
+    }
+
+    /// This process terminates TLS itself: responses carry `Strict-Transport-Security`.
+    pub fn with_tls(mut self, tls: bool) -> Self {
+        self.headers.hsts = tls;
+        self
     }
 
     pub fn with_console(mut self, settings: sessions::ConsoleSettings) -> Self {
@@ -439,6 +459,10 @@ pub fn router(state: AppState) -> Router {
             state.clone(),
             authz::audit_denials,
         ))
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit::per_principal,
+        ))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate));
     Router::new()
         .route("/api/v1/health", get(health))
@@ -454,7 +478,15 @@ pub fn router(state: AppState) -> Router {
         // headers on a websocket); see `sessions`.
         .route(sessions::CONNECT_PATH, get(sessions::connect))
         .merge(protected)
-        .with_state(state)
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit::per_address,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.headers,
+            headers::apply,
+        ))
         // Outermost: every request (including refusals and unknown routes) gets a request id.
         .layer(middleware::from_fn(requests::trace))
 }
@@ -870,16 +902,51 @@ pub struct IncusStatus {
     pub error: Option<String>,
 }
 
+/// The public health answer: coarse status and Apelora's version (shown at the foot of the
+/// sign-in page). Incus versions and error text are on the authenticated `GET /api/v1/system`.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Health {
+    /// `ok`: the control plane answers.
     pub status: String,
     pub service: String,
+    /// Apelora's version.
     pub version: String,
     pub api_version: String,
     pub provider: ProviderMode,
     pub auth: AuthMode,
-    pub incus: IncusStatus,
+    pub incus: IncusSummary,
+    /// When Incus was last asked (RFC 3339, UTC); answers are reused for up to 15 s.
+    pub checked_at: String,
+}
+
+/// Whether the control plane can reach Incus, and nothing else.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct IncusSummary {
+    /// True only when a real Incus server answered (never for mock data).
+    pub connected: bool,
+}
+
+/// What the control plane observes of Incus right now, with versions and the error text (for
+/// signed-in callers; see `GET /api/v1/system`).
+pub(crate) async fn incus_status(provider: &Provider) -> IncusStatus {
+    match provider.server_info().await {
+        Ok(info) => IncusStatus {
+            connected: provider.mode() == ProviderMode::Incus,
+            api_version: Some(info.api_version),
+            server_version: info.server_version,
+            clustered: Some(info.clustered),
+            error: None,
+        },
+        Err(err) => IncusStatus {
+            connected: false,
+            api_version: None,
+            server_version: None,
+            clustered: None,
+            error: Some(err.to_string()),
+        },
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1028,39 +1095,27 @@ pub struct AuditList {
     pub items: Vec<AuditItem>,
 }
 
-/// Public. Reports the service, the inventory provider, the authentication mode and whether
-/// Incus is reachable.
+/// Public. Reports that the service answers, the inventory provider, the authentication mode
+/// and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate;
+/// versions and error text are only on `GET /api/v1/system` (signed in).
 #[utoipa::path(get, path = "/api/v1/health", tag = "system", security(()),
-    responses((status = 200, body = Health)))]
+    responses((status = 200, body = Health), (status = 429, body = ErrorBody)))]
 async fn health(State(state): State<AppState>) -> Json<Health> {
-    let mode = state.provider.mode();
-    let incus = match state.provider.server_info().await {
-        Ok(info) => IncusStatus {
-            connected: mode == ProviderMode::Incus,
-            api_version: Some(info.api_version),
-            server_version: info.server_version,
-            clustered: Some(info.clustered),
-            error: None,
-        },
-        Err(err) => IncusStatus {
-            connected: false,
-            api_version: None,
-            server_version: None,
-            clustered: None,
-            error: Some(err.to_string()),
-        },
-    };
+    let snap = state.health.summary(&state.provider).await;
     Json(Health {
         status: "ok".into(),
         service: "control-plane".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         api_version: API_VERSION.into(),
-        provider: mode,
+        provider: state.provider.mode(),
         auth: match state.auth {
             Auth::Tokens(_) => AuthMode::Tokens,
             Auth::DisabledForDevelopment => AuthMode::DisabledDevelopment,
         },
-        incus,
+        incus: IncusSummary {
+            connected: snap.connected,
+        },
+        checked_at: snap.checked_at.to_string(),
     })
 }
 
@@ -1377,11 +1432,14 @@ mod deploy;
 mod directories;
 mod document;
 mod fabric_health;
+pub mod headers;
+mod health_cache;
 mod identity;
 mod ldap;
 mod machines;
 mod manage;
 mod mobility;
+pub mod rate_limit;
 pub mod requests;
 pub mod sessions;
 pub mod sessions_auth;
@@ -1401,5 +1459,7 @@ mod manage_tests;
 mod sessions_auth_tests;
 #[cfg(test)]
 mod sessions_tests;
+#[cfg(test)]
+mod surface_tests;
 #[cfg(test)]
 mod tests;

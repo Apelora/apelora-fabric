@@ -89,7 +89,8 @@ nohup "$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1
 nohup "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 &
 sleep 3
 [ "$(curl -s "$API/health" | jq -r .incus.connected)" = true ] || fail "control plane not connected to Incus"
-pass "control plane and worker running against Incus $(curl -s "$API/health" | jq -r .incus.serverVersion)"
+# The public health check says only "connected"; the version needs signing in (/system).
+pass "control plane and worker running against Incus $(api "$API/system" | jq -r .incus.serverVersion)"
 
 # --- Deploy ---------------------------------------------------------------------------
 nginx=library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e

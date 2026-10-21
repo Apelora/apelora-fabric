@@ -59,7 +59,7 @@ Priorities:
    - Public `/health` calls Incus on every request and returns Incus error text and its version.
    - No rate limits except on terminal tickets.
 
-   All P0.
+   All P0. **Fixed (S3, built 2026-10-21):** headers on every API response (`api/headers.rs`); `/health` answers a coarse status from a cache refreshed at most every 15 s, with Incus versions and error text moved to the signed-in `/system` (`api/health_cache.rs`); per-address and per-caller token buckets with `429` and `Retry-After` (`api/rate_limit.rs`, `APELORA_RATE_LIMIT_*`, `APELORA_TRUSTED_PROXIES`); TLS of its own (`APELORA_TLS_CERT`/`KEY`) or a declared proxy (`APELORA_BEHIND_PROXY=1`) before listening on a non-loopback address (`serve.rs`); a serving configuration with a content security policy proven in a browser (`infra/serve/`, `tests/e2e/web-serving.spec.ts`).
 6. **Tokens.** Secrets are shown once and stored as hashes (good). There is no rotation (P1). A service token's lifetime outside 1–365 days is now refused with 400 instead of clamped (fixed, B).
 7. **Sessions.** Disabling takes effect on the next request (good). Terminal tickets live in one process. Identity-provider tokens cannot be revoked before they expire (at most an hour).
 8. **Clean:** no secrets in logs; no CSRF exposure (bearer tokens, no cookies); the terminal websocket checks `Origin`.
@@ -71,7 +71,7 @@ Packages in one wave touch different files and can be built in parallel.
 **Wave 0 — security fixes (backend):**
 - S1 token containment (done).
 - S2 guards on revoke and disable (done).
-- S3 public surface: headers, `/health` redaction and cache, per-address limits, TLS or a declared proxy for non-local addresses, a serving configuration for the web apps with a content security policy.
+- S3 public surface (done): headers, `/health` redaction and cache, per-address limits, TLS or a declared proxy for non-local addresses, a serving configuration for the web apps with a content security policy.
 - S4 audit integrity: audit in the same transaction; `TRUNCATE` blocked; a structural test that every state-changing route audits or is listed as exempt.
 
 **Wave 1 — operations core:**

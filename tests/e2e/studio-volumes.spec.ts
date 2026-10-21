@@ -4,7 +4,7 @@ import { expect, open, openProps } from "./helpers";
 // Volumes in the Studio: a singleton module keeps data in volumes set in its Properties
 // window; every change is checked before it is kept, the deploy review lists them and the plan
 // request carries them. Stateless modules cannot have volumes.
-const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true } };
+const health = { status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" };
 const operator = { name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["apelora"] };
 
 async function stub(page: Page, routes: Record<string, (req: Request) => { status?: number; json?: unknown }>) {

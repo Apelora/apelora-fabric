@@ -101,7 +101,7 @@ export type Handler = (call: Call) => Result | Promise<Result>;
 /** The local-accounts setting when nobody has turned it on. */
 export const LOCAL_OFF = { enabled: false, ready: 0, pending: 0 };
 
-export const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "mock", auth: "disabled-development", incus: { connected: false, apiVersion: "1.0", serverVersion: null } };
+export const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "mock", auth: "disabled-development", incus: { connected: false }, checkedAt: "2026-10-20T00:00:00Z" };
 
 /** `kind: "user"` callers with the given permissions; `platform` ones hold them across the platform. */
 export function whoami(capabilities: string[], opts: { platform?: string[]; kind?: string; name?: string } = {}) {

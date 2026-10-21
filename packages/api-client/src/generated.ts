@@ -629,14 +629,17 @@ export type GrowVolume = {
 /** The operating system inside a module, from its catalog class (never guessed from names). */
 export type GuestOs = "linux" | "windows";
 
+/** The public health answer: coarse status only. Versions and Incus error text are on the authenticated `GET /api/v1/system`. */
 export type Health = {
   apiVersion: string;
   auth: AuthMode;
-  incus: IncusStatus;
+  /** When Incus was last asked (RFC 3339, UTC); answers are reused for up to 15 s. */
+  checkedAt: string;
+  incus: IncusSummary;
   provider: ProviderMode;
   service: string;
+  /** `ok`: the control plane answers. */
   status: string;
-  version: string;
 };
 
 /** A component's or server's state, worst last. */
@@ -870,6 +873,12 @@ export type IncusStatus = {
   connected: boolean;
   error?: string;
   serverVersion: string | null;
+};
+
+/** Whether the control plane can reach Incus, and nothing else. */
+export type IncusSummary = {
+  /** True only when a real Incus server answered (never for mock data). */
+  connected: boolean;
 };
 
 /** Observed state of one Incus instance. */
@@ -1775,6 +1784,8 @@ export type SystemInfo = {
   apiVersion: string;
   /** The certificates Apelora uses to reach Incus and when they expire (empty with the mock). */
   certificates: CertificateStatus[];
+  /** Incus as observed now: running version, clustering, or why it cannot be reached. (The public `/api/v1/health` says only whether it is reachable.) */
+  incus: IncusStatus;
   /** Incus release Apelora is tested against (`upstream.lock.yaml`). */
   incusPinned: string;
   /** Incus LTS series the pin follows, e.g. "7.0". */
@@ -2120,7 +2131,7 @@ export type Responses = {
   remove_member: null;
   /** Restores an evacuated member: Incus moves its instances back and starts them. Needs `manage-infrastructure` and the admin identity; audited. */
   restore_member: MemberStateStarted;
-  /** Public. Reports the service, the inventory provider, the authentication mode and whether Incus is reachable. */
+  /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
   health: Health;
   /** The state of each part of this installation: control plane, database, deployment workers, job queue, Incus, networks, storage pools and identity providers. Read-only; needs `cluster.view`. */
   health_components: HealthReport;
@@ -2270,7 +2281,7 @@ export type Responses = {
   sign_out: null;
   /** Storage pools. Needs `read-inventory`. */
   storage_pools: StoragePoolList;
-  /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus version is in `/api/v1/health`. */
+  /** Versions of this control plane and the Incus release it is pinned to, and when the certificates Apelora uses to reach Incus expire, and Incus as observed now (running version, or the error that keeps it unreachable). Needs `read-inventory`. */
   system: SystemInfo;
   /** API tokens, active and revoked (never the tokens themselves). Needs `manage-tokens`. */
   tokens: TokenList;

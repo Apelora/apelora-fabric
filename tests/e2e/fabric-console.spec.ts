@@ -4,9 +4,9 @@ import { expect, test, type Page } from "@playwright/test";
 // "connected" or unlabelled data unless the API says it came from Incus.
 type Provider = "mock" | "incus";
 const now = "2026-10-20T00:00:00Z";
-const health = (provider: Provider, connected: boolean, error?: string) => ({
-  status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider,
-  incus: connected ? { connected, apiVersion: "1.0", serverVersion: "7.0.2", clustered: true } : { connected, ...(error ? { error } : { apiVersion: "1.0", serverVersion: null }) },
+// The public health answer is coarse: no versions, no Incus error text (those need signing in).
+const health = (provider: Provider, connected: boolean) => ({
+  status: "ok", service: "control-plane", apiVersion: "v1", provider, auth: "disabled-development", incus: { connected }, checkedAt: now,
 });
 const member = (name: string, status = "Online") => ({ name, url: `https://${name}:8443`, roles: ["database"], status, message: "", architecture: "x86_64", failureDomain: "rack-a", database: true, groups: [] });
 const cluster = (provider: Provider, names: string[]) => ({ source: { provider, observedAt: now }, server: { clustered: true, serverVersion: provider === "incus" ? "7.0.2" : null }, members: names.map((n) => member(n)) });
@@ -38,7 +38,7 @@ test.describe("fabric console", () => {
     await expect(page.getByTestId("members")).toHaveCount(0);
     up = true;
     await page.getByRole("button", { name: "Check again" }).click();
-    await expect(status).toContainText("Running · v0.0.0 · mock data");
+    await expect(status).toContainText("Running · mock data");
     await expect(page.getByTestId("mock-badge")).toHaveText("Mock data");
     await expect(page.getByTestId("empty-state")).toContainText("APELORA_INCUS_URL");
     await expect(page.getByTestId("member-row")).toHaveCount(3);
@@ -63,7 +63,7 @@ test.describe("fabric console", () => {
   test("Incus configured but unreachable: the API's error is shown, not stale or invented data", async ({ page }) => {
     const message = "cannot reach the Incus server: connection refused";
     await api(page, {
-      "/api/v1/health": { json: health("incus", false, message) },
+      "/api/v1/health": { json: health("incus", false) },
       "/api/v1/cluster": { status: 502, json: { error: { code: "incus_unreachable", message } } },
       "/api/v1/instances": { status: 502, json: { error: { code: "incus_unreachable", message } } },
     });
@@ -818,7 +818,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2", certificates: [
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.2", clustered: true }, certificates: [
         { certificate: "deploy", expiresAt: "2026-11-02T00:00:00Z", daysLeft: 12, state: "expiring" },
         { certificate: "server", expiresAt: "2036-10-18T00:00:00Z", daysLeft: 3650, state: "ok" },
       ] } }),

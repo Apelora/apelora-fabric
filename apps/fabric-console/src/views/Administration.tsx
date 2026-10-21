@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { CertificateStatus, Health, Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } from "@apelora/api-client";
+import type { CertificateStatus, Role, SystemInfo, TokenCreated, TokenInfo, TokenList, WhoAmI } from "@apelora/api-client";
 
 import { ConfirmDialog, ErrorPanel, FormDialog, Section, SectionHeader, TableFrame } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
@@ -15,12 +15,12 @@ const ROLES: { value: Role; label: string; what: string }[] = [
 const when = (t: string | null | undefined) => (t ? new Date(t).toLocaleDateString() : "—");
 const state = (t: TokenInfo) => (t.revokedAt ? "Revoked" : t.expiresAt && Date.parse(t.expiresAt) < Date.now() ? "Expired" : "Active");
 
-function SystemSection({ health, onAuth }: { health: Health | null; onAuth: (m: string) => void }) {
+function SystemSection({ onAuth }: { onAuth: (m: string) => void }) {
   const [info, reload] = useLoad<SystemInfo>(() => client.get("system"), onAuth);
   return (
     <Section title="System" state={info} testId="system" onRetry={reload}>
       {(s) => {
-        const running = health?.incus.serverVersion;
+        const running = s.incus.serverVersion;
         const pinned = s.incusPinned.replace(/^v/, "");
         return (
           <>
@@ -28,7 +28,7 @@ function SystemSection({ health, onAuth }: { health: Health | null; onAuth: (m: 
             <dl className="divide-y divide-base-300 rounded-box border border-base-300 text-sm">
               {[
                 ["Apelora control plane", `${s.version} · API ${s.apiVersion}`],
-                ["Incus running", running ?? "not connected"],
+                ["Incus running", running ?? (s.incus.error ? `not reachable: ${s.incus.error}` : "not connected")],
                 ["Incus pinned", `${pinned} (${s.incusSeries} LTS series)${running && running !== pinned ? ` · running ${running} differs` : ""}`],
                 ["Tested with", s.incusTestedWith || "not recorded"],
               ].map(([k, v]) => (
@@ -188,11 +188,11 @@ function TokensSection({ onAuth }: { onAuth: (m: string) => void }) {
   );
 }
 
-export function AdministrationView({ me, health, onAuth }: { me: WhoAmI | null; health: Health | null; onAuth: (m: string) => void }) {
+export function AdministrationView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
   return (
     <div className="flex flex-col gap-8">
       {me?.permissions.includes("manage-tokens") && <TokensSection onAuth={onAuth} />}
-      <SystemSection health={health} onAuth={onAuth} />
+      <SystemSection onAuth={onAuth} />
     </div>
   );
 }

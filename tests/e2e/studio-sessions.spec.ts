@@ -57,7 +57,7 @@ async function install(page: Page, rig: Rig) {
     const p = new URL(req.url()).pathname.replace("/api/v1", "");
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
     const err = (status: number, code: string, message: string) => json({ error: { code, message } }, status);
-    if (p === "/health") return json({ status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7", clustered: false } });
+    if (p === "/health") return json({ status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" });
     if (p === "/whoami") return json({ name: "bob", kind: "user", role: null, permissions: [], deployProjects: [], capabilities: [], platformPermissions: [] });
     if (p === "/applications") return json({ items: [app], observedAt: T, stale: false });
     if (p === "/applications/shop") return json({ application: app, modules: [{ module: MODULE, availability: "stateless", replicas: 2, instances: INSTANCES.map((i, n) => ({ instance: i, location: `node-${n + 1}`, status: "Running", unhealthy: false })) }], operations: [], versions: [{ revision: 1, published: true, label: "first", draftVersion: 1, createdBy: "bob", createdAt: T }] });

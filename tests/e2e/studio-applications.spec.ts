@@ -213,7 +213,7 @@ async function installApi(page: Page, sim: Sim) {
     const p = url.pathname.replace("/api/v1", "");
     const json = (body: unknown, status = 200) => route.fulfill({ status, json: body });
     const err = (status: number, code: string, message: string) => json({ error: { code, message } }, status);
-    if (p === "/health") return json({ status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7", clustered: false } });
+    if (p === "/health") return json({ status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" });
     if (p === "/whoami") return json({ name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["shop-prod"], capabilities: [], platformPermissions: [] });
     if (p === "/applications" && req.method() === "GET") return sim.listFails ? err(500, "internal", "database unavailable") : json({ items: Object.keys(sim.apps).map((n) => appInfo(sim, n)), observedAt: T, stale: !!sim.staleAll });
     const m = /^\/applications\/([^/]+)(?:\/(.*))?$/.exec(p);

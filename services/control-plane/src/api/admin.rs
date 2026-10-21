@@ -92,6 +92,9 @@ pub struct SystemInfo {
     pub incus_tested_with: String,
     /// The certificates Apelora uses to reach Incus and when they expire (empty with the mock).
     pub certificates: Vec<CertificateStatus>,
+    /// Incus as observed now: running version, clustering, or why it cannot be reached. (The
+    /// public `/api/v1/health` says only whether it is reachable.)
+    pub incus: super::IncusStatus,
 }
 
 /// Certificates expiring sooner than this get a warning.
@@ -316,8 +319,8 @@ fn lock_value(lock: &str, key: &str) -> String {
 }
 
 /// Versions of this control plane and the Incus release it is pinned to, and when the
-/// certificates Apelora uses to reach Incus expire. Needs `read-inventory`. The running Incus
-/// version is in `/api/v1/health`.
+/// certificates Apelora uses to reach Incus expire, and Incus as observed now (running version,
+/// or the error that keeps it unreachable). Needs `read-inventory`.
 #[utoipa::path(get, path = "/api/v1/system", tag = "system", operation_id = "system",
     responses((status = 200, body = SystemInfo), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
 pub(super) async fn system(
@@ -344,6 +347,7 @@ pub(super) async fn system(
         incus_series: lock_value(LOCK, "series"),
         incus_tested_with: lock_value(LOCK, "tested_with"),
         certificates,
+        incus: super::incus_status(&state.provider).await,
     }))
 }
 

@@ -5,7 +5,7 @@ import { expect, open, openProps } from "./helpers";
 // modules that have a runtime, show the server's plan before changing anything, follow the
 // jobs, and overlay live state without touching the design.
 const now = "2026-10-20T00:00:00Z";
-const health = { status: "ok", service: "control-plane", version: "0.0.0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true } };
+const health = { status: "ok", service: "control-plane", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: "2026-10-20T00:00:00Z" };
 const operator = { name: "alex", role: "operator", permissions: ["read-inventory", "design-applications", "deploy"], deployProjects: ["apelora"] };
 const item = (module: string, action: string, reason = "not deployed yet") => ({ module, instance: `commerce-stack-${module}`, action, reason });
 const job = (id: string, status: string) => ({ id, kind: "instance.create", status, attempts: 1, maxAttempts: 5, lastError: null, incusOperation: null, request: {}, createdAt: now, updatedAt: now });

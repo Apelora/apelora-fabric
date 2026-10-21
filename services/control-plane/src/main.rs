@@ -12,9 +12,12 @@
 //!
 //! With `DATABASE_URL` the API requires bearer tokens. Without it, authentication is disabled
 //! for development and the server only binds to loopback. Inventory comes from Incus when
-//! `APELORA_INCUS_URL` is set, otherwise from labelled mock data.
+//! `APELORA_INCUS_URL` is set, otherwise from labelled mock data. A non-loopback address needs
+//! TLS (`APELORA_TLS_CERT`/`APELORA_TLS_KEY`) or a declared TLS-terminating proxy
+//! (`APELORA_BEHIND_PROXY=1`); see `serve`.
 
 mod api;
+mod serve;
 
 use std::net::SocketAddr;
 
@@ -46,6 +49,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = std::env::var("APELORA_API_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
         .parse()?;
+    // Decided before anything else: a reachable address never serves tokens in clear text.
+    let listening = serve::listening(addr, |k| std::env::var(k).ok())?;
+    let tls = match &listening {
+        serve::Listening::Tls { cert, key } => Some(serve::tls_acceptor(cert, key)?),
+        _ => None,
+    };
+    let rate_limits = api::rate_limit::RateLimitConfig::from_env(|k| std::env::var(k).ok())?;
+    if listening == serve::Listening::BehindProxy && rate_limits.trusted_proxies.is_empty() {
+        tracing::warn!(
+            "APELORA_BEHIND_PROXY is set without APELORA_TRUSTED_PROXIES: every client shares the proxy's address in the per-address rate limits"
+        );
+    }
     let auth = match database_url {
         Some(url) => api::Auth::Tokens(apelora_persistence::connect(&url).await?),
         None if addr.ip().is_loopback() => {
@@ -82,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let mode = provider.mode();
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, provider = ?mode, "control plane listening");
+    tracing::info!(%addr, provider = ?mode, tls = tls.is_some(), behind_proxy = listening == serve::Listening::BehindProxy, "control plane listening");
     let projects: Vec<String> = std::env::var("APELORA_DEPLOY_PROJECTS")
         .unwrap_or_else(|_| api::DEFAULT_DEPLOY_PROJECT.to_owned())
         .split(',')
@@ -158,20 +173,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_admin(admin)
         .with_network_uplink(uplink)
         .with_service_range(services)
-        .with_volume_pool(volume_pool);
+        .with_volume_pool(volume_pool)
+        .with_rate_limits(rate_limits)
+        .with_tls(listening.tls());
     // Identity providers saved in the Fabric Console (on top of the environment's).
     if let Err(e) = api::auth_config::reload(&state).await {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");
     }
     tokio::spawn(api::auth_config::retry_unreachable(state.clone()));
-    axum::serve(
-        listener,
-        api::router(state).into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async {
+    let app = api::router(state).into_make_service_with_connect_info::<SocketAddr>();
+    let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
-    })
-    .await?;
+    };
+    match tls {
+        Some(acceptor) => {
+            // `tap_io` only lends the listener axum's peer-address support.
+            let tls_listener = axum::serve::ListenerExt::tap_io(
+                serve::TlsListener::new(listener, acceptor)?,
+                |_| {},
+            );
+            axum::serve(tls_listener, app)
+                .with_graceful_shutdown(shutdown)
+                .await?
+        }
+        None => {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(shutdown)
+                .await?
+        }
+    }
     Ok(())
 }
 

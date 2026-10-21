@@ -96,6 +96,51 @@ shortened to 120 characters.
   for every call, and `incus: request not sent or not answered` with the cause chain (TLS
   verification, DNS, timeout).
 
+### `429 rate_limited` (too many requests)
+
+The answer has `Retry-After` (seconds) and the code `rate_limited`. The first refusal while a
+limit is spent is logged at warn in the request's span (with its request id; never a token):
+`WARN rate limit: refusing requests limit="public" client=203.0.113.7 retry_after_secs=1`.
+Further refusals are logged at debug, so a flood does not flood the log.
+
+- `limit="public"`: one address called the public routes (`/health`, `/sign-in`, the OpenAPI
+  document, the terminal websocket) or sent requests without a token too often
+  (`APELORA_RATE_LIMIT_PUBLIC_*`). A load balancer probing `/health` every 2 s uses 30 a minute.
+- `limit="failed-sign-in"`: tokens from this address were refused repeatedly; until the bucket
+  refills, every request with a token from it is refused before the token is checked
+  (`APELORA_RATE_LIMIT_FAILED_AUTH_*`). Look for the `credential refused` lines before it.
+- `limit="writes"` with `client=user:…`/`service:…`/`token:…`: one caller sent many changes
+  (`APELORA_RATE_LIMIT_WRITES_*`), typically a script in a loop.
+- **Every browser is limited together:** the control plane sits behind a proxy and sees only the
+  proxy's address. Set `APELORA_TRUSTED_PROXIES` to the proxy's address; the start-up warning
+  `APELORA_BEHIND_PROXY is set without APELORA_TRUSTED_PROXIES` says so too.
+- The limits are per API process (in memory); with several processes the effective limit is
+  that many times larger.
+
+### The control plane refuses to start (listening and TLS)
+
+- `refusing to serve plain HTTP on 0.0.0.0:8080: bearer tokens would cross the network unencrypted …`:
+  `APELORA_API_ADDR` is not a loopback address. Set `APELORA_TLS_CERT` and `APELORA_TLS_KEY`
+  (PEM files), or put a TLS-terminating proxy in front (`infra/serve/apelora.conf`) and set
+  `APELORA_BEHIND_PROXY=1` (and `APELORA_TRUSTED_PROXIES`), or listen on `127.0.0.1`.
+- `APELORA_TLS_CERT is set but APELORA_TLS_KEY is not` (or the reverse): set both or neither.
+- `APELORA_TLS_CERT (/path): cannot read a PEM certificate chain: …` / `APELORA_TLS_KEY (/path): cannot read a PEM private key: …`:
+  the file is missing, unreadable for the service user, or not PEM.
+- `APELORA_TLS_CERT/APELORA_TLS_KEY do not form a usable pair`: the key does not belong to the
+  certificate, or the key type is not supported.
+- `APELORA_BEHIND_PROXY must be 1 … or 0`, `APELORA_TRUSTED_PROXIES: "…" is not an address or CIDR range`,
+  `APELORA_RATE_LIMIT_… must be a whole number …`: a setting could not be read.
+- After start, `control plane listening … tls=true` confirms HTTPS. Failed handshakes are logged
+  at debug (`tls: handshake failed`), so a client that cannot connect is visible with
+  `RUST_LOG=info,apelora_control_plane=debug`.
+
+### `/health` says Incus is not connected, but not why
+
+The public `/api/v1/health` says only whether Incus answered (asked at most every 15 s). The
+reason and the versions are on `GET /api/v1/system` (Fabric Console → Administration → System,
+signed in) and in the log: `WARN health: Incus is not reachable error=…` once when it stops
+answering, `INFO health: Incus is reachable again` when it is back.
+
 ### A job fails or keeps being retried
 
 - `INFO job: claimed attempt=2 max_attempts=5` in the `job{job=… kind=… target=…}` span.
