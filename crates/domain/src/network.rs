@@ -15,7 +15,7 @@
 //! already cover traffic to it.
 
 use std::collections::BTreeMap;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use serde::{Deserialize, Serialize};
 
@@ -414,28 +414,66 @@ impl SyncRequest {
     }
 }
 
-/// The host addresses of an IPv4 range given as `a.b.c.d/len` (16 ≤ len ≤ 30), lowest first,
-/// without the network and broadcast addresses.
-pub fn service_addresses(range: &str) -> Result<Vec<Ipv4Addr>, String> {
-    let bad = || {
-        format!("service range {range:?}: expected an IPv4 range like 198.18.100.0/28 (/16 to /30)")
-    };
-    let (addr, len) = range.split_once('/').ok_or_else(bad)?;
-    let addr: Ipv4Addr = addr.parse().map_err(|_| bad())?;
-    let len: u32 = len.parse().map_err(|_| bad())?;
-    if !(16..=30).contains(&len) {
-        return Err(bad());
-    }
-    let mask = u32::MAX << (32 - len);
-    let network = u32::from(addr) & mask;
-    if network != u32::from(addr) {
+/// Host addresses of one or more routed ranges, comma-separated, lowest first in each range.
+/// IPv4: `a.b.c.d/len` with 16 ≤ len ≤ 30, without the network and broadcast addresses.
+/// IPv6: `addr/len` with 112 ≤ len ≤ 126, without the subnet address (no broadcast).
+pub fn service_addresses(range: &str) -> Result<Vec<IpAddr>, String> {
+    let parts: Vec<&str> = range
+        .split(',')
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() {
         return Err(format!(
-            "service range {range:?}: host bits are set (the range starts at {})",
-            Ipv4Addr::from(network)
+            "service range {range:?}: expected an IPv4 range like 198.18.100.0/28 (/16 to /30) or an IPv6 range like fd42::/124 (/112 to /126)"
         ));
     }
-    Ok((network + 1..network + (1 << (32 - len)) - 1)
-        .map(Ipv4Addr::from)
+    let mut out = Vec::new();
+    for p in parts {
+        out.extend(one_service_range(p)?);
+    }
+    Ok(out)
+}
+
+fn one_service_range(range: &str) -> Result<Vec<IpAddr>, String> {
+    let v4 = || {
+        format!("service range {range:?}: expected an IPv4 range like 198.18.100.0/28 (/16 to /30)")
+    };
+    let v6 = || {
+        format!("service range {range:?}: expected an IPv6 range like fd42::/124 (/112 to /126)")
+    };
+    let (addr, len) = range.split_once('/').ok_or_else(v4)?;
+    let len: u32 = len.parse().map_err(|_| v4())?;
+    if let Ok(addr) = addr.parse::<Ipv4Addr>() {
+        if !(16..=30).contains(&len) {
+            return Err(v4());
+        }
+        let mask = u32::MAX << (32 - len);
+        let network = u32::from(addr) & mask;
+        if network != u32::from(addr) {
+            return Err(format!(
+                "service range {range:?}: host bits are set (the range starts at {})",
+                Ipv4Addr::from(network)
+            ));
+        }
+        return Ok((network + 1..network + (1 << (32 - len)) - 1)
+            .map(|n| IpAddr::V4(Ipv4Addr::from(n)))
+            .collect());
+    }
+    let addr: Ipv6Addr = addr.parse().map_err(|_| v6())?;
+    if !(112..=126).contains(&len) {
+        return Err(v6());
+    }
+    let bits = 128 - len;
+    let network = u128::from(addr) & (u128::MAX << bits);
+    if network != u128::from(addr) {
+        return Err(format!(
+            "service range {range:?}: host bits are set (the range starts at {})",
+            Ipv6Addr::from(network)
+        ));
+    }
+    Ok((network + 1..network + (1u128 << bits))
+        .map(|n| IpAddr::V6(Ipv6Addr::from(n)))
         .collect())
 }
 
@@ -457,7 +495,7 @@ pub fn service_ports(module: &str, connections: &[Connection]) -> Vec<(String, u
 pub struct Backend {
     /// `r<replica>`.
     pub name: String,
-    pub address: Ipv4Addr,
+    pub address: IpAddr,
     /// `<instance> <instance uuid>`: a recreated replica changes it even at the same address,
     /// which makes Incus rebind the health check (docs/development/TEST-CLUSTER.md).
     pub description: String,
@@ -466,7 +504,7 @@ pub struct Backend {
 /// A module's service address: an OVN load balancer on the application's network.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadBalancer {
-    pub listen_address: Ipv4Addr,
+    pub listen_address: IpAddr,
     pub module: String,
     pub backends: Vec<Backend>,
     pub ports: Vec<(String, u16)>,
@@ -530,6 +568,33 @@ pub fn rule_drift(intended: &[AclRule], observed: &[AclRule]) -> (Vec<AclRule>, 
         }
     }
     (missing, rest.into_iter().cloned().collect())
+}
+
+/// Whether the IPv4 or IPv6 range `inner` lies inside `outer` of the same family.
+pub fn ip_range_within(inner: &str, outer: &str) -> bool {
+    ipv4_range_within(inner, outer) || ipv6_range_within(inner, outer)
+}
+
+/// Whether the IPv6 range `inner` (`addr/len`) lies inside `outer`. `false` when either
+/// is not an IPv6 range.
+pub fn ipv6_range_within(inner: &str, outer: &str) -> bool {
+    fn parse(r: &str) -> Option<(u128, u32)> {
+        let (a, l) = r.trim().split_once('/')?;
+        let a: Ipv6Addr = a.parse().ok()?;
+        let l: u32 = l.parse().ok()?;
+        if l > 128 {
+            return None;
+        }
+        let mask = if l == 0 { 0 } else { u128::MAX << (128 - l) };
+        Some((u128::from(a) & mask, l))
+    }
+    match (parse(inner), parse(outer)) {
+        (Some((i, il)), Some((o, ol))) => {
+            let mask = if ol == 0 { 0 } else { u128::MAX << (128 - ol) };
+            il >= ol && i & mask == o
+        }
+        _ => false,
+    }
 }
 
 /// Whether the IPv4 range `inner` (`a.b.c.d/len`) lies inside `outer`. `false` when either
@@ -602,6 +667,10 @@ mod tests {
         assert!(!ipv4_range_within("198.18.101.0/28", "198.18.100.0/24"));
         assert!(!ipv4_range_within("198.18.100.0/24", "198.18.100.0/28"));
         assert!(!ipv4_range_within("not a range", "198.18.100.0/24"));
+        assert!(ipv6_range_within("fd42::/124", "fd42::/64"));
+        assert!(!ipv6_range_within("fd42::/64", "fd42::/124"));
+        assert!(ip_range_within("fd42::/124", "fd42::/64"));
+        assert!(!ip_range_within("fd42::/124", "198.18.100.0/24"));
     }
 
     fn c(from: &str, to: &str, port: Option<u16>) -> Connection {
@@ -685,12 +754,26 @@ mod tests {
             Some("198.18.100.6")
         );
         assert_eq!(a.len(), 6);
+        let v6 = service_addresses("fd42::/124").expect("v6");
+        assert_eq!(
+            v6.first().map(ToString::to_string).as_deref(),
+            Some("fd42::1")
+        );
+        assert_eq!(
+            v6.last().map(ToString::to_string).as_deref(),
+            Some("fd42::f")
+        );
+        assert_eq!(v6.len(), 15);
+        let both = service_addresses("198.18.100.0/29, fd42::/124").expect("both");
+        assert_eq!(both.len(), 21);
         for bad in [
             "198.18.100.0",
             "198.18.100.1/28",
             "198.18.100.0/31",
             "10.0.0.0/8",
             "::1/64",
+            "fd42::/64",
+            "fd42::1/124",
             "x/28",
         ] {
             assert!(service_addresses(bad).is_err(), "{bad}");

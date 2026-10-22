@@ -11,7 +11,7 @@
 //! router advertisements, or IPv6 is off inside it), the set keeps IPv4 and the sync succeeds.
 
 use std::collections::BTreeMap;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -225,7 +225,7 @@ async fn services(
             ));
             continue;
         };
-        let Ok(listen_address) = address.parse::<Ipv4Addr>() else {
+        let Ok(listen_address) = address.parse::<IpAddr>() else {
             continue;
         };
         kept.push(listen_address.to_string());
@@ -237,15 +237,11 @@ async fn services(
                 if !reachable {
                     continue;
                 }
-                let ipv4 = provider
-                    .instance_addresses(p, &instance)
-                    .await?
-                    .into_iter()
-                    .find_map(|a| {
-                        a.strip_suffix("/32")
-                            .and_then(|a| a.parse::<Ipv4Addr>().ok())
-                    });
-                let Some(address) = ipv4 else { continue };
+                let address = backend_for_listen(
+                    listen_address,
+                    provider.instance_addresses(p, &instance).await?,
+                );
+                let Some(address) = address else { continue };
                 // Only describes the backend: a missing UUID is logged, not fatal.
                 let uuid = provider
                     .instance_uuid(p, &instance)
@@ -308,6 +304,19 @@ async fn services(
             .await?;
     }
     Ok(waiting)
+}
+
+/// The instance address of the same family as the service listen address (`/32` or `/128`).
+fn backend_for_listen(listen: IpAddr, addresses: Vec<String>) -> Option<IpAddr> {
+    let suffix = match listen {
+        IpAddr::V4(_) => "/32",
+        IpAddr::V6(_) => "/128",
+    };
+    addresses.into_iter().find_map(|a| {
+        let host = a.strip_suffix(suffix)?;
+        let parsed: IpAddr = host.parse().ok()?;
+        (parsed.is_ipv4() == listen.is_ipv4()).then_some(parsed)
+    })
 }
 
 /// Deletes the application's ACLs and address sets for modules no longer in the design
@@ -392,5 +401,21 @@ mod wait_tests {
             "a zero wait expires on first sight"
         );
         forget_ipv6_wait(k);
+    }
+
+    #[test]
+    fn backends_match_the_listen_address_family() {
+        let v4: IpAddr = "198.18.100.1".parse().expect("v4");
+        let v6: IpAddr = "fd42::1".parse().expect("v6");
+        let both = vec!["198.51.100.1/32".into(), "2001:db8:a::1/128".into()];
+        assert_eq!(
+            backend_for_listen(v4, both.clone()).map(|a| a.to_string()),
+            Some("198.51.100.1".into())
+        );
+        assert_eq!(
+            backend_for_listen(v6, both).map(|a| a.to_string()),
+            Some("2001:db8:a::1".into())
+        );
+        assert!(backend_for_listen(v6, vec!["198.51.100.1/32".into()]).is_none());
     }
 }

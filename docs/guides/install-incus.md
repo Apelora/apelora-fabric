@@ -158,6 +158,8 @@ SERVICE_RANGE=...                # a range your network routes to the uplink, fo
 
 incus network set "$UPLINK" ipv4.ovn.ranges="$ROUTER_RANGE"
 incus network set "$UPLINK" ipv4.routes="$SERVICE_RANGE"
+# Optional: an IPv6 service range (/112 to /126) also needs ipv6.routes on the uplink
+# and the same range in the project's restricted.networks.subnets.
 ```
 
 What each range is, and how to choose it, is in [servers and network](servers-and-network.md#ip-addresses). The lab does this on a managed NAT bridge for convenience: `scripts/test-cluster/ovn.sh` is the worked example (one OVN database only, with no TLS, as lab shortcuts).

@@ -65,7 +65,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_RATE_LIMIT_PUBLIC_PER_MIN` | `120` | Public requests per client address per minute |
 | `APELORA_RATE_LIMIT_WRITES_BURST` | `200` | Changes saved up per signed-in caller |
 | `APELORA_RATE_LIMIT_WRITES_PER_MIN` | `600` | Changes per signed-in caller per minute |
-| `APELORA_SERVICE_ADDRESSES` | none | Routed range for service addresses |
+| `APELORA_SERVICE_ADDRESSES` | none | Routed IPv4 (/16–/30) or IPv6 (/112–/126) range for service addresses |
 | `APELORA_SHARED_POOL` | none | Shared storage pool behind the data-replicated volume class (modules that restart on another server after fencing) |
 | `APELORA_TLS_CERT` | none | Certificate chain file for HTTPS served by the API itself (never shown) |
 | `APELORA_TLS_KEY` | none | Private key file for HTTPS served by the API itself (never shown) |

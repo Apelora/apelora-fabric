@@ -299,8 +299,8 @@ const networkRoutes = (me: unknown, drift: boolean): Record<string, Handler> => 
   "GET /api/v1/networks/applications": { json: { source: src, incusError: null, items: [netApp(drift)] } },
   "GET /api/v1/networks/settings": { json: { source: src, uplink: "incusbr0", serviceRange: "198.18.100.0/28", serviceAddressesUsed: 1, serviceAddressesTotal: 14,
     projects: [{ project: "apelora", found: true, restricted: true, ownNetworks: true, uplinks: ["incusbr0"], subnets: ["incusbr0:198.18.100.0/28"] }],
-    uplinkObserved: { name: "incusbr0", kind: "bridge", status: "Created", ipv4Address: "10.8.171.1/24", ipv4Routes: ["198.18.100.0/28"], ovnRanges: ["10.8.171.100-10.8.171.150"] },
-    uplinkNote: null, findings: [{ severity: "warn", message: "Service range 198.18.100.0/28 is not routed to uplink incusbr0 (ipv4.routes): outside clients cannot reach service addresses" }] } },
+    uplinkObserved: { name: "incusbr0", kind: "bridge", status: "Created", ipv4Address: "10.8.171.1/24", ipv4Routes: ["198.18.100.0/28"], ipv6Routes: [], ovnRanges: ["10.8.171.100-10.8.171.150"] },
+    uplinkNote: null, findings: [{ severity: "warn", message: "Service range 198.18.100.0/28 is not routed to uplink incusbr0 (ipv4.routes / ipv6.routes): outside clients cannot reach service addresses" }] } },
   "GET /api/v1/networks": { json: { source: src, items: [{ name: "shop", project: "apelora", kind: "ovn", managed: true, status: "Created", description: "" }] } },
 });
 

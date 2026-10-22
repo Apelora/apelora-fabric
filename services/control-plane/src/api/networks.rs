@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use apelora_auth::Resource;
 use apelora_domain::network::{
-    AclRule, Connection, Internet, Published, SyncRequest, ipv4_range_within, network_name,
+    AclRule, Connection, Internet, Published, SyncRequest, ip_range_within, network_name,
     rule_drift, service_addresses,
 };
 use apelora_incus_adapter::{AdapterError, ObservedAcl, ObservedAddressSet, ObservedLoadBalancer};
@@ -57,8 +57,10 @@ pub struct NetUplink {
     pub kind: String,
     pub status: String,
     pub ipv4_address: Option<String>,
-    /// `ipv4.routes`: ranges routed to the uplink (service addresses must be in one).
+    /// `ipv4.routes`: IPv4 ranges routed to the uplink (IPv4 service addresses must be in one).
     pub ipv4_routes: Vec<String>,
+    /// `ipv6.routes`: IPv6 ranges routed to the uplink (IPv6 service addresses must be in one).
+    pub ipv6_routes: Vec<String>,
     /// `ipv4.ovn.ranges`: addresses OVN networks take on the uplink.
     pub ovn_ranges: Vec<String>,
 }
@@ -109,6 +111,39 @@ fn warn(message: String) -> NetFinding {
         severity: "warn".into(),
         message,
     }
+}
+
+fn range_parts(range: &str) -> impl Iterator<Item = &str> {
+    range.split(',').map(str::trim).filter(|p| !p.is_empty())
+}
+
+/// Every comma-separated piece of the service range lies in some uplink route of the same family.
+fn range_routed_to_uplink(range: &str, ipv4: &[String], ipv6: &[String]) -> bool {
+    let mut any = false;
+    for part in range_parts(range) {
+        any = true;
+        let ok = ipv4.iter().any(|x| ip_range_within(part, x))
+            || ipv6.iter().any(|x| ip_range_within(part, x));
+        if !ok {
+            return false;
+        }
+    }
+    any
+}
+
+fn range_in_project_subnets(range: &str, uplink: &str, subnets: &[String]) -> bool {
+    let mut any = false;
+    for part in range_parts(range) {
+        any = true;
+        let ok = subnets.iter().any(|s| {
+            s.split_once(':')
+                .is_some_and(|(net, allowed)| net == uplink && ip_range_within(part, allowed))
+        });
+        if !ok {
+            return false;
+        }
+    }
+    any
 }
 
 /// The network settings in effect: Apelora's uplink and service range, each deploy project's
@@ -168,10 +203,7 @@ pub(super) async fn settings(
             }
             if let Some(r) = &service_range
                 && limits.restricted
-                && !limits.subnets.iter().any(|s| {
-                    s.split_once(':')
-                        .is_some_and(|(net, range)| net == u && ipv4_range_within(r, range))
-                })
+                && !range_in_project_subnets(r, u, &limits.subnets)
             {
                 findings.push(warn(format!(
                     "Service range {r} is not inside project {project}'s restricted.networks.subnets for {u}: Incus refuses its load balancers"
@@ -191,6 +223,7 @@ pub(super) async fn settings(
                 Some(NetUplink {
                     ipv4_address: n.config.get("ipv4.address").cloned(),
                     ipv4_routes: list(&n.config, "ipv4.routes"),
+                    ipv6_routes: list(&n.config, "ipv6.routes"),
                     ovn_ranges: list(&n.config, "ipv4.ovn.ranges"),
                     name: n.name,
                     kind: n.kind,
@@ -208,10 +241,10 @@ pub(super) async fn settings(
         },
     };
     if let (Some(r), Some(up)) = (&service_range, &uplink_observed)
-        && !up.ipv4_routes.iter().any(|x| ipv4_range_within(r, x))
+        && !range_routed_to_uplink(r, &up.ipv4_routes, &up.ipv6_routes)
     {
         findings.push(warn(format!(
-            "Service range {r} is not routed to uplink {} (ipv4.routes): outside clients cannot reach service addresses",
+            "Service range {r} is not routed to uplink {} (ipv4.routes / ipv6.routes): outside clients cannot reach service addresses",
             up.name
         )));
     }

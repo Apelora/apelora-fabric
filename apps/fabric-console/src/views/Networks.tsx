@@ -52,7 +52,7 @@ function Settings({ onAuth }: { onAuth: (m: string) => void }) {
               {s.uplinkObserved ? (
                 <>
                   {s.uplinkObserved.kind}, {s.uplinkObserved.status.toLowerCase()}{s.uplinkObserved.ipv4Address ? <>, address <span className="font-mono">{s.uplinkObserved.ipv4Address}</span></> : null}
-                  <span className="block text-base-content/70">Routed ranges: {s.uplinkObserved.ipv4Routes.length ? <span className="font-mono">{s.uplinkObserved.ipv4Routes.join(", ")}</span> : "none"}</span>
+                  <span className="block text-base-content/70">Routed ranges: {([...s.uplinkObserved.ipv4Routes, ...s.uplinkObserved.ipv6Routes].join(", ")) || "none"}</span>
                   <span className="block text-base-content/70">Ranges for application networks: {s.uplinkObserved.ovnRanges.length ? <span className="font-mono">{s.uplinkObserved.ovnRanges.join(", ")}</span> : "none"}</span>
                 </>
               ) : <span className="text-base-content/70">{s.uplinkNote ?? "—"}</span>}
