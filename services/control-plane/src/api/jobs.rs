@@ -24,8 +24,8 @@ use uuid::Uuid;
 
 use super::authz::{allow, audit_scoped};
 use super::deploy::{
-    Job, JobAccepted, ensure_project_allowed, idempotency_key, instance_resource, job_visible,
-    rfc3339, store,
+    JOB_LIST_LIMIT, Job, JobAccepted, ensure_project_allowed, idempotency_key, instance_resource,
+    job_visible, rfc3339, store,
 };
 use super::manage::ActionState;
 use super::{ApiError, AppState, ErrorBody, Principal};
@@ -294,7 +294,9 @@ pub(super) async fn with_actions(
 ) -> Result<Vec<Job>, ApiError> {
     let pool = store(state)?;
     let mut contexts = HashMap::new();
-    let mut out = Vec::with_capacity(rows.len());
+    // Pages are already clamped at the store and at GET /api/v1/jobs (`JOB_LIST_LIMIT`). Cap
+    // the allocation there too so a caller-supplied length cannot size the buffer.
+    let mut out = Vec::with_capacity(rows.len().min(JOB_LIST_LIMIT as usize));
     for row in rows {
         let auth = authority(state, pool, &row, &mut contexts).await?;
         let permitted = allow(p, auth.permission, &auth.resource)

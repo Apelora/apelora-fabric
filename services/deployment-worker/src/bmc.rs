@@ -107,8 +107,6 @@ pub struct Mapping {
     secrets: Option<SecretSource>,
     /// The MAAS client for `maas` entries (from `APELORA_MAAS_URL` and `APELORA_MAAS_API_KEY`).
     maas: Option<apelora_maas_adapter::MaasClient>,
-    /// Plain HTTP to a loopback test server (tests only).
-    plain: bool,
     settle: Option<(Duration, Duration)>,
 }
 
@@ -385,7 +383,8 @@ impl Mapping {
     fn client(&self, ca: Option<&PathBuf>) -> Result<reqwest::Client, String> {
         let mut b = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none());
+            .redirect(reqwest::redirect::Policy::none())
+            .https_only(true);
         if let Some(ca) = ca {
             let pem = std::fs::read(ca).map_err(|e| format!("CA file {}: {e}", ca.display()))?;
             let cert = reqwest::Certificate::from_pem(&pem)
@@ -406,17 +405,24 @@ impl Mapping {
 /// One Redfish session's worth of facts about the system, after the identity check.
 struct Redfish<'a> {
     client: reqwest::Client,
-    base: String,
+    base: reqwest::Url,
     user: &'a str,
     password: String,
     system: String,
 }
 
 impl Redfish<'_> {
+    fn https(&self, path: &str) -> Result<reqwest::Url, String> {
+        if self.base.scheme() != "https" {
+            return Err("the BMC url must be https".into());
+        }
+        self.base.join(path).map_err(|e| format!("{path}: {e}"))
+    }
+
     async fn get(&self, path: &str) -> Result<Value, String> {
         let r = self
             .client
-            .get(format!("{}{path}", self.base))
+            .get(self.https(path)?)
             .basic_auth(self.user, Some(&self.password))
             .send()
             .await
@@ -430,7 +436,7 @@ impl Redfish<'_> {
     async fn post(&self, path: &str, body: &Value) -> Result<(), String> {
         let r = self
             .client
-            .post(format!("{}{path}", self.base))
+            .post(self.https(path)?)
             .basic_auth(self.user, Some(&self.password))
             .json(body)
             .send()
@@ -512,9 +518,10 @@ impl Mapping {
             return Err("not a Redfish entry".into());
         };
         let password = self.password(secret_ref)?;
-        let mut base = url.trim_end_matches('/').to_owned();
-        if self.plain {
-            base = base.replacen("https://", "http://", 1);
+        let base =
+            reqwest::Url::parse(url.trim_end_matches('/')).map_err(|e| format!("url: {e}"))?;
+        if base.scheme() != "https" {
+            return Err("the BMC url must be https".into());
         }
         let mut r = Redfish {
             client: self.client(ca.as_ref())?,
