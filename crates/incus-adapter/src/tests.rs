@@ -1535,3 +1535,49 @@ async fn the_mock_changes_and_removes_limits_and_refuses_foreign_instances() {
         Err(AdapterError::NotFound(_))
     ));
 }
+
+#[tokio::test]
+async fn ensure_treats_already_exists_as_ours_when_the_object_carries_our_marker() {
+    // GET 404, POST "already exists", GET ours: two workers, or a GET that lagged a POST
+    // on another member. The fixture answers in that order.
+    let gets = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let count = gets.clone();
+    let owned = json!({
+        "name": "shop-web-01",
+        "config": { "user.apelora.managed": "true", "user.apelora.application": "shop" }
+    });
+    let app = Router::new().fallback(move |method: axum::http::Method, uri: Uri| {
+        let (count, owned) = (count.clone(), owned.clone());
+        async move {
+            let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or_default();
+            let (status, body) = match (method.as_str(), path) {
+                ("GET", "/1.0/network-address-sets/shop-web-01?project=apelora") => {
+                    let n = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if n == 0 {
+                        error(404, "not found")
+                    } else {
+                        sync(owned)
+                    }
+                }
+                ("POST", "/1.0/network-address-sets?project=apelora") => {
+                    error(400, "The network address set already exists")
+                }
+                _ => error(404, "not found"),
+            };
+            (
+                StatusCode::from_u16(status).expect("status"),
+                axum::Json(body),
+            )
+                .into_response()
+        }
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+    let c = IncusClient::plain_for_tests(&format!("http://{addr}"));
+    c.ensure_address_set("apelora", "shop-web-01", "shop")
+        .await
+        .expect("created by the other request, still ours");
+}

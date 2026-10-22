@@ -734,6 +734,7 @@ impl Provider {
                     format!("{project}/{name}"),
                     (ingress.to_vec(), egress.to_vec()),
                 );
+                net.acl_writes += 1;
                 Ok(())
             }
             Provider::Incus(c) => {
@@ -2186,6 +2187,8 @@ pub struct MockNetwork {
     pub restarts: Vec<String>,
     /// `project/network` → the service-name records (`user.apelora.dns`).
     pub dns: std::collections::BTreeMap<String, String>,
+    /// How often ACL rules were written (tests).
+    pub acl_writes: u32,
     /// Application networks get an IPv6 subnet and running instances an IPv6 address too, as
     /// Incus gives an OVN network one of its own (tests).
     pub ipv6: bool,
