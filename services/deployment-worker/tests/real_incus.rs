@@ -433,6 +433,151 @@ async fn replicas_spread_across_members_and_lost_ones_return(pool: Pool) {
     }
 }
 
+/// Two replicas of a stateless module on one member: one supervisor pass with rebalancing on
+/// queues one audited move of the highest-named replica to another member, the worker carries it
+/// out, and the next pass has nothing to do. Needs two members and member targeting allowed.
+#[ignore = "needs a disposable Incus with two members and member targeting allowed: scripts/test-cluster/up.sh"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn replicas_sharing_a_member_are_spread_by_the_rebalancer(pool: Pool) {
+    use apelora_deployment_worker::supervisor::Supervisor;
+    use apelora_domain::plan::{DesiredModule, deploy_spec};
+
+    let provider = real_incus();
+    let project = project();
+    let online: Vec<String> = provider
+        .cluster_members()
+        .await
+        .expect("members")
+        .into_iter()
+        .filter(|m| m.status == "Online")
+        .map(|m| m.name)
+        .collect();
+    assert!(online.len() >= 2, "needs two online members");
+    let application = unique("apl-rb");
+    let app = apelora_persistence::ensure_application(&pool, &application)
+        .await
+        .expect("application");
+    let web: DesiredModule = serde_json::from_value(json!({
+        "module": "web-01",
+        "spec": { "project": "", "name": "", "kind": "container", "start": true,
+                  "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": "debian/13" } },
+        "replicas": 2,
+        "availability": "stateless",
+    }))
+    .expect("desired");
+    let names = [
+        format!("{application}-web-01"),
+        format!("{application}-web-01-r2"),
+    ];
+    for replica in 1..=2 {
+        let spec = deploy_spec(&application, &project, &web, replica, None);
+        converge(
+            &pool,
+            &provider,
+            "instance.create",
+            &serde_json::to_value(&spec).expect("json"),
+        )
+        .await;
+    }
+    let location = async |n: &str| {
+        status(&provider, &project, n)
+            .await
+            .expect("exists")
+            .location
+    };
+    // Put both on one member, as a migration of the whole application would.
+    let shared = location(&names[0]).await;
+    let second = location(&names[1]).await;
+    if second != shared {
+        converge(
+            &pool,
+            &provider,
+            "instance.move",
+            &json!({ "project": project, "name": names[1],
+            "application": application, "from": second, "target": shared, "live": false,
+            "startAfter": true, "volumes": [] }),
+        )
+        .await;
+    }
+    assert_eq!(
+        location(&names[1]).await,
+        shared,
+        "both replicas share {shared}"
+    );
+    apelora_persistence::record_deployment(
+        &pool,
+        &apelora_persistence::NewDeployment {
+            application_id: app.id,
+            project: &project,
+            revision: 1,
+            desired: &json!([web]),
+            connections: None,
+            uplink: None,
+            service_range: None,
+            published: None,
+        },
+    )
+    .await
+    .expect("record");
+
+    let started = std::time::Instant::now();
+    let mut supervisor = Supervisor::new(std::time::Duration::from_secs(3600)).with_rebalance(true);
+    let queued = supervisor.pass(&pool, &provider).await.expect("pass");
+    assert_eq!(
+        queued,
+        vec![names[1].clone()],
+        "one move, of the highest name"
+    );
+    while run_once(&pool, &provider, "real-incus-test")
+        .await
+        .expect("run")
+    {}
+    let moved = status(&provider, &project, &names[1])
+        .await
+        .expect("exists");
+    eprintln!(
+        "{} moved {shared} → {} in {:.1} s, {}",
+        names[1],
+        moved.location,
+        started.elapsed().as_secs_f64(),
+        moved.status
+    );
+    assert_ne!(moved.location, shared, "the replica left the shared member");
+    assert_eq!((moved.status.as_str(), moved.managed), ("Running", true));
+    assert_eq!(
+        location(&names[0]).await,
+        shared,
+        "the other replica stayed"
+    );
+    let audit = apelora_persistence::recent_audit(&pool, 50)
+        .await
+        .expect("audit");
+    assert!(
+        audit
+            .iter()
+            .any(|e| e.action == "application.replica.rebalance" && e.target.ends_with(&names[1])),
+        "audited"
+    );
+    assert!(
+        supervisor
+            .pass(&pool, &provider)
+            .await
+            .expect("pass")
+            .is_empty(),
+        "spread: nothing more to move"
+    );
+
+    for n in &names {
+        converge(
+            &pool,
+            &provider,
+            "instance.delete",
+            &json!({ "project": project, "name": n }),
+        )
+        .await;
+    }
+}
+
 /// A volume is created on the member Incus placed its instance on (Incus does not follow a
 /// member-local volume), attached before the instance starts, and kept when the instance is
 /// deleted. Needs a pool named by `APELORA_TEST_VOLUME_POOL` (default `local`).
