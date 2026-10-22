@@ -95,6 +95,63 @@ test.describe("password sign-in", () => {
     expect(await serious(page)).toEqual([]);
     await ctx.close();
   });
+
+  test("a directory's username and password is offered when local accounts are off", async ({ page }) => {
+    const dir = uid(9);
+    let signedIn = false;
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/sign-in": { json: { providers: [], apiTokens: true, localAccounts: false, directories: [{ id: dir, name: "Staff directory" }] } },
+      "GET /api/v1/whoami": () => (signedIn ? { json: { ...whoami(["user.view"], { name: "ada" }) } } : error(401, "unauthenticated", "a bearer token is required")),
+      "GET /api/v1/cluster": { json: { source: { provider: "mock", observedAt: NOW }, server: { clustered: false, serverVersion: null }, members: [] } },
+      "POST /api/v1/sign-in/password": (c) => {
+        const b = c.body as { username: string; password: string; directory?: string };
+        if (b.username === "ada" && b.password === "right password here" && b.directory === dir) {
+          signedIn = true;
+          return { json: { token: SESSION, expiresAt: NOW, name: "Ada" }, delayMs: 200 };
+        }
+        return { ...error(401, "invalid_credentials", "The username or password is incorrect."), delayMs: 200 };
+      },
+    });
+    await page.goto("/");
+    const card = page.getByTestId("sign-in-page");
+    await expect(card.getByText("Username and password from Staff directory.")).toBeVisible();
+    await expect(card.getByText("Forgot your password?")).toHaveCount(0);
+    await expect(card.getByTestId("sign-in-account")).toHaveCount(0);
+    await expect(card.getByTestId("password-submit")).toHaveClass(/btn-primary/);
+    await card.getByTestId("username-input").fill("ada");
+    await card.getByTestId("password-input").fill("right password here");
+    await card.getByTestId("password-submit").click();
+    await expect(page.getByTestId("whoami")).toHaveText("ada");
+    expect(bodyOf(calls, "POST /api/v1/sign-in/password").at(-1)).toEqual({ username: "ada", password: "right password here", directory: dir });
+  });
+
+  test("a local account and a directory share one form, and the choice decides where the password goes", async ({ page }) => {
+    const dir = uid(9);
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/sign-in": { json: { providers: [], apiTokens: true, localAccounts: true, directories: [{ id: dir, name: "Staff directory" }] } },
+      "GET /api/v1/whoami": () => error(401, "unauthenticated", "a bearer token is required"),
+      "POST /api/v1/sign-in/password": { ...error(401, "invalid_credentials", "The username or password is incorrect."), delayMs: 50 },
+    });
+    await page.goto("/");
+    const card = page.getByTestId("sign-in-page");
+    const choice = card.getByTestId("sign-in-account");
+    await expect(choice).toHaveValue("local");
+    await expect(card.getByText("Forgot your password?")).toBeVisible();
+    await card.getByTestId("username-input").fill("rita");
+    await card.getByTestId("password-input").fill("right password here");
+    await card.getByTestId("password-submit").click();
+    await expect(card.getByTestId("password-sign-in-error")).toHaveText("The username or password is incorrect.");
+    expect(bodyOf(calls, "POST /api/v1/sign-in/password")[0]).toEqual({ username: "rita", password: "right password here" });
+
+    await choice.selectOption(dir);
+    await expect(card.getByText("Forgot your password?")).toHaveCount(0);
+    await card.getByTestId("password-input").fill("right password here");
+    await card.getByTestId("password-submit").click();
+    await expect.poll(() => bodyOf(calls, "POST /api/v1/sign-in/password").length).toBe(2);
+    expect(bodyOf(calls, "POST /api/v1/sign-in/password")[1]).toEqual({ username: "rita", password: "right password here", directory: dir });
+  });
 });
 
 test.describe("set-password page", () => {

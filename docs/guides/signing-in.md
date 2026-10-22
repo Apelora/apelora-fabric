@@ -9,7 +9,7 @@ The screenshots on this page were taken against a stubbed control plane (`tests/
 | The control plane runs… | Fabric Console | Studio |
 |---|---|---|
 | without a database (development mode) | No sign-in; the Overview shows *Authentication: Disabled (development only)* | Connect with any text as the token (nothing is checked) |
-| with a database (normal) | Sign-in page: your organisation's identity provider, a username and password (local accounts), or an API token | *Connect to a control plane*: your identity provider, a username and password, or an access token |
+| with a database (normal) | Sign-in page: your organisation's identity provider, a username and password (a local account or a directory), or an API token | *Connect to a control plane*: your identity provider, a username and password (a local account or a directory), or an access token |
 
 ## 1. Development mode: no sign-in
 
@@ -69,7 +69,7 @@ The Studio starts with designs kept in the browser; the header chip says *This b
 
 ### Signing in with a username and password (local accounts)
 
-When an administrator has turned local accounts on, the sign-in page shows **Username** and **Password** (first when there is no identity provider, otherwise below the provider button after *or*). The Studio's *Connect to a control plane* shows the same fields.
+When an administrator has turned local accounts on, the sign-in page shows **Username** and **Password** (first when there is no identity provider, otherwise below the provider button after *or*). The Studio's *Connect to a control plane* shows the same fields. A directory uses the same fields; see [Directories](#7-directories-ldap-over-tls).
 
 - **Your first password.** An administrator creates your account and sends you a one-time **setup link**. Open it, type your new password twice and choose **Set password**, then **Go to sign-in**. The link works once and for 24 hours; if it says *This setup link does not work*, ask for a new one. The token in the link stays in the part of the address after `#`, which the browser never sends to a server.
 - **The password rule.** 12 to 128 characters, and not your username. Length counts, not symbols: a few unrelated words make a good password.
@@ -219,7 +219,7 @@ Refusals are not written to the audit history (anyone could fill it with bad req
 
 People can also sign in with the username and password of an existing directory that speaks LDAP. Apelora connects over TLS, signs in to the directory **as that person** (it binds with their name and password), reads their entry and groups with that same sign-in, and forgets the password. No directory service account or password is stored. Design: [ADR 0007](../adr/0007-sign-in-methods.md), [design note](../design/sign-in-methods.md).
 
-> **State:** directories are configured and checked in the Console (built, REAL DIRECTORY TESTED against the development directory). The sign-in page does not offer a directory's username and password form: people sign in through the identity provider, or with a token.
+> **State:** directories are configured and checked in the Console, and the directory bind is REAL DIRECTORY TESTED against the development directory. The Fabric Console and the Studio offer each enabled directory on the sign-in form (the same username and password fields as a local account; the form itself is checked against a stubbed control plane). The same per-address limit as a local password applies.
 
 ### Adding a directory
 

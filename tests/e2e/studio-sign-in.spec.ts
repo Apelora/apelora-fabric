@@ -108,3 +108,37 @@ test("with local accounts on, the Studio signs in with a username and password",
   expect(signIns).toBe(2);
   expect(await page.evaluate(() => sessionStorage.getItem("apelora.apiToken"))).toBe(session);
 });
+
+test("with a directory and no local accounts, the Studio sends the password to that directory", async ({ page }) => {
+  const dir = "11111111-1111-4111-8111-111111111111";
+  const session = `apu_${"d".repeat(64)}`;
+  const bodies: unknown[] = [];
+  await page.route("**/api/**", async (route) => {
+    const req = route.request();
+    const p = new URL(req.url()).pathname;
+    if (p === "/api/v1/health") return route.fulfill({ json: { status: "ok", service: "control-plane", version: "0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true, apiVersion: "1", serverVersion: "7" } } });
+    if (p === "/api/v1/sign-in") return route.fulfill({ json: { providers: [], apiTokens: true, localAccounts: false, directories: [{ id: dir, name: "Staff directory" }] } });
+    if (p === "/api/v1/sign-in/password") {
+      const b = JSON.parse(req.postData() ?? "{}");
+      bodies.push(b);
+      return route.fulfill({ json: { token: session, expiresAt: "2026-10-21T08:00:00Z", name: "Ada" } });
+    }
+    if (p === "/api/v1/whoami") {
+      return req.headers()["authorization"] === `Bearer ${session}`
+        ? route.fulfill({ json: { name: "ada", role: null, permissions: [], deployProjects: [], capabilities: [], platformPermissions: [] } })
+        : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "a bearer token is required" } } });
+    }
+    if (p === "/api/v1/applications") return route.fulfill({ json: { items: [], observedAt: "2026-10-21T00:00:00Z", stale: false } });
+    return route.fulfill({ status: 404, json: { error: { code: "not_found", message: `no stub for ${p}` } } });
+  });
+  await page.goto("/studio/applications");
+  await page.getByTestId("source-chip").click();
+  const dialog = page.getByTestId("connect-dialog");
+  await expect(dialog.getByText("Username and password from Staff directory.")).toBeVisible();
+  await expect(dialog.getByTestId("connect-account")).toHaveCount(0);
+  await dialog.getByTestId("connect-username").fill("ada");
+  await dialog.getByTestId("connect-password").fill("right password here");
+  await dialog.getByTestId("connect-password-submit").click();
+  await expect(page.getByTestId("source-chip")).toHaveAttribute("data-source", "api");
+  expect(bodies).toEqual([{ username: "ada", password: "right password here", directory: dir }]);
+});

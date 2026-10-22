@@ -72,11 +72,15 @@ const Divider = () => (
   </div>
 );
 
+/** One way to sign in with a username and password: a local account, or one directory. */
+type PasswordAccount = { id: string; label: string; directory?: string };
+
 /**
- * Username and password for a local account. The answer is the same whether the account is
- * unknown, the password wrong or the account locked: the server says which it is to nobody.
+ * Username and password for a local account or a directory. The answer is the same whether the
+ * account is unknown, the password wrong or the account locked: the server says which it is to nobody.
  */
-function PasswordForm({ primary, onToken }: { primary: boolean; onToken: (token: string) => void }) {
+function PasswordForm({ primary, accounts, onToken }: { primary: boolean; accounts: PasswordAccount[]; onToken: (token: string) => void }) {
+  const [account, setAccount] = useState(accounts[0]?.id ?? "");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [missing, setMissing] = useState<{ username?: boolean; password?: boolean }>({});
@@ -84,6 +88,7 @@ function PasswordForm({ primary, onToken }: { primary: boolean; onToken: (token:
   const [error, setError] = useState<string | null>(null);
   const userInput = useRef<HTMLInputElement>(null);
   const passwordInput = useRef<HTMLInputElement>(null);
+  const chosen = accounts.find((a) => a.id === account) ?? accounts[0];
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +100,9 @@ function PasswordForm({ primary, onToken }: { primary: boolean; onToken: (token:
     setBusy(true);
     setError(null);
     try {
-      const r = await client.request("sign_in_with_password", { body: { username: name, password } });
+      const r = await client.request("sign_in_with_password", {
+        body: { username: name, password, ...(chosen?.directory ? { directory: chosen.directory } : {}) },
+      });
       onToken(r.token);
     } catch (err) {
       setError(err instanceof ApiRequestError && err.code === "network_error" ? "The control plane could not be reached. Check your connection and try again." : messageOf(err));
@@ -107,6 +114,20 @@ function PasswordForm({ primary, onToken }: { primary: boolean; onToken: (token:
 
   return (
     <form className="flex w-full flex-col gap-3 text-left" data-testid="password-sign-in" noValidate onSubmit={(e) => void submit(e)}>
+      {accounts.length > 1 && (
+        <div className="flex flex-col gap-1">
+          <label className="text-sm font-medium" htmlFor="sign-in-account">Sign in with</label>
+          <select
+            id="sign-in-account" className="select w-full" value={chosen?.id ?? ""}
+            onChange={(e) => { setAccount(e.target.value); setError(null); }} data-testid="sign-in-account"
+          >
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </select>
+        </div>
+      )}
+      {accounts.length === 1 && chosen?.directory && (
+        <p className="text-xs text-base-content/60">Username and password from {chosen.label}.</p>
+      )}
       <div className="flex flex-col gap-1">
         <label className="text-sm font-medium" htmlFor="username-input">Username</label>
         <input
@@ -136,15 +157,15 @@ function PasswordForm({ primary, onToken }: { primary: boolean; onToken: (token:
         {busy && <span className="loading loading-spinner loading-xs" aria-hidden="true" />}
         Sign in
       </button>
-      <p className="text-center text-xs text-base-content/60">Forgot your password? Ask an administrator.</p>
+      {!chosen?.directory && <p className="text-center text-xs text-base-content/60">Forgot your password? Ask an administrator.</p>}
     </form>
   );
 }
 
 /**
  * The sign-in page: the organisation's identity providers first, then a username and password
- * when local accounts are on, and an API token as the alternative (or the only way when nothing
- * else is set up). Nothing is stored beyond this tab.
+ * for a local account or a directory, and an API token as the alternative (or the only way when
+ * nothing else is set up). Nothing is stored beyond this tab.
  */
 export function SignInPage({ reason, health, onToken }: { reason: SignInReason; health: Health | null; onToken: (token: string) => void }) {
   const [options, setOptions] = useState<SignInOptions | null>(null);
@@ -163,9 +184,13 @@ export function SignInPage({ reason, health, onToken }: { reason: SignInReason; 
   const loading = !options && !optionsError;
   const providers = options?.providers ?? [];
   const local = !!options?.localAccounts;
+  const accounts: PasswordAccount[] = [
+    ...(local ? [{ id: "local", label: "Apelora account" }] : []),
+    ...(options?.directories ?? []).map((d) => ({ id: d.id, label: d.name, directory: d.id })),
+  ];
   // Without the options an API token is still worth offering: the server decides.
   const tokens = options ? options.apiTokens : !!optionsError;
-  const tokenFirst = providers.length === 0 && !local;
+  const tokenFirst = providers.length === 0 && accounts.length === 0;
   const tokenOpen = tokens && (tokenFirst || showToken);
   const message = error ?? reasonText(reason);
   const calm = !error && reason === "signed-out";
@@ -237,8 +262,8 @@ export function SignInPage({ reason, health, onToken }: { reason: SignInReason; 
           </div>
         )}
 
-        {local && providers.length > 0 && <Divider />}
-        {local && <PasswordForm primary={providers.length === 0} onToken={onToken} />}
+        {accounts.length > 0 && providers.length > 0 && <Divider />}
+        {accounts.length > 0 && <PasswordForm primary={providers.length === 0} accounts={accounts} onToken={onToken} />}
 
         {!tokenFirst && tokens && !showToken && (
           <button type="button" className="link link-hover -my-3 py-3 text-sm text-base-content/70" onClick={() => setShowToken(true)} data-testid="sign-in-use-token">
@@ -269,7 +294,7 @@ export function SignInPage({ reason, health, onToken }: { reason: SignInReason; 
 
         {optionsError && <p className="text-xs text-base-content/60">The sign-in options could not be read ({optionsError}); an API token may still work.</p>}
 
-        {options && providers.length === 0 && !tokens && !local && (
+        {options && providers.length === 0 && !tokens && accounts.length === 0 && (
           <div className="flex flex-col gap-2 text-sm" data-testid="sign-in-none">
             <p className="font-medium">Sign-in is not set up yet</p>
             <p className="text-base-content/70">API tokens and local accounts are turned off and no identity provider is configured. An administrator sets one with the <span className="font-mono text-xs">APELORA_OIDC_*</span> settings of the control plane, or turns API tokens back on.</p>

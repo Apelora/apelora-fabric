@@ -9,8 +9,8 @@ type Provider = SignInOptions["providers"][number];
 
 /**
  * Connects the Studio to a control plane: with the organisation's identity provider when the
- * control plane offers one, with a username and password when local accounts are on, or with an
- * access token. The token is kept only for this browser tab.
+ * control plane offers one, with a username and password for a local account or a directory, or
+ * with an access token. The token is kept only for this browser tab.
  */
 export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const { connect, backend, who, disconnect } = useBackend();
@@ -19,6 +19,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   const [token, setToken] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [account, setAccount] = useState("");
   const [busy, setBusy] = useState(false);
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,8 +40,12 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { if (showToken) tokenInput.current?.focus(); }, [showToken]);
 
   const providers = options?.providers ?? [];
-  const local = !!options?.localAccounts;
-  const tokenFirst = providers.length === 0 && !local;
+  const accounts = [
+    ...(options?.localAccounts ? [{ id: "local", label: "Apelora account" }] : []),
+    ...(options?.directories ?? []).map((d) => ({ id: d.id, label: d.name, directory: d.id })),
+  ];
+  const chosen = accounts.find((a) => a.id === account) ?? accounts[0];
+  const tokenFirst = providers.length === 0 && accounts.length === 0;
   const tokenOpen = options !== null && (tokenFirst || showToken);
 
   const startOidc = async (p: Provider) => {
@@ -63,7 +68,9 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await client.request("sign_in_with_password", { body: { username: username.trim(), password } });
+      const r = await client.request("sign_in_with_password", {
+        body: { username: username.trim(), password, ...(chosen?.directory ? { directory: chosen.directory } : {}) },
+      });
       await connect(r.token);
       onClose();
     } catch (err) {
@@ -105,9 +112,18 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             )}
-            {local && (
+            {accounts.length > 0 && (
               <form className="flex flex-col gap-2" noValidate onSubmit={(e) => void submitPassword(e)} data-testid="connect-password-form">
-                {providers.length > 0 && <p className="text-xs text-base-content/60">Or with your Apelora account:</p>}
+                {providers.length > 0 && accounts.length === 1 && !chosen?.directory && <p className="text-xs text-base-content/60">Or with your Apelora account:</p>}
+                {accounts.length === 1 && chosen?.directory && <p className="text-xs text-base-content/60">Username and password from {chosen.label}.</p>}
+                {accounts.length > 1 && (
+                  <label className="flex flex-col gap-1 text-sm">
+                    <span>Sign in with</span>
+                    <select className="select select-sm w-full" value={chosen?.id ?? ""} onChange={(e) => setAccount(e.target.value)} data-testid="connect-account">
+                      {accounts.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                    </select>
+                  </label>
+                )}
                 <label className="flex flex-col gap-1 text-sm">
                   <span>Username</span>
                   <input ref={userInput} type="text" name="username" className="input input-sm w-full" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} data-testid="connect-username" autoFocus={providers.length === 0} />

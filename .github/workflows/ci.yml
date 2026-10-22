@@ -88,6 +88,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - name: Counts stated in the documentation match the code
+        run: npx vitest run packages/module-catalog/src/stated-counts.test.ts
       - name: Licences of the npm packages the apps ship
         run: node scripts/licenses/check-npm.mjs
       - name: Known vulnerabilities in the npm packages the apps ship
