@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Example unit. Install as /etc/systemd/system/apelora-deployment-worker.service.
+# Use the same environment file as the control plane, without the administrator Incus
+# identity (APELORA_INCUS_ADMIN_CLIENT_CERT / KEY). Several workers may run at once.
+# Not run on a production host (issue #17).
+[Unit]
+Description=Apelora deployment worker
+Documentation=file:///usr/local/share/doc/apelora/installing-apelora.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=apelora
+Group=apelora
+EnvironmentFile=/etc/apelora/apelora.env
+ExecStart=/usr/local/bin/apelora-deployment-worker
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=30
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

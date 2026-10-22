@@ -112,37 +112,9 @@ With no recipient, the dump is written unencrypted (mode `0600`), and encryption
 
 ## 5. Schedule (systemd example)
 
-`/etc/systemd/system/apelora-db-backup.service`:
-```ini
-[Unit]
-Description=Back up Apelora's database
-Wants=network-online.target
-After=network-online.target
-RequiresMountsFor=/srv/apelora-backups
+Example units are in [`infra/systemd/`](../../infra/systemd/): `apelora-db-backup.service` with `apelora-db-backup.timer` (02:15 UTC, 15 minutes of jitter), and `apelora-db-restore-drill.service` with `apelora-db-restore-drill.timer` (Sunday 04:00 UTC). Copy them to `/etc/systemd/system/`. CI parses them; they have not been run on a production host.
 
-[Service]
-Type=oneshot
-EnvironmentFile=/etc/apelora/db-backup.env
-ExecStart=/opt/apelora/ops/db-backup.sh
-UMask=0077
-# OnFailure=apelora-alert@%n.service    # your alerting hook
-```
-
-`/etc/systemd/system/apelora-db-backup.timer`:
-```ini
-[Unit]
-Description=Daily backup of Apelora's database
-
-[Timer]
-OnCalendar=*-*-* 02:15:00 UTC
-RandomizedDelaySec=15m
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-Add a drill the same way: `apelora-db-restore-drill.service` running `/opt/apelora/ops/db-restore-drill.sh`, with `OnCalendar=Sun *-*-* 04:00:00 UTC`. Enable both timers:
+Enable both timers:
 
 ```sh
 systemctl daemon-reload

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Example oneshot. Pair with apelora-db-restore-drill.timer.
+[Unit]
+Description=Restore-drill Apelora's database backup
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/apelora-backups
+
+[Service]
+Type=oneshot
+User=apelora
+Group=apelora
+EnvironmentFile=/etc/apelora/db-backup.env
+ExecStart=/opt/apelora/ops/db-restore-drill.sh
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+ReadWritePaths=/srv/apelora-backups
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=

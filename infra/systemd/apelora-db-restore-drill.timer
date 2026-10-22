@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Weekly restore drill. Enable: systemctl enable --now apelora-db-restore-drill.timer
+[Unit]
+Description=Weekly restore drill of Apelora's database
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

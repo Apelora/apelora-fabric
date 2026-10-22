@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Example oneshot. Pair with apelora-db-backup.timer. See docs/runbooks/apelora-database-backup.md.
+[Unit]
+Description=Back up Apelora's database
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/apelora-backups
+
+[Service]
+Type=oneshot
+User=apelora
+Group=apelora
+EnvironmentFile=/etc/apelora/db-backup.env
+ExecStart=/opt/apelora/ops/db-backup.sh
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=yes
+ReadWritePaths=/srv/apelora-backups
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
