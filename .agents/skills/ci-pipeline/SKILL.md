@@ -30,5 +30,6 @@ description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the 
 ## Acceptance
 
 - Every `uses:` is SHA-pinned; no `ubuntu-latest`; every job has a timeout.
+- actionlint passes (it runs in `ci.yml`; run it locally before pushing a workflow), and a new job shows up in `gh pr checks` — an invalid file is refused without any job reporting red.
 - A documentation-only change runs only the dependency job; a workflow change runs everything.
 - `CI passed` is green, and the nightly full suite passes on main.

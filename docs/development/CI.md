@@ -6,7 +6,7 @@ CI has to be fast enough that nobody waits on it and strict enough that main sta
 
 | Workflow | When | What | Typical time |
 |---|---|---|---|
-| `ci.yml` | every pull request and push to main, by hand | the areas the change touches: frontend (typecheck, lint, unit, build, generated files), Rust lint (fmt, clippy) and Rust test (with PostgreSQL and the database backup drill) as separate jobs, dependencies and secrets, the `@smoke` browser tests; `CI passed` sums them up | a few minutes; the smoke tests take about 35 s locally |
+| `ci.yml` | every pull request and push to main, by hand | the areas the change touches: frontend (typecheck, lint, unit, build, generated files), Rust lint (fmt, clippy) and Rust test (with PostgreSQL and the database backup drill) as separate jobs, dependencies, secrets and workflow files (actionlint), the `@smoke` browser tests; `CI passed` sums them up | a few minutes; the smoke tests take about 35 s locally |
 | `e2e-full.yml` | nightly on main, by hand, on a pull request labelled `full-e2e` | the whole Playwright suite, split by test over four runners | about a quarter of the single-runner time |
 | `real-incus.yml` | pull requests that touch the Incus adapter, domain, persistence, worker or lab setup; nightly; by hand | Incus 7.0 LTS on the runner (`scripts/test-cluster/install-incus.sh`, then `up.sh` with `APELORA_TEST_LOCAL=1`), then the one-member REAL INCUS TESTED tests: container and OCI lifecycle, refused architecture, join tokens, volumes, in-place resize, logs, a cluster setting | not measured yet |
 | `codeql.yml` | pull requests, main, weekly | CodeQL for Rust, TypeScript and the workflows, shipping code only | |

@@ -79,6 +79,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: No secrets in tracked files (private keys, API and join tokens)
         run: bash scripts/security/scan-secrets.sh
+      # GitHub rejects an invalid workflow file without running a job, so nothing else reports it.
+      - name: Workflow files are valid (actionlint, with shellcheck on run steps)
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color
       - name: Rust licences, advisories, bans and sources (deny.toml)
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:

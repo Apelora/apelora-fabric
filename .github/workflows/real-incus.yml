@@ -52,9 +52,11 @@ jobs:
           --health-interval 2s --health-timeout 2s --health-retries 30
     env:
       DATABASE_URL: postgres://apelora:apelora-ci-only@127.0.0.1:5432/apelora
-      APELORA_TEST_DIR: ${{ runner.temp }}/incus
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The runner context is not available in job-level env, so the directory is set here.
+      - name: Where the identities go
+        run: echo "APELORA_TEST_DIR=$RUNNER_TEMP/incus" >> "$GITHUB_ENV"
       - name: Install Incus 7.0 LTS on the runner
         run: bash scripts/test-cluster/install-incus.sh
       - name: One-member Incus with the deploy project and both identities (up.sh, local mode)
