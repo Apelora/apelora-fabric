@@ -1,0 +1,97 @@
+name: Real Incus
+
+# Regression run against a real Incus 7.0 LTS on the throwaway CI runner (one member, system and
+# application containers): instance lifecycle, volumes, resize, logs, join tokens and cluster
+# settings through the job queue, the REAL INCUS TESTED tests that need no second member, VM,
+# shared pool or backup pool (docs/development/CI.md). Runs when the Incus adapter, the worker,
+# the domain or the lab scripts change, nightly, and on demand. The runner is the only machine
+# it changes; credentials are generated on it and never leave it.
+on:
+  pull_request:
+    paths:
+      - "crates/incus-adapter/**"
+      - "crates/domain/**"
+      - "crates/persistence/**"
+      - "services/deployment-worker/**"
+      - "scripts/test-cluster/up.sh"
+      - "scripts/test-cluster/install-incus.sh"
+      - ".github/workflows/real-incus.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/config.toml"
+  schedule:
+    - cron: "47 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-incus-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+
+jobs:
+  single-member:
+    name: Real Incus (one member, containers)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: apelora
+          POSTGRES_PASSWORD: apelora-ci-only
+          POSTGRES_DB: apelora
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U apelora -d apelora"
+          --health-interval 2s --health-timeout 2s --health-retries 30
+    env:
+      DATABASE_URL: postgres://apelora:apelora-ci-only@127.0.0.1:5432/apelora
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The runner context is not available in job-level env, so the directory is set here.
+      - name: Where the identities go
+        run: echo "APELORA_TEST_DIR=$RUNNER_TEMP/incus" >> "$GITHUB_ENV"
+      - name: Install Incus 7.0 LTS on the runner
+        run: bash scripts/test-cluster/install-incus.sh
+      - name: One-member Incus with the deploy project and both identities (up.sh, local mode)
+        env:
+          APELORA_TEST_LOCAL: "1"
+        run: bash scripts/test-cluster/up.sh
+      - name: Install the pinned toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: real-incus
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: REAL INCUS TESTED, one member
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          source "$APELORA_TEST_DIR/env"
+          tests=(
+            system_container_lifecycle
+            unsupported_architecture_is_refused_before_creating
+            oci_container_lifecycle
+            oci_container_pinned_by_digest_lifecycle
+            join_tokens_need_the_admin_identity_and_can_be_revoked
+            volumes_follow_the_instance_and_outlive_it
+            a_running_container_is_resized_in_place_and_answers_readiness_commands
+            a_real_instance_has_a_detail_log_files_and_a_bounded_console_log
+            a_cluster_setting_is_changed_by_the_admin_identity_and_restored
+          )
+          log=$RUNNER_TEMP/real-incus.log
+          cargo test --locked -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1 --exact "${tests[@]}" | tee "$log"
+          # `--exact` with a renamed name runs zero tests and still exits 0.
+          grep -E "test result: ok\\. ${#tests[@]} passed" "$log"
+      - name: What was left on Incus (should be nothing of the tests)
+        if: always()
+        run: sudo incus list --all-projects --format csv -c en || true

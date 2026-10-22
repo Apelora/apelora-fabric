@@ -1,6 +1,6 @@
 ---
 name: ci-pipeline
-description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the nightly full browser suite (e2e-full.yml), CodeQL, Dependabot and its auto-merge — while keeping it fast, pinned and secret-free. Use when editing anything under .github/, scripts/ci/, the @smoke tags, or when CI is slow, flaky or failing.
+description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the nightly full browser suite (e2e-full.yml), the real Incus run on the runner (real-incus.yml), CodeQL, Dependabot and its auto-merge — while keeping it fast, pinned and secret-free. Use when editing anything under .github/, scripts/ci/, the @smoke tags, or when CI is slow, flaky or failing.
 ---
 
 # CI pipeline
@@ -16,7 +16,7 @@ description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the 
 | Actions | Full commit SHA + `# vX.Y.Z` comment; resolve with `gh api repos/<owner>/<action>/commits/<tag> --jq .sha`. Runner `ubuntu-24.04` (or `-arm`), never `-latest` |
 | Jobs | `timeout-minutes` on every job; least `permissions` (workflow default `contents: read`, widen per job); add new jobs to `ci-ok.needs` |
 | Caches | `Swatinem/rust-cache` with `save-if: main`; Playwright browsers through `.github/actions/playwright-browsers`; `setup-node` `cache: npm` |
-| Secrets | None in CI; no Incus credentials; no real infrastructure; no `pull_request_target`. A `workflow_run` job with write permissions never checks out pull request code |
+| Secrets | None in CI; no `pull_request_target`. Nothing outside the runner is touched. The only Incus is the one `real-incus.yml` installs on the throwaway runner, with identities generated there that never leave it; never give CI credentials for the lab or any other Incus. A `workflow_run` job with write permissions never checks out pull request code |
 | Dependabot | Groups: per ecosystem minor/patch; crates that only build together in their own group (`rustcrypto`); a pin that follows another crate goes under `ignore` with the reason. Auto-merge only patch/minor after CI passed on the exact head commit |
 | CodeQL | Advanced setup only (`codeql.yml`); test code is excluded by file name (`codeql-config.yml`). Fix shipping-code findings in code; dismiss only intended behaviour, with the reason |
 
@@ -30,5 +30,6 @@ description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the 
 ## Acceptance
 
 - Every `uses:` is SHA-pinned; no `ubuntu-latest`; every job has a timeout.
+- actionlint passes (it runs in `ci.yml`; run it locally before pushing a workflow), and a new job shows up in `gh pr checks` — an invalid file is refused without any job reporting red.
 - A documentation-only change runs only the dependency job; a workflow change runs everything.
 - `CI passed` is green, and the nightly full suite passes on main.
