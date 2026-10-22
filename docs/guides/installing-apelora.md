@@ -2,7 +2,7 @@
 
 Install the control plane, the worker, PostgreSQL and the two screens on top of an Incus cluster. Do [servers and network](servers-and-network.md) and [install Incus](install-incus.md) first: this page needs the cluster's address, its certificate, the two client certificates and the project name they produce.
 
-**Evidence:** the services have run together against the four-server lab (REAL INCUS TESTED; see [current state](../architecture/current-state.md)). The release artefacts, the example service files and the example web-server configuration below have **not** been run on a production host. Treat a first installation as an evaluation, and say what you find.
+**Evidence:** the services have run together against the four-server lab (REAL INCUS TESTED; see [current state](../architecture/current-state.md)). The example systemd units and NGINX configuration are parsed in CI on ubuntu-24.04 (`scripts/ci/verify-install-examples.sh`); they have **not** been run on a production host (issue #17). Treat a first installation as an evaluation, and say what you find.
 
 Values you choose are written as variables, for example `$DB_HOST`. Nothing here needs a fixed address, name or path.
 
@@ -93,31 +93,13 @@ The control plane refuses to listen on an address other than loopback without TL
 
 ## 4. Run the services
 
-Run both under a service manager so they restart. An example for systemd, **not run on a production host**, one file per service with the same environment file:
+Run both under a service manager so they restart. Example systemd units live in [`infra/systemd/`](../../infra/systemd/): `apelora-control-plane.service` and `apelora-deployment-worker.service`, same environment file, a dedicated `apelora` account that can read `/etc/apelora/apelora.env` and the Incus certificates (put those under `/etc/apelora`, not a home directory — the units set `ProtectHome=true`). Copy them to `/etc/systemd/system/` and `systemctl enable --now` each. CI parses the units (`systemd-analyze verify`) on ubuntu-24.04; they have **not** been run on a production host (issue #17).
 
-```ini
-# /etc/systemd/system/apelora-control-plane.service
-[Unit]
-Description=Apelora control plane
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-EnvironmentFile=/etc/apelora/apelora.env
-ExecStart=/usr/local/bin/apelora-control-plane
-Restart=on-failure
-User=apelora            # a dedicated account that can read the certificates and keys named in the environment file
-NoNewPrivileges=yes
-
-[Install]
-WantedBy=multi-user.target
-```
-
-The worker's unit is the same with `apelora-deployment-worker` and its own description. Both write one line per event to standard output (`APELORA_LOG_FORMAT=json` for structured logs). Metrics and health endpoints: [monitoring](../architecture/MONITORING.md). Several workers can run at once; they share the job queue safely.
+Both write one line per event to standard output (`APELORA_LOG_FORMAT=json` for structured logs). Metrics and health endpoints: [monitoring](../architecture/MONITORING.md). Several workers can run at once; they share the job queue safely. Do not give the worker the administrator Incus identity.
 
 ## 5. Serve Studio and Console
 
-Serve the two directories as static files over HTTPS, each on its own host name, and pass `/api/` to the control plane, so each browser talks to one origin only. The repository's example, [`infra/serve/apelora.conf`](../../infra/serve/apelora.conf) (NGINX syntax, not run on a production host), also sets the security headers and the content security policy, which a browser test checks.
+Serve the two directories as static files over HTTPS, each on its own host name, and pass `/api/` to the control plane, so each browser talks to one origin only. The repository's example, [`infra/serve/apelora.conf`](../../infra/serve/apelora.conf) (NGINX syntax), also sets the security headers and the content security policy, which a browser test checks. CI runs `nginx -t` on that file with dummy certificates; it has **not** been run as a production proxy (issue #17).
 
 ## 6. Create the first administrator
 

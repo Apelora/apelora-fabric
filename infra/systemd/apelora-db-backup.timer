@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Daily backup of Apelora's database. Enable: systemctl enable --now apelora-db-backup.timer
+[Unit]
+Description=Daily backup of Apelora's database
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

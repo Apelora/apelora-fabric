@@ -82,6 +82,11 @@ jobs:
       # GitHub rejects an invalid workflow file without running a job, so nothing else reports it.
       - name: Workflow files are valid (actionlint, with shellcheck on run steps)
         run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9 -color
+      - name: Example systemd units and NGINX configuration parse
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq nginx openssl
+          APELORA_REQUIRE_INSTALL_CHECKS=1 bash scripts/ci/verify-install-examples.sh
       - name: Rust licences, advisories, bans and sources (deny.toml)
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
