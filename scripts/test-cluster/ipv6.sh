@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# IPv6 inside an application network on the disposable test cluster (issue #14): deploys a client
-# connected to a web module on port 80 and a module with no connection, then checks over IPv4
-# and IPv6 that the connection is allowed and the unconnected module is refused. Incus gives an
-# OVN network an IPv6 subnet of its own even when the uplink has none, so this is what modules
-# already see. Service addresses, the uplink and the servers' own addresses stay IPv4 here.
-# Every check prints PASS or FAIL; the first FAIL stops the run (cleanup still happens).
+# IPv6 on the disposable test cluster (issue #14): deploys a client connected to a web module
+# on port 80 and a module with no connection, then checks over IPv4 and IPv6 that the
+# connection is allowed and the unconnected module is refused. The lab uplink routes
+# `fd42:198:100::/112` (`ovn.sh` `ipv6.routes`; the bridge itself stays `ipv6.address=none`),
+# so this also checks an IPv6 service address (OVN load balancer, `/128` backends). The
+# servers' own cluster addresses stay IPv4. Every check prints PASS or FAIL; the first FAIL
+# stops the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,ovn}.sh done, the dev PostgreSQL (infra/dev/compose.yaml), jq,
 # and nothing else listening on 127.0.0.1:8080. Mutates only the test cluster.
@@ -81,14 +82,14 @@ SQL
 }
 trap cleanup EXIT
 
-say "IPv6 inside an application network — run directory $run"
+say "IPv6 connections and service address — run directory $run"
 if curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; then fail "something already listens on 127.0.0.1:8080"; fi
 (cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker)
 umask 077
 out=$("$repo/target/debug/apelora-control-plane" token create --name v6check --role fabric-admin 2>&1)
 echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
 echo "$out" | grep -o '^Created token [a-f0-9-]*' | awk '{print $3}' > "$run/token-id"
-export APELORA_NETWORK_UPLINK=incusbr0 RUST_LOG=info
+export APELORA_NETWORK_UPLINK=incusbr0 APELORA_SERVICE_ADDRESSES=fd42:198:100::/112 RUST_LOG=info
 "$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1 & cp_pid=$!
 "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 & worker_pid=$!
 sleep 3
@@ -101,7 +102,7 @@ body=$(jq -n --arg nginx "$nginx" "{
   modules: [
     {module: \"client-01\", spec: $debian},
     {module: \"other-01\", spec: $debian},
-    {module: \"web-01\", spec: {project: \"\", name: \"\", kind: \"container\", start: true,
+    {module: \"web-01\", availability: \"stateless\", spec: {project: \"\", name: \"\", kind: \"container\", start: true,
       source: {protocol: \"oci\", server: \"https://docker.io\", alias: \$nginx}}}],
   connections: [{from: \"client-01\", to: \"web-01\", transport: \"tcp\", port: 80}]}")
 res=$(api -X POST -H 'Idempotency-Key: v6check-1' -d "$body" "$API/applications/$APP/deployments")
@@ -127,4 +128,13 @@ for fam in 4 6; do
   r=$(reach "$APP-client-01" "$dst"); [ "$r" = OPEN ] && pass "IPv$fam: client-01 reaches web-01:80 (connected)" || fail "IPv$fam: client-01 → web-01:80 is $r"
   r=$(reach "$APP-other-01" "$dst"); [ "$r" = blocked ] && pass "IPv$fam: other-01 cannot reach web-01:80 (no connection)" || fail "IPv$fam: other-01 → web-01:80 is $r"
 done
-say "done: connections hold over IPv4 and IPv6 inside the application network"
+
+svc=$(api "$API/applications/$APP/status" | jq -r '.services[0].address // empty')
+[[ $svc == *:* ]] && pass "service address is IPv6 $svc" || fail "service address is not IPv6: ${svc:-none}"
+lb=$(incus_ network load-balancer show "$APP" "$svc" --project apelora)
+echo "$lb" | grep -q "$web6" && pass "load balancer backend is IPv6 $web6" || fail "load balancer lacks IPv6 backend: $lb"
+r=$(reach "$APP-client-01" "$svc")
+[ "$r" = OPEN ] && pass "client-01 reaches the IPv6 service address on port 80" || fail "client-01 → service $svc:80 is $r"
+r=$(reach "$APP-other-01" "$svc")
+[ "$r" = blocked ] && pass "other-01 cannot reach the IPv6 service address (no connection)" || fail "other-01 → service $svc:80 is $r"
+say "done: connections and the service address hold over IPv4 and IPv6"

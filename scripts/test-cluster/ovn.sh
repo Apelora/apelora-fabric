@@ -43,9 +43,12 @@ incus network set incusbr0 "ipv4.dhcp.ranges=$prefix.2-$prefix.99" "ipv4.ovn.ran
 # is reserved for network testing, so it never collides with a real network on the lab.
 SERVICES=${APELORA_TEST_SERVICES:-198.18.100.0/28}
 incus network set incusbr0 "ipv4.routes=$SERVICES"
-# Optional IPv6 service range (needs a route of the same family on the uplink; the lab
-# uplink has no IPv6 of its own, so this stays off unless set).
-SERVICES_V6=${APELORA_TEST_SERVICES_V6:-}
+# IPv6 service addresses need a routed range of that family on the uplink (`ipv6.routes`,
+# `/112`–`/126`). fd42:198:100::/112 is the analogue of 198.18.100.0/28. The lab bridge
+# itself stays `ipv6.address=none`: giving incusbr0 an IPv6 address on the live cluster
+# wedged Incus network create until the daemon was restarted. Set APELORA_TEST_SERVICES_V6=
+# to skip.
+SERVICES_V6=${APELORA_TEST_SERVICES_V6-fd42:198:100::/112}
 if [ -n "$SERVICES_V6" ]; then
   incus network set incusbr0 "ipv6.routes=$SERVICES_V6"
 fi
