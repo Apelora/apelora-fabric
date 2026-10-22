@@ -20,8 +20,12 @@
 //! (or vouching for) another server. The `maas` provider asks MAAS to read and switch the power
 //! (`{ "provider": "maas", "systemId": "abc123", "uuid": "…" }`, with `APELORA_MAAS_URL`,
 //! `APELORA_MAAS_API_KEY` and optionally `APELORA_MAAS_CA`): the BMC credentials stay in MAAS, and
-//! MAAS's record of the machine must report the mapped hardware UUID. The `lima` provider is for
-//! the disposable lab only and needs `APELORA_BMC_ALLOW_LAB=1`.
+//! MAAS's record of the machine must report the mapped hardware UUID. The `ipmi` provider speaks
+//! IPMI over the LAN to BMCs without Redfish (`{ "provider": "ipmi", "host": "10.0.0.21",
+//! "port": 623, "user": "apelora-fence", "secretRef": "APELORA_BMC_SECRET_…", "uuid": "…" }`):
+//! encrypted sessions only (cipher suite 17, else 3), the operator role, and the BMC's system
+//! GUID must be the mapped UUID before the power is read or switched ([`ipmi`]). The `lima`
+//! provider is for the disposable lab only and needs `APELORA_BMC_ALLOW_LAB=1`.
 //!
 //! Settings: `APELORA_BMC_MAP` (file; absent: no BMC fencing), `APELORA_BMC_FENCE_AFTER_SECS`
 //! (default 30, at least 20: how long a member is Offline before it is switched off) and
@@ -35,6 +39,8 @@ use std::time::Duration;
 use apelora_domain::fencing::{MIN_FENCE_AFTER_SECS, PowerOffReading};
 use serde::Deserialize;
 use serde_json::Value;
+
+mod ipmi;
 
 /// How long one request to a BMC may take.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -72,6 +78,15 @@ enum Entry {
     #[serde(rename_all = "camelCase")]
     Maas {
         system_id: String,
+        uuid: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Ipmi {
+        host: String,
+        #[serde(default = "ipmi_port")]
+        port: u16,
+        user: String,
+        secret_ref: String,
         uuid: String,
     },
     Lima {
@@ -141,6 +156,24 @@ fn valid_uuid(u: &str) -> bool {
             8 | 13 | 18 | 23 => c == b'-',
             _ => c.is_ascii_hexdigit(),
         })
+}
+
+fn ipmi_port() -> u16 {
+    623
+}
+
+/// A BMC address for IPMI: an IP address or a host name, nothing else.
+fn valid_host(h: &str) -> bool {
+    h.parse::<std::net::IpAddr>().is_ok()
+        || (!h.is_empty()
+            && h.len() <= 253
+            && h.split('.').all(|l| {
+                !l.is_empty()
+                    && l.len() <= 63
+                    && !l.starts_with('-')
+                    && !l.ends_with('-')
+                    && l.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-')
+            }))
 }
 
 fn valid_vm(vm: &str) -> bool {
@@ -226,6 +259,41 @@ impl Mapping {
                     if !valid_uuid(uuid) {
                         return Err(format!(
                             "{member}: uuid is the server's hardware UUID (8-4-4-4-12 hexadecimal)"
+                        ));
+                    }
+                }
+                Entry::Ipmi {
+                    host,
+                    port,
+                    user,
+                    secret_ref,
+                    uuid,
+                } => {
+                    if !valid_host(host) {
+                        return Err(format!(
+                            "{member}: host is the BMC's IP address or host name (no scheme, port or path)"
+                        ));
+                    }
+                    if *port == 0 {
+                        return Err(format!("{member}: port is 1 to 65535 (IPMI uses 623)"));
+                    }
+                    if user.is_empty()
+                        || user.len() > ipmi::MAX_USER
+                        || !user.bytes().all(|c| c.is_ascii_graphic())
+                    {
+                        return Err(format!(
+                            "{member}: user is 1 to {} printable characters (IPMI's limit)",
+                            ipmi::MAX_USER
+                        ));
+                    }
+                    if !valid_secret_name(secret_ref) {
+                        return Err(format!(
+                            "{member}: secretRef must be an environment variable name starting with {SECRET_PREFIX} (capitals, digits, underscores)"
+                        ));
+                    }
+                    if !valid_uuid(uuid) {
+                        return Err(format!(
+                            "{member}: uuid is the server's system GUID (8-4-4-4-12 hexadecimal)"
                         ));
                     }
                 }
@@ -497,6 +565,76 @@ impl Mapping {
     }
 }
 
+impl Mapping {
+    /// Opens an IPMI session and checks the system GUID against the mapping before anything else
+    /// is asked.
+    async fn ipmi(&self, member: &str, entry: &Entry) -> Result<ipmi::Session, String> {
+        let Entry::Ipmi {
+            host,
+            port,
+            user,
+            secret_ref,
+            uuid,
+        } = entry
+        else {
+            return Err("not an IPMI entry".into());
+        };
+        let password = self.password(secret_ref)?;
+        let addr = tokio::time::timeout(
+            REQUEST_TIMEOUT,
+            tokio::net::lookup_host((host.as_str(), *port)),
+        )
+        .await
+        .map_err(|_| format!("looking up {host} timed out"))?
+        .map_err(|e| format!("cannot look up {host}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("{host} has no address"))?;
+        let mut s = ipmi::connect(addr, user, &password).await?;
+        let reported = match s.guid().await {
+            Ok(g) => g,
+            Err(e) => {
+                s.close().await;
+                return Err(e);
+            }
+        };
+        if !ipmi::guid_matches(&reported, uuid) {
+            s.close().await;
+            return Err(format!(
+                "the BMC for {member} reports system GUID {:?}, not the mapped {uuid}: refusing, the mapping may point at another server",
+                ipmi::guid_text(&reported)
+            ));
+        }
+        tracing::debug!(member, suite = s.suite().number(), "IPMI session open");
+        Ok(s)
+    }
+}
+
+/// Reads the power, switches it off when it is on, and reads it back until it is off.
+async fn ipmi_fence(
+    s: &mut ipmi::Session,
+    member: &str,
+    settle: Duration,
+    every: Duration,
+) -> Result<bool, String> {
+    let switched = s.power_on().await?;
+    if switched {
+        s.power_off().await?;
+    }
+    let deadline = tokio::time::Instant::now() + settle;
+    loop {
+        if !s.power_on().await? {
+            return Ok(switched);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "{member} still does not report Off {} s after the power-off request",
+                settle.as_secs()
+            ));
+        }
+        tokio::time::sleep(every).await;
+    }
+}
+
 async fn lima(args: &[&str]) -> Result<String, String> {
     let out = tokio::time::timeout(
         Duration::from_secs(60),
@@ -543,6 +681,7 @@ impl Bmc {
             Bmc::Mapped(m) => match m.targets.get(member).map(|t| &t.entry) {
                 Some(Entry::Redfish { .. }) => "redfish",
                 Some(Entry::Maas { .. }) => "maas",
+                Some(Entry::Ipmi { .. }) => "ipmi",
                 Some(Entry::Lima { .. }) => "lima",
                 None => "unknown",
             },
@@ -552,7 +691,8 @@ impl Bmc {
     }
 
     /// What the provider addresses for the member (a Redfish system path or its configured
-    /// override, a lab VM name), for the evidence.
+    /// override, a MAAS system id, an IPMI system GUID, a lab VM name), for the evidence. Never
+    /// the BMC's address.
     pub fn system_of(&self, member: &str) -> String {
         match self {
             Bmc::Mapped(m) => match m.targets.get(member).map(|t| &t.entry) {
@@ -560,6 +700,7 @@ impl Bmc {
                     .clone()
                     .unwrap_or_else(|| "/redfish/v1/Systems".into()),
                 Some(Entry::Maas { system_id, .. }) => system_id.clone(),
+                Some(Entry::Ipmi { uuid, .. }) => uuid.to_lowercase(),
                 Some(Entry::Lima { vm }) => vm.clone(),
                 None => String::new(),
             },
@@ -607,6 +748,12 @@ impl Bmc {
                 match &t.entry {
                     Entry::Redfish { .. } => m.redfish(member, &t.entry).await?.state().await,
                     Entry::Maas { system_id, uuid } => m.maas_state(member, system_id, uuid).await,
+                    Entry::Ipmi { .. } => {
+                        let mut s = m.ipmi(member, &t.entry).await?;
+                        let on = s.power_on().await;
+                        s.close().await;
+                        Ok(if on? { PowerState::On } else { PowerState::Off })
+                    }
                     Entry::Lima { vm } => Ok(
                         match lima(&["list", "--format", "{{.Status}}", vm])
                             .await?
@@ -741,6 +888,17 @@ impl Bmc {
                             }
                             tokio::time::sleep(every).await;
                         }
+                    }
+                    Entry::Ipmi { uuid, .. } => {
+                        let mut s = m.ipmi(member, &t.entry).await?;
+                        let out = ipmi_fence(&mut s, member, settle, every).await;
+                        s.close().await;
+                        Ok(PowerOffReading {
+                            provider: "ipmi".into(),
+                            system: uuid.to_lowercase(),
+                            at: now(),
+                            switched_off: out?,
+                        })
                     }
                     Entry::Lima { vm } => {
                         let before = self.power_state(member).await?;

@@ -476,7 +476,7 @@ pub const SETTINGS: &[Setting] = &[
     hidden(
         "APELORA_BMC_MAP",
         Worker,
-        "File naming each server's BMC (ADR 0014): provider, address, user, the name of its password variable and its hardware UUID. No passwords in it; absent: no fencing through a BMC",
+        "File naming each server's BMC (ADR 0014): provider (redfish, ipmi, maas), address, user, the name of its password variable and its hardware UUID (for IPMI the system GUID). No passwords in it; absent: no fencing through a BMC",
     ),
     s(
         "APELORA_MAAS_URL",

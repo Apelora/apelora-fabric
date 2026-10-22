@@ -72,9 +72,9 @@ recovery was expected to land around 40–60 s. **Measured on the lab (2026-10-2
 - BMC credentials stay in the backend's secret store, never in the database, logs or the browser
   (non-negotiable 7).
 - The power-off is confirmed by reading the power state back; a "sent" reply is not enough.
-- Redfish first, IPMI later. The lab has no BMC, so build a Lima-VM provider that force-stops the
-  VM and exercises the same code path; the Redfish provider is CONTRACT VERIFIED until it runs on
-  real hardware.
+- Redfish first, IPMI later (built 2026-10-22, ADR 0014). The lab has no BMC, so build a Lima-VM
+  provider that force-stops the VM and exercises the same code path; the Redfish and IPMI
+  providers are CONTRACT VERIFIED until they run on real hardware.
 - The most dangerous code in the project: a wrong target powers off a healthy server. It needs the
   same mapping safeguards as the sanlock path: identity learned while Online, a typed or approved
   allowlist, and a refusal if the member is Online.

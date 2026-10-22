@@ -1015,7 +1015,10 @@ mod tests {
         deploy(&pool, &provider).await;
         {
             let mut instances = mock.instances.lock().expect("lock");
-            for i in instances.iter_mut().filter(|i| i.instance.name.contains("web")) {
+            for i in instances
+                .iter_mut()
+                .filter(|i| i.instance.name.contains("web"))
+            {
                 i.instance.location = "mock-member-01".into();
             }
         }
@@ -1035,7 +1038,9 @@ mod tests {
         );
         let audit = recent_audit(&pool, 20).await.expect("audit");
         assert!(
-            audit.iter().any(|e| e.action == "application.replica.rebalance"),
+            audit
+                .iter()
+                .any(|e| e.action == "application.replica.rebalance"),
             "audited: {audit:?}"
         );
     }

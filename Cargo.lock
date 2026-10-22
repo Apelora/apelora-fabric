@@ -78,6 +78,7 @@ dependencies = [
  "apelora-maas-adapter",
  "apelora-metrics",
  "apelora-persistence",
+ "aws-lc-rs",
  "axum",
  "hmac 0.13.0",
  "rcgen",

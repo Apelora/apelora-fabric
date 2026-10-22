@@ -80,7 +80,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_BACKUP_POOL` | none | Pool scheduled backups are copied to |
 | `APELORA_BMC_ALLOW_LAB` | none | Allows the lab-only provider that stops a Lima VM (the disposable test cluster); never in production |
 | `APELORA_BMC_FENCE_AFTER_SECS` | `30` | A server Offline for this long (at least 20) is switched off through its BMC and fenced |
-| `APELORA_BMC_MAP` | none | File naming each server's BMC (ADR 0014): provider, address, user, the name of its password variable and its hardware UUID. No passwords in it; absent: no fencing through a BMC (never shown) |
+| `APELORA_BMC_MAP` | none | File naming each server's BMC (ADR 0014): provider (redfish, ipmi, maas), address, user, the name of its password variable and its hardware UUID (for IPMI the system GUID). No passwords in it; absent: no fencing through a BMC (never shown) |
 | `APELORA_FENCE_LOCKSPACE` | none | The shared volume group's lockspace the fence probe reads; default the only one joined |
 | `APELORA_FENCE_PROBE` | `off` | How the worker reads the shared storage's leases to fence a failed server (off or ssh) |
 | `APELORA_FENCE_PROBE_KEY` | none | Private key of the fence probe's forced SSH command (never shown) |
