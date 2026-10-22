@@ -40,7 +40,7 @@ export function ConnectDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => { if (showToken) tokenInput.current?.focus(); }, [showToken]);
 
   const providers = options?.providers ?? [];
-  const accounts = [
+  const accounts: { id: string; label: string; directory?: string }[] = [
     ...(options?.localAccounts ? [{ id: "local", label: "Apelora account" }] : []),
     ...(options?.directories ?? []).map((d) => ({ id: d.id, label: d.name, directory: d.id })),
   ];
