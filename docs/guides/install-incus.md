@@ -2,7 +2,7 @@
 
 Apelora Fabric runs your modules on [Incus](https://linuxcontainers.org/incus/), the open-source system that runs containers and virtual machines on a cluster of Linux servers. It does not install or upgrade Incus for you: you install it on each server, form the cluster, and give Apelora a project to deploy into and a certificate to reach it. This page shows how.
 
-**Evidence:** these are the steps the four-server lab was built with (`scripts/test-cluster/`), written with variables where your values differ. REAL INCUS TESTED on that lab, on virtual machines with one network card each. Physical servers and a physical uplink have not been tried; those parts follow Incus's own documentation and say so. A highly available OVN database with TLS is scripted for the lab (`ovn-ha.sh`) and has not been applied. Read [servers and network](servers-and-network.md) first.
+**Evidence:** these are the steps the four-server lab was built with (`scripts/test-cluster/`), written with variables where your values differ. REAL INCUS TESTED on that lab, on virtual machines with one network card each. Physical servers and a physical uplink have not been tried; those parts follow Incus's own documentation and say so. A highly available OVN database with TLS was applied on that lab (`ovn-ha.sh APPLY=1`, 2026-10-22); failover of the database leader is REAL INCUS TESTED (existing ACLs and a live ping to the OVN router). Read [servers and network](servers-and-network.md) first.
 
 Commands run as root (or with `sudo`) on the server named in each step. Values you choose are written as variables, for example `$SERVER_IP`; set them in your shell first.
 
@@ -156,7 +156,7 @@ incus config set network.ovn.northbound_connection=ssl:$DB1:6641,ssl:$DB2:6641,s
   network.ovn.client_key="$(cat incus.key)"
 ```
 
-The lab's `scripts/test-cluster/ovn.sh` still starts one database without TLS (a shortcut so application-network tests can run). `scripts/test-cluster/ovn-ha.sh` converts that layout to three clustered databases with TLS; it is a dry-run until `APPLY=1`. Failover of the database leader while applications keep their rules is **not REAL INCUS TESTED**.
+The lab's `scripts/test-cluster/ovn.sh` still starts one database without TLS (a shortcut so application-network tests can run). `scripts/test-cluster/ovn-ha.sh` converts that layout to three clustered databases with TLS (`APPLY=1`). REAL INCUS TESTED on the four-member lab, 2026-10-22, OVN 25.03: three raft members, TLS client remotes (`pssl:6641` / `pssl:6642`), Incus `network.ovn.northbound_connection` on `ssl:` with a client certificate. Stopping the leader's database processes elected another member; existing OVN ACLs were unchanged; Incus still listed the project's leftover module ACLs; a container on `apelora-default` kept pinging the OVN router (0% loss). Debian's `ovn-central.service` is a dummy oneshot — stop `ovn-ovsdb-server-nb` and `ovn-ovsdb-server-sb`.
 
 Then create the **uplink** network that application routers attach to. With a physical network, create it once per member with `--target`, then once for the cluster, as Incus's guide shows; the settings that matter to Apelora:
 
@@ -172,7 +172,7 @@ incus network set "$UPLINK" ipv4.routes="$SERVICE_RANGE"
 # and the same range in the project's restricted.networks.subnets.
 ```
 
-What each range is, and how to choose it, is in [servers and network](servers-and-network.md#ip-addresses). The lab does this on a managed NAT bridge for convenience: `scripts/test-cluster/ovn.sh` is the worked example for a single database; `ovn-ha.sh` is the highly available TLS variant (dry-run until applied).
+What each range is, and how to choose it, is in [servers and network](servers-and-network.md#ip-addresses). The lab does this on a managed NAT bridge for convenience: `scripts/test-cluster/ovn.sh` is the worked example for a single database; `ovn-ha.sh` is the highly available TLS variant (`APPLY=1` on the four-member lab, 2026-10-22).
 
 ## 5. A project for Apelora, and two identities
 

@@ -51,10 +51,15 @@ echo "OVN HA plan: databases on ${central[*]} (${ips[*]}); TLS; Incus northbound
 issue() {
   local name=$1 cn=$2 san=$3
   local key="$PKI/$name.key" crt="$PKI/$name.crt"
-  [ -s "$key" ] && [ -s "$crt" ] && return 0
+  # Debian OpenSSL 3 refuses SHA-1 signatures (ca md too weak). macOS LibreSSL's
+  # `openssl x509 -req` defaults to SHA-1 unless -sha256 is set.
+  if [ -s "$key" ] && [ -s "$crt" ] && openssl x509 -in "$crt" -noout -text | grep -q 'sha256\|SHA256'; then
+    return 0
+  fi
+  rm -f "$key" "$crt"
   openssl ecparam -name secp384r1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out "$key"
   openssl req -new -key "$key" -subj "/CN=$cn" -out "$PKI/$name.csr"
-  openssl x509 -req -in "$PKI/$name.csr" -CA "$PKI/ca.crt" -CAkey "$PKI/ca.key" -CAcreateserial \
+  openssl x509 -req -sha256 -in "$PKI/$name.csr" -CA "$PKI/ca.crt" -CAkey "$PKI/ca.key" -CAcreateserial \
     -days 90 -out "$crt" -extfile <(printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=%s\n' "$san")
   rm -f "$PKI/$name.csr"
 }
@@ -161,6 +166,18 @@ EOF
   fi
 }
 
+# Debian's ovn-central.service is a dummy oneshot (ExecStart=/bin/true). The
+# databases are ovn-ovsdb-server-nb/sb and ovn-northd. Joiners must start with
+# empty files so they can join; wiping the leader would drop existing networks.
+restart_central() {
+  local v=$1 wipe=${2:-0}
+  run sh_in "$v" sudo systemctl stop ovn-northd ovn-ovsdb-server-nb ovn-ovsdb-server-sb
+  if [ "$wipe" = 1 ]; then
+    run sh_in "$v" sudo rm -f /var/lib/ovn/ovnnb_db.db /var/lib/ovn/ovnsb_db.db
+  fi
+  run sh_in "$v" sudo systemctl start ovn-ovsdb-server-nb ovn-ovsdb-server-sb ovn-northd
+}
+
 for v in "${all[@]}"; do
   install_certs "$v"
   pkgs=ovn-host
@@ -170,13 +187,24 @@ for v in "${all[@]}"; do
 done
 
 # Stop the single-node database before rewriting it as a cluster member.
-run sh_in "${central[0]}" sudo systemctl stop ovn-central
 write_central "${central[0]}" "${ips[0]}"
-run sh_in "${central[0]}" sudo systemctl enable --now ovn-central
+restart_central "${central[0]}" 0
 write_central "${central[1]}" "${ips[1]}" "${ips[0]}"
-run sh_in "${central[1]}" sudo systemctl enable --now ovn-central
+restart_central "${central[1]}" 1
 write_central "${central[2]}" "${ips[2]}" "${ips[0]}"
-run sh_in "${central[2]}" sudo systemctl enable --now ovn-central
+restart_central "${central[2]}" 1
+run sh_in "${central[0]}" sudo systemctl enable ovn-central ovn-ovsdb-server-nb ovn-ovsdb-server-sb ovn-northd
+run sh_in "${central[1]}" sudo systemctl enable ovn-central ovn-ovsdb-server-nb ovn-ovsdb-server-sb ovn-northd
+run sh_in "${central[2]}" sudo systemctl enable ovn-central ovn-ovsdb-server-nb ovn-ovsdb-server-sb ovn-northd
+if [ "$APPLY" = 1 ]; then
+  sleep 3
+  # Single-node ovn.sh records ptcp:<first-ip>:6641 in the Connection table.
+  # Cluster members replicate that and fail to bind another host's address.
+  # pssl:6641 (no IP) listens on every member with the process TLS certs.
+  sh_in "${central[0]}" sudo ovn-nbctl set-connection pssl:6641
+  sh_in "${central[0]}" sudo ovn-sbctl set-connection pssl:6642
+  sleep 2
+fi
 
 for v in "${all[@]}"; do
   ip=$(eth0 "$v")
@@ -195,6 +223,7 @@ if [ "$APPLY" = 1 ]; then
   limactl copy "$PKI/incus.crt" "${central[0]}:/tmp/ovn-incus.crt"
   limactl copy "$PKI/incus.key" "${central[0]}:/tmp/ovn-incus.key"
   printf '%s\n' \
+    'set -euo pipefail' \
     'incus config set network.ovn.northbound_connection="$1" \' \
     '  network.ovn.ca_cert="$(cat /tmp/ovn-incus-ca.crt)" \' \
     '  network.ovn.client_cert="$(cat /tmp/ovn-incus.crt)" \' \
@@ -209,7 +238,7 @@ else
 fi
 
 echo "Next: ovn-appctl -t /var/run/ovn/ovnnb_db.ctl cluster/status OVN_Northbound"
-echo "Failover: stop ovn-central on the leader and check ovn-nbctl still answers from another member."
+echo "Failover: stop ovn-ovsdb-server-nb/sb (Debian's ovn-central.service is a dummy oneshot) on the leader; ovn-nbctl on another member still lists the same ACLs."
 [ "$APPLY" = 1 ] || exit 0
 
 echo "Cluster status (northbound):"
