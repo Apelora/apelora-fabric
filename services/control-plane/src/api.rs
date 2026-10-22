@@ -48,7 +48,7 @@ pub struct AppState {
     /// Uplink for application OVN networks (`APELORA_NETWORK_UPLINK`); `None`: connections
     /// are not enforced.
     network_uplink: Option<Arc<str>>,
-    /// Routed IPv4 range for service addresses (`APELORA_SERVICE_ADDRESSES`); `None`: no
+    /// Routed IPv4 or IPv6 range for service addresses (`APELORA_SERVICE_ADDRESSES`); `None`: no
     /// load balancers. Used only together with the uplink.
     service_range: Option<Arc<str>>,
     /// Pool behind the `data-local` volume class (`APELORA_VOLUME_POOL`); `None`: designs with

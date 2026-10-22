@@ -64,7 +64,7 @@ Every key is from the pinned Incus release's documentation (`doc/config_options.
 | `features.profiles`, `features.storage.volumes`, `features.storage.buckets` | `true` | the environment's own profile and volumes |
 | `features.networks` | `true` with an uplink, else `false` | with `APELORA_NETWORK_UPLINK` the deploy identity creates each application's OVN network in the project |
 | `restricted.networks.uplinks` | the uplink | only that uplink |
-| `restricted.networks.subnets` | `<uplink>:<APELORA_SERVICE_ADDRESSES>` | service addresses for load balancers; Incus checks the range lies in the uplink's routes |
+| `restricted.networks.subnets` | `<uplink>:<APELORA_SERVICE_ADDRESSES>` | service addresses for load balancers; Incus checks the range lies in the uplink's `ipv4.routes` or `ipv6.routes` |
 | `user.apelora.managed`, `user.apelora.environment` | `true`, the environment id | ownership marker |
 
 These are the effective values of the lab's `apelora` deploy project (restricted with Incus's defaults plus `snapshots` and `cluster.target` allowed), where every deployment test has run, written out explicitly so they are visible and do not depend on future defaults.

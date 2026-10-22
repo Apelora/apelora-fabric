@@ -1648,6 +1648,52 @@ mod tests {
         );
     }
 
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_puts_ipv6_backends_behind_an_ipv6_service_address(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest, network_name};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        mock.net().ipv6 = true;
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("fd42::/124".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+        };
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+        let lbs = provider
+            .load_balancers(PROJECT, &network_name("shop"))
+            .await
+            .expect("lbs");
+        assert_eq!(lbs.len(), 1);
+        assert_eq!(lbs[0].listen_address, "fd42::1");
+        assert_eq!(lbs[0].backends.len(), 2);
+        assert!(
+            lbs[0]
+                .backends
+                .iter()
+                .all(|b| b.target_address.contains(':')),
+            "IPv6 listen takes only IPv6 backends: {:?}",
+            lbs[0].backends
+        );
+    }
+
     /// `shop`'s web service with a load balancer over both replicas (as `network.sync` makes it).
     async fn web_service(pool: &Pool, provider: &Provider) {
         use apelora_domain::network::{Backend, LoadBalancer, network_name};
@@ -1667,7 +1713,7 @@ mod tests {
         .expect("address");
         let backend = |r: u8, last: u8| Backend {
             name: format!("r{r}"),
-            address: std::net::Ipv4Addr::new(10, 0, 0, last),
+            address: std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, last)),
             description: format!("{} uuid-{r}", replica_name("shop", "web-01", r)),
         };
         let lb = LoadBalancer {

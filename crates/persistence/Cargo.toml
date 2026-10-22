@@ -18,7 +18,7 @@ sha2 = "0.11.0"
 sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "postgres", "migrate", "macros", "uuid", "json", "time"] }
 thiserror = "2.0.21"
 # A bounded wait when sampling the pool for metrics (already in the tree through sqlx).
-tokio = { version = "1.54.0", features = ["time"] }
+tokio = { version = "1.54.1", features = ["time"] }
 time = { version = "0.3.47", features = ["serde-well-known"] }
 uuid = { version = "1.26.1", features = ["v4", "serde"] }
 
@@ -26,4 +26,4 @@ uuid = { version = "1.26.1", features = ["v4", "serde"] }
 workspace = true
 
 [dev-dependencies]
-tokio = { version = "1.54.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

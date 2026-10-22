@@ -72,7 +72,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 | Internet access per module (`@external` egress) | Done; REAL INCUS TESTED | 07 |
 | Service discovery: `APELORA_SERVICE_<PROVIDER>` in every consumer (ADR 0004) | Done; REAL INCUS TESTED | 07 |
 | Stateless replicas, anti-affinity (placement scriptlet), supervisor restoring lost replicas | Done; REAL INCUS TESTED (two members) | 08 |
-| Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) | 07/08 |
+| Service addresses (OVN load balancers with health checks) and restart of crashed replicas | Done; REAL INCUS TESTED end to end (two members) for IPv4. IPv6 listen addresses (`APELORA_SERVICE_ADDRESSES` `/112`–`/126`, backends `/128`, DNS AAAA records) MOCK VERIFIED 2026-10-22; not REAL INCUS TESTED (the lab uplink has no IPv6) | 07/08 |
 | Evacuation with dry run (API, console), audited; supervisor stays out of the way | Done; REAL INCUS TESTED (two members) and verified in a real browser | 08 |
 | Recovery from a failed member (substitute, then retire), health-check repair, sync retry | Done; REAL INCUS TESTED (member VM force-stopped) | 08 |
 | Health with hysteresis from the load balancer's port check; restart of failing stateless replicas (paced, audited); health in status and Studio | Done; REAL INCUS TESTED (four members, `demo.sh`) | 08 |

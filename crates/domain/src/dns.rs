@@ -7,7 +7,7 @@
 //! `dns.domain` so instance names resolve under the same domain). OVN's own DNS still answers
 //! only instance names; these records are what a resolver for the service addresses reads.
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 /// `<module>.<application>.internal`, the name the compiler already gives a service.
 pub fn service_name(module: &str, application: &str) -> String {
@@ -26,14 +26,14 @@ pub fn name_env(module: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DnsRecord {
     pub name: String,
-    pub address: Ipv4Addr,
+    pub address: IpAddr,
 }
 
 /// Records for the modules that have a service address, sorted by name.
 pub fn records(application: &str, services: &[(String, String)]) -> Vec<DnsRecord> {
     let mut out = Vec::new();
     for (module, address) in services {
-        let Ok(address) = address.parse::<Ipv4Addr>() else {
+        let Ok(address) = address.parse::<IpAddr>() else {
             continue;
         };
         out.push(DnsRecord {
@@ -83,6 +83,24 @@ pub fn a_response(id: u16, name: &str, address: Ipv4Addr) -> Vec<u8> {
     out
 }
 
+/// A DNS response answering `name` with one AAAA record (same layout as [`a_response`]).
+pub fn aaaa_response(id: u16, name: &str, address: Ipv6Addr) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend(id.to_be_bytes());
+    out.extend([0x81, 0x80]);
+    out.extend([0x00, 0x01]);
+    out.extend([0x00, 0x01]);
+    out.extend([0x00, 0x00, 0x00, 0x00]);
+    write_name(&mut out, name);
+    out.extend([0x00, 0x1c, 0x00, 0x01]); // type AAAA, class IN
+    out.extend([0xC0, 0x0C]);
+    out.extend([0x00, 0x1c, 0x00, 0x01]);
+    out.extend(30u32.to_be_bytes());
+    out.extend(16u16.to_be_bytes());
+    out.extend(address.octets());
+    out
+}
+
 fn write_name(out: &mut Vec<u8>, name: &str) {
     for label in name.split('.').filter(|l| !l.is_empty()) {
         let bytes = label.as_bytes();
@@ -114,8 +132,10 @@ mod tests {
         );
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].name, "web-01.shop.internal");
-        assert_eq!(got[0].address, Ipv4Addr::new(198, 18, 100, 1));
+        assert_eq!(got[0].address, IpAddr::V4(Ipv4Addr::new(198, 18, 100, 1)));
         assert_eq!(records_text(&got), "web-01.shop.internal 198.18.100.1\n");
+        let v6 = records("shop", &[("web-01".into(), "fd42::1".into())]);
+        assert_eq!(v6[0].address, "fd42::1".parse::<IpAddr>().expect("v6"));
     }
 
     #[test]
@@ -134,5 +154,21 @@ mod tests {
         // The question's first label is web-01.
         assert_eq!(packet[12], 6);
         assert_eq!(&packet[13..19], b"web-01");
+    }
+
+    #[test]
+    fn an_aaaa_response_carries_sixteen_bytes() {
+        let address: Ipv6Addr = "fd42::1".parse().expect("v6");
+        let packet = aaaa_response(0x1234, "web-01.shop.internal", address);
+        assert_eq!(&packet[0..2], &0x1234u16.to_be_bytes());
+        assert_eq!(
+            packet[packet.len() - 16..],
+            address.octets(),
+            "AAAA rdata is the address"
+        );
+        assert_eq!(
+            &packet[packet.len() - 18..packet.len() - 16],
+            &16u16.to_be_bytes()
+        );
     }
 }

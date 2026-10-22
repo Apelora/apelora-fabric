@@ -2215,8 +2215,10 @@ export type NetSettings = {
 /** The uplink network, as Incus reports it (read with the administrator identity). */
 export type NetUplink = {
   ipv4Address?: string | null;
-  /** `ipv4.routes`: ranges routed to the uplink (service addresses must be in one). */
+  /** `ipv4.routes`: IPv4 ranges routed to the uplink (IPv4 service addresses must be in one). */
   ipv4Routes: string[];
+  /** `ipv6.routes`: IPv6 ranges routed to the uplink (IPv6 service addresses must be in one). */
+  ipv6Routes: string[];
   kind: string;
   name: string;
   /** `ipv4.ovn.ranges`: addresses OVN networks take on the uplink. */

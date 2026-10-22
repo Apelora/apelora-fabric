@@ -43,6 +43,12 @@ incus network set incusbr0 "ipv4.dhcp.ranges=$prefix.2-$prefix.99" "ipv4.ovn.ran
 # is reserved for network testing, so it never collides with a real network on the lab.
 SERVICES=${APELORA_TEST_SERVICES:-198.18.100.0/28}
 incus network set incusbr0 "ipv4.routes=$SERVICES"
+# Optional IPv6 service range (needs a route of the same family on the uplink; the lab
+# uplink has no IPv6 of its own, so this stays off unless set).
+SERVICES_V6=${APELORA_TEST_SERVICES_V6:-}
+if [ -n "$SERVICES_V6" ]; then
+  incus network set incusbr0 "ipv6.routes=$SERVICES_V6"
+fi
 
 # The deploy project owns its OVN networks and ACLs (features.networks), so the restricted
 # deploy identity can manage them; it may only use incusbr0 as uplink. Features can only
@@ -74,7 +80,9 @@ for fp in $(incus query "/1.0/certificates?recursion=1" | jq -r '.[] | select(.r
     echo "warning: restricted identity ${fp:0:12} has no access to project $PROJECT" >&2
 done
 # The restricted project may use the service range for load balancers, and nothing else.
-incus project set "$PROJECT" "restricted.networks.subnets=incusbr0:$SERVICES"
+subnets="incusbr0:$SERVICES"
+[ -n "$SERVICES_V6" ] && subnets="$subnets,incusbr0:$SERVICES_V6"
+incus project set "$PROJECT" "restricted.networks.subnets=$subnets"
 # Volume snapshots are refused in a restricted project unless allowed (a recreated project loses it).
 incus project set "$PROJECT" restricted.snapshots=allow
 # Moving an instance to a chosen member (docs/design/mobility-and-ha.md) needs member targeting.
@@ -86,5 +94,5 @@ fi
 devices=$(incus profile device list default --project "$PROJECT")
 grep -qx eth0 <<<"$devices" || incus profile device add default eth0 nic name=eth0 "network=$PROJECT-default" --project "$PROJECT"
 
-echo "OVN ready: northbound tcp:$central:6641; project $PROJECT owns its networks (uplink incusbr0, service addresses $SERVICES)"
+echo "OVN ready: northbound tcp:$central:6641; project $PROJECT owns its networks (uplink incusbr0, service addresses $SERVICES${SERVICES_V6:+, $SERVICES_V6})"
 incus network list --project "$PROJECT" -c ntsu

@@ -225,7 +225,7 @@ pub const SETTINGS: &[Setting] = &[
         "APELORA_SERVICE_ADDRESSES",
         Cp,
         None,
-        "Routed range for service addresses",
+        "Routed IPv4 (/16–/30) or IPv6 (/112–/126) range for service addresses",
     ),
     s(
         "APELORA_VOLUME_POOL",

@@ -20316,6 +20316,7 @@
           "kind",
           "status",
           "ipv4Routes",
+          "ipv6Routes",
           "ovnRanges"
         ],
         "properties": {
@@ -20330,7 +20331,14 @@
             "items": {
               "type": "string"
             },
-            "description": "`ipv4.routes`: ranges routed to the uplink (service addresses must be in one)."
+            "description": "`ipv4.routes`: IPv4 ranges routed to the uplink (IPv4 service addresses must be in one)."
+          },
+          "ipv6Routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "`ipv6.routes`: IPv6 ranges routed to the uplink (IPv6 service addresses must be in one)."
           },
           "kind": {
             "type": "string"
