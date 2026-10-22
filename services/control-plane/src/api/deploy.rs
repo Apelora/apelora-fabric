@@ -389,6 +389,9 @@ pub struct JobFilter {
     pub limit: Option<i64>,
 }
 
+/// Largest `limit` `GET /api/v1/jobs` accepts, and the largest page `with_actions` will allocate.
+pub(super) const JOB_LIST_LIMIT: i64 = 200;
+
 fn invalid(message: &str) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", message)
 }
@@ -463,7 +466,7 @@ pub(super) async fn jobs(
 ) -> Result<Json<JobList>, ApiError> {
     let pool = store(&state)?;
     let limit = f.limit.unwrap_or(100);
-    if !(1..=200).contains(&limit) {
+    if !(1..=JOB_LIST_LIMIT).contains(&limit) {
         return Err(invalid("limit is 1 to 200"));
     }
     let q = f.query()?;

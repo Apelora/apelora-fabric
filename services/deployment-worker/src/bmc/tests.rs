@@ -1,6 +1,9 @@
 // A Redfish-shaped BMC on loopback (CONTRACT VERIFIED: the shapes are the DMTF interface's, not a
 // vendor's), the mapping's checks, and the fixed provider the supervisor's tests use.
+// Test fixtures use fixed secrets and keys on purpose; this file is left out of code scanning.
 
+use std::net::{IpAddr, Ipv4Addr};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use axum::Router;
@@ -8,6 +11,12 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use rcgen::{
+    BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
+    KeyUsagePurpose, SanType,
+};
+use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+use tokio::io::copy_bidirectional;
 
 use super::*;
 
@@ -113,7 +122,38 @@ async fn reset(State(s): State<Shared>, h: HeaderMap, body: String) -> Response 
     StatusCode::NO_CONTENT.into_response()
 }
 
-async fn bmc(on: bool) -> (String, Shared) {
+/// A CA and a loopback leaf (CA:FALSE, serverAuth, IP SAN). The shipping client trusts the CA
+/// file; rustls refuses a CA:TRUE end-entity (LESSONS-LEARNED).
+fn certificates() -> (String, rustls::ServerConfig) {
+    let ca_key = KeyPair::generate().expect("key");
+    let mut ca = CertificateParams::new(Vec::<String>::new()).expect("params");
+    ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    ca.distinguished_name
+        .push(DnType::CommonName, "bmc test CA");
+    ca.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+    let ca_cert = ca.self_signed(&ca_key).expect("CA");
+    let issuer = Issuer::new(ca, ca_key);
+    let key = KeyPair::generate().expect("key");
+    let mut leaf = CertificateParams::new(Vec::<String>::new()).expect("params");
+    leaf.subject_alt_names = vec![SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST))];
+    leaf.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    leaf.is_ca = IsCa::NoCa;
+    let leaf_cert = leaf.signed_by(&key, &issuer).expect("leaf");
+    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("versions")
+    .with_no_client_auth()
+    .with_single_cert(
+        vec![leaf_cert.der().clone()],
+        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key.serialize_der())),
+    )
+    .expect("server config");
+    (ca_cert.pem(), config)
+}
+
+async fn bmc(on: bool) -> (String, Shared, PathBuf) {
     let shared: Shared = Arc::new(Mutex::new(Fake {
         on,
         uuid: UUID.into(),
@@ -128,21 +168,54 @@ async fn bmc(on: bool) -> (String, Shared) {
             post(reset),
         )
         .with_state(shared.clone());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+    let http = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind");
-    let addr = listener.local_addr().expect("addr");
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
-    (format!("https://{addr}"), shared)
+    let http_addr = http.local_addr().expect("addr");
+    tokio::spawn(async move { axum::serve(http, app).await.ok() });
+
+    let (ca_pem, config) = certificates();
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+    let https = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let https_addr = https.local_addr().expect("addr");
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = https.accept().await {
+            let acceptor = acceptor.clone();
+            tokio::spawn(async move {
+                let Ok(mut tls) = acceptor.accept(tcp).await else {
+                    return;
+                };
+                let Ok(mut backend) = tokio::net::TcpStream::connect(http_addr).await else {
+                    return;
+                };
+                let _ = copy_bidirectional(&mut tls, &mut backend).await;
+            });
+        }
+    });
+    let ca = std::env::temp_dir().join(format!(
+        "apelora-bmc-ca-{}-{}.pem",
+        std::process::id(),
+        https_addr.port()
+    ));
+    std::fs::write(&ca, ca_pem).expect("ca");
+    (format!("https://{https_addr}"), shared, ca)
 }
 
-fn mapping(url: &str, uuid: &str, secret: Option<&str>) -> Bmc {
-    let text = format!(
-        r#"{{ "m1": {{ "provider": "redfish", "url": "{url}", "user": "apelora-fence",
-              "secretRef": "APELORA_BMC_SECRET_M1", "uuid": "{uuid}" }} }}"#
-    );
+fn mapping(url: &str, uuid: &str, secret: Option<&str>, ca: &Path) -> Bmc {
+    let text = serde_json::json!({
+        "m1": {
+            "provider": "redfish",
+            "url": url,
+            "user": "apelora-fence",
+            "secretRef": "APELORA_BMC_SECRET_M1",
+            "uuid": uuid,
+            "ca": ca,
+        }
+    })
+    .to_string();
     let mut m = Mapping::parse(&text, false).expect("mapping");
-    m.plain = true;
     m.settle = Some((Duration::from_millis(300), Duration::from_millis(20)));
     let secret = secret.map(str::to_owned);
     m.secrets = Some(Arc::new(move |k| {
@@ -157,8 +230,8 @@ const PASSWORD: &str = "hunter2-lab-only";
 
 #[tokio::test]
 async fn a_server_is_switched_off_and_the_power_state_is_read_back_before_it_counts() {
-    let (url, fake) = bmc(true).await;
-    let b = mapping(&url, UUID, Some(PASSWORD));
+    let (url, fake, ca) = bmc(true).await;
+    let b = mapping(&url, UUID, Some(PASSWORD), &ca);
     assert!(b.covers("m1") && !b.covers("m2"));
     assert_eq!(b.power_state("m1").await, Ok(PowerState::On));
     let r = b.fence("m1").await.expect("fenced");
@@ -179,9 +252,9 @@ async fn a_server_is_switched_off_and_the_power_state_is_read_back_before_it_cou
 
 #[tokio::test]
 async fn an_accepted_request_that_leaves_the_server_on_is_not_evidence() {
-    let (url, fake) = bmc(true).await;
+    let (url, fake, ca) = bmc(true).await;
     fake.lock().expect("fake").stays_on = true;
-    let e = mapping(&url, UUID, Some(PASSWORD))
+    let e = mapping(&url, UUID, Some(PASSWORD), &ca)
         .fence("m1")
         .await
         .expect_err("still on");
@@ -190,9 +263,9 @@ async fn an_accepted_request_that_leaves_the_server_on_is_not_evidence() {
 
 #[tokio::test]
 async fn a_bmc_that_reports_another_servers_uuid_is_refused_before_anything_is_sent() {
-    let (url, fake) = bmc(true).await;
+    let (url, fake, ca) = bmc(true).await;
     fake.lock().expect("fake").uuid = OTHER_UUID.into();
-    let b = mapping(&url, UUID, Some(PASSWORD));
+    let b = mapping(&url, UUID, Some(PASSWORD), &ca);
     let e = b.fence("m1").await.expect_err("wrong server");
     assert!(e.contains("refusing") && e.contains(OTHER_UUID), "{e}");
     assert!(
@@ -205,8 +278,8 @@ async fn a_bmc_that_reports_another_servers_uuid_is_refused_before_anything_is_s
 
 #[tokio::test]
 async fn wrong_or_missing_credentials_refuse_without_putting_the_password_in_the_error() {
-    let (url, _) = bmc(true).await;
-    let e = mapping(&url, UUID, Some("not-the-password"))
+    let (url, _, ca) = bmc(true).await;
+    let e = mapping(&url, UUID, Some("not-the-password"), &ca)
         .fence("m1")
         .await
         .expect_err("refused");
@@ -215,7 +288,7 @@ async fn wrong_or_missing_credentials_refuse_without_putting_the_password_in_the
         !e.contains("not-the-password") && !e.contains(PASSWORD),
         "{e}"
     );
-    let e = mapping(&url, UUID, None)
+    let e = mapping(&url, UUID, None, &ca)
         .fence("m1")
         .await
         .expect_err("no secret");
@@ -224,17 +297,17 @@ async fn wrong_or_missing_credentials_refuse_without_putting_the_password_in_the
 
 #[tokio::test]
 async fn a_system_that_does_not_offer_force_off_and_a_bmc_with_several_systems_refuse() {
-    let (url, fake) = bmc(true).await;
+    let (url, fake, ca) = bmc(true).await;
     fake.lock().expect("fake").allowed = vec!["GracefulShutdown"];
-    let e = mapping(&url, UUID, Some(PASSWORD))
+    let e = mapping(&url, UUID, Some(PASSWORD), &ca)
         .fence("m1")
         .await
         .expect_err("no force off");
     assert!(e.contains("does not offer ForceOff"), "{e}");
     assert!(fake.lock().expect("fake").resets.is_empty());
-    let (url, fake) = bmc(true).await;
+    let (url, fake, ca) = bmc(true).await;
     fake.lock().expect("fake").two_systems = true;
-    let e = mapping(&url, UUID, Some(PASSWORD))
+    let e = mapping(&url, UUID, Some(PASSWORD), &ca)
         .fence("m1")
         .await
         .expect_err("two systems");
