@@ -49,8 +49,13 @@ args=(--name "$MEMBER" --address "$addr" --member-config /tmp/apelora-member-con
 first=${APELORA_TEST_VM:-apelora-incus}
 if [ -n "$(limactl shell --workdir / "$first" sudo incus config get network.ovn.northbound_connection </dev/null)" ]; then
   vm sudo env DEBIAN_FRONTEND=noninteractive apt-get install -yq ovn-host </dev/null >/dev/null
-  central=$(limactl shell --workdir / "$first" ip -4 -o addr show dev eth0 </dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-  args+=(--ovn-remote "tcp:$central:6642" --ovn-encap-ip "$addr")
+  # Prefer the live southbound remotes (clustered TLS after ovn-ha.sh, else ovn.sh's one tcp:).
+  ovn_remote=$(limactl shell --workdir / "$first" sudo ovs-vsctl get open_vswitch . external_ids:ovn-remote </dev/null | tr -d '"')
+  [ -n "$ovn_remote" ] || {
+    central=$(limactl shell --workdir / "$first" ip -4 -o addr show dev eth0 </dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+    ovn_remote="tcp:$central:6642"
+  }
+  args+=(--ovn-remote "$ovn_remote" --ovn-encap-ip "$addr")
 fi
 limactl copy "$here/../enrol/enrol-member.sh" "$VM:/tmp/apelora-enrol-member.sh"
 limactl copy "$tmp/member-config.yaml" "$VM:/tmp/apelora-member-config.yaml"
