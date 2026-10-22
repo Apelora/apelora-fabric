@@ -111,6 +111,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 ## Known limitations
 
 - **Incus 7.0.2** is pinned but not yet tested: the package repository still ships 7.0.1, which all evidence was produced with.
+- **OVN HA and TLS** (issue #13): the lab still runs one `ovn-central` without TLS (`ovn.sh`). `scripts/test-cluster/ovn-ha.sh` converts it to three clustered databases with TLS (dry-run 2026-10-22; not applied). Failover of the database leader is not REAL INCUS TESTED.
 - **One architecture** (aarch64) on the test cluster: no mixed-architecture evidence.
 - **Member failure:** OVN health checks cannot see a dead member, so a service address keeps sending a share of requests to its replicas there until Apelora substitutes them (`APELORA_RECOVER_AFTER_SECS`, default 120 s). Single-instance and stateful modules are recovered automatically only when all their disks are on the shared pool, and only after their member is fenced (about 140 s after its last lease renewal; ADR 0013); on member-local pools they wait for their member.
 - **Publishing** needs the network outside to route service addresses to the application network's router; the OVN router does not answer ARP for them.
