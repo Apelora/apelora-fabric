@@ -83,6 +83,14 @@ Add OVN (optional, after `add-member.sh`) so network intents can be enforced:
 bash scripts/test-cluster/ovn.sh
 ```
 
+Measured sizing (issue #16; lab VMs, not hardware). Needs OVN. Removes what it deployed:
+
+```sh
+APPS=4 MODULES=10 WORKERS=1 bash scripts/test-cluster/measure.sh
+```
+
+Figures: [lab sizing](../design/capacity-lab-sizing.md).
+
 It installs the OVN database on the first member and the OVN controller on every member (tunnels over the members' private network), points Incus at it, gives `incusbr0` uplink ranges, and recreates the empty `apelora` project with `features.networks=true` and `restricted.networks.uplinks=incusbr0`, so the restricted deploy identity owns its OVN networks and ACLs. A shared `apelora-default` OVN network backs the project's default profile. Test-only shortcuts: one OVN database (OVN itself not highly available) without TLS on the private network.
 
 With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0` to enforce application connections. `bash scripts/test-cluster/ipv6.sh` (about two minutes, needs port 8080 free) checks that enforcement over IPv4 and over the IPv6 subnet Incus gives each application network, and removes what it deployed. Add `APELORA_VOLUME_POOL=local` to deploy modules with volumes, and `APELORA_BACKUP_POOL=backup` (control plane and worker) for backups after `bash scripts/test-cluster/backup-pool.sh` has created that pool.

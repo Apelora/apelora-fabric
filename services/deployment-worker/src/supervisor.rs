@@ -1504,6 +1504,60 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_writes_only_the_acls_whose_rules_changed(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let mut s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into(), "cache-01".into()],
+            connections: vec![Connection {
+                from: "web-01".into(),
+                to: "db-01".into(),
+                transport: "tcp".into(),
+                port: Some(5432),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: Vec::new(),
+            service_range: None,
+            published: Vec::new(),
+            internet: Default::default(),
+        };
+        let sync = async |s: &SyncRequest| {
+            let before = mock.net().acl_writes;
+            // cache-01 is never deployed, so the sync waits for it; the rules are written anyway.
+            let _: Outcome = crate::network::sync(&pool, &provider, s).await;
+            mock.net().acl_writes - before
+        };
+        assert_eq!(
+            sync(&s).await,
+            2,
+            "web-01 and db-01 have rules; cache-01 has none"
+        );
+        assert_eq!(sync(&s).await, 0, "nothing changed");
+        s.connections.push(Connection {
+            from: "web-01".into(),
+            to: "cache-01".into(),
+            transport: "tcp".into(),
+            port: Some(6379),
+        });
+        assert_eq!(sync(&s).await, 2, "both ends of the new connection");
+        // Rules changed outside Apelora are put back.
+        mock.net()
+            .acls
+            .get_mut(&format!("{PROJECT}/shop-db-01"))
+            .expect("acl")
+            .0
+            .clear();
+        assert_eq!(sync(&s).await, 1);
+        assert_eq!(sync(&s).await, 0);
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn a_sync_waits_for_an_ipv6_address_that_comes_after_ipv4(pool: Pool) {
         use apelora_domain::network::SyncRequest;
         use apelora_domain::plan::replica_name;

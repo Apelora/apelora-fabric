@@ -197,6 +197,10 @@ fn owned_by(o: &wire::Owned, application: &str) -> bool {
     owned_by_config(&o.config, application)
 }
 
+fn already_exists(e: &AdapterError) -> bool {
+    matches!(e, AdapterError::Api { message, .. } if message.to_ascii_lowercase().contains("already exists"))
+}
+
 fn volume_path(project: &str, pool: &str, member: Option<&str>, name: &str) -> String {
     let mut path = format!("/1.0/storage-pools/{pool}/volumes/custom/{name}?project={project}");
     if let Some(m) = member {
@@ -1430,14 +1434,46 @@ impl IncusClient {
                 body["name"] = json!(name);
                 body["config"][MANAGED_KEY] = json!("true");
                 body["config"][APPLICATION_KEY] = json!(application);
-                self.call::<Value>(
-                    Method::POST,
-                    &format!("{collection}?project={project}"),
-                    Some(&body),
-                )
-                .await
-                .map(|_| ())
+                match self
+                    .call::<Value>(
+                        Method::POST,
+                        &format!("{collection}?project={project}"),
+                        Some(&body),
+                    )
+                    .await
+                {
+                    Ok(_) => Ok(()),
+                    // Another request created it first (two workers, or a GET that lagged
+                    // behind a POST on another member). If it is ours, the ensure succeeded.
+                    Err(e) if already_exists(&e) => {
+                        self.require_owned(collection, project, name, application)
+                            .await
+                    }
+                    Err(e) => Err(e),
+                }
             }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn require_owned(
+        &self,
+        collection: &str,
+        project: &str,
+        name: &str,
+        application: &str,
+    ) -> Result<(), AdapterError> {
+        match self
+            .get::<wire::Owned>(&format!("{collection}/{name}?project={project}"))
+            .await
+        {
+            Ok(o) if owned_by(&o, application) => Ok(()),
+            Ok(_) => Err(AdapterError::Api {
+                status: 409,
+                message: format!(
+                    "{collection}/{name} exists and does not belong to application {application}"
+                ),
+            }),
             Err(e) => Err(e),
         }
     }

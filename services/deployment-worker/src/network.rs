@@ -20,7 +20,7 @@ use apelora_domain::network::{
     Backend, LoadBalancer, SyncRequest, acl_name, network_name, service_addresses,
 };
 use apelora_domain::plan::{replica_name, slot_instances};
-use apelora_incus_adapter::{AdapterError, NetworkObject, Provider};
+use apelora_incus_adapter::{AdapterError, NetworkObject, ObservedAcl, Provider};
 use apelora_persistence::{Outcome, Pool};
 
 /// The payload of a `network.sync` job.
@@ -158,8 +158,21 @@ async fn apply(
         addresses.sort();
         provider.set_addresses(p, &name, &addresses, app).await?;
     }
-    // The same rules the Console's Networks page shows as intended (`intended_acls`).
+    // The same rules the Console's Networks page shows as intended (`intended_acls`). Rules
+    // that already match are not written again: Incus takes seconds per ACL write once a
+    // cluster holds a hundred or so (issue #16), and every sync covers every module.
+    let observed: BTreeMap<String, ObservedAcl> = provider
+        .network_acls(p)
+        .await?
+        .into_iter()
+        .map(|a| (a.name.clone(), a))
+        .collect();
     for a in s.intended_acls() {
+        if observed.get(&a.acl).is_some_and(|o| {
+            o.application.as_deref() == Some(app) && o.ingress == a.ingress && o.egress == a.egress
+        }) {
+            continue;
+        }
         provider
             .set_acl_rules(p, &a.acl, &a.ingress, &a.egress, app)
             .await?;
