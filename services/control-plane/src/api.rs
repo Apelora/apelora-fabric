@@ -464,6 +464,10 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/provisioners/maas/machines/{system_id}/release",
             post(provisioners::release),
         )
+        .route(
+            "/api/v1/provisioners/maas/machines/{system_id}/test",
+            post(provisioners::test),
+        )
         .route("/api/v1/machines/{name}/approve", post(machines::approve))
         .route(
             "/api/v1/machines/{name}/approval",
@@ -1626,7 +1630,7 @@ impl Modify for BearerAuth {
         cluster_admin::preview_removal, cluster_admin::remove,
         clustering::members, clustering::groups, clustering::settings, clustering::change_settings, clustering::upgrade,
         recovery::recovery, recovery::confirm,
-        machines::list, provisioners::machines, provisioners::commission, provisioners::deploy, provisioners::release, machines::register, machines::approve, machines::withdraw,
+        machines::list, provisioners::machines, provisioners::commission, provisioners::deploy, provisioners::release, provisioners::test, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
         identity::organizations, identity::create_organization, identity::projects, identity::create_project,
         identity::environments, identity::create_environment, identity::users, identity::lookup_user,

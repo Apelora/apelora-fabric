@@ -336,8 +336,13 @@ pub(super) async fn withdraw(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// The member and the facts admission looks at; 409 when the machine has not joined.
-async fn admission(state: &AppState, name: &str) -> Result<Admission, ApiError> {
+/// The member and the facts admission looks at; 409 when the machine has not joined. A machine
+/// from MAAS also has its last hardware test run checked (burn-in).
+async fn admission(
+    state: &AppState,
+    record: &apelora_persistence::MachineRecord,
+) -> Result<Admission, ApiError> {
+    let name = record.name.as_str();
     let provider = admin(state)?;
     let members = provider.cluster_members().await?;
     let member = members.iter().find(|m| m.name == name).ok_or_else(|| {
@@ -350,7 +355,7 @@ async fn admission(state: &AppState, name: &str) -> Result<Admission, ApiError> 
     let cluster = provider.server_info().await?;
     let pools = provider.storage_pools().await?;
     let networks = provider.networks().await?;
-    let checks = enrolment::admission_checks(&AdmissionInput {
+    let mut checks = enrolment::admission_checks(&AdmissionInput {
         member,
         server: &server,
         cluster_version: cluster.server_version.as_deref(),
@@ -358,6 +363,12 @@ async fn admission(state: &AppState, name: &str) -> Result<Admission, ApiError> 
         pools: &pools,
         networks: &networks,
     });
+    if record.provider == "maas"
+        && let Some(id) = record.provider_ref.as_deref()
+    {
+        let testing = state.maas.machine(id).await.ok().map(|m| m.testing_status);
+        checks.push(enrolment::burn_in_check(testing.as_deref()));
+    }
     Ok(Admission {
         source: source(provider.mode()),
         name: name.to_owned(),
@@ -381,8 +392,8 @@ pub(super) async fn preview_admission(
     allow_platform(&p, "machine.enrol")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
-    apelora_persistence::machine(pool, &name).await?;
-    Ok(Json(admission(&state, &name).await?))
+    let record = apelora_persistence::machine(pool, &name).await?;
+    Ok(Json(admission(&state, &record).await?))
 }
 
 /// Admits a joined machine: re-runs the admission checks and, when none fails, lets Incus
@@ -400,8 +411,8 @@ pub(super) async fn admit(
     allow_platform(&p, "machine.enrol")?;
     member_name(&name)?;
     let pool = audit_store(&state)?;
-    apelora_persistence::machine(pool, &name).await?;
-    let result = admission(&state, &name).await?;
+    let record = apelora_persistence::machine(pool, &name).await?;
+    let result = admission(&state, &record).await?;
     if !result.admissible {
         let failed: Vec<String> = result
             .checks

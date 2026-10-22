@@ -16,6 +16,23 @@ const POWER: Record<string, { label: string; dot: string }> = {
   error: { label: "Power check failed", dot: "status-error" },
 };
 
+/** MAAS states a hardware test run may start in (the API refuses the others). */
+const TESTABLE = new Set(["Ready", "Broken", "Failed testing"]);
+
+/** MAAS's last test result, with its colour. "None" (never tested) is shown as such. */
+const TESTS: Record<string, { label: string; dot: string }> = {
+  Passed: { label: "Tests passed", dot: "status-success" },
+  Failed: { label: "Tests failed", dot: "status-error" },
+  "Timed out": { label: "Tests timed out", dot: "status-error" },
+  Degraded: { label: "Tests degraded", dot: "status-warning" },
+  Running: { label: "Tests running", dot: "status-info" },
+  Pending: { label: "Tests pending", dot: "status-info" },
+  None: { label: "Not tested", dot: "status-neutral" },
+  Unknown: { label: "Test result unknown", dot: "status-neutral" },
+};
+
+type Kind = "commission" | "test" | "deploy" | "release";
+
 const memory = (mib: number) => (mib >= 1024 ? `${Math.round(mib / 1024)} GiB` : `${mib} MiB`);
 
 /** A member name to offer: the host's short name in lower case, hyphens for anything else. */
@@ -40,7 +57,7 @@ export function MaasMachinesSection({ me, onAuth, onChanged }: { me: WhoAmI | nu
   const canDeploy = legacy || holdsPlatform(me, "hardware.deploy");
   const canErase = legacy || holdsPlatform(me, "hardware.delete");
   const [target, setTarget] = useState<MaasMachineView | null>(null);
-  const [act, setAct] = useState<{ machine: MaasMachineView; kind: "commission" | "deploy" | "release" } | null>(null);
+  const [act, setAct] = useState<{ machine: MaasMachineView; kind: Kind } | null>(null);
   const [name, setName] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -77,7 +94,7 @@ export function MaasMachinesSection({ me, onAuth, onChanged }: { me: WhoAmI | nu
             </p>
           ) : (
             <>
-              <p className="text-sm text-base-content/70">What MAAS reports. Register a machine to enrol it in the cluster; its BMC credentials stay in MAAS. Commissioning and installing an operating system are done by MAAS.</p>
+              <p className="text-sm text-base-content/70">What MAAS reports. Register a machine to enrol it in the cluster; its BMC credentials stay in MAAS. Commissioning, hardware tests (burn-in) and installing an operating system are done by MAAS.</p>
               {notice && <p role="status" className="flex items-start gap-2 text-sm" data-testid="maas-notice"><span className="status status-success mt-1.5 shrink-0" aria-hidden="true" />{notice}</p>}
               {l.items.length === 0 ? <p className="text-sm text-base-content/70">MAAS manages no machines yet.</p> : (
                 <TableFrame>
@@ -85,15 +102,17 @@ export function MaasMachinesSection({ me, onAuth, onChanged }: { me: WhoAmI | nu
                   <tbody>
                     {l.items.map((m) => {
                       const p = POWER[m.powerState] ?? { label: m.powerState, dot: "status-neutral" };
+                      const t = m.testingStatus ? TESTS[m.testingStatus] ?? { label: `Tests: ${m.testingStatus}`, dot: "status-neutral" } : null;
                       return (
                         <tr key={m.systemId} data-testid="maas-row">
                           <td className="font-medium">{m.hostname}<span className="block font-mono text-xs font-normal text-base-content/60">{m.systemId}{m.addresses[0] ? ` · ${m.addresses[0]}` : ""}</span></td>
-                          <td>{m.status}{m.os && <span className="block text-xs text-base-content/60">{m.os}</span>}</td>
+                          <td>{m.status}{m.os && <span className="block text-xs text-base-content/60">{m.os}</span>}{t && <span className="block text-xs text-base-content/60" data-testid="maas-testing"><span className={`status ${t.dot} mr-1.5`} aria-hidden="true" />{t.label}</span>}</td>
                           <td className="sm:whitespace-nowrap"><span className={`status ${p.dot} mr-2`} aria-hidden="true" />{p.label}<span className="block text-xs text-base-content/60">via {m.powerType || "nothing"}</span></td>
                           <td className="text-sm max-md:hidden">{m.architecture}<span className="block text-xs text-base-content/60">{m.cpuCount} CPUs · {memory(m.memoryMib)}{m.zone && ` · ${m.zone}`}</span></td>
                           <td className="text-right">
                             <span className="inline-flex flex-wrap justify-end gap-1">
                               {canCommission && <button type="button" className="btn btn-xs btn-outline" aria-label={`Commission ${m.hostname}`} onClick={() => setAct({ machine: m, kind: "commission" })} data-testid="maas-commission">Commission…</button>}
+                              {canCommission && TESTABLE.has(m.status) && <button type="button" className="btn btn-xs btn-outline" aria-label={`Run hardware tests on ${m.hostname}`} onClick={() => setAct({ machine: m, kind: "test" })} data-testid="maas-test">Burn-in…</button>}
                               {canDeploy && <button type="button" className="btn btn-xs btn-outline" aria-label={`Install an operating system on ${m.hostname}`} onClick={() => setAct({ machine: m, kind: "deploy" })} data-testid="maas-deploy">Install…</button>}
                               {canDeploy && <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Release ${m.hostname}`} onClick={() => setAct({ machine: m, kind: "release" })} data-testid="maas-release">Release…</button>}
                               {m.registeredAs
@@ -150,19 +169,22 @@ function useFocusWhenShown(ref: { current: HTMLElement | null }, active: boolean
 }
 
 /**
- * Commission, or install an operating system. The hostname is typed again. Cloud-init is sent to
+ * Commission, run hardware tests, or install an operating system. The hostname is typed again. Cloud-init is sent to
  * MAAS and is not kept here; a join token inside it is not stored.
  */
-function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: MaasMachineView; kind: "commission" | "deploy" | "release"; canErase: boolean; onClose: () => void; onDone: (notice: string) => void }) {
+function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: MaasMachineView; kind: Kind; canErase: boolean; onClose: () => void; onDone: (notice: string) => void }) {
   const [typed, setTyped] = useState("");
   const [distro, setDistro] = useState("");
   const [cloud, setCloud] = useState("");
   const [erase, setErase] = useState(false);
+  const [scripts, setScripts] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const field = useRef<HTMLInputElement>(null);
   useFocusWhenShown(field, true);
   const distroError = distro && !/^[A-Za-z0-9-]{1,64}$/.test(distro) ? "Use the short series name, such as noble." : null;
+  const names = scripts.split(/[\s,]+/).filter(Boolean);
+  const scriptsError = names.length > 16 ? "Name at most 16 tests." : names.some((n) => !/^[A-Za-z0-9._-]{1,64}$/.test(n)) ? "Test names use letters, digits, '.', '_' and '-'." : null;
 
   const go = async () => {
     setBusy(true);
@@ -171,6 +193,9 @@ function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: Maa
       if (kind === "commission") {
         await client.request("maas_commission", { params: { system_id: machine.systemId }, body: { confirm: typed } });
         onDone(`${machine.hostname} is being commissioned by MAAS.`);
+      } else if (kind === "test") {
+        await client.request("maas_test", { params: { system_id: machine.systemId }, body: { confirm: typed, scripts: names } });
+        onDone(`MAAS is running ${names.length ? names.join(", ") : "its default tests"} on ${machine.hostname}. The result shows in the Status column.`);
       } else if (kind === "release") {
         await client.request("maas_release", { params: { system_id: machine.systemId }, body: { confirm: typed, eraseDisks: erase } });
         onDone(erase ? `${machine.hostname} is released and its disks are being erased.` : `${machine.hostname} is released. Its disks were not erased.`);
@@ -185,9 +210,19 @@ function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: Maa
   };
 
   return (
-    <FormDialog open title={kind === "commission" ? `Commission ${machine.hostname}` : kind === "release" ? `Release ${machine.hostname}` : `Install an operating system on ${machine.hostname}`} onClose={onClose} testId="maas-action-dialog">
+    <FormDialog open title={kind === "commission" ? `Commission ${machine.hostname}` : kind === "test" ? `Run hardware tests on ${machine.hostname}` : kind === "release" ? `Release ${machine.hostname}` : `Install an operating system on ${machine.hostname}`} onClose={onClose} testId="maas-action-dialog">
       {kind === "commission" ? (
         <p className="text-sm text-base-content/80">MAAS tests the machine and records its hardware. This does not install an operating system.</p>
+      ) : kind === "test" ? (
+        <>
+          <p className="text-sm text-base-content/80">MAAS boots the machine and runs hardware tests on it before it is used. Nothing is installed. Admit it to the cluster only after the tests pass.</p>
+          <label className="flex flex-col gap-1 text-sm">
+            Tests (optional)
+            <input className="input input-sm w-full font-mono" value={scripts} onChange={(e) => setScripts(e.target.value)} autoComplete="off" spellCheck={false} placeholder="MAAS's default tests" aria-invalid={!!scriptsError} aria-describedby="maas-scripts-help" data-testid="maas-scripts" />
+            <span id="maas-scripts-help" className="text-xs text-base-content/60">MAAS test script or tag names, separated by commas or spaces.</span>
+            {scriptsError && <span className="text-xs text-error">{scriptsError}</span>}
+          </label>
+        </>
       ) : kind === "release" ? (
         <>
           <p className="text-sm text-base-content/80">MAAS returns this machine to its pool. The installed system stops. Disks stay unless you ask to erase them. A secure wipe is not offered.</p>
@@ -219,8 +254,8 @@ function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: Maa
       {error && <ErrorPanel message={error} testId="maas-action-error" />}
       <div className="modal-action mt-0">
         <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
-        <button type="button" className={kind === "release" ? "btn btn-sm btn-ghost text-error" : "btn btn-sm btn-primary"} disabled={busy || typed !== machine.hostname || (kind === "deploy" && (!distro || !!distroError || !cloud.trim()))} onClick={() => void go()} data-testid="maas-action-go">
-          {busy ? "Sending…" : kind === "commission" ? "Commission" : kind === "release" ? (erase ? "Release and erase" : "Release") : "Install"}
+        <button type="button" className={kind === "release" ? "btn btn-sm btn-ghost text-error" : "btn btn-sm btn-primary"} disabled={busy || typed !== machine.hostname || (kind === "deploy" && (!distro || !!distroError || !cloud.trim())) || (kind === "test" && !!scriptsError)} onClick={() => void go()} data-testid="maas-action-go">
+          {busy ? "Sending…" : kind === "commission" ? "Commission" : kind === "test" ? "Run tests" : kind === "release" ? (erase ? "Release and erase" : "Release") : "Install"}
         </button>
       </div>
     </FormDialog>

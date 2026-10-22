@@ -11,7 +11,7 @@ const admin = { name: "alex", role: "fabric-admin", permissions: ["read-inventor
 const src = { provider: "incus", observedAt: NOW };
 
 const maasMachine = (over: Record<string, unknown>) => ({
-  systemId: "abc123", hostname: "rack-a-1.maas", status: "Deployed", powerState: "on", powerType: "redfish", architecture: "arm64/generic",
+  systemId: "abc123", hostname: "rack-a-1.maas", status: "Deployed", testingStatus: "Passed", powerState: "on", powerType: "redfish", architecture: "arm64/generic",
   cpuCount: 8, memoryMib: 16384, os: "ubuntu noble", addresses: ["10.0.0.11"], hardwareUuid: "4c4c4544-0042-4c10-8051-b7c04f435331",
   zone: "rack-a", pool: "default", registeredAs: null, memberStatus: null, ...over,
 });
@@ -157,6 +157,36 @@ test("commissioning and installing an operating system type the hostname and do 
   expect(sent[2]?.body).toMatchObject({ confirm: "rack-a-1.maas", eraseDisks: false });
   await expect(page.getByText("#cloud-config")).toHaveCount(0);
   expect(await serious(page)).toEqual([]);
+});
+
+test("a burn-in runs only on a machine not in use, names its tests and shows the result", async ({ page }) => {
+  const sent: Record<string, unknown>[] = [];
+  await stub(page, {
+    ...base,
+    "GET /api/v1/provisioners/maas/machines": { json: { source: src, configured: true, items: [
+      maasMachine({ status: "Ready", testingStatus: "None", powerState: "off" }),
+      maasMachine({ systemId: "def456", hostname: "rack-a-2.maas", status: "Deployed", testingStatus: "Failed" }),
+    ] } },
+    "POST /api/v1/provisioners/maas/machines/abc123/test": (req) => { sent.push(req.postDataJSON() as Record<string, unknown>); return { status: 202, json: { systemId: "abc123", hostname: "rack-a-1.maas", action: "test" } }; },
+  });
+  await page.goto("/#/servers/machines");
+  const rows = page.getByTestId("maas-row");
+  await expect(rows.nth(0).getByTestId("maas-testing")).toHaveText("Not tested");
+  await expect(rows.nth(1).getByTestId("maas-testing")).toHaveText("Tests failed");
+  // A deployed machine (a cluster member) is not offered a burn-in.
+  await expect(rows.nth(1).getByTestId("maas-test")).toHaveCount(0);
+  await rows.nth(0).getByTestId("maas-test").click();
+  const dialog = page.getByTestId("maas-action-dialog");
+  await expect(dialog).toContainText("Run hardware tests on rack-a-1.maas");
+  await dialog.getByTestId("maas-action-confirm").fill("rack-a-1.maas");
+  await dialog.getByTestId("maas-scripts").fill("memory-check, x&y");
+  await expect(dialog).toContainText("Test names use letters");
+  await expect(dialog.getByTestId("maas-action-go")).toBeDisabled();
+  await dialog.getByTestId("maas-scripts").fill("memory-check, disk-check");
+  expect(await serious(page)).toEqual([]);
+  await dialog.getByTestId("maas-action-go").click();
+  await expect(page.getByTestId("maas-notice")).toContainText("MAAS is running memory-check, disk-check on rack-a-1.maas");
+  expect(sent).toEqual([{ confirm: "rack-a-1.maas", scripts: ["memory-check", "disk-check"] }]);
 });
 
 test.describe("phone", () => {

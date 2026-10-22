@@ -13,7 +13,8 @@ that changes something, and every step audited.
   the host; a new member held from placement until Apelora has validated it; admission making it
   eligible; Fabric Console views.
 - **Later slices:** a MAAS adapter (discovery, commissioning, OS deployment with the enrolment
-  cloud-init, power), removing a member from the cluster, a burn-in workload before admission.
+  cloud-init, power), removing a member from the cluster, a burn-in before admission (built through MAAS: see
+  [provisioner-maas.md](provisioner-maas.md)).
 - **Non-goals:** writing PXE, DHCP or BMC tooling; storing BMC credentials (they stay in the
   provisioner); placing instances ourselves (Incus places, ADR 0001).
 - **Scale:** tens of machines; one administrator acting at a time.

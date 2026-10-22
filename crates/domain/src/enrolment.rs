@@ -315,6 +315,37 @@ pub fn admission_checks(i: &AdmissionInput<'_>) -> Vec<Check> {
     out
 }
 
+/// The burn-in check for a machine from MAAS: its last hardware test run (`testing`, as MAAS
+/// names it), or `None` when MAAS could not be asked. A failed or unfinished run blocks
+/// admission; a machine never tested is a warning, so an administrator can still admit it.
+pub fn burn_in_check(testing: Option<&str>) -> Check {
+    use CheckStatus::*;
+    let (status, detail) = match testing {
+        None => (
+            NotChecked,
+            "MAAS could not be asked for the test result".to_owned(),
+        ),
+        Some("Passed") => (Pass, "MAAS's hardware tests passed".to_owned()),
+        Some(s @ ("Failed" | "Timed out" | "Aborted")) => (
+            Fail,
+            format!("MAAS's hardware tests: {s}; fix the hardware and run a burn-in again"),
+        ),
+        Some(s @ ("Running" | "Pending")) => (
+            Fail,
+            format!("MAAS's hardware tests are {s}; wait for the result"),
+        ),
+        Some("Degraded") => (
+            Warn,
+            "MAAS's hardware tests passed with a degraded result".to_owned(),
+        ),
+        Some(s) => (
+            Warn,
+            format!("not tested (MAAS says {s:?}); run a burn-in before admitting it"),
+        ),
+    };
+    check("burn-in", "Hardware tests (burn-in)", status, detail)
+}
+
 /// Admission is allowed when no check failed.
 pub fn admissible(checks: &[Check]) -> bool {
     checks.iter().all(|c| c.status != CheckStatus::Fail)
@@ -489,6 +520,28 @@ mod tests {
             ("architecture", CheckStatus::Warn),
         ] {
             assert_eq!(status_of(&checks, id), want, "{id}");
+        }
+    }
+
+    #[test]
+    fn only_a_failed_or_unfinished_burn_in_blocks_admission() {
+        use CheckStatus::*;
+        for (testing, want) in [
+            (Some("Passed"), Pass),
+            (Some("Failed"), Fail),
+            (Some("Timed out"), Fail),
+            (Some("Aborted"), Fail),
+            (Some("Running"), Fail),
+            (Some("Pending"), Fail),
+            (Some("Degraded"), Warn),
+            (Some("None"), Warn),
+            (Some("Unknown"), Warn),
+            (Some(""), Warn),
+            (None, NotChecked),
+        ] {
+            let c = burn_in_check(testing);
+            assert_eq!((c.id.as_str(), c.status), ("burn-in", want), "{testing:?}");
+            assert_eq!(admissible(&[c]), want != Fail, "{testing:?}");
         }
     }
 }

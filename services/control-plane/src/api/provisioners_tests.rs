@@ -18,6 +18,7 @@ fn machine(id: &str, host: &str, status: &str, power: PowerState) -> MaasMachine
         system_id: id.into(),
         hostname: host.into(),
         status: status.into(),
+        testing_status: "None".into(),
         power_state: power,
         power_type: "redfish".into(),
         architecture: "arm64/generic".into(),
@@ -364,4 +365,181 @@ async fn commissioning_and_deploy_are_audited_without_the_cloud_init(pool: Pool)
         .find(|e| e.action == "maas.machine.release")
         .expect("release audited");
     assert_eq!(release.detail["eraseDisks"], true);
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_failed_burn_in_blocks_admitting_a_maas_machine_and_a_passed_one_does_not(pool: Pool) {
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let incus = MockIncus::default();
+    let mock = Provider::Mock(incus.clone());
+    let with = |testing: &str| {
+        let mut m = machine("abc123", "rack-a-1", "Deployed", PowerState::On);
+        m.testing_status = testing.into();
+        AppState::new(mock.clone(), Auth::Tokens(pool.clone()))
+            .with_admin(Some(mock.clone()))
+            .with_maas(fixed(Ok(vec![m])))
+    };
+    let s = with("Failed");
+    let (st, b) = send(
+        s.clone(),
+        "POST",
+        "/api/v1/machines",
+        &admin,
+        Some(json!({ "name": "mock-member-04", "provider": "maas", "systemId": "abc123" })),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    let (st, b) = send(
+        s.clone(),
+        "POST",
+        "/api/v1/machines/mock-member-04/approve",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert!(incus.join("mock-member-04", true));
+    let (_, preview) = send(
+        s.clone(),
+        "GET",
+        "/api/v1/machines/mock-member-04/admission",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    let burn = preview["checks"]
+        .as_array()
+        .and_then(|c| c.iter().find(|c| c["id"] == "burn-in"))
+        .cloned()
+        .expect("burn-in check listed");
+    assert_eq!(burn["status"], "fail", "{preview}");
+    let (st, b) = send(
+        s,
+        "POST",
+        "/api/v1/machines/mock-member-04/admit",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, b["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("admission_blocked")),
+        "{b}"
+    );
+    assert!(
+        b["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Hardware tests (burn-in)")),
+        "{b}"
+    );
+    let (st, b) = send(
+        with("Passed"),
+        "POST",
+        "/api/v1/machines/mock-member-04/admit",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert!(
+        b["checks"].as_array().is_some_and(|c| c
+            .iter()
+            .any(|c| c["id"] == "burn-in" && c["status"] == "pass")),
+        "{b}"
+    );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_burn_in_runs_only_on_a_machine_not_in_use_and_is_audited(pool: Pool) {
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let viewer = apelora_persistence::create_token(&pool, "ro", "auditor", None)
+        .await
+        .expect("token")
+        .0;
+    let s = state(
+        &pool,
+        fixed(Ok(vec![
+            machine("abc123", "rack-a-1", "Ready", PowerState::Off),
+            machine("def456", "rack-a-2", "Deployed", PowerState::On),
+        ])),
+    );
+    let go = async |token: &str, id: &str, body: Value| {
+        send(
+            s.clone(),
+            "POST",
+            &format!("/api/v1/provisioners/maas/machines/{id}/test"),
+            token,
+            Some(body),
+            None,
+        )
+        .await
+    };
+    let (st, _) = go(&viewer, "abc123", json!({ "confirm": "rack-a-1" })).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, b) = go(&admin, "abc123", json!({ "confirm": "rack-a-2" })).await;
+    assert_eq!(b["error"]["code"], "confirmation_mismatch", "{st} {b}");
+    // A deployed machine (an Incus member, say) is never loaded by tests.
+    let (st, b) = go(&admin, "def456", json!({ "confirm": "rack-a-2" })).await;
+    assert_eq!(
+        (st, b["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("machine_in_use")),
+        "{b}"
+    );
+    let (st, b) = go(
+        &admin,
+        "abc123",
+        json!({ "confirm": "rack-a-1", "scripts": ["all&x=1"] }),
+    )
+    .await;
+    assert_eq!(
+        (st, b["error"]["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_request")),
+        "{b}"
+    );
+    let (st, b) = go(
+        &admin,
+        "abc123",
+        json!({ "confirm": "rack-a-1", "scripts": [" memory-check ", "disk-check"] }),
+    )
+    .await;
+    assert_eq!(
+        (st, b["action"].as_str()),
+        (StatusCode::ACCEPTED, Some("test")),
+        "{b}"
+    );
+    let rows = apelora_persistence::recent_audit(&pool, 10)
+        .await
+        .expect("audit");
+    let tests: Vec<_> = rows
+        .iter()
+        .filter(|e| e.action == "maas.machine.test")
+        .collect();
+    assert_eq!(tests.len(), 1, "only the accepted run is audited");
+    assert_eq!(tests[0].target, "abc123");
+    assert_eq!(
+        tests[0].detail["scripts"],
+        json!(["memory-check", "disk-check"])
+    );
+    // The list carries the test status.
+    let (_, b) = send(
+        s,
+        "GET",
+        "/api/v1/provisioners/maas/machines",
+        &admin,
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(b["items"][0]["testingStatus"], "None", "{b}");
 }

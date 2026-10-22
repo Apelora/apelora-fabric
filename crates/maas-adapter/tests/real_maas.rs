@@ -36,10 +36,11 @@ async fn the_real_maas_lists_its_machines_and_answers_for_one() {
     eprintln!("{} machines", all.len());
     for m in &all {
         eprintln!(
-            "  {} {} status={} power={:?} type={} arch={} cpus={} memory={} MiB uuid={:?} zone={} pool={}",
+            "  {} {} status={} testing={:?} power={:?} type={} arch={} cpus={} memory={} MiB uuid={:?} zone={} pool={}",
             m.system_id,
             m.hostname,
             m.status,
+            m.testing_status,
             m.power_state,
             m.power_type,
             m.architecture,
@@ -57,6 +58,10 @@ async fn the_real_maas_lists_its_machines_and_answers_for_one() {
     assert!(
         !lab.is_empty(),
         "run scripts/test-cluster/maas.sh machines first"
+    );
+    assert!(
+        lab.iter().all(|m| !m.testing_status.is_empty()),
+        "MAAS reports a testing status for every machine"
     );
     let m = lab[0];
     // One machine, by its system id: the same facts.

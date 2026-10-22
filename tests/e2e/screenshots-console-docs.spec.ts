@@ -102,7 +102,7 @@ test("console audit screenshot 1440x900", async ({ page }) => {
 test("console MAAS machines screenshot 1440x900", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const m = (over: Record<string, unknown>) => ({
-    systemId: "abc123", hostname: "rack-a-1.maas", status: "Deployed", powerState: "on", powerType: "redfish", architecture: "amd64/generic", cpuCount: 8, memoryMib: 16384, os: "ubuntu noble",
+    systemId: "abc123", hostname: "rack-a-1.maas", status: "Deployed", testingStatus: "Passed", powerState: "on", powerType: "redfish", architecture: "amd64/generic", cpuCount: 8, memoryMib: 16384, os: "ubuntu noble",
     addresses: ["10.0.0.11"], hardwareUuid: "4c4c4544-0042-4c10-8051-b7c04f435331", zone: "rack-a", pool: "default", registeredAs: null, memberStatus: null, ...over,
   });
   const empty = { json: { source: src, items: [] } };

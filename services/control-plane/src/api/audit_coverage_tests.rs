@@ -48,6 +48,11 @@ const EXEMPT: &[(&str, &str, &str)] = &[
         "/api/v1/provisioners/maas/machines/{system_id}/release",
         "MAAS is asked first; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
     ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/test",
+        "MAAS is asked first; the audit row is checked in provisioners_tests::a_burn_in_runs_only_on_a_machine_not_in_use_and_is_audited",
+    ),
     // Dry runs and checks: they compute or probe, and change nothing.
     (
         "POST",

@@ -1898,6 +1898,8 @@ export type MaasMachineView = {
   status: string;
   /** MAAS's identifier; give it when registering the machine. */
   systemId: string;
+  /** The last hardware test run (burn-in): `Passed`, `Failed`, `Running`, `Pending`, `None`, … */
+  testingStatus: string;
   zone: string;
 };
 
@@ -1912,6 +1914,12 @@ export type MaasRelease = {
   confirm: string;
   /** Wipe the installed system. Off unless the caller sets it. A secure wipe is not offered. */
   eraseDisks?: boolean;
+};
+
+export type MaasTest = {
+  confirm: string;
+  /** MAAS test script or tag names (up to 16). Empty runs MAAS's default tests. */
+  scripts?: string[];
 };
 
 export type Machine = {
@@ -3701,6 +3709,7 @@ export const operations = {
   maas_commission: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/commission", params: ["system_id"], public: false },
   maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/deploy", params: ["system_id"], public: false },
   maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/release", params: ["system_id"], public: false },
+  maas_test: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/test", params: ["system_id"], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
@@ -4059,6 +4068,8 @@ export type Responses = {
   maas_deploy: MaasAccepted;
   /** Returns the machine to MAAS's pool. Needs `hardware.deploy` and the hostname typed again. Disk erasure needs `hardware.delete` as well and is off unless asked. A secure wipe is not offered. Audited; MAAS is asked first. */
   maas_release: MaasAccepted;
+  /** Starts a hardware test run (burn-in) through MAAS. Needs `hardware.commission` and the hostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is allocated or deployed (an Incus member, for one) is refused, so tests never load a running server. Audited with the test names; MAAS is asked first. */
+  maas_test: MaasAccepted;
   /** Open sessions the caller started, and those on applications they may operate. */
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
@@ -4267,6 +4278,7 @@ export type Bodies = {
   maas_commission: MaasConfirm;
   maas_deploy: MaasDeploy;
   maas_release: MaasRelease;
+  maas_test: MaasTest;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

@@ -25,7 +25,7 @@ struct Fake {
 type Shared = Arc<Mutex<Fake>>;
 
 fn machine(id: &str, host: &str, power: &str) -> Value {
-    json!({ "system_id": id, "hostname": host, "fqdn": format!("{host}.maas"), "status": 6, "status_name": "Deployed",
+    json!({ "system_id": id, "hostname": host, "fqdn": format!("{host}.maas"), "status": 6, "status_name": "Deployed", "testing_status_name": "Passed",
         "power_state": power, "power_type": "redfish", "architecture": "arm64/generic", "cpu_count": 8, "memory": 16384,
         "osystem": "ubuntu", "distro_series": "noble", "ip_addresses": ["10.0.0.11", "fd00::11"],
         "hardware_uuid": "4c4c4544-0042-4c10-8051-b7c04f435331", "zone": { "name": "rack-a" },
@@ -58,6 +58,7 @@ async fn list(State(s): State<Shared>, h: HeaderMap) -> Response {
     }
     let mut new = machine("n3wmch", "rack-a-new", "unknown");
     new["status_name"] = json!("New");
+    new["testing_status_name"] = json!("None");
     new["hardware_uuid"] = Value::Null;
     new["owner"] = Value::Null;
     new["ip_addresses"] = json!([]);
@@ -125,6 +126,7 @@ async fn server(power: &str) -> (MaasClient, Shared) {
         .route("/MAAS/api/2.0/machines/{id}/op-commission", post(accept))
         .route("/MAAS/api/2.0/machines/{id}/op-deploy", post(accept))
         .route("/MAAS/api/2.0/machines/{id}/op-release", post(accept))
+        .route("/MAAS/api/2.0/machines/{id}/op-test", post(accept))
         .with_state(shared.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -230,6 +232,10 @@ async fn machines_are_listed_with_what_apelora_uses_and_nothing_from_their_power
         ),
         ("New", PowerState::Unknown, None, None)
     );
+    assert_eq!(
+        (m.testing_status.as_str(), n.testing_status.as_str()),
+        ("Passed", "None")
+    );
     assert_eq!(c.machine("abc123").await.expect("one").hostname, "rack-a-1");
 }
 
@@ -327,4 +333,45 @@ async fn commissioning_and_deploy_are_posted_and_the_cloud_init_is_encoded() {
     );
     assert!(c.deploy("abc123", "noble", "   ").await.is_err());
     assert!(c.deploy("no", "noble", "x").await.is_err());
+}
+
+#[tokio::test]
+async fn a_test_run_names_its_scripts_or_none_and_bad_names_never_reach_the_network() {
+    let (c, fake) = server("off").await;
+    c.test("abc123", &[]).await.expect("default tests");
+    c.test("abc123", &["memory-check".into(), "disk-check.long".into()])
+        .await
+        .expect("named tests");
+    let seen = fake.lock().expect("fake").seen.clone();
+    let runs: Vec<&String> = seen.iter().filter(|l| l.contains("op-test")).collect();
+    assert_eq!(runs.len(), 2, "{seen:?}");
+    assert!(
+        runs[0].ends_with("op-test "),
+        "no scripts named: {}",
+        runs[0]
+    );
+    assert!(
+        runs[1].ends_with("testing_scripts=memory-check%2Cdisk-check.long"),
+        "{}",
+        runs[1]
+    );
+    let too_many: Vec<String> = (0..17).map(|i| format!("t{i}")).collect();
+    for bad in [
+        vec![String::new()],
+        vec!["a,b".into()],
+        vec!["x&testing_scripts=all".into()],
+        vec!["a".repeat(65)],
+        too_many,
+    ] {
+        assert!(
+            matches!(c.test("abc123", &bad).await, Err(MaasError::Invalid(_))),
+            "{bad:?}"
+        );
+    }
+    assert!(matches!(
+        c.test("AB", &[]).await,
+        Err(MaasError::Invalid(_))
+    ));
+    let seen = fake.lock().expect("fake").seen.clone();
+    assert_eq!(seen.iter().filter(|l| l.contains("op-test")).count(), 2);
 }

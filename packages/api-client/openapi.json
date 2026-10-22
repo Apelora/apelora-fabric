@@ -11852,6 +11852,118 @@
         }
       }
     },
+    "/api/v1/provisioners/maas/machines/{system_id}/test": {
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Starts a hardware test run (burn-in) through MAAS. Needs `hardware.commission` and the\nhostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is\nallocated or deployed (an Incus member, for one) is refused, so tests never load a running\nserver. Audited with the test names; MAAS is asked first.",
+        "operationId": "maas_test",
+        "parameters": [
+          {
+            "name": "system_id",
+            "in": "path",
+            "description": "MAAS system id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaasTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaasAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -19053,6 +19165,7 @@
           "systemId",
           "hostname",
           "status",
+          "testingStatus",
           "powerState",
           "powerType",
           "architecture",
@@ -19129,6 +19242,10 @@
             "type": "string",
             "description": "MAAS's identifier; give it when registering the machine."
           },
+          "testingStatus": {
+            "type": "string",
+            "description": "The last hardware test run (burn-in): `Passed`, `Failed`, `Running`, `Pending`, `None`, …"
+          },
           "zone": {
             "type": "string"
           }
@@ -19169,6 +19286,24 @@
           "eraseDisks": {
             "type": "boolean",
             "description": "Wipe the installed system. Off unless the caller sets it. A secure wipe is not offered."
+          }
+        }
+      },
+      "MaasTest": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "scripts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "MAAS test script or tag names (up to 16). Empty runs MAAS's default tests."
           }
         }
       },

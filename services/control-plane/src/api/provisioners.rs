@@ -100,6 +100,18 @@ impl Maas {
         }
     }
 
+    pub async fn test(&self, system_id: &str, scripts: &[String]) -> Result<(), MaasError> {
+        match self {
+            Maas::Off => Err(MaasError::Invalid("MAAS is not configured".into())),
+            Maas::Client(c) => c.test(system_id, scripts).await,
+            Maas::Fixed(_) => {
+                apelora_maas_adapter::check_scripts(scripts)?;
+                self.machine(system_id).await?;
+                Ok(())
+            }
+        }
+    }
+
     pub async fn release(&self, system_id: &str, erase: bool) -> Result<(), MaasError> {
         match self {
             Maas::Off => Err(MaasError::Invalid("MAAS is not configured".into())),
@@ -143,6 +155,8 @@ pub struct MaasMachineView {
     pub hostname: String,
     /// `New`, `Commissioning`, `Ready`, `Allocated`, `Deploying`, `Deployed`, `Failed …`.
     pub status: String,
+    /// The last hardware test run (burn-in): `Passed`, `Failed`, `Running`, `Pending`, `None`, …
+    pub testing_status: String,
     /// `on`, `off`, `unknown` or `error`, as MAAS last read it from the BMC.
     pub power_state: String,
     /// How MAAS switches it: `ipmi`, `redfish`, `manual`, `virsh`…
@@ -230,6 +244,7 @@ pub(super) async fn machines(
                 system_id: m.system_id,
                 hostname: m.hostname,
                 status: m.status,
+                testing_status: m.testing_status,
                 power_type: m.power_type,
                 architecture: m.architecture,
                 cpu_count: m.cpu_count,
@@ -310,6 +325,15 @@ pub(super) struct MaasRelease {
     /// Wipe the installed system. Off unless the caller sets it. A secure wipe is not offered.
     #[serde(default)]
     pub erase_disks: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct MaasTest {
+    pub confirm: String,
+    /// MAAS test script or tag names (up to 16). Empty runs MAAS's default tests.
+    #[serde(default)]
+    pub scripts: Vec<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -406,6 +430,90 @@ pub(super) async fn commission(
             system_id,
             hostname: machine.hostname,
             action: "commission".into(),
+        }),
+    ))
+}
+
+/// MAAS states a burn-in may run in: the machine carries no installed system or workload.
+const TESTABLE: [&str; 3] = ["Ready", "Broken", "Failed testing"];
+
+/// Starts a hardware test run (burn-in) through MAAS. Needs `hardware.commission` and the
+/// hostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is
+/// allocated or deployed (an Incus member, for one) is refused, so tests never load a running
+/// server. Audited with the test names; MAAS is asked first.
+#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{system_id}/test", tag = "cluster",
+    operation_id = "maas_test",
+    params(("system_id" = String, Path, description = "MAAS system id")),
+    request_body = MaasTest,
+    responses((status = 202, body = MaasAccepted), (status = 400, body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
+        (status = 409, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
+pub(super) async fn test(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(system_id): Path<String>,
+    body: Result<Json<MaasTest>, JsonRejection>,
+) -> Result<(StatusCode, Json<MaasAccepted>), ApiError> {
+    allow_platform(&p, "hardware.commission")?;
+    let Json(req) =
+        body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
+    let scripts: Vec<String> = req.scripts.iter().map(|s| s.trim().to_owned()).collect();
+    apelora_maas_adapter::check_scripts(&scripts).map_err(maas_error)?;
+    let machine = known(&state, &system_id).await?;
+    if req.confirm != machine.hostname {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "confirmation_mismatch",
+            format!("type the hostname ({}) to test it", machine.hostname),
+        ));
+    }
+    if !TESTABLE.contains(&machine.status.as_str()) {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "machine_in_use",
+            format!(
+                "{} is {}; hardware tests run only on a machine that is Ready, Broken or Failed testing (release or evacuate it first)",
+                machine.hostname, machine.status
+            ),
+        ));
+    }
+    state
+        .maas
+        .test(&system_id, &scripts)
+        .await
+        .map_err(maas_error)?;
+    let pool = audit_store(&state)?;
+    let mut tx = begin(pool).await?;
+    audit_scoped(
+        &mut tx,
+        &p,
+        "maas.machine.test",
+        &system_id,
+        "success",
+        None,
+        &json!({ "hostname": machine.hostname, "scripts": scripts, "role": p.role }),
+    )
+    .await
+    .map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store_error",
+            e.to_string(),
+        )
+    })?;
+    commit(tx).await.map_err(|e| {
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "store_error",
+            e.to_string(),
+        )
+    })?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(MaasAccepted {
+            system_id,
+            hostname: machine.hostname,
+            action: "test".into(),
         }),
     ))
 }

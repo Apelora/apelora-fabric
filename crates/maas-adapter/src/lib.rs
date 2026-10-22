@@ -126,6 +126,8 @@ pub struct Machine {
     pub hostname: String,
     /// `New`, `Commissioning`, `Ready`, `Allocated`, `Deploying`, `Deployed`, `Failed …`, …
     pub status: String,
+    /// The last hardware test run: `Passed`, `Failed`, `Running`, `Pending`, `None`, …
+    pub testing_status: String,
     pub power_state: PowerState,
     /// How MAAS switches it: `ipmi`, `redfish`, `manual`, `virsh`, …
     pub power_type: String,
@@ -180,6 +182,7 @@ impl Machine {
         Ok(Machine {
             hostname: text(v, "hostname"),
             status: text(v, "status_name"),
+            testing_status: text(v, "testing_status_name"),
             power_state: PowerState::parse(&text(v, "power_state")),
             power_type: text(v, "power_type"),
             architecture: text(v, "architecture"),
@@ -391,6 +394,23 @@ impl MaasClient {
         Ok(())
     }
 
+    /// Starts a hardware test run (burn-in). `scripts` names MAAS test scripts or tags; empty
+    /// runs MAAS's default tests. At most 16 names of letters, digits, `.`, `_` and `-`. The
+    /// result is the machine's testing status, read afterwards.
+    pub async fn test(&self, system_id: &str, scripts: &[String]) -> Result<(), MaasError> {
+        check_id(system_id)?;
+        check_scripts(scripts)?;
+        let joined = scripts.join(",");
+        let form: &[(&str, &str)] = if scripts.is_empty() {
+            &[]
+        } else {
+            &[("testing_scripts", &joined)]
+        };
+        self.call(true, &format!("machines/{system_id}/op-test"), form)
+            .await?;
+        Ok(())
+    }
+
     /// Asks MAAS to install `distro_series` and run `user_data` (cloud-init, sent base64-encoded,
     /// the form MAAS documents). The text is not logged. Empty, or larger than 64 KiB, is refused
     /// before anything is sent.
@@ -472,6 +492,26 @@ fn base64(data: &[u8]) -> String {
         out.push('=');
     }
     out
+}
+
+/// Test script or tag names for [`MaasClient::test`].
+pub fn check_scripts(scripts: &[String]) -> Result<(), MaasError> {
+    if scripts.len() > 16 {
+        return Err(MaasError::Invalid("name at most 16 tests".into()));
+    }
+    for s in scripts {
+        if s.is_empty()
+            || s.len() > 64
+            || !s
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+        {
+            return Err(MaasError::Invalid(format!(
+                "{s:?} is not a test name (letters, digits, '.', '_' and '-')"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn check_id(id: &str) -> Result<(), MaasError> {

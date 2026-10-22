@@ -713,6 +713,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "/api/v1/provisioners/maas/machines/{system_id}/release",
         &["hardware.deploy"],
     ),
+    (
+        "POST",
+        "/api/v1/provisioners/maas/machines/{system_id}/test",
+        &["hardware.commission"],
+    ),
     ("POST", "/api/v1/machines", &["machine.enrol"]),
     ("DELETE", "/api/v1/machines/{name}", &["hardware.delete"]),
     (
