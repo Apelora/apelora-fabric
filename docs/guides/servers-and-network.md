@@ -35,7 +35,7 @@ Incus, OVN and Apelora use several kinds of traffic. Whether they share one netw
 | Incus API and cluster | TCP 8443, mutual TLS | the servers; the control plane and the worker to a server | A private management network |
 | Cluster database and heartbeats | the same, TCP 8443 | the servers | The same network, at most 10 ms apart |
 | Tunnels between application networks (OVN) | UDP 6081 (Geneve), not encrypted | the servers | A **private** network: nothing authenticates it on the wire |
-| OVN databases | TCP 6641 (northbound) and 6642 (southbound), TLS | the servers; Incus to the northbound database | A private network. The default lab (`ovn.sh`) uses one database without TLS; `ovn-ha.sh` is the three-member TLS cluster (dry-run until `APPLY=1`, not REAL INCUS TESTED). A real installation should use TLS. |
+| OVN databases | TCP 6641 (northbound) and 6642 (southbound), TLS | the servers; Incus to the northbound database | A private network. The default lab (`ovn.sh`) uses one database without TLS; `ovn-ha.sh APPLY=1` is the three-member TLS cluster (REAL INCUS TESTED 2026-10-22, including leader failover). A real installation should use TLS. |
 | Application traffic to and from the outside | whatever your applications serve | the uplink and the outside | The **uplink network**: the one that is routed to your users |
 | Volume copies and backups | through Incus (TCP 8443) | the servers | The management network |
 | Shared storage (optional) | iSCSI TCP 3260, or Fibre Channel | each server and the SAN | A storage network of its own, if you have the cards |
