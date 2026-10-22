@@ -1254,16 +1254,24 @@ impl Provider {
     ) -> Result<Vec<String>, AdapterError> {
         match self {
             // Documentation-range addresses so mock data can never be mistaken for real ones.
-            Provider::Mock(m) => Ok(m
-                .lock()
-                .iter()
-                .position(|i| {
+            Provider::Mock(m) => {
+                let found = m.lock().iter().position(|i| {
                     i.instance.project == project
                         && i.instance.name == name
                         && i.instance.status == "Running"
-                })
-                .map(|n| vec![format!("198.51.100.{}/32", n + 1)])
-                .unwrap_or_default()),
+                });
+                let net = m.net();
+                Ok(found
+                    .map(|n| {
+                        let mut a = vec![format!("198.51.100.{}/32", n + 1)];
+                        if net.ipv6 && !net.no_ipv6_yet.contains(name) {
+                            a.push(format!("2001:db8:a::{:x}/128", n + 1));
+                        }
+                        a.sort();
+                        a
+                    })
+                    .unwrap_or_default())
+            }
             Provider::Incus(c) => c.instance_addresses(project, name).await,
         }
     }
@@ -1977,6 +1985,10 @@ impl Provider {
                         ("network".to_owned(), "mock-br0".to_owned()),
                         ("ipv4.address".to_owned(), "10.99.0.1/24".to_owned()),
                         (
+                            "ipv6.address".to_owned(),
+                            if net.ipv6 { "2001:db8:a::1/64" } else { "none" }.to_owned(),
+                        ),
+                        (
                             "volatile.network.ipv4.address".to_owned(),
                             "192.0.2.100".to_owned(),
                         ),
@@ -2174,6 +2186,13 @@ pub struct MockNetwork {
     pub restarts: Vec<String>,
     /// `project/network` → the service-name records (`user.apelora.dns`).
     pub dns: std::collections::BTreeMap<String, String>,
+    /// Application networks get an IPv6 subnet and running instances an IPv6 address too, as
+    /// Incus gives an OVN network one of its own (tests).
+    pub ipv6: bool,
+    /// Instances whose IPv6 address has not arrived yet (it comes after IPv4) (tests).
+    pub no_ipv6_yet: std::collections::BTreeSet<String>,
+    /// Instances that will never get IPv6: the sync should stop waiting (tests).
+    pub ipv6_wait_over: std::collections::BTreeSet<String>,
 }
 
 impl MockNetwork {

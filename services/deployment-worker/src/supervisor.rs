@@ -1503,6 +1503,97 @@ mod tests {
         assert_eq!(mock.net().restarts.len(), 1);
     }
 
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_waits_for_an_ipv6_address_that_comes_after_ipv4(pool: Pool) {
+        use apelora_domain::network::SyncRequest;
+        use apelora_domain::plan::replica_name;
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        let r1 = replica_name("shop", "web-01", 1);
+        mock.net().ipv6 = true;
+        mock.net().no_ipv6_yet.insert(r1.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: Vec::new(),
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: Vec::new(),
+            service_range: None,
+            published: Vec::new(),
+            internet: Default::default(),
+        };
+        let set = |m: &MockIncus| m.net().address_sets[&format!("{PROJECT}/shop-web-01")].clone();
+        // IPv4 is there and goes into the set at once, but the sync is not done.
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => assert!(m.contains(&r1), "{m}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(set(&mock).iter().filter(|a| a.contains(':')).count(), 1);
+        assert_eq!(set(&mock).iter().filter(|a| a.ends_with("/32")).count(), 2);
+        mock.net().no_ipv6_yet.clear();
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+        assert_eq!(set(&mock).len(), 4, "both replicas, both families");
+        // Without an IPv6 subnet nothing waits for one.
+        mock.net().ipv6 = false;
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_stops_waiting_for_ipv6_that_never_arrives(pool: Pool) {
+        use apelora_domain::network::SyncRequest;
+        use apelora_domain::plan::replica_name;
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        let r1 = replica_name("shop", "web-01", 1);
+        mock.net().ipv6 = true;
+        mock.net().no_ipv6_yet.insert(r1.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: Vec::new(),
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: Vec::new(),
+            service_range: None,
+            published: Vec::new(),
+            internet: Default::default(),
+        };
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => assert!(m.contains(&r1), "{m}"),
+            other => panic!("{other:?}"),
+        }
+        mock.net().ipv6_wait_over.insert(r1.clone());
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+        let set = mock.net().address_sets[&format!("{PROJECT}/shop-web-01")].clone();
+        assert!(
+            set.iter().any(|a| a.ends_with("/32")),
+            "IPv4 stayed in the set: {set:?}"
+        );
+        assert_eq!(
+            set.iter()
+                .filter(|a| a.contains(':') && a.contains("/128"))
+                .count(),
+            1,
+            "only replica 2 has IPv6: {set:?}"
+        );
+    }
+
     /// `shop`'s web service with a load balancer over both replicas (as `network.sync` makes it).
     async fn web_service(pool: &Pool, provider: &Provider) {
         use apelora_domain::network::{Backend, LoadBalancer, network_name};

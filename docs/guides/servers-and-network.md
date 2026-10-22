@@ -2,7 +2,7 @@
 
 What the servers need, how many network cards, and which IP addresses Apelora Fabric and Incus use. Read this before [installing Incus](install-incus.md).
 
-**Evidence:** the layouts below are what the four-server lab runs (virtual machines with one network card each, a private network between them, and a NAT bridge as the application uplink). Physical servers, separate management and storage networks, physical uplinks and IPv6 have **not** been tried; where a statement rests on Incus's documentation or is our recommendation, it says so. See [testing without hardware](testing-without-hardware.md) for what the lab can and cannot prove.
+**Evidence:** the layouts below are what the four-server lab runs (virtual machines with one network card each, a private network between them, and a NAT bridge as the application uplink). Physical servers, separate management and storage networks and physical uplinks have **not** been tried. IPv6 has been tried only inside application networks (see the table below); where a statement rests on Incus's documentation or is our recommendation, it says so. See [testing without hardware](testing-without-hardware.md) for what the lab can and cannot prove.
 
 ## The short answers
 
@@ -69,9 +69,9 @@ Add a network of its own for **shared storage** (iSCSI or NVMe over Fabrics), an
 | **Cluster address** | The same address, or a separate one if you give the cluster its own network (`cluster.https_address`) | Members reach each other on it. |
 | **Uplink: DHCP and gateway** | The uplink network's own subnet and gateway | Whatever your network already gives the servers' neighbours. |
 | **Uplink: addresses for application routers** | A range inside the uplink's subnet, not used by anything else (`ipv4.ovn.ranges`) | Each application network has an OVN router that takes one address from this range. Plan one per application. |
-| **Service addresses** | A range **routed to the uplink**, for example a /28 (`ipv4.routes` on the uplink; Apelora's setting `APELORA_SERVICE_ADDRESSES`) | A module that others connect to gets one address from this range, on an OVN load balancer; consumers use that address while replicas come and go. Your network must route the range to the uplink; the OVN router does not answer ARP for it. The lab takes its range from the range reserved for network testing (default in `scripts/test-cluster/ovn.sh`), so it never collides with a real network. Use addresses that are yours. |
-| **Application networks** | Private addresses that Incus picks for each application's own network | They are not routed outside, and you do not plan them. |
-| **Instance addresses** | Private, from the application network | Modules are told their providers' service addresses as settings; names inside applications (DNS) are not provided. |
+| **Service addresses** | An **IPv4** range **routed to the uplink**, for example a /28 (`ipv4.routes` on the uplink; Apelora's setting `APELORA_SERVICE_ADDRESSES`) | A module that others connect to gets one address from this range, on an OVN load balancer; consumers use that address while replicas come and go. Your network must route the range to the uplink; the OVN router does not answer ARP for it. The lab takes its range from the range reserved for network testing (default in `scripts/test-cluster/ovn.sh`), so it never collides with a real network. Use addresses that are yours. |
+| **Application networks** | Private addresses that Incus picks for each application's own network: an IPv4 subnet, and an IPv6 subnet of its own even when the uplink has no IPv6 | They are not routed outside, and you do not plan them. Connections are enforced over both: **REAL INCUS TESTED** (`scripts/test-cluster/ipv6.sh`, 2026-10-22: a connected module reached its provider over IPv4 and IPv6, an unconnected one was refused over both). |
+| **Instance addresses** | Private, from the application network, IPv4 and IPv6 | Modules are told their providers' service addresses as settings; names inside applications (DNS) are not provided. |
 
 **Public or private?** Both work for the servers. The addresses of the service range are the ones people or other systems connect to, so they follow your own rules: private addresses behind your firewall, or public addresses if you route them to the uplink. Apelora does not do network address translation for you.
 
