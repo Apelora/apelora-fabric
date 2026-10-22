@@ -7,6 +7,10 @@
 # ~/.config/apelora/test-cluster, mode 0700). Two client identities, as in production:
 # `client` is restricted to the deploy project (control plane and worker); `admin` is
 # unrestricted and used only by the control plane for cluster administration (ADR 0003).
+#
+# APELORA_TEST_LOCAL=1 configures an Incus already installed on this machine instead (a
+# throwaway CI runner, `.github/workflows/real-incus.yml`): same project, identities and env
+# file, no Lima, commands through sudo.
 set -euo pipefail
 
 VM=${APELORA_TEST_VM:-apelora-incus}
@@ -16,22 +20,31 @@ MEMBER=apelora-test-1
 here=$(cd "$(dirname "$0")" && pwd)
 
 need() { command -v "$1" >/dev/null || { echo "missing: $1 ($2)" >&2; exit 1; }; }
-need limactl "brew install lima"
 need openssl "part of macOS and most Linux distributions"
-vm() { limactl shell --workdir / "$VM" "$@"; }
+LOCAL=${APELORA_TEST_LOCAL:-}
+if [ -n "$LOCAL" ]; then
+  need incus "install Incus first (scripts/test-cluster/install-incus.sh)"
+  vm() { "$@"; }
+  put() { sudo install -m 0644 "$1" "$2"; }
+  # The address the machine reaches the outside from: API and cluster traffic.
+  addr=$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}' | head -1)
+  cluster_addr=$addr
+else
+  need limactl "brew install lima"
+  vm() { limactl shell --workdir / "$VM" "$@"; }
+  put() { limactl copy "$1" "$VM:$2"; }
+  state=$(limactl list --format '{{.Status}}' "$VM" 2>/dev/null || true)
+  case "$state" in
+    "") limactl start --tty=false --name "$VM" "$here/incus-vm.yaml" ;;
+    Running) ;;
+    *) limactl start --tty=false "$VM" ;;
+  esac
+  ipv4() { vm ip -4 -o addr show dev "$1" | awk '{print $4}' | cut -d/ -f1 | head -1; }
+  addr=$(ipv4 lima0)          # API address for the host
+  cluster_addr=$(ipv4 eth0)   # member-to-member traffic (user-v2)
+fi
 incus() { vm sudo incus "$@"; }
-
-state=$(limactl list --format '{{.Status}}' "$VM" 2>/dev/null || true)
-case "$state" in
-  "") limactl start --tty=false --name "$VM" "$here/incus-vm.yaml" ;;
-  Running) ;;
-  *) limactl start --tty=false "$VM" ;;
-esac
-
-ipv4() { vm ip -4 -o addr show dev "$1" | awk '{print $4}' | cut -d/ -f1 | head -1; }
-addr=$(ipv4 lima0)          # API address for the host
-cluster_addr=$(ipv4 eth0)   # member-to-member traffic (user-v2)
-[ -n "$addr" ] && [ -n "$cluster_addr" ] || { echo "the VM lacks an address on lima0 or eth0" >&2; exit 1; }
+[ -n "$addr" ] && [ -n "$cluster_addr" ] || { echo "no address for the Incus API" >&2; exit 1; }
 
 if ! incus cluster list >/dev/null 2>&1; then
   echo "initialising Incus as a one-member cluster (API on $addr, cluster traffic on $cluster_addr)"
@@ -97,9 +110,9 @@ identity() {
   local fp
   fp=$(fingerprint_of "$crt")
   if ! incus config trust list --format csv --columns f | grep -q "^${fp:0:12}"; then
-    limactl copy "$crt" "$VM:/tmp/apelora-$stem.crt"
+    put "$crt" "/tmp/apelora-$stem.crt"
     incus config trust add-certificate "/tmp/apelora-$stem.crt" --name "$name" "$@"
-    vm rm -f "/tmp/apelora-$stem.crt"
+    vm sudo rm -f "/tmp/apelora-$stem.crt"
   fi
 }
 identity client apelora-test --restricted --projects "$PROJECT"
@@ -113,7 +126,8 @@ tls_name=$(openssl x509 -in "$DIR/server.crt" -noout -text | grep -o 'DNS:[^,]*'
 [ -n "$tls_name" ] || { echo "the server certificate names no host" >&2; exit 1; }
 
 {
-  echo "# Disposable Incus test cluster ($VM). Source this file; never commit it."
+  where=$VM; [ -n "$LOCAL" ] && where="this machine"
+  echo "# Disposable Incus test cluster ($where). Source this file; never commit it."
   printf 'export APELORA_INCUS_URL=%q\n' "https://$addr:8443"
   printf 'export APELORA_INCUS_CLIENT_CERT=%q\n' "$DIR/client.crt"
   printf 'export APELORA_INCUS_CLIENT_KEY=%q\n' "$DIR/client.key"
