@@ -5,6 +5,8 @@
 //! an ACL and an address set; writes every ACL's rules from the connections (both sides);
 //! fills each address set with its instance's current addresses. While an instance has no
 //! address yet (still starting) the job retries; until then its set is empty, which denies.
+//! When the network has an IPv6 subnet the job also waits for each instance's IPv6 address,
+//! which arrives after IPv4: a set holding only IPv4 would deny the module's IPv6 traffic.
 
 use std::net::Ipv4Addr;
 
@@ -71,6 +73,15 @@ async fn apply(
             .ensure_network(p, &network_name(app), &s.uplink, app)
             .await?;
     }
+    let ipv6 = !s.modules.is_empty()
+        && provider
+            .network(p, &network_name(app))
+            .await?
+            .is_some_and(|n| {
+                n.config
+                    .get("ipv6.address")
+                    .is_some_and(|v| !v.is_empty() && v != "none")
+            });
     let inv = Inventory::read(provider).await?;
     for a in &s.modules {
         let name = acl_name(app, a);
@@ -88,7 +99,7 @@ async fn apply(
                     continue;
                 }
                 let found = provider.instance_addresses(p, instance).await?;
-                found_any |= !found.is_empty();
+                found_any |= !found.is_empty() && (!ipv6 || found.iter().any(|x| x.contains(':')));
                 addresses.extend(found);
             }
             if !slot.is_empty() && !found_any {
