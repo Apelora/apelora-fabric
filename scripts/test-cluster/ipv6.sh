@@ -41,23 +41,32 @@ wait_job() {
 reach() {
   echo "incus exec $1 --project apelora -- bash -c \"timeout 5 bash -c 'exec 3<>/dev/tcp/$2/80' 2>/dev/null && echo OPEN || echo blocked\" </dev/null" | member apelora-incus
 }
-# The instance's global address of one family on eth0 (4 or 6).
+# The instance's global address of one family on eth0 (4 or 6). Instance state, not `incus list`
+# CSV: a list of addresses is quoted, and `head -1` would return the opening quote.
 addr() {
-  local col; [ "$2" = 6 ] && col=6 || col=4
-  incus_ list "$1" --project apelora -c "$col" --format csv | tr ' ' '\n' | grep -v '^(' | grep -v '^fe80' | head -1
+  local fam; [ "$2" = 6 ] && fam=inet6 || fam=inet
+  incus_ query "/1.0/instances/$1/state?project=apelora" | jq -r --arg fam "$fam" \
+    '(.network // .metadata.network).eth0.addresses[]? | select(.family == $fam and .scope == "global") | .address' | head -1
 }
 
+cp_pid="" worker_pid=""
 cleanup() {
   set +e
   say "cleanup"
   if [ -s "$run/token" ]; then
-    api -X POST -H 'Idempotency-Key: v6check-cleanup' \
+    res=$(api -X POST -H 'Idempotency-Key: v6check-cleanup' \
       -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"modules":[],"connections":[],"removeMissing":true}' \
-      "$API/applications/$APP/deployments" >/dev/null
-    sleep 45
+      "$API/applications/$APP/deployments")
+    id=$(echo "$res" | jq -r '.networkJob // empty')
+    [ -n "$id" ] && wait_job "$id" >/dev/null
+    for _ in $(seq 1 36); do
+      left=$(incus_ list --project apelora -c n --format csv | grep -c "^$APP" || true)
+      [ "$left" = 0 ] && break
+      sleep 5
+    done
   fi
-  pkill -f "$repo/target/debug/apelora-control-plane"
-  pkill -f "$repo/target/debug/apelora-deployment-worker"
+  [ -n "$cp_pid" ] && kill "$cp_pid"
+  [ -n "$worker_pid" ] && kill "$worker_pid"
   if [ -s "$run/token-id" ]; then
     # The token first and on its own: a failing statement must never keep a credential alive.
     docker exec -i apelora-dev-db psql -U apelora -d apelora -q -c "DELETE FROM api_tokens WHERE id = '$(cat "$run/token-id")';" >/dev/null
@@ -80,8 +89,8 @@ out=$("$repo/target/debug/apelora-control-plane" token create --name v6check --r
 echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
 echo "$out" | grep -o '^Created token [a-f0-9-]*' | awk '{print $3}' > "$run/token-id"
 export APELORA_NETWORK_UPLINK=incusbr0 RUST_LOG=info
-nohup "$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1 &
-nohup "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 &
+"$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1 & cp_pid=$!
+"$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 & worker_pid=$!
 sleep 3
 [ "$(curl -s "$API/health" | jq -r .incus.connected)" = true ] || fail "control plane not connected to Incus"
 

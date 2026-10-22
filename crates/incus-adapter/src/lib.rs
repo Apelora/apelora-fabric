@@ -2191,6 +2191,8 @@ pub struct MockNetwork {
     pub ipv6: bool,
     /// Instances whose IPv6 address has not arrived yet (it comes after IPv4) (tests).
     pub no_ipv6_yet: std::collections::BTreeSet<String>,
+    /// Instances that will never get IPv6: the sync should stop waiting (tests).
+    pub ipv6_wait_over: std::collections::BTreeSet<String>,
 }
 
 impl MockNetwork {

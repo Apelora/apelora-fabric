@@ -5,10 +5,15 @@
 //! an ACL and an address set; writes every ACL's rules from the connections (both sides);
 //! fills each address set with its instance's current addresses. While an instance has no
 //! address yet (still starting) the job retries; until then its set is empty, which denies.
-//! When the network has an IPv6 subnet the job also waits for each instance's IPv6 address,
-//! which arrives after IPv4: a set holding only IPv4 would deny the module's IPv6 traffic.
+//! When the network has an IPv6 subnet the job also waits for each reachable instance's IPv6
+//! address, which arrives after IPv4: a set holding only IPv4 would deny the module's IPv6
+//! traffic. If IPv4 has been there for [`IPV6_WAIT`] and IPv6 never arrives (the image ignores
+//! router advertisements, or IPv6 is off inside it), the set keeps IPv4 and the sync succeeds.
 
+use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use apelora_domain::Instance;
 use apelora_domain::network::{
@@ -60,6 +65,36 @@ impl From<apelora_persistence::StoreError> for SyncError {
     }
 }
 
+/// How long to wait for IPv6 after IPv4 is there. Images that never configure IPv6 would
+/// otherwise fail every sync forever (the supervisor re-queues a failed sync every minute).
+const IPV6_WAIT: Duration = Duration::from_secs(60);
+
+fn ipv6_first_seen() -> &'static Mutex<BTreeMap<String, Instant>> {
+    static FIRST: OnceLock<Mutex<BTreeMap<String, Instant>>> = OnceLock::new();
+    FIRST.get_or_init(Default::default)
+}
+
+/// `true` while this instance still has time left to pick up IPv6.
+fn ipv6_still_waiting_for(key: &str, wait: Duration) -> bool {
+    let mut map = ipv6_first_seen().lock().unwrap_or_else(|e| e.into_inner());
+    let first = *map.entry(key.to_owned()).or_insert_with(Instant::now);
+    first.elapsed() < wait
+}
+
+fn forget_ipv6_wait(key: &str) {
+    ipv6_first_seen()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(key);
+}
+
+fn skip_ipv6_wait(provider: &Provider, instance: &str) -> bool {
+    match provider {
+        Provider::Mock(m) => m.net().ipv6_wait_over.contains(instance),
+        Provider::Incus(_) => false,
+    }
+}
+
 /// Returns what is not in place yet (instances without an address, services without one).
 async fn apply(
     pool: &Pool,
@@ -93,17 +128,31 @@ async fn apply(
             if slot.is_empty() {
                 missing.push(replica_name(app, a, replica));
             }
-            let mut found_any = slot.iter().all(|(_, reachable)| !reachable);
             for (instance, reachable) in &slot {
                 if !reachable {
                     continue;
                 }
                 let found = provider.instance_addresses(p, instance).await?;
-                found_any |= !found.is_empty() && (!ipv6 || found.iter().any(|x| x.contains(':')));
+                let has_v4 = found.iter().any(|x| x.ends_with("/32"));
+                let has_v6 = found.iter().any(|x| x.contains(':'));
+                let key = format!("{p}/{instance}");
+                let complete = !found.is_empty() && (!ipv6 || has_v6);
+                if complete {
+                    forget_ipv6_wait(&key);
+                } else if ipv6
+                    && has_v4
+                    && (skip_ipv6_wait(provider, instance)
+                        || !ipv6_still_waiting_for(&key, IPV6_WAIT))
+                {
+                    forget_ipv6_wait(&key);
+                    tracing::warn!(
+                        instance = %format!("{p}/{instance}"),
+                        "network: IPv6 address never arrived; the address set holds IPv4 only"
+                    );
+                } else {
+                    missing.push(instance.clone());
+                }
                 addresses.extend(found);
-            }
-            if !slot.is_empty() && !found_any {
-                missing.push(replica_name(app, a, replica));
             }
         }
         addresses.sort();
@@ -305,5 +354,30 @@ impl Inventory {
             .into_iter()
             .map(|i| (i.name.clone(), !self.unavailable.contains(&i.location)))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    #[test]
+    fn ipv6_wait_records_then_expires() {
+        let k = "wait-tests/instance";
+        forget_ipv6_wait(k);
+        assert!(
+            ipv6_still_waiting_for(k, Duration::from_secs(60)),
+            "first sight is still waiting"
+        );
+        assert!(
+            !ipv6_still_waiting_for(k, Duration::ZERO),
+            "the same sight has already expired when the wait is zero"
+        );
+        forget_ipv6_wait(k);
+        assert!(
+            !ipv6_still_waiting_for(k, Duration::ZERO),
+            "a zero wait expires on first sight"
+        );
+        forget_ipv6_wait(k);
     }
 }
