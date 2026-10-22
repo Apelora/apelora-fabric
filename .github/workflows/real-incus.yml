@@ -17,6 +17,9 @@ on:
       - "scripts/test-cluster/install-incus.sh"
       - ".github/workflows/real-incus.yml"
       - "Cargo.lock"
+      - "Cargo.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/config.toml"
   schedule:
     - cron: "47 2 * * *"
   workflow_dispatch:
@@ -70,18 +73,25 @@ jobs:
           shared-key: real-incus
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: REAL INCUS TESTED, one member
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           source "$APELORA_TEST_DIR/env"
-          cargo test --locked -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1 --exact \
-            system_container_lifecycle \
-            unsupported_architecture_is_refused_before_creating \
-            oci_container_lifecycle \
-            oci_container_pinned_by_digest_lifecycle \
-            join_tokens_need_the_admin_identity_and_can_be_revoked \
-            volumes_follow_the_instance_and_outlive_it \
-            a_running_container_is_resized_in_place_and_answers_readiness_commands \
-            a_real_instance_has_a_detail_log_files_and_a_bounded_console_log \
+          tests=(
+            system_container_lifecycle
+            unsupported_architecture_is_refused_before_creating
+            oci_container_lifecycle
+            oci_container_pinned_by_digest_lifecycle
+            join_tokens_need_the_admin_identity_and_can_be_revoked
+            volumes_follow_the_instance_and_outlive_it
+            a_running_container_is_resized_in_place_and_answers_readiness_commands
+            a_real_instance_has_a_detail_log_files_and_a_bounded_console_log
             a_cluster_setting_is_changed_by_the_admin_identity_and_restored
+          )
+          log=$RUNNER_TEMP/real-incus.log
+          cargo test --locked -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1 --exact "${tests[@]}" | tee "$log"
+          # `--exact` with a renamed name runs zero tests and still exits 0.
+          grep -E "test result: ok\\. ${#tests[@]} passed" "$log"
       - name: What was left on Incus (should be nothing of the tests)
         if: always()
         run: sudo incus list --all-projects --format csv -c en || true

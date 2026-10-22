@@ -7,7 +7,24 @@
 set -euo pipefail
 
 [ "$(id -u)" = 0 ] || exec sudo -E bash "$0" "$@"
-command -v incus >/dev/null && { incus version; exit 0; }
+
+# Docker on CI runners drops forwarded traffic by default, which cuts instances on incusbr0 off
+# from image servers. Only this bridge, and only on this throwaway machine.
+forward_incusbr0() {
+  iptables -L DOCKER-USER >/dev/null 2>&1 || return 0
+  for dir in i o; do
+    iptables -C DOCKER-USER -"$dir" incusbr0 -j ACCEPT 2>/dev/null && continue
+    iptables -I DOCKER-USER -"$dir" incusbr0 -j ACCEPT
+  done
+}
+
+if command -v incus >/dev/null; then
+  v=$(incus version)
+  echo "$v" | grep -q '7\.0' || { echo "need Incus 7.0 LTS, got: $v" >&2; exit 1; }
+  forward_incusbr0
+  incus version
+  exit 0
+fi
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
 apt-get install -yq curl gpg btrfs-progs
@@ -27,9 +44,5 @@ Signed-By: /etc/apt/keyrings/zabbly.asc
 EOF
 apt-get update -q
 apt-get install -yq incus
-# Docker on CI runners drops forwarded traffic by default, which cuts instances on incusbr0 off
-# from image servers; let forwarded traffic through on this throwaway machine only.
-if iptables -L DOCKER-USER >/dev/null 2>&1; then
-  iptables -I DOCKER-USER -j ACCEPT
-fi
+forward_incusbr0
 incus version
