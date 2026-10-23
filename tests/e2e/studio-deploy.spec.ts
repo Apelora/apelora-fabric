@@ -84,7 +84,7 @@ test.describe("deploying from the Studio", () => {
       .toEqual([["nginx-01", 2, "stateless", "web"], ["nginx-02", 1, "stateless", "none"]]);
     expect((planBody as { connections: unknown[] }).connections, "only cables between deployed modules").toEqual([]);
     expect((planBody as { modules: { spec: { config: Record<string, string> } }[] }).modules[0]!.spec.config, "resources as Incus limits")
-      .toEqual({ "limits.cpu": "1", "limits.memory": "512MiB" });
+      .toEqual({ "limits.cpu": "1", "limits.memory": "512MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" });
     await expect(dialog.getByTestId("plan-row")).toHaveCount(3);
     await expect(dialog).toContainText("single points of failure: nginx-02");
     await expect(dialog.getByTestId("deploy-apply")).toHaveText("Deploy 3 changes");

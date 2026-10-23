@@ -3,8 +3,8 @@ import { allClasses, lookupClass, sampleCommerceStack } from "@apelora/module-ca
 import { useCustomCatalog } from "../catalog/customCatalog";
 import {
   addModule, addPort, attachNew, connect, setPlatform, tidyLayout, type PlatformId, pruneCableStyles, setCableColor, reconnect, addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, updateShape, zoneAround, shapeContents, type Shape, type ShapeKind, alignNodes, groupModules, ungroupModule, type ExposeChoice, cableToTag, removeTag, renameTag, tagPort, tagToCable, untagPort, resetConfig, setConfig, type ConfigValue, disconnectModule, disconnectPort, extractSubset, insertSubset, type AlignMode, type Subset, DENSITY_SIZE, findFreeSpot, createEmptyAssembly, disconnect, movePort, moveNodes, removeModules, removePort,
-  renameModule, resetNodeSize, resizeNode, setDensity, setInternet, setLiveMigration, setReadiness, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
-  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type Resources, type Port, type Readiness, type Volume,
+  renameModule, resetNodeSize, resizeNode, setBudget, setDensity, setInternet, setLiveMigration, setReadiness, setReplicas, setResources, setVolumes, updatePort, validateAssembly,
+  type ApplicationAssembly, type Density, type Diagnostic, type Endpoint, type InternetAccess, type PortDirection, type PortType, type ResourceBudget, type Resources, type Port, type Readiness, type Volume,
 } from "@apelora/assembly-model";
 
 export interface Toast { id: number; kind: "info" | "success" | "warning" | "error"; text: string }
@@ -85,6 +85,7 @@ export interface StudioState {
   nudge: (dx: number, dy: number) => void;
   addConnected: (end: Endpoint, classId: string, portId: string) => void;
   setTarget: (id: PlatformId) => void;
+  setBudget: (patch: Partial<Record<keyof ResourceBudget, number | undefined>>) => void;
   openProps: (t: PropsTarget) => void;
   closeProps: () => void;
   setPropsTab: (tab: string) => void;
@@ -244,6 +245,7 @@ export function createStudioStore(initial: ApplicationAssembly, view: Partial<Pi
         set({ selection: { nodes: [r.id], edges: [] }, selectedTag: null });
       },
       setTarget: (id) => commit(setPlatform(get().assembly, id)),
+      setBudget: (patch) => commit(setBudget(get().assembly, patch)),
       addShapeAt: (kind, center, cascade) => {
         const a = get().assembly;
         const w = kind === "note" ? 190 : kind === "triangle" ? 260 : 300;

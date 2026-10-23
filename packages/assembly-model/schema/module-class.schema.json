@@ -691,6 +691,13 @@
               "minLength": 1,
               "maxLength": 48
             }
+          },
+          "supply": {
+            "type": "string",
+            "enum": [
+              "design",
+              "deploy"
+            ]
           }
         },
         "required": [

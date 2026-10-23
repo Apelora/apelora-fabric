@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
-import { compileNetwork, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
+import { budgetIssues, compileNetwork, effectiveValue, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, validateProperty, withSetup, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
 import { useStudioApi } from "../../features/editor/context";
 import { client, messageOf, writeToken } from "../../features/deploy/api";
@@ -45,11 +45,17 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   const [removeMissing, setRemoveMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setup, setSetup] = useState<Record<string, Record<string, string>>>({});
   const live = useLive();
 
-  const current = () => target.assembly;
+  const current = () => withSetup(target.assembly, setup);
   const assembly = open ? current() : null;
   const split = useMemo(() => (assembly ? deploymentModules(assembly, lookupClass, project || "apelora") : { deployable: [], designOnly: [] }), [assembly, project]);
+  const setupFields = useMemo(() => (open ? target.assembly.spec.modules.flatMap((m) => {
+    const cls = lookupClass(m.classRef.name, m.classRef.version);
+    return (cls?.properties ?? []).filter((p) => p.supply === "deploy").map((prop) => ({ moduleId: m.id, moduleName: m.name, prop, initial: effectiveValue(prop, m.config) }));
+  }) : []), [open, target]);
+  const overBudget = assembly ? budgetIssues(assembly, lookupClass) : [];
 
   const connect = async () => {
     setStep({ kind: "connecting" });
@@ -77,6 +83,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     if (open && !d.open) {
       d.showModal();
       setAppName(target.application);
+      setSetup({});
       setRemoveMissing(false);
       void connect();
     }
@@ -100,6 +107,12 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   };
 
   const preview = async () => {
+    for (const f of setupFields) {
+      const raw = setup[f.moduleId]?.[f.prop.id] ?? (f.initial === undefined || f.initial === "" ? "" : String(f.initial));
+      const problem = validateProperty(f.prop, raw === "" ? undefined : raw);
+      if (problem) { setError(`${f.moduleName}: ${problem.message}`); return; }
+    }
+    if (overBudget[0]) { setError(overBudget[0].message); return; }
     setBusy(true);
     setError(null);
     try {
@@ -204,6 +217,23 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
                 </select>
               </label>
             </div>
+            {setupFields.length > 0 && (
+              <fieldset className="flex flex-col gap-2" data-testid="deploy-setup">
+                <legend className="text-xs font-semibold">Setup</legend>
+                <p className="text-xs text-base-content/60">Names, public addresses and secret references for this deployment. A secret field takes a reference name. The secret itself is not stored.</p>
+                {setupFields.map((f) => {
+                  const shown = setup[f.moduleId]?.[f.prop.id] ?? (f.initial === undefined ? "" : String(f.initial));
+                  return (
+                    <label key={`${f.moduleId}-${f.prop.id}`} className="flex flex-col gap-1">
+                      <span>{f.moduleName} · {f.prop.label}</span>
+                      <input className={`input input-sm w-full ${f.prop.type === "secret" ? "font-mono" : ""}`} autoComplete="off" spellCheck={false} data-testid={`deploy-setup-${f.moduleId}-${f.prop.id}`} value={shown}
+                        onChange={(e) => setSetup((s) => ({ ...s, [f.moduleId]: { ...s[f.moduleId], [f.prop.id]: e.target.value } }))} />
+                    </label>
+                  );
+                })}
+              </fieldset>
+            )}
+            {overBudget.map((p) => <p key={p.message} role="alert" className="text-error" data-testid="deploy-budget">{p.message}</p>)}
             <ul className="divide-y divide-base-300 rounded-box border border-base-300" data-testid="deploy-modules">
               {split.deployable.map((d) => (
                 <li key={d.module} className="flex items-center justify-between gap-3 px-3 py-2" data-testid="deploy-deployable">
@@ -221,7 +251,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
             {error && <p role="alert" className="text-error" data-testid="deploy-error">{error}</p>}
             <div className="modal-action mt-0">
               <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>Cancel</button>
-              <button type="submit" className="btn btn-sm btn-primary" disabled={busy || !!nameError || !appName || split.deployable.length === 0} data-testid="deploy-preview">
+              <button type="submit" className="btn btn-sm btn-primary" disabled={busy || !!nameError || !appName || split.deployable.length === 0 || overBudget.length > 0} data-testid="deploy-preview">
                 {busy ? "Checking…" : `Preview changes (${split.deployable.length} deployable)`}
               </button>
             </div>

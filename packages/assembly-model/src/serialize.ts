@@ -1,4 +1,5 @@
-import { ApplicationAssemblySchema, type ApplicationAssembly } from "./schema";
+import { API_VERSION, CATALOG_KIND } from "./constants";
+import { ApplicationAssemblySchema, ModuleCatalogSchema, type ApplicationAssembly, type ModuleClass } from "./schema";
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -13,7 +14,7 @@ export function serializeAssembly(a: ApplicationAssembly): string {
   const byId = <T extends { id: string }>(xs: readonly T[]) => [...xs].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
   const sorted: ApplicationAssembly = {
     ...a,
-    spec: { modules: byId(a.spec.modules), connections: byId(a.spec.connections), ...(a.spec.links?.length ? { links: byId(a.spec.links) } : {}), ...(a.spec.target ? { target: a.spec.target } : {}) },
+    spec: { modules: byId(a.spec.modules), connections: byId(a.spec.connections), ...(a.spec.links?.length ? { links: byId(a.spec.links) } : {}), ...(a.spec.target ? { target: a.spec.target } : {}), ...(a.spec.budget ? { budget: a.spec.budget } : {}) },
     editor: { ...a.editor, nodes: byId(a.editor.nodes) },
   };
   return JSON.stringify(canonical(sorted), null, 2) + "\n";
@@ -40,6 +41,48 @@ export function migrateLegacyKeys(value: unknown): unknown {
 }
 
 export type ParseResult = { ok: true; assembly: ApplicationAssembly } | { ok: false; errors: string[] };
+
+/** A catalog file: classes sorted by id, then version, with sorted keys. */
+export function serializeCatalog(classes: readonly ModuleClass[]): string {
+  const sorted = [...classes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.version < b.version ? -1 : a.version > b.version ? 1 : 0));
+  return JSON.stringify(canonical({ apiVersion: API_VERSION, kind: CATALOG_KIND, classes: sorted }), null, 2) + "\n";
+}
+
+/** A class inside a catalog that names a module the file and the known catalog both lack. */
+export function unboundCatalogRefs(classes: readonly ModuleClass[], known: (name: string, version: string) => boolean): string[] {
+  const here = new Set(classes.map((c) => `${c.id}@${c.version}`));
+  const errors: string[] = [];
+  for (const c of classes) {
+    for (const m of c.composition?.modules ?? []) {
+      if (!here.has(`${m.classRef.name}@${m.classRef.version}`) && !known(m.classRef.name, m.classRef.version)) {
+        errors.push(`${c.displayName} uses ${m.classRef.name}, which is not in this catalog.`);
+      }
+    }
+  }
+  return errors;
+}
+
+export type CatalogParse = { ok: true; classes: ModuleClass[] } | { ok: false; errors: string[] };
+
+/** Parses an untrusted catalog file. A problem rejects the whole file. */
+export function parseCatalog(text: string, maxBytes = 2_000_000): CatalogParse {
+  if (text.length > maxBytes) return { ok: false, errors: [`File is larger than ${Math.round(maxBytes / 1000)} kB.`] };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, errors: [`Not valid JSON: ${(e as Error).message}`] };
+  }
+  const r = ModuleCatalogSchema.safeParse(migrateLegacyKeys(raw));
+  if (!r.success) return { ok: false, errors: r.error.issues.slice(0, 12).map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`) };
+  const seen = new Set<string>();
+  for (const c of r.data.classes) {
+    const id = `${c.id}@${c.version}`;
+    if (seen.has(id)) return { ok: false, errors: [`${c.displayName} (${id}) appears twice.`] };
+    seen.add(id);
+  }
+  return { ok: true, classes: r.data.classes.map((c) => ({ ...c, custom: true })) };
+}
 
 /** Parses untrusted JSON text. Never throws; never returns a partially valid assembly. */
 export function parseAssembly(text: string, maxBytes = 2_000_000): ParseResult {

@@ -15,6 +15,7 @@ export * from "./metrics";
 export * from "./network";
 export * from "./platforms";
 export * from "./totals";
+export * from "./budget";
 export * from "./layout";
 export * from "./diff";
 export * from "./suggest";

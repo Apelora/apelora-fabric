@@ -83,14 +83,14 @@ describe("metrics descriptions", () => {
 });
 
 describe("metrics of deployable classes", () => {
-  it("no runtime turns metrics on yet: instance requests carry only limits, and the classes say so or need nothing", () => {
+  it("no runtime turns metrics on yet: instance requests carry limits and deploy-time values, not a metrics listener", () => {
     const deployable = MODULE_CLASSES.filter((c) => c.runtime);
     expect(deployable.length).toBeGreaterThan(0);
     for (const c of deployable) {
       expect(c.metrics, c.id).toBeDefined();
       const r = instanceRequestFor(c, {}, { project: "p", name: "n" });
       if (!r.ok) throw new Error(r.error);
-      expect(Object.keys(r.request.config ?? {}).every((k) => k.startsWith("limits.")), c.id).toBe(true);
+      expect(Object.keys(r.request.config ?? {}).every((k) => k.startsWith("limits.") || k.startsWith("environment.SETUP_") || k.startsWith("environment.SECRET_")), c.id).toBe(true);
     }
     // NGINX's status page needs a configuration file the OCI runtime cannot add yet.
     expect(lookupClass("nginx", "1.0.0")!.metrics!.note).toMatch(/does not turn it on yet/);

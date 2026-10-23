@@ -1,3 +1,4 @@
+import { budgetIssues } from "./budget";
 import { portTypesCompatible } from "./compat";
 import { effectiveValue, validateProperty } from "./config";
 import { platformOf, PLATFORM_INFO } from "./platforms";
@@ -75,6 +76,8 @@ export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLoo
       portIds.add(p.id);
     }
     for (const prop of cls?.properties ?? []) {
+      // A deploy-time field with no override is asked when the application is deployed.
+      if (prop.supply === "deploy" && a.config?.[prop.id] === undefined) continue;
       const problem = validateProperty(prop, effectiveValue(prop, a.config));
       if (problem) out.push({ severity: "error", code: "config-invalid", message: `${a.name}: ${problem.message}`, hint: problem.hint, moduleId: a.id });
     }
@@ -111,5 +114,8 @@ export function validateAssembly(assembly: ApplicationAssembly, lookup: ClassLoo
   }
   if (assembly.spec.modules.length === 0)
     out.push({ severity: "warning", code: "empty", message: "The assembly has no modules.", hint: "Drag modules from the catalog onto the canvas." });
+  for (const problem of budgetIssues(assembly, lookup)) {
+    out.push({ severity: "error", code: "resource-budget", message: problem.message, hint: problem.hint });
+  }
   return out;
 }
