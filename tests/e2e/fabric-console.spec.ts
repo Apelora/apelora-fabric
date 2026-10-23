@@ -1012,10 +1012,11 @@ test.describe("fabric console monitoring", () => {
     await expect(rows.nth(1)).toContainText("127.0.0.1:9471/metrics");
     await expect(rows.nth(1)).toContainText("None (loopback or management network only)");
     const steps = page.getByTestId("monitoring-steps").getByRole("listitem");
-    await expect(steps).toHaveCount(4);
+    await expect(steps).toHaveCount(5);
     await expect(steps.nth(0)).toContainText("Metrics Reader");
     await expect(steps.nth(3)).toContainText("incus config trust add-certificate metrics.crt --type=metrics");
     await expect(steps.nth(3)).toContainText("/1.0/metrics");
+    await expect(steps.nth(4)).toContainText("infra/observe");
     // Read-only: the panel offers no action of its own.
     await expect(panel.getByRole("button")).toHaveCount(0);
   });

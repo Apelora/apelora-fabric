@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: 1
+providers:
+  - name: apelora
+    orgId: 1
+    folder: Apelora
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

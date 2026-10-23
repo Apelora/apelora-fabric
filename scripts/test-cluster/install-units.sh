@@ -141,6 +141,8 @@ APELORA_INCUS_ADMIN_CLIENT_KEY=/etc/apelora/admin.key
 APELORA_API_ADDR=127.0.0.1:8080
 APELORA_NETWORK_UPLINK=incusbr0
 APELORA_SERVICE_ADDRESSES=198.18.100.0/28
+APELORA_LOG_FORMAT=json
+APELORA_METRICS_ADDR=127.0.0.1:9470
 ENV
 chown root:apelora /etc/apelora/apelora.env
 chmod 0640 /etc/apelora/apelora.env

@@ -88,6 +88,9 @@ export function MonitoringSection({ onAuth }: { onAuth: (m: string) => void }) {
                   Instance CPU, memory, disk and network come from Incus: scrape <code className="text-xs">{m.incusMetricsPath}</code> on every server. Trust the collector's certificate for metrics only:{" "}
                   <code className="text-xs break-all">incus config trust add-certificate metrics.crt --type=metrics</code>
                 </li>
+                <li>
+                  JSON logs (<code className="text-xs">APELORA_LOG_FORMAT=json</code>) and optional traces (<code className="text-xs">APELORA_OTLP_ENDPOINT</code>) go to the collector you run inside this site. An example stack (Prometheus, Loki, Tempo, Pyroscope, Grafana) is <code className="text-xs">infra/observe</code>.
+                </li>
               </ol>
               <p className="text-xs text-base-content/60">The collector runs inside this installation. Alerts and runbooks per layer: docs/architecture/MONITORING.md</p>
             </div>

@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 15s
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - name: TraceID
+          datasourceUid: tempo
+          matcherRegex: '"request_id":"([^"]+)"'
+          matcherType: regex
+          url: "$${__value.raw}"
+          urlDisplayLabel: View trace
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        filterByTraceID: false
+        customQuery: true
+        query: '{service="apelora"} |= "$${__span.tags.request_id}"'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      tracesToProfiles:
+        datasourceUid: pyroscope
+        profileTypeId: process_cpu:cpu:nanoseconds:cpu:nanoseconds
+  - name: Pyroscope
+    type: grafana-pyroscope-datasource
+    uid: pyroscope
+    access: proxy
+    url: http://pyroscope:4040

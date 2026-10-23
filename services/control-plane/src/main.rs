@@ -27,7 +27,7 @@ use serde_json::json;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logging();
+    apelora_telemetry::init("apelora-control-plane");
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("openapi") {
         print!("{}", api::openapi_json());
@@ -465,34 +465,6 @@ fn cli_token_days(arg: Option<&str>) -> Result<i64, String> {
         })
         .transpose()?;
     api::token_lifetime_days(requested).map_err(|e| format!("--expires-in-days: {e}"))
-}
-
-/// Logging: `RUST_LOG` chooses what is written (default `info`, e.g.
-/// `RUST_LOG=info,apelora_control_plane=debug`); `APELORA_LOG_FORMAT=json` writes one JSON object per line
-/// instead of text. Kept the same in both binaries (`apelora-control-plane`,
-/// `apelora-deployment-worker`).
-fn init_logging() {
-    use tracing_subscriber::EnvFilter;
-    let filter = match std::env::var("RUST_LOG") {
-        Ok(v) if !v.trim().is_empty() => EnvFilter::try_new(&v).unwrap_or_else(|e| {
-            eprintln!("RUST_LOG={v:?} is not a valid filter ({e}); logging at info");
-            EnvFilter::new("info")
-        }),
-        _ => EnvFilter::new("info"),
-    };
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    match std::env::var("APELORA_LOG_FORMAT").as_deref() {
-        // The current span (request or job) only: one copy of its fields per line.
-        Ok("json") => builder.json().with_span_list(false).init(),
-        Ok("" | "text") | Err(_) => builder.init(),
-        Ok(other) => {
-            builder.init();
-            tracing::warn!(
-                format = other,
-                "APELORA_LOG_FORMAT must be text or json; writing text"
-            );
-        }
-    }
 }
 
 #[cfg(test)]

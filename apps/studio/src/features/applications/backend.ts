@@ -2,6 +2,7 @@ import { completeOidcSignIn } from "@apelora/api-client";
 import { create } from "zustand";
 
 import { client, messageOf, readToken, writeToken } from "../deploy/api";
+import { log } from "../../log";
 import { navigate } from "../router";
 import { createApiBackend } from "./apiBackend";
 import { createLocalBackend } from "./localBackend";
@@ -47,6 +48,7 @@ export const useBackend = create<BackendState>((set, get) => ({
         if (window.location.search) window.history.replaceState(null, "", window.location.pathname + window.location.hash);
       } catch (e) {
         window.history.replaceState(null, "", window.location.pathname);
+        log("error", "sign-in from the identity provider failed", { message: messageOf(e) });
         set({ status: "ready", backend: local, who: null, reason: messageOf(e) });
         return;
       }
@@ -64,6 +66,7 @@ export const useBackend = create<BackendState>((set, get) => ({
     } catch (e) {
       const unauth = e instanceof Error && "status" in e && (e as { status: number }).status === 401;
       if (unauth) writeToken(null);
+      else log("error", "control plane unreachable", { message: messageOf(e) });
       set({
         status: "ready", backend: local, who: null,
         reason: unauth

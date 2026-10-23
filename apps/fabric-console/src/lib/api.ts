@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiRequestError, createClient, followJob as followJobWith, newIdempotencyKey, type Job } from "@apelora/api-client";
 
+import { log } from "../log";
+
 /** The API token lives only in this browser tab (sessionStorage), never in localStorage. */
 const TOKEN_KEY = "apelora.apiToken";
 export const readToken = (): string | null => { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } };
@@ -28,6 +30,7 @@ export function useLoad<T>(fetcher: () => Promise<T>, onAuth: (message: string) 
       .catch((e: unknown) => {
         if (!current) return;
         if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message);
+        else log("error", "request failed", { message: messageOf(e) });
         setState({ kind: "error", message: messageOf(e) });
       });
     return () => { current = false; };

@@ -20,6 +20,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_MAAS_API_KEY` | none | MAAS API key (consumer:token:secret) of a dedicated MAAS user; read once at start, never shown |
 | `APELORA_MAAS_CA` | none | PEM file of the authority that signed MAAS's certificate; default the system roots |
 | `APELORA_MAAS_URL` | none | Address of the MAAS region API (https://host:5240/MAAS); empty: only manual machines. The control plane lists its machines; the worker can fence through it |
+| `APELORA_OTLP_ENDPOINT` | `off` | OTLP/HTTP traces for request and job spans (off, or an http(s) URL of a Tempo or collector inside the site) |
 | `APELORA_REGION` | `default` | Constant region label on metrics |
 | `APELORA_SECTOR` | `default` | Constant sector label on metrics |
 | `APELORA_SITE` | `default` | Constant site label on metrics |

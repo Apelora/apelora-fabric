@@ -18,6 +18,7 @@ apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter"
 apelora-maas-adapter = { version = "0.0.0", path = "../../crates/maas-adapter" }
 apelora-metrics = { version = "0.0.0", path = "../../crates/metrics" }
 apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
+apelora-telemetry = { version = "0.0.0", path = "../../crates/telemetry" }
 serde = { version = "1.0.229", features = ["derive"] }
 # Alert webhooks (docs/design/alerts.md §2.4): HMAC-SHA256 signatures, MIT OR Apache-2.0.
 # hmac 0.13 pairs with sha2 0.11 (the `digest` 0.11 generation), the sha2 the control plane and
@@ -35,7 +36,6 @@ time = { version = "0.3.47", features = ["formatting", "parsing"] }
 # `process`: the fence probe runs the system `ssh` client (ADR 0013).
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "time", "net", "sync", "process"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 uuid = "1.26.1"
 
 [dev-dependencies]

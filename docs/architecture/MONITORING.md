@@ -1,6 +1,6 @@
 # Monitoring: metrics for every layer, collected inside the installation
 
-Status: **built for Apelora's own processes (CONTRACT/MOCK VERIFIED); Incus `/1.0/metrics` REAL INCUS TESTED 2026-10-23** · Date: 2026-10-23 · Builds on: [connections and scale](CONNECTIONS-AND-SCALE.md), [one design at every size](EVERY-SIZE.md) (ADR 0011), [disconnected installations](DISCONNECTED.md) (ADR 0010)
+Status: **built for Apelora's own processes (CONTRACT/MOCK VERIFIED); Incus `/1.0/metrics` REAL INCUS TESTED 2026-10-23; example collector in `infra/observe`** · Date: 2026-10-23 · Builds on: [connections and scale](CONNECTIONS-AND-SCALE.md), [one design at every size](EVERY-SIZE.md) (ADR 0011), [disconnected installations](DISCONNECTED.md) (ADR 0010)
 
 Operators watch an Apelora installation with the metrics collector they already run **inside** it. Apelora exposes its own metrics in the standard text exposition format. Every layer below it (Incus, instances, PostgreSQL, OVN, shared storage) is collected **directly from that layer**, never through Apelora. That way Apelora is never a bottleneck or a single point of failure for metrics, and nothing leaves the site.
 
@@ -23,6 +23,12 @@ Operators watch an Apelora installation with the metrics collector they already 
 **Default and why.** The safer default is the authenticated endpoint. It uses the API's TLS and the route gate, and refusals are audited like any other 403. Unauthenticated listeners exist only for collectors that cannot hold a token; they bind to loopback by default, and a non-loopback address is logged as a warning at start-up. Put them on a management network only.
 
 **The collector's identity.** Create an *automation* service identity and give it the built-in role **Metrics Reader** (`metrics-reader`) at platform scope. That role holds only `fabric.metrics.read`: the collector cannot read inventory, change anything or see people. Fabric Administrator, Viewer and Auditor (at platform scope) also hold the permission. A legacy `apl_` token can scrape when its role reads inventory (every legacy role does), because metrics reveal less than `cluster.view`. The Console's **Administration → Monitoring** panel shows the endpoints, whether the signed-in caller may scrape, and the labels in use (`GET /api/v1/monitoring`, which needs `fabric.metrics.read` or `cluster.view`).
+
+**Logs.** Both services write `RUST_LOG` lines (default `info`). `APELORA_LOG_FORMAT=json` writes one JSON object per line, with the current `request` or `job` span's fields (`request_id`, and on the worker `job`, `kind`, `target`). The example collector tails those files into Loki.
+
+**Traces.** Off by default. `APELORA_OTLP_ENDPOINT` (an `http` or `https` URL of a Tempo or collector *inside* the site) posts completed `request` and `job` spans as OTLP/HTTP JSON. The same `request_id` hashes to the same trace in both processes, so a job the API queued shows with its request. Nothing is sent unless this is set. Keep it on loopback.
+
+**Profiles.** Apelora does not push CPU profiles. The example collector runs Pyroscope so an operator can add a profiler later (eBPF on Linux, or an SDK). Until then the Pyroscope UI is empty.
 
 **Format.** By default the answer is `text/plain; version=0.0.4`. A collector that sends `Accept: application/openmetrics-text` gets the OpenMetrics variant (counter families named without `_total`, ending with `# EOF`). Answers carry `Cache-Control: no-store`.
 
@@ -122,16 +128,31 @@ Apelora also raises a small set of **built-in alerts** itself ([design](../desig
 
 See the observability skill (`.agents/skills/observability/SKILL.md`, "Metrics in Apelora today"): declare the family in `crates/metrics/src/lib.rs` and add it to `FAMILIES`. Record it only at a choke point. Use labels from small fixed sets, and extend the allowed label list in the crate's test only for a new small set. Add a test that the family appears.
 
-## 8. Evidence and open points
+## 8. Example collector (`infra/observe`)
+
+The operator's collector stays a **separate program**. Apelora never vendors it. `infra/observe` is an example, like `infra/serve` and `infra/systemd`: Prometheus (metrics), Loki (logs), Tempo (traces), Pyroscope (profiles, empty until a profiler is added), Grafana (the UI), and Alloy (tails JSON logs). Licences: Prometheus and Alloy Apache-2.0; Grafana, Loki, Tempo and Pyroscope AGPL-3.0, run as their own processes, never linked.
+
+```sh
+bash scripts/test-cluster/observe.sh          # plan
+APPLY=1 bash scripts/test-cluster/observe.sh  # start on loopback
+```
+
+Then start the control plane and worker with `APELORA_LOG_FORMAT=json`, `APELORA_METRICS_ADDR=127.0.0.1:9470` and `APELORA_OTLP_ENDPOINT=http://127.0.0.1:4318`, and tee JSON logs into `$APELORA_OBSERVE_LOG_DIR` (default `~/.config/apelora/test-cluster/logs`). Grafana is `http://127.0.0.1:3000` (development login in the compose file). Incus `/1.0/metrics` is still scraped on each member (`metrics.sh`), not through this compose file.
+
+Studio and the Fabric Console log failures as JSON lines in the browser console (secret field names redacted). They do not send those lines anywhere.
+
+## 9. Evidence and open points
 
 - **Evidence:**
   - unit tests for the registry (escaping, histograms, the overflow cap, label rules);
   - contract tests for the Incus client (endpoint templates, outcomes, reachability);
   - API tests against a real PostgreSQL with the mock provider: who may scrape; the expected families after a request and a job through the real worker loop; no token, name, email address, id or key text in the output;
   - a worker test for the listener;
-  - a Console Playwright test with a stubbed API.
+  - a Console Playwright test with a stubbed API;
+  - OTLP JSON for `request` and `job` spans (`crates/telemetry`; same `request_id` shares a trace id);
+  - `scripts/ci/verify-observe-examples.sh` (compose file and the Grafana dashboard parse).
 
-  Labels: **CONTRACT VERIFIED** for the Incus call metrics, **MOCK VERIFIED** for the rest. Nothing here is REAL INCUS TESTED yet. The Incus collection steps in §4 come from the Incus documentation and have not been run on the test cluster.
+  Labels: **CONTRACT VERIFIED** for the Incus call metrics, **MOCK VERIFIED** for the rest of Apelora's `/metrics` in unit tests. Collecting Incus's own `/1.0/metrics` is **REAL INCUS TESTED** 2026-10-23 (`metrics.sh`). Apelora's own `/metrics` scraped into the example collector while talking to the four-member lab is **REAL INCUS TESTED** 2026-10-23 (`observe.sh`: Prometheus targets up, `apelora_incus_up=1` on control plane and worker, four members Online, Loki labels from JSON logs, Tempo held request traces, Grafana dashboard `apelora-overview`). Pyroscope is running and empty until a profiler is added.
 - **Pool acquire time is sampled**, once per scrape. The database library offers no hook for every acquire, and a pool wrapper would touch every query. The sample shows a starved pool, but not a short burst.
 - **Several API processes** expose the same queue and inventory gauges. Aggregate them with `max`, not `sum`.
 - **Rate limiting:** any 429 is counted per route. A dedicated limiter can add its own reason label when it lands.
