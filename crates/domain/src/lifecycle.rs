@@ -267,8 +267,14 @@ pub fn layers(
         } else {
             ready
         };
+        let before = placed.len();
         placed.extend(layer.iter().copied());
         out.push(layer.into_iter().map(str::to_owned).collect());
+        // A pass that places nothing must stop. Otherwise `<` becoming `<=`, or the
+        // cycle release selecting modules already placed, spins until the test times out.
+        if placed.len() == before {
+            break;
+        }
     }
     if !providers_first {
         out.reverse();
