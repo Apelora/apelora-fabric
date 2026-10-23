@@ -1,6 +1,6 @@
 # Monitoring: metrics for every layer, collected inside the installation
 
-Status: **built for Apelora's own processes (CONTRACT/MOCK VERIFIED); collection from lower layers documented** · Date: 2026-10-21 · Builds on: [connections and scale](CONNECTIONS-AND-SCALE.md), [one design at every size](EVERY-SIZE.md) (ADR 0011), [disconnected installations](DISCONNECTED.md) (ADR 0010)
+Status: **built for Apelora's own processes (CONTRACT/MOCK VERIFIED); Incus `/1.0/metrics` REAL INCUS TESTED 2026-10-23** · Date: 2026-10-23 · Builds on: [connections and scale](CONNECTIONS-AND-SCALE.md), [one design at every size](EVERY-SIZE.md) (ADR 0011), [disconnected installations](DISCONNECTED.md) (ADR 0010)
 
 Operators watch an Apelora installation with the metrics collector they already run **inside** it. Apelora exposes its own metrics in the standard text exposition format. Every layer below it (Incus, instances, PostgreSQL, OVN, shared storage) is collected **directly from that layer**, never through Apelora. That way Apelora is never a bottleneck or a single point of failure for metrics, and nothing leaves the site.
 
@@ -63,9 +63,11 @@ Health and capacity views (per-member load, pool fill) belong to the Health work
 1. Expose only the metrics endpoint on a management address: `incus config set core.metrics_address=<address>:8444` on each server. `core.https_address` would expose the whole API instead.
 2. Create a key and a self-signed client certificate for the collector (`metrics.key`, `metrics.crt`) with your usual X.509 tooling; an elliptic-curve key is fine. Keep the key on the collector's host only.
 3. Trust it **for metrics only**: `incus config trust add-certificate metrics.crt --type=metrics`. A metrics certificate cannot manage instances or anything else, so a leaked collector credential reads numbers and nothing more.
-4. Point the collector at `https://<server>:8444/1.0/metrics` on every server. Use the cluster certificate as the CA and the name it carries as the TLS server name. A `project` parameter limits the answer to one project; without it, all projects are reported.
+4. Point the collector at `https://<server>:8444/1.0/metrics` on every server. The metrics listener presents the **cluster** certificate (not each member's `server.crt`). Use that certificate as the CA, or pin its public key: OpenSSL 3's `curl --cacert` rejects the self-signed leaf because it is not marked CA:TRUE. A `project` parameter limits the answer to one project; without it, all projects are reported.
 
 Never turn off metrics authentication (`core.metrics_authentication=false`). Never give the collector Apelora's deploy or admin certificates.
+
+**REAL INCUS TESTED** 2026-10-23 on the four-member lab (`scripts/test-cluster/metrics.sh`): a `type=metrics` certificate, `core.metrics_address=127.0.0.1:8444` on each member (lab server certificates name only loopback), 38 families from every member, `/1.0/instances` 404 on the metrics listener and 403 on the API. Authentication stayed on.
 
 **PostgreSQL.** Read its statistics views with a dedicated read-only role:
 - connections by state (`pg_stat_activity`);
