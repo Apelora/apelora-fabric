@@ -95,7 +95,7 @@ The control plane refuses to listen on an address other than loopback without TL
 
 Run both under a service manager so they restart. Example systemd units live in [`infra/systemd/`](../../infra/systemd/): `apelora-control-plane.service` and `apelora-deployment-worker.service`, same environment file, a dedicated `apelora` account that can read `/etc/apelora/apelora.env` and the Incus certificates (put those under `/etc/apelora`, not a home directory — the units set `ProtectHome=true`). Copy them to `/etc/systemd/system/` and `systemctl enable --now` each. CI parses the units (`systemd-analyze verify`) on ubuntu-24.04. The units have been started on a lab member from the draft release (`install-units.sh`, 2026-10-23); they have **not** been run on a production host from a published release (issue #17).
 
-Both write one line per event to standard output (`APELORA_LOG_FORMAT=json` for structured logs). Metrics and health endpoints: [monitoring](../architecture/MONITORING.md). Several workers can run at once; they share the job queue safely. Do not give the worker the administrator Incus identity.
+Both write one line per event to standard output (`APELORA_LOG_FORMAT=json` for structured logs). Metrics, logs, traces and an example collector (Prometheus, Loki, Tempo, Pyroscope, Grafana): [monitoring](../architecture/MONITORING.md). Several workers can run at once; they share the job queue safely. Do not give the worker the administrator Incus identity.
 
 ## 5. Serve Studio and Console
 

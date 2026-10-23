@@ -87,6 +87,8 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq nginx openssl
           APELORA_REQUIRE_INSTALL_CHECKS=1 bash scripts/ci/verify-install-examples.sh
+      - name: Example collector compose and dashboard parse
+        run: bash scripts/ci/verify-observe-examples.sh
       - name: Rust licences, advisories, bans and sources (deny.toml)
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:

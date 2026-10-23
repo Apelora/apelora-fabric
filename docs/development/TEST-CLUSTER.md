@@ -97,6 +97,8 @@ With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0
 
 `bash scripts/test-cluster/install-units.sh` (dry-run; `APPLY=1` to change one member) installs the draft release's ARM64 binaries, the example systemd units and the NGINX example on `apelora-incus` under the `apelora` account. REAL INCUS TESTED 2026-10-23 from draft `v0.1.0-alpha.1`; issue #17 stays open until a published release on a production host. `APPLY=1 STOP=1` disables the units.
 
+`bash scripts/test-cluster/observe.sh` (dry-run; `APPLY=1` to start on this workstation) runs the example collector on loopback: Prometheus, Loki, Tempo, Pyroscope, Grafana and Alloy (`infra/observe`). Point the control plane at `APELORA_METRICS_ADDR=127.0.0.1:9470`, `APELORA_LOG_FORMAT=json` and `APELORA_OTLP_ENDPOINT=http://127.0.0.1:4318`. Grafana is `http://127.0.0.1:3000`. Incus `/1.0/metrics` stays on the members (`metrics.sh`). REAL INCUS TESTED 2026-10-23: Prometheus scraped both processes (`apelora_incus_up=1`, four members Online), Loki ingested JSON logs, Tempo held request traces.
+
 Install replica anti-affinity (Incus's placement scriptlet, cluster-wide; `--remove` restores Incus's own placement) and check it:
 
 ```sh

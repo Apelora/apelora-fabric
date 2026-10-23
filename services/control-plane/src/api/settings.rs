@@ -103,6 +103,12 @@ pub const SETTINGS: &[Setting] = &[
         "text or json log lines",
     ),
     s(
+        "APELORA_OTLP_ENDPOINT",
+        Both,
+        Some("off"),
+        "OTLP/HTTP traces for request and job spans (off, or an http(s) URL of a Tempo or collector inside the site)",
+    ),
+    s(
         "APELORA_API_ADDR",
         Cp,
         Some("127.0.0.1:8080"),
@@ -1044,6 +1050,7 @@ mod tests {
             "services/deployment-worker/src",
             "crates/incus-adapter/src",
             "crates/metrics/src",
+            "crates/telemetry/src",
         ] {
             let mut stack = vec![std::path::PathBuf::from(root).join(dir)];
             while let Some(d) = stack.pop() {

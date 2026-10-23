@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Ships Apelora JSON logs (APELORA_LOG_FORMAT=json) to Loki. Metrics are scraped by Prometheus.
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+local.file_match "apelora" {
+  path_targets = [{
+    __path__  = "/var/log/apelora/*.log",
+    service   = "apelora",
+  }]
+}
+
+loki.process "json" {
+  stage.json {
+    expressions = {
+      level      = "level",
+      target     = "target",
+      request_id = "request_id",
+      job        = "job",
+      msg        = "fields.message",
+    }
+  }
+  stage.labels {
+    values = {
+      level  = "level",
+      target = "target",
+    }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.source.file "apelora" {
+  targets    = local.file_match.apelora.targets
+  forward_to = [loki.process.json.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

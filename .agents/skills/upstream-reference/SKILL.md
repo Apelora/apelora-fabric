@@ -23,6 +23,12 @@ Distilled knowledge from upstream repositories and documents the owner has share
 | **Ceph** | Candidate shared storage for HA, via Incus | Mainly LGPL-2.1/3.0, some GPL headers | External system Incus talks to; never linked |
 | **PostgreSQL** | Apelora state, jobs, leases | PostgreSQL licence | Via SQLx (Phase 03) |
 | **OpenLDAP** (Alpine Linux package) | Development directory for directory sign-in (`infra/dev/directory`) | OpenLDAP Public License 2.8 (permissive); Alpine base image MIT | A separate program in a development container built from `alpine:3.24` and Alpine's maintained `openldap` packages; never linked or shipped |
+| **Prometheus** | Example metrics store (`infra/observe`) | Apache-2.0 | Separate process; scrapes Apelora `/metrics` and (on members) Incus `/1.0/metrics` |
+| **Loki** | Example log store | AGPL-3.0 | Separate process; Alloy tails JSON logs. Never linked |
+| **Tempo** | Example trace store | AGPL-3.0 | Separate process; optional OTLP/HTTP from `APELORA_OTLP_ENDPOINT`. Never linked |
+| **Pyroscope** | Example profile store | AGPL-3.0 | Separate process; empty until a profiler is added. Never linked |
+| **Grafana** | Example metrics/logs/traces UI | AGPL-3.0 | Separate process; provisioned dashboards we wrote. Never linked |
+| **Alloy** | Example log shipper | Apache-2.0 | Separate process; tails `APELORA_OBSERVE_LOG_DIR`. Never linked |
 
 **Incus** (seen 2026-10): 7.0 LTS released May 2026, supported to June 2031 (2 years of fixes, then security only). Host minimums include kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables. Supports LXC system containers, OCI application containers and QEMU VMs; Raft-replicated cluster database; projects, profiles, images, storage pools (incl. Ceph, LINSTOR), networks (bridge, OVN with ACLs, DNS zones, forwards, load balancers), placement scriptlets (Starlark), evacuation/restore, metrics, OIDC and fine-grained authorisation, a low-level backup API and built-in basic S3. Live migration of ordinary LXC containers is limited; stopped moves are reliable. `cluster.healing_threshold` defaults to disabled. Local Unix-socket access equals root on the host.
 

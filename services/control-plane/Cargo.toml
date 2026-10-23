@@ -17,6 +17,7 @@ apelora-incus-adapter = { version = "0.0.0", path = "../../crates/incus-adapter"
 apelora-maas-adapter = { version = "0.0.0", path = "../../crates/maas-adapter" }
 apelora-metrics = { version = "0.0.0", path = "../../crates/metrics" }
 apelora-persistence = { version = "0.0.0", path = "../../crates/persistence" }
+apelora-telemetry = { version = "0.0.0", path = "../../crates/telemetry" }
 argon2 = "0.6.0"
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
 axum = { version = "0.8.9", features = ["ws"] }
@@ -41,7 +42,6 @@ time = { version = "0.3.47", features = ["formatting", "parsing"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["aws_lc_rs"] }
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 # Parses directory URLs; already in the tree (MIT OR Apache-2.0).
 url = "2.5.8"
 utoipa = { version = "5.5.0", features = ["axum_extras", "uuid"] }

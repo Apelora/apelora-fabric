@@ -7,7 +7,8 @@ members = [
   "crates/incus-adapter",
   "crates/maas-adapter",
   "crates/metrics",
-  "crates/persistence", "crates/persistence",
+  "crates/persistence",
+  "crates/telemetry",
   "services/control-plane",
   "services/deployment-worker",
 ]
