@@ -30,6 +30,9 @@ const FREEBSD = "FreeBSD-based: runs only as a virtual machine, and without an a
 
 export const METRICS: Readonly<Record<string, Metrics>> = {
   // ---- Network & Security ----
+  resolver: M("none", "none", "checked", ["Queries answered from the application's service names", "Queries forwarded to the previous resolvers"], {
+    note: "Serves the names Apelora publishes for service addresses and forwards every other name. It has no metrics endpoint; Incus still reports the instance.",
+  }),
   gateway: M("platform", "none", "partly-checked", ["Backend health per published port", "Traffic in and out of the application", "Dropped packets on backend interfaces"], {
     onByDefault: true, auth: "certificate",
     note: "Runs no process. Incus reports the load balancer's backend health and the network's traffic counters in its network state, and each instance's interface traffic on its metrics endpoint (each cluster member for its own instances, read with a metrics certificate). Apelora reads them; a module never reaches the Incus API. Request counts, status codes and latency need a proxy module behind the gateway.",

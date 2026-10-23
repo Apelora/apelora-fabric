@@ -78,6 +78,10 @@ Read these first. Most entries below come from one of four causes:
 
 ## Incus (REAL INCUS TESTED behaviour that the documentation did not make obvious)
 
+- **`apelora-dns` exited at once inside Debian and `systemctl is-active` returned 3** (2026-10-23) → the stub listener holds `127.0.0.53:53`, and the kernel then refuses `0.0.0.0:53` (`Address in use`). The binary was fine; a direct run before the stub started was fine. → Turn the stub listener off in that instance (`DNSStubListener=no`), restart `systemd-resolved` when it is active, then start the unit. Run `reset-failed` first and ignore its status: a unit that has never failed makes it exit 1, and a crash loop otherwise hits the start limit so a later restart is refused even after the port is free (`install_dns_resolver`).
+- **A later `network.sync` could not update the resolver: `text file busy`** (2026-10-23) → the first attempt had already started the binary, then waited on another instance, and the retry opened that path with truncate. → Write `apelora-dns.new` and `mv -f` it into place; the running process keeps the old inode until `systemctl restart`.
+- **The service name resolved and the instance name stopped after the client restarted** (2026-10-23) → Debian's `resolv.conf` is the stub `127.0.0.53`, so the resolver forwarded to itself, and `dns.domain` replaced the `incus` search domain the instance name lives in. → Drop loopback forwarders, read `/run/systemd/resolve/resolv.conf` for the real servers, and set `dns.search` to `<application>.internal,incus`.
+
 - **Waiting on a copy operation was refused for the restricted identity** ("permission for project default") → the operation is created in another project. → Fallback: poll the project's running operations for the names, then check that the target exists (`copy_volume`, `project_operation_running`).
 - **Copied volumes lost their size and `user.*` labels** → set them explicitly on the copy.
 - **A `refresh` copy deletes the target volume's own snapshots** and is accepted while the instance runs. Plan restores around that.

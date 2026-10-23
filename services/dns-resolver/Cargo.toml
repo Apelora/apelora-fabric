@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+[package]
+name = "apelora-dns-resolver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "apelora-dns"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+apelora-domain = { version = "0.0.0", path = "../../crates/domain" }

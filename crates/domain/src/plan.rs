@@ -111,6 +111,10 @@ pub struct DesiredModule {
     /// (from the class); the port check alone cannot tell a hung application from a ready one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<crate::readiness::Readiness>,
+    /// This module answers service names for the application (ADR 0004 step 4). Absent
+    /// means it does not: a resolver is never added unless the design asks for one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dns_resolver: bool,
 }
 
 impl DesiredModule {
@@ -478,6 +482,7 @@ mod tests {
             internet: Default::default(),
             guest_os: Default::default(),
             readiness: None,
+            dns_resolver: false,
         }
     }
 

@@ -670,18 +670,168 @@ impl Provider {
         network: &str,
         application: &str,
         records: &str,
+        nameservers: Option<&str>,
+        upstream: Option<&str>,
     ) -> Result<(), AdapterError> {
         valid_names(&[project, network, application])?;
         match self {
             Provider::Mock(m) => {
-                m.net()
-                    .dns
-                    .insert(format!("{project}/{network}"), records.to_owned());
+                let key = format!("{project}/{network}");
+                let mut net = m.net();
+                net.dns.insert(key.clone(), records.to_owned());
+                match nameservers {
+                    None => {}
+                    Some("") => {
+                        net.dns_nameservers.remove(&key);
+                        net.dns_upstream.remove(&key);
+                    }
+                    Some(list) => {
+                        net.dns_nameservers.insert(key.clone(), list.to_owned());
+                        if let Some(up) = upstream {
+                            net.dns_upstream.insert(key, up.to_owned());
+                        }
+                    }
+                }
                 Ok(())
             }
             Provider::Incus(c) => {
-                c.publish_service_dns(project, network, application, records)
-                    .await
+                c.publish_service_dns(
+                    project,
+                    network,
+                    application,
+                    records,
+                    nameservers,
+                    upstream,
+                )
+                .await
+            }
+        }
+    }
+
+    /// The guest file at `path` (used to learn the resolver's previous nameservers).
+    pub async fn read_instance_file(
+        &self,
+        project: &str,
+        name: &str,
+        path: &str,
+    ) -> Result<String, AdapterError> {
+        valid_names(&[project, name])?;
+        match self {
+            // A resolver that has not taken over yet still uses this nameserver.
+            Provider::Mock(_) => Ok("nameserver 192.0.2.53\n".into()),
+            Provider::Incus(c) => c.read_instance_file(project, name, path).await,
+        }
+    }
+
+    /// Runs a command as root and returns the guest's reason when the exit status is not 0.
+    async fn exec_ok(&self, project: &str, name: &str, args: &[&str]) -> Result<(), AdapterError> {
+        let command: Vec<String> = args.iter().map(|part| (*part).to_owned()).collect();
+        let run = self.run_probe(project, name, &command, 0, 15).await?;
+        if run.exit == Some(0) {
+            return Ok(());
+        }
+        let why = run.error.unwrap_or_else(|| {
+            if run.timed_out {
+                "timed out".into()
+            } else {
+                format!("exit status {:?}", run.exit)
+            }
+        });
+        Err(AdapterError::Api {
+            status: 500,
+            message: format!("{}: {why}", args.join(" ")),
+        })
+    }
+
+    /// Installs `apelora-dns` in a running resolver instance and starts it. `binary` is the
+    /// Linux executable; the mock records the request and does not need one.
+    pub async fn install_dns_resolver(
+        &self,
+        project: &str,
+        name: &str,
+        records: &str,
+        upstream: &str,
+        binary: Option<&[u8]>,
+    ) -> Result<(), AdapterError> {
+        valid_names(&[project, name])?;
+        match self {
+            Provider::Mock(m) => {
+                m.net()
+                    .dns_installed
+                    .insert(format!("{project}/{name}"), records.to_owned());
+                Ok(())
+            }
+            Provider::Incus(c) => {
+                let Some(binary) = binary else {
+                    return Err(AdapterError::InvalidConfig(
+                        "apelora-dns was not built for Linux; set APELORA_DNS_BINARY".into(),
+                    ));
+                };
+                // Parent of the stub-listener drop-in. `mkdir -p` is fine when it already exists.
+                self.exec_ok(
+                    project,
+                    name,
+                    &["mkdir", "-p", "/etc/systemd/resolved.conf.d"],
+                )
+                .await?;
+                c.install_dns_resolver(project, name, records, upstream, binary)
+                    .await?;
+                // Replaces a running binary without "text file busy": the old process keeps
+                // the previous inode until `systemctl restart` below.
+                self.exec_ok(
+                    project,
+                    name,
+                    &[
+                        "mv",
+                        "-f",
+                        "/usr/local/bin/apelora-dns.new",
+                        "/usr/local/bin/apelora-dns",
+                    ],
+                )
+                .await?;
+                self.exec_ok(project, name, &["systemctl", "daemon-reload"])
+                    .await?;
+                // Free port 53 before our unit starts. A guest without this unit is unchanged.
+                let resolved = self
+                    .run_probe(
+                        project,
+                        name,
+                        &[
+                            "systemctl".into(),
+                            "is-active".into(),
+                            "--quiet".into(),
+                            "systemd-resolved".into(),
+                        ],
+                        0,
+                        15,
+                    )
+                    .await?;
+                if resolved.exit == Some(0) {
+                    self.exec_ok(project, name, &["systemctl", "restart", "systemd-resolved"])
+                        .await?;
+                }
+                // A unit that has never failed makes `reset-failed` exit 1. Either way the
+                // start limit is clear, so a crash on an earlier attempt cannot block this one.
+                self.run_probe(
+                    project,
+                    name,
+                    &[
+                        "systemctl".into(),
+                        "reset-failed".into(),
+                        "apelora-dns".into(),
+                    ],
+                    0,
+                    15,
+                )
+                .await?;
+                for args in [
+                    &["systemctl", "enable", "apelora-dns"][..],
+                    &["systemctl", "restart", "apelora-dns"][..],
+                    &["systemctl", "is-active", "--quiet", "apelora-dns"][..],
+                ] {
+                    self.exec_ok(project, name, args).await?;
+                }
+                Ok(())
             }
         }
     }
@@ -2187,6 +2337,12 @@ pub struct MockNetwork {
     pub restarts: Vec<String>,
     /// `project/network` → the service-name records (`user.apelora.dns`).
     pub dns: std::collections::BTreeMap<String, String>,
+    /// `project/network` → the nameservers advertised to the application (`dns.nameservers`).
+    pub dns_nameservers: std::collections::BTreeMap<String, String>,
+    /// `project/network` → where the resolver forwards names it does not hold.
+    pub dns_upstream: std::collections::BTreeMap<String, String>,
+    /// `project/instance` → the records installed into a resolver instance.
+    pub dns_installed: std::collections::BTreeMap<String, String>,
     /// How often ACL rules were written (tests).
     pub acl_writes: u32,
     /// Application networks get an IPv6 subnet and running instances an IPv6 address too, as

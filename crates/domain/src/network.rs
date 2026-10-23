@@ -313,6 +313,10 @@ pub struct SyncRequest {
     /// What each module may reach outside the application (absent: nothing).
     #[serde(default)]
     pub internet: BTreeMap<String, Internet>,
+    /// Modules that answer service names inside the application (ADR 0004 step 4). Empty
+    /// unless the design includes a resolver: nothing is added to every application.
+    #[serde(default)]
+    pub resolvers: Vec<String>,
 }
 
 impl SyncRequest {
@@ -345,6 +349,11 @@ impl SyncRequest {
                 .iter()
                 .filter(|d| d.internet != Internet::None)
                 .map(|d| (d.module.clone(), d.internet))
+                .collect(),
+            resolvers: desired
+                .iter()
+                .filter(|d| d.dns_resolver)
+                .map(|d| d.module.clone())
                 .collect(),
         }
     }
@@ -379,6 +388,11 @@ impl SyncRequest {
             p.validate()?;
             if !self.modules.contains(&p.module) {
                 return Err(format!("published {} is not in the application", p.module));
+            }
+        }
+        for r in &self.resolvers {
+            if !is_valid_name(r) || !self.modules.contains(r) {
+                return Err(format!("resolver {r} is not in the application"));
             }
         }
         Ok(())
@@ -510,6 +524,48 @@ pub struct LoadBalancer {
     pub ports: Vec<(String, u16)>,
 }
 
+/// DNS between every other module and the resolver, on UDP and TCP 53. Both sides are
+/// written: an allow on only one side is not enough when egress and ingress are combined
+/// with OR and the other side's default is reject. No resolver: no rules.
+fn dns_rules(
+    application: &str,
+    module: &str,
+    resolvers: &[String],
+    modules: &[String],
+) -> (Vec<AclRule>, Vec<AclRule>) {
+    if resolvers.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let set = |name: &str| format!("${}", acl_name(application, name));
+    let rule = |source: String, destination: String, protocol: &str| AclRule {
+        action: "allow".into(),
+        source,
+        destination,
+        protocol: protocol.into(),
+        destination_port: "53".into(),
+        state: "enabled".into(),
+        description: "dns".into(),
+    };
+    let mut ingress = Vec::new();
+    let mut egress = Vec::new();
+    if resolvers.iter().any(|r| r == module) {
+        let mut others: Vec<&String> = modules.iter().filter(|m| !resolvers.contains(m)).collect();
+        others.sort();
+        for other in others {
+            for protocol in ["tcp", "udp"] {
+                ingress.push(rule(set(other), String::new(), protocol));
+            }
+        }
+    } else {
+        for resolver in resolvers {
+            for protocol in ["tcp", "udp"] {
+                egress.push(rule(String::new(), set(resolver), protocol));
+            }
+        }
+    }
+    (ingress, egress)
+}
+
 /// One module's ACL as Apelora intends it: exactly the rules `network.sync` writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IntendedAcl {
@@ -529,6 +585,9 @@ impl SyncRequest {
             .iter()
             .map(|a| {
                 let (mut ingress, mut egress) = acl_rules(app, a, &self.connections);
+                let (dns_in, dns_out) = dns_rules(app, a, &self.resolvers, &self.modules);
+                ingress.extend(dns_in);
+                egress.extend(dns_out);
                 ingress.extend(published_rules(a, &self.published));
                 egress.extend(internet_rules(
                     self.internet.get(a).copied().unwrap_or_default(),
@@ -640,6 +699,7 @@ mod tests {
                 port: 443,
             }],
             internet: BTreeMap::from([("web".to_owned(), Internet::Web)]),
+            resolvers: vec![],
         };
         let acls = s.intended_acls();
         let web = acls.iter().find(|a| a.module == "web").expect("web");
@@ -658,6 +718,44 @@ mod tests {
         assert_eq!((missing.len(), extra.len()), (1, 1));
         assert_eq!(missing[0].destination_port, "5432");
         assert_eq!(rule_drift(&web.egress, &[]).0.len(), 4);
+    }
+
+    #[test]
+    fn a_resolver_is_reachable_on_port_53_from_every_other_module() {
+        let mut s = SyncRequest {
+            project: "apelora".into(),
+            application: "shop".into(),
+            uplink: "br0".into(),
+            modules: vec!["web".into(), "dns".into()],
+            connections: vec![],
+            replicas: BTreeMap::new(),
+            stateless: vec![],
+            service_range: None,
+            published: vec![],
+            internet: BTreeMap::new(),
+            resolvers: vec!["dns".into()],
+        };
+        let acls = s.intended_acls();
+        let web = acls.iter().find(|a| a.module == "web").expect("web");
+        assert_eq!(web.egress.len(), 2, "udp and tcp to the resolver");
+        assert_eq!(web.egress[0].destination, "$shop-dns");
+        assert_eq!(web.egress[0].destination_port, "53");
+        assert!(web.ingress.is_empty());
+        let dns = acls.iter().find(|a| a.module == "dns").expect("dns");
+        assert_eq!(dns.ingress.len(), 2);
+        assert_eq!(dns.ingress[0].source, "$shop-web");
+        assert!(
+            dns.egress.is_empty(),
+            "the resolver does not open other modules"
+        );
+        s.resolvers.clear();
+        assert!(
+            s.intended_acls()
+                .iter()
+                .all(|a| a.ingress.is_empty() && a.egress.is_empty())
+        );
+        s.resolvers = vec!["missing".into()];
+        assert!(s.validate().is_err());
     }
 
     #[test]
@@ -806,6 +904,7 @@ mod tests {
             service_range: Some("198.18.100.0/28".into()),
             published: vec![],
             internet: BTreeMap::new(),
+            resolvers: vec![],
         };
         assert_eq!(s.validate(), Ok(()));
         // lb-01: stateless but nobody connects to it; db-01: connected but stateful; raw-01:
@@ -846,6 +945,7 @@ mod tests {
             service_range: Some("198.18.100.0/28".into()),
             published,
             internet: BTreeMap::new(),
+            resolvers: vec![],
         };
         assert_eq!(s.validate(), Ok(()));
         assert_eq!(

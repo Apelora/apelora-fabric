@@ -25,6 +25,13 @@
       "alias": "debian/13"
     },
     {
+      "class": "resolver",
+      "displayName": "Resolver",
+      "protocol": "simplestreams",
+      "server": "https://images.linuxcontainers.org",
+      "alias": "debian/13"
+    },
+    {
       "class": "debian",
       "displayName": "Debian",
       "setting": "version = 12",

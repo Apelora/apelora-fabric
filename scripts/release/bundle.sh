@@ -60,8 +60,8 @@ DIR=$OUT/$NAME
 mkdir -p "$DIR"/{bin,web,migrations,notices,inventory}
 
 echo "== Building $NAME"
-cargo build --release --locked -p apelora-control-plane -p apelora-deployment-worker
-cp target/release/apelora-control-plane target/release/apelora-deployment-worker "$DIR/bin/"
+cargo build --release --locked -p apelora-control-plane -p apelora-deployment-worker -p apelora-dns-resolver
+cp target/release/apelora-control-plane target/release/apelora-deployment-worker target/release/apelora-dns "$DIR/bin/"
 npm run build
 cp -R apps/studio/dist "$DIR/web/studio"
 cp -R apps/fabric-console/dist "$DIR/web/console"

@@ -294,16 +294,184 @@ async fn services(
     apelora_persistence::release_service_addresses(pool, application_id, p, &wanted).await?;
     if !s.modules.is_empty() {
         let records = apelora_domain::dns::records(app, &names);
+        let text = apelora_domain::dns::records_text(&records);
+        let (nameservers, upstream) = match prepare_resolver(provider, s, inv, &text).await? {
+            ResolverDns::Wait(why) => {
+                waiting.push(why);
+                (None, None)
+            }
+            ResolverDns::Clear => (Some(String::new()), None),
+            ResolverDns::Ready {
+                nameservers,
+                upstream,
+            } => (Some(nameservers), upstream),
+        };
         provider
             .publish_service_dns(
                 p,
                 &network,
                 app,
-                &apelora_domain::dns::records_text(&records),
+                &text,
+                nameservers.as_deref(),
+                upstream.as_deref(),
             )
             .await?;
     }
     Ok(waiting)
+}
+
+/// What to do with the nameservers the application network advertises.
+enum ResolverDns {
+    /// The resolver is not running yet: leave the advertisement as it is.
+    Wait(String),
+    /// The design has no resolver: remove one Apelora installed.
+    Clear,
+    /// Advertise `nameservers` and, when `upstream` is set, remember where to forward.
+    Ready {
+        nameservers: String,
+        upstream: Option<String>,
+    },
+}
+
+/// Guest `resolv.conf` text, or empty when the instance does not have the file yet.
+async fn read_resolv(provider: &Provider, project: &str, instance: &str, path: &str) -> String {
+    match provider.read_instance_file(project, instance, path).await {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::info!(error = %e, path, "network: the resolver has no resolv.conf yet");
+            String::new()
+        }
+    }
+}
+
+/// Starts the resolver module, when the design has one, and decides what DHCP should advertise.
+/// The binary is pushed only to a real cluster; the mock records the request.
+async fn prepare_resolver(
+    provider: &Provider,
+    s: &NetworkSync,
+    inv: &Inventory,
+    records: &str,
+) -> Result<ResolverDns, SyncError> {
+    if s.resolvers.is_empty() {
+        return Ok(ResolverDns::Clear);
+    }
+    let (p, app) = (&s.project, s.application.as_str());
+    let mut own = Vec::new();
+    let mut instances = Vec::new();
+    for module in &s.resolvers {
+        let replicas = s.replicas.get(module).copied().unwrap_or(1).max(1);
+        for replica in 1..=replicas {
+            let slot = inv.slot(s, module, replica);
+            if slot.is_empty() {
+                return Ok(ResolverDns::Wait(format!(
+                    "the resolver {module} to be running"
+                )));
+            }
+            for (instance, reachable) in slot {
+                if !reachable {
+                    return Ok(ResolverDns::Wait(format!(
+                        "the resolver {instance}'s server"
+                    )));
+                }
+                let found = provider.instance_addresses(p, &instance).await?;
+                let Some(ip) = host_address(&found) else {
+                    return Ok(ResolverDns::Wait(format!("an address for {instance}")));
+                };
+                own.push(ip);
+                instances.push(instance);
+            }
+        }
+    }
+    let network = network_name(app);
+    let observed = provider.network(p, &network).await?;
+    let saved = observed
+        .as_ref()
+        .and_then(|n| n.config.get("user.apelora.dns.upstream"))
+        .filter(|v| !v.is_empty())
+        .cloned();
+    let gateway = observed.as_ref().and_then(|n| {
+        n.config
+            .get("ipv4.address")
+            .and_then(|a| a.split('/').next())
+            .and_then(|a| a.parse::<IpAddr>().ok())
+            .filter(|ip| !ip.is_unspecified())
+    });
+    let (forward, upstream) = if let Some(saved) = saved {
+        (apelora_domain::dns::parse_address_list(&saved), Some(saved))
+    } else {
+        let conf = read_resolv(provider, p, &instances[0], "/etc/resolv.conf").await;
+        let mut learned = apelora_domain::dns::forwarders(&conf, &own, None);
+        // Debian's resolv.conf names the stub (127.0.0.53). The servers it actually uses
+        // are in the other file, and those are the ones that still know instance names.
+        if learned.is_empty() {
+            let real = read_resolv(
+                provider,
+                p,
+                &instances[0],
+                "/run/systemd/resolve/resolv.conf",
+            )
+            .await;
+            learned = apelora_domain::dns::forwarders(&real, &own, None);
+        }
+        if learned.is_empty() {
+            (apelora_domain::dns::forwarders("", &own, gateway), None)
+        } else {
+            let text = apelora_domain::dns::address_list(&learned);
+            (learned, Some(text))
+        }
+    };
+    let binary = match provider {
+        Provider::Mock(_) => None,
+        Provider::Incus(_) => {
+            Some(linux_dns_binary().map_err(|e| SyncError::Incus(AdapterError::InvalidConfig(e)))?)
+        }
+    };
+    let file = apelora_domain::dns::address_list(&forward);
+    for instance in &instances {
+        provider
+            .install_dns_resolver(p, instance, records, &file, binary.as_deref())
+            .await?;
+    }
+    Ok(ResolverDns::Ready {
+        nameservers: apelora_domain::dns::address_list(&own),
+        upstream,
+    })
+}
+
+/// The Linux `apelora-dns` the worker pushes into the resolver. A macOS build of the worker
+/// does not run in the instance, so the path has to be a Linux executable
+/// (`APELORA_DNS_BINARY`, or `apelora-dns` next to the worker).
+fn linux_dns_binary() -> Result<Vec<u8>, String> {
+    let path = std::env::var_os("APELORA_DNS_BINARY")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|dir| dir.join("apelora-dns")))
+        })
+        .ok_or_else(|| {
+            "apelora-dns is not next to the worker; set APELORA_DNS_BINARY to the Linux executable"
+                .to_owned()
+        })?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    if bytes.len() < 4 || &bytes[..4] != b"\x7fELF" {
+        return Err(format!(
+            "{} is not a Linux executable; build apelora-dns for the cluster",
+            path.display()
+        ));
+    }
+    Ok(bytes)
+}
+
+/// The instance's own address (`198.51.100.1/32` or an IPv6 `/128`), IPv4 first.
+fn host_address(addresses: &[String]) -> Option<IpAddr> {
+    let host = |suffix: &str| {
+        addresses.iter().find_map(|a| {
+            let ip = a.strip_suffix(suffix)?;
+            ip.parse::<IpAddr>().ok()
+        })
+    };
+    host("/32").or_else(|| host("/128"))
 }
 
 /// The instance address of the same family as the service listen address (`/32` or `/128`).

@@ -26,7 +26,7 @@ jobs:
       - name: Install the pinned toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build the control plane and the worker
-        run: cargo build --locked --release -p apelora-control-plane -p apelora-deployment-worker
+        run: cargo build --locked --release -p apelora-control-plane -p apelora-deployment-worker -p apelora-dns-resolver
       - name: Package each service on its own
         run: |
           mkdir -p dist
@@ -34,6 +34,7 @@ jobs:
             dir="apelora-$svc-${GITHUB_REF_NAME}-linux-${{ matrix.arch }}"
             mkdir -p "$dir"
             cp "target/release/apelora-$svc" LICENSE README.md "$dir/"
+            if [ "$svc" = deployment-worker ]; then cp target/release/apelora-dns "$dir/"; fi
             tar -czf "dist/$dir.tar.gz" "$dir"
           done
           (cd dist && sha256sum -- *.tar.gz > "SHA256SUMS-services-${{ matrix.arch }}")

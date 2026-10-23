@@ -15709,6 +15709,10 @@
           "availability": {
             "$ref": "#/components/schemas/Availability"
           },
+          "dnsResolver": {
+            "type": "boolean",
+            "description": "This module answers service names for the application (ADR 0004 step 4). Absent\nmeans it does not: a resolver is never added unless the design asks for one."
+          },
           "guestOs": {
             "$ref": "#/components/schemas/GuestOs",
             "description": "The operating system inside (from the class): decides which sessions it offers."

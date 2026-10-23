@@ -434,6 +434,12 @@ pub const SETTINGS: &[Setting] = &[
         "1: move a stateless replica that shares a server with another of its module (off when unset)",
     ),
     s(
+        "APELORA_DNS_BINARY",
+        Worker,
+        None,
+        "Path of the Linux apelora-dns executable the worker copies into a resolver (default: apelora-dns next to the worker)",
+    ),
+    s(
         "APELORA_HEALTH_FAIL_AFTER_SECS",
         Worker,
         Some("20"),
