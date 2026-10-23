@@ -239,8 +239,9 @@ retry_of = '…'`.
 ### Reading an instance's logs
 
 **Evidence:** CONTRACT VERIFIED (adapter against spec-shaped replies) and MOCK VERIFIED (API and
-Console); against the real test cluster only the "instance does not exist" answer was checked
-(it had no instances), so real log content is NOT VERIFIED yet.
+Console). REAL INCUS TESTED 2026-10-23 on a running Debian container on the four-member lab
+(`a_real_instance_has_a_detail_log_files_and_a_bounded_console_log`: `lxc.log` listed and tailed,
+console log 612 bytes, a path outside the listed files refused).
 
 Console → Instances → the instance → Logs, or the API:
 
