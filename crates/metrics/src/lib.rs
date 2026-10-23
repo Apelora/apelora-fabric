@@ -592,7 +592,19 @@ mod tests {
             (p.region.as_str(), p.site.as_str(), p.sector.as_str()),
             ("eu-west", "fra1", "s01")
         );
-        for bad in ["EU", "-eu", "eu-", "eu west", "eu\"x", &"a".repeat(64)] {
+        for good in ["a", "eu-west", "s01", "fra1", &"a".repeat(63)] {
+            assert!(valid_place_name(good), "{good}");
+        }
+        for bad in [
+            "",
+            "EU",
+            "-eu",
+            "eu-",
+            "eu west",
+            "eu\"x",
+            "A",
+            &"a".repeat(64),
+        ] {
             assert!(!valid_place_name(bad), "{bad}");
         }
         assert!(Place::from_env(env(&[("APELORA_SITE", "Site 1")])).is_err());
@@ -600,9 +612,20 @@ mod tests {
 
     #[test]
     fn helpers_map_free_text_to_small_sets() {
+        assert_eq!(status_class(99), "5xx");
+        assert_eq!(status_class(100), "1xx");
+        assert_eq!(status_class(199), "1xx");
+        assert_eq!(status_class(200), "2xx");
         assert_eq!(status_class(204), "2xx");
+        assert_eq!(status_class(299), "2xx");
+        assert_eq!(status_class(300), "3xx");
+        assert_eq!(status_class(399), "3xx");
+        assert_eq!(status_class(400), "4xx");
         assert_eq!(status_class(429), "4xx");
+        assert_eq!(status_class(499), "4xx");
+        assert_eq!(status_class(500), "5xx");
         assert_eq!(status_class(503), "5xx");
+        assert_eq!(WORKER_METRICS_DEFAULT_ADDR, "127.0.0.1:9471");
         assert_eq!(method_label("BREW"), "other");
         assert_eq!(job_kind_label("instance.create"), "instance.create");
         assert_eq!(job_kind_label("x'; DROP"), "other");

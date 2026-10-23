@@ -5,10 +5,24 @@ examine_globs = [
     "crates/auth/src/*.rs",
     "crates/domain/src/access.rs",
     "crates/domain/src/lifecycle.rs",
+    "crates/telemetry/src/lib.rs",
+    "crates/metrics/src/lib.rs",
     "services/control-plane/src/api/sessions.rs",
     "services/control-plane/src/api/authz.rs",
 ]
 exclude_globs = ["**/tests.rs", "**/*_tests.rs"]
 # Test code and derived plumbing add noise, not signal.
 # Excluded as equivalent: `Resource::platform()` is `Default::default()` by definition.
-exclude_re = ["impl (Debug|Default) for", "Resource::platform"]
+# `init`, the OTLP layer and Visit/SpanData wiring install a process-wide subscriber; the rule under
+# test is `encode_span` / `traces_endpoint`. `traces_disabled` is equivalent to `Url::parse` failing.
+exclude_re = [
+    "impl (Debug|Default) for",
+    "Resource::platform",
+    "replace init with",
+    " in init",
+    "OtlpLayer::from_env",
+    "<impl Visit for SpanData>",
+    "<impl Layer",
+    "<impl SpanFields for SpanData>",
+    "traces_disabled",
+]
