@@ -39,6 +39,9 @@ cleanup() {
     echo "work directory kept: $work"
     exit 1
   fi
+  # The base backup is mode 0700 and owned by the server user inside the container (uid 999).
+  # The account that ran the test cannot delete it until that mode is opened.
+  docker run --rm --user root --entrypoint chmod -v "$work":/work "$image" -R a+rwX /work >/dev/null
   rm -rf "$work"
   exit 0
 }
