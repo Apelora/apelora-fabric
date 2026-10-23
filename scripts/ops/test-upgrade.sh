@@ -24,6 +24,23 @@ printf 'new-studio\n' >"$bundle/web/studio/index.html"
 printf 'new-console\n' >"$bundle/web/console/index.html"
 printf 'version: 9.9.9-test\n' >"$bundle/BUILD-INFO"
 printf 'dump\n' >"$backup"
+signers=$work/allowed_signers
+key=$work/release-key
+ssh-keygen -q -t ed25519 -f "$key" -N "" -C release@test
+printf 'release@test namespaces="apelora-release" %s\n' "$(cut -d' ' -f1,2 "$key.pub")" >"$signers"
+sign_bundle() {
+  local dir=$1
+  (
+    cd "$dir"
+    rm -f SHA256SUMS SHA256SUMS.sig
+    find . -type f ! -name SHA256SUMS ! -name SHA256SUMS.sig | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do
+      if command -v sha256sum >/dev/null; then sha256sum "$f"; else shasum -a 256 "$f"; fi
+    done > "$dir/../sums.tmp"
+    mv "$dir/../sums.tmp" SHA256SUMS
+  )
+  ssh-keygen -Y sign -f "$key" -n apelora-release "$dir/SHA256SUMS" >/dev/null
+}
+sign_bundle "$bundle"
 fails=0
 pass() { echo "PASS  $1"; }
 flunk() { echo "FAIL  $1"; fails=$((fails + 1)); }
@@ -46,10 +63,20 @@ expect 1 "refuses a bundle inside the repository" \
   env APPLY=0 BUNDLE="$root" PREFIX="$prefix" BACKUP="$backup" "${upgrade[@]}"
 
 expect 1 "refuses a prefix inside the repository" \
-  env APPLY=1 BUNDLE="$bundle" PREFIX="$root" BACKUP="$backup" "${upgrade[@]}"
+  env APPLY=1 APELORA_SIGNERS="$signers" BUNDLE="$bundle" PREFIX="$root" BACKUP="$backup" "${upgrade[@]}"
+
+printf 'tampered\n' >"$bundle/bin/apelora-control-plane"
+expect 1 "refuses a bundle that no longer matches its signature" \
+  env APPLY=1 APELORA_SIGNERS="$signers" BUNDLE="$bundle" PREFIX="$prefix" BACKUP="$backup" "${upgrade[@]}"
+[[ $(cat "$prefix/bin/apelora-control-plane") == old-api ]] && pass "a refused upgrade leaves the installation unchanged" || flunk "a refused upgrade leaves the installation unchanged"
+printf 'new-api\n' >"$bundle/bin/apelora-control-plane"
+sign_bundle "$bundle"
+
+expect 1 "refuses to install without the allowed signers file" \
+  env APPLY=1 BUNDLE="$bundle" PREFIX="$prefix" BACKUP="$backup" "${upgrade[@]}"
 
 expect 0 "installs the bundle and keeps the previous binaries" \
-  env APPLY=1 BUNDLE="$bundle" PREFIX="$prefix" BACKUP="$backup" "${upgrade[@]}"
+  env APPLY=1 APELORA_SIGNERS="$signers" BUNDLE="$bundle" PREFIX="$prefix" BACKUP="$backup" "${upgrade[@]}"
 grep -q 'version: 9.9.9-test' "$prefix/upgrade-record" && pass "record names the installed version" || flunk "record names the installed version"
 [[ $(cat "$prefix/bin/apelora-control-plane") == new-api ]] && pass "control plane binary replaced" || flunk "control plane binary replaced"
 [[ $(cat "$prefix/previous/bin/apelora-deployment-worker") == old-worker ]] && pass "previous worker kept" || flunk "previous worker kept"

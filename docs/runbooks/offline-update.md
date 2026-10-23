@@ -63,9 +63,11 @@ BUNDLE=/path/to/apelora-<version> PREFIX=/usr/local/share/apelora \
   BACKUP=/srv/apelora-backups/apelora-db-<ts>.dump scripts/ops/upgrade.sh
 ```
 
-`APPLY=1` with the same variables copies `bin/` and `web/` into `PREFIX` and keeps what was
-there under `PREFIX/previous`. It refuses to run without a non-empty `BACKUP`, and it never
-stops systemd. Then copy those files on to the paths the units actually run
+`APPLY=1` with the same variables, plus `APELORA_SIGNERS` pointing at the allowed signers file,
+runs `scripts/release/verify.sh` and copies nothing if that fails. When it passes, it copies
+`bin/` and `web/` into `PREFIX` and keeps what was there under `PREFIX/previous`. It refuses to
+run without a non-empty `BACKUP`, and it never stops systemd. Then copy those files on to the
+paths the units actually run
 (`/usr/local/bin/apelora-control-plane`, `/usr/local/bin/apelora-deployment-worker`, and the
 web roots), with the same owner and permissions as before.
 

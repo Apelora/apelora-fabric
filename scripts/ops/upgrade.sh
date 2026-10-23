@@ -9,8 +9,9 @@
 #   APPLY=1 … scripts/ops/upgrade.sh
 #   APPLY=1 ROLLBACK=1 PREFIX=/usr/local/share/apelora scripts/ops/upgrade.sh
 #
-# BUNDLE is an unpacked release directory (scripts/release/verify.sh first). PREFIX is where
-# this installation keeps bin/ and web/ (not the systemd unit paths; copy onwards from here).
+# BUNDLE is an unpacked release directory. APPLY runs scripts/release/verify.sh against
+# APELORA_SIGNERS and copies nothing when that check fails. PREFIX is where this installation
+# keeps bin/ and web/ (not the systemd unit paths; copy onwards from here).
 # BACKUP is the database dump taken before APPLY. Migrations cannot be undone, so the dump
 # is the database half of the rollback; this script does not restore PostgreSQL.
 # Exit status: 0 plan or apply done; 1 refused; 2 usage.
@@ -111,6 +112,8 @@ PREFIX=$(abs_dir "$PREFIX" PREFIX)
 case $PREFIX/ in "$ROOT"/*) die "PREFIX is inside the repository" ;; esac
 [[ -n $BACKUP && -s $BACKUP ]] || die "BACKUP must be a non-empty database dump taken before this upgrade"
 [[ $BACKUP == /* ]] || die "BACKUP must be an absolute path"
+[[ -n ${APELORA_SIGNERS:-} && -r $APELORA_SIGNERS ]] || die "set APELORA_SIGNERS to the allowed_signers file; an unchecked bundle is never installed"
+"$ROOT/scripts/release/verify.sh" "$BUNDLE" "$APELORA_SIGNERS"
 
 if [[ -f $PREFIX/bin/apelora-control-plane ]]; then
   copy_tree "$PREFIX" "$PREFIX/previous"
