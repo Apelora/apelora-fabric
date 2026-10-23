@@ -39,7 +39,7 @@ function Field({ app, prop }: { app: ModuleInstance; prop: Property }) {
       </div>
       {prop.type === "bool" ? <div>{control}</div> : control}
       <p id={`${uid}-d`} className={`text-[10px] leading-snug ${problem ? "text-error" : "text-base-content/70"}`} role={problem ? "alert" : undefined} data-testid={problem ? "cfg-error" : undefined}>
-        {problem ? `${problem.message} ${problem.hint}` : prop.type === "secret" ? `Reference name only; the secret itself is never stored here.${prop.description ? ` ${prop.description}` : ""}` : prop.description ?? ""}
+        {problem ? `${problem.message} ${problem.hint}` : `${prop.supply === "deploy" ? "Asked when the application is deployed. " : ""}${prop.type === "secret" ? `Reference name only; the secret itself is never stored here.${prop.description ? ` ${prop.description}` : ""}` : prop.description ?? ""}`}
       </p>
     </div>
   );

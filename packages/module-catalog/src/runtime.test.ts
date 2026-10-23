@@ -42,7 +42,7 @@ describe("runtimes", () => {
         ...target, kind: "container", start: true, architectures: ["x86_64", "aarch64"],
         source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:eb1c896deef834f4e056829fd6dadac8305501f16cc71ba65fb252c8d0aa168e" },
         // The class's resources, as Incus limits.
-        config: { "limits.cpu": "1", "limits.memory": "512MiB" },
+        config: { "limits.cpu": "1", "limits.memory": "512MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" },
       },
     });
     const mainline = instanceRequestFor(nginx, { config: { channel: "mainline" } }, target);
@@ -54,10 +54,21 @@ describe("runtimes", () => {
   it("a module's own resources become Incus limits; a container's fraction of a CPU becomes a quota", () => {
     const nginx = get("nginx");
     const half = instanceRequestFor(nginx, { resources: { cpu: 0.5, memoryMiB: 256 } }, target);
-    expect(half.ok && half.request.config).toEqual({ "limits.cpu": "1", "limits.cpu.allowance": "50ms/100ms", "limits.memory": "256MiB" });
+    expect(half.ok && half.request.config).toEqual({ "limits.cpu": "1", "limits.cpu.allowance": "50ms/100ms", "limits.memory": "256MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" });
     const two = instanceRequestFor(nginx, { resources: { cpu: 2.5, memoryMiB: 1024 } }, target);
-    expect(two.ok && two.request.config).toEqual({ "limits.cpu": "3", "limits.cpu.allowance": "250ms/100ms", "limits.memory": "1024MiB" });
+    expect(two.ok && two.request.config).toEqual({ "limits.cpu": "3", "limits.cpu.allowance": "250ms/100ms", "limits.memory": "1024MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" });
     expect(resourceLimits("virtual-machine", { cpu: 1.5, memoryMiB: 2048 })).toEqual({ "limits.cpu": "2", "limits.memory": "2048MiB" });
+  });
+
+  it("a deploy-time name and a secret reference are sent to the instance, and a pasted secret is not", () => {
+    const nginx = get("nginx");
+    const named = instanceRequestFor(nginx, { config: { "server-name": "shop.example.test", "cert-secret": "shop-tls" } }, target);
+    expect(named.ok && named.request.config).toMatchObject({
+      "environment.SETUP_SERVER_NAME": "shop.example.test",
+      "environment.SECRET_CERT_SECRET": "shop-tls",
+    });
+    const pasted = instanceRequestFor(nginx, { config: { "cert-secret": "Hunter2!" } }, target);
+    expect(pasted.ok && pasted.request.config?.["environment.SECRET_CERT_SECRET"]).toBeUndefined();
   });
 
   it("design-only classes and unknown settings are not deployable", () => {

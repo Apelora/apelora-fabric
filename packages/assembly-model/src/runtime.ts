@@ -1,5 +1,5 @@
 import { trimHyphens } from "./ops";
-import { effectiveValue } from "./config";
+import { effectiveValue, validateProperty } from "./config";
 import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Readiness, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
 
 /**
@@ -106,8 +106,53 @@ export function instanceRequestFor(
         ...resourceLimits(kind, module.resources ?? cls.resources),
         // Moves while running, also when its server is evacuated (docs/design/mobility-and-ha.md).
         ...(module.liveMigration ? { "migration.stateful": "true", "cluster.evacuate": "live-migrate" } : {}),
+        ...setupEnvironment(cls, module.config),
       },
       ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path, ...(v.class === "data-replicated" ? { class: v.class } : {}) })) } : {}),
+    },
+  };
+}
+
+/**
+ * Deploy-time fields the instance receives. A name or address is `environment.SETUP_*`.
+ * A credential is the reference name in `environment.SECRET_*`. The secret itself is never copied.
+ * Keys under `environment.APELORA_*` stay reserved for service addresses.
+ */
+export function setupEnvironment(cls: ModuleClass, config: ModuleInstance["config"]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const prop of cls.properties ?? []) {
+    if (prop.supply !== "deploy") continue;
+    const value = effectiveValue(prop, config);
+    if (value === undefined || value === "" || validateProperty(prop, value)) continue;
+    const token = prop.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    if (!token) continue;
+    out[prop.type === "secret" ? `environment.SECRET_${token}` : `environment.SETUP_${token}`] = String(value);
+  }
+  return out;
+}
+
+/** Applies answers from the deploy step onto a copy of the design. Empty answers leave the design unchanged. */
+export function withSetup(
+  a: ApplicationAssembly,
+  answers: Readonly<Record<string, Readonly<Record<string, string>>>>,
+): ApplicationAssembly {
+  if (Object.keys(answers).length === 0) return a;
+  return {
+    ...a,
+    spec: {
+      ...a.spec,
+      modules: a.spec.modules.map((m) => {
+        const row = answers[m.id];
+        if (!row || Object.keys(row).length === 0) return m;
+        const config = { ...(m.config ?? {}) };
+        for (const [id, raw] of Object.entries(row)) {
+          if (raw === "") delete config[id];
+          else config[id] = raw;
+        }
+        const { config: _drop, ...rest } = m;
+        void _drop;
+        return Object.keys(config).length > 0 ? { ...rest, config } : rest;
+      }),
     },
   };
 }

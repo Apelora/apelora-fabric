@@ -8,7 +8,7 @@ import { MON } from "./factory";
 /** Original, conceptual manifests written for this project. Short port names double as the on-canvas labels. */
 const BASE_CLASSES: readonly ModuleClass[] = [
   cls("gateway", "Gateway", "Network & Security", "Application edge: public entry point and routing to the assembly.", "gateway",
-    [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256, [prop("public-name", "Public DNS name", "string", { default: "app.example.test", group: "Network", description: "Name clients use to reach the application." }), prop("tls", "Terminate TLS", "bool", { default: true, group: "Network" })]),
+    [p("wan", "wan", "input", "network", "Public network uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "http", "Internal side, towards the load balancer", { multiplicity: "many" })], 1, 256, [prop("public-name", "Public DNS name", "string", { default: "app.example.test", group: "Network", supply: "deploy", description: "Name clients use to reach the application. Asked again when the application is deployed." }), prop("tls", "Terminate TLS", "bool", { default: true, group: "Network" })]),
   cls("opnsense", "OPNsense", "Network & Security", "Open-source firewall and router module.", "opnsense",
     [p("wan", "wan", "input", "network", "Uplink", { optional: true, multiplicity: "one" }), p("lan", "lan", "output", "network", "Protected network", { multiplicity: "many" }), MON()], 2, 1024, [prop("default-policy", "Default policy", "enum", { options: ["deny", "allow"], default: "deny", required: true, group: "Firewall" }), prop("admin-secret", "Admin password reference", "secret", { default: "firewall-admin", required: true, group: "Access", description: "Name of the secret that holds the admin password." })]),
   cls("network", "Network", "Network & Security", "Virtual network segment; it runs no instance. Modules plug their net interface into it; link it to a gateway or another network through uplink.", "generic-network",
@@ -31,13 +31,13 @@ const BASE_CLASSES: readonly ModuleClass[] = [
     ]),
   cls("nginx", "NGINX", "Web & Application", "Web server, reverse proxy, load balancer and content cache.", "nginx",
     [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "postgres", "PostgreSQL connection", { optional: true, multiplicity: "one" }), p("upstream", "up", "output", "http", "Upstream servers it proxies to and balances across", { optional: true, multiplicity: "many" })], 1, 512, [
-      prop("server-name", "Server name", "string", { default: "_", group: "Server" }),
+      prop("server-name", "Server name", "string", { default: "_", group: "Server", supply: "deploy", description: "The name this server answers. Asked again when the application is deployed." }),
       prop("channel", "Release channel", "enum", { options: ["stable", "mainline"], default: "stable", required: true, group: "Server", description: "Stable gets only critical fixes; mainline gets new features first." }),
       prop("workers", "Worker processes", "int", { default: 2, min: 1, max: 64, required: true, group: "Server", description: "One per vCPU is a good starting point." }),
       prop("gzip", "Gzip responses", "bool", { default: true, group: "Server" }),
       prop("tls", "Serve HTTPS", "bool", { default: false, group: "TLS" }),
       prop("http2", "Enable HTTP/2", "bool", { default: true, group: "TLS" }),
-      prop("cert-secret", "Certificate secret reference", "secret", { default: "nginx-tls", group: "TLS", description: "Name of the secret that holds the certificate and private key." }),
+      prop("cert-secret", "Certificate secret reference", "secret", { default: "nginx-tls", group: "TLS", supply: "deploy", description: "Name of the secret that holds the certificate and private key. Asked again when the application is deployed. The secret itself is never stored." }),
       prop("worker-connections", "Connections per worker", "int", { default: 1024, min: 64, max: 65536, required: true, group: "Limits" }),
       prop("max-body-mib", "Max request body (MiB)", "int", { default: 1, min: 0, max: 10240, required: true, group: "Limits", description: "0 means no limit." }),
       prop("rate-limit", "Requests per second per client", "int", { default: 0, min: 0, max: 100000, group: "Limits", description: "0 turns rate limiting off." }),

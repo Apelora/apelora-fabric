@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, assemblyTotals, availabilityOf, cableColorOf, readinessOf, ReadinessSchema, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Readiness, type Volume } from "@apelora/assembly-model";
+import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, applicationDemand, assemblyTotals, availabilityOf, budgetIssues, cableColorOf, readinessOf, ReadinessSchema, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Readiness, type ResourceBudget, type Volume } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/module-catalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
@@ -335,7 +335,35 @@ function AssemblyBody({ assembly }: { assembly: ApplicationAssembly }) {
         </dl>
         <p className="mt-2 text-[11px] text-base-content/70">The modules, ports and cables in your diagram stay the same whichever platform you pick; only these provider details change.</p>
       </section>
+      <BudgetSection assembly={assembly} />
     </div>
+  );
+}
+
+function BudgetSection({ assembly }: { assembly: ApplicationAssembly }) {
+  const api = useStudioApi();
+  const demand = applicationDemand(assembly, lookupClass);
+  const problems = budgetIssues(assembly, lookupClass);
+  const b = assembly.spec.budget;
+  const field = (key: keyof ResourceBudget, label: string, testId: string) => (
+    <label className="flex flex-col gap-1 text-xs">
+      <span>{label}</span>
+      <input type="number" min={0} step="any" className="input input-sm" data-testid={testId} value={b?.[key] ?? ""}
+        onChange={(e) => { const t = e.target.value.trim(); api.getState().setBudget({ [key]: t === "" ? undefined : Number(t) }); }} />
+    </label>
+  );
+  return (
+    <section aria-label="Resource budget" className="rounded-box border border-base-300 p-3" data-testid="budget-section">
+      <h3 className="text-xs font-semibold">Resource budget</h3>
+      <p className="mt-1 text-[11px] text-base-content/70">The application asks for {demand.cpu} vCPU and {formatMemory(demand.memoryMiB)}, once per replica. Leave a bound empty for no limit.</p>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {field("cpuMin", "Minimum vCPU", "budget-cpu-min")}
+        {field("cpuMax", "Maximum vCPU", "budget-cpu-max")}
+        {field("memoryMinMiB", "Minimum memory (MiB)", "budget-mem-min")}
+        {field("memoryMaxMiB", "Maximum memory (MiB)", "budget-mem-max")}
+      </div>
+      {problems.map((p) => <p key={p.message} role="alert" className="mt-2 text-xs text-error" data-testid="budget-error">{p.message}</p>)}
+    </section>
   );
 }
 

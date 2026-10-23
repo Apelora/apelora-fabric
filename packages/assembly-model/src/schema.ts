@@ -47,12 +47,27 @@ export const PropertySchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   options: z.array(z.string().min(1).max(48)).max(24).optional(),
+  /**
+   * `deploy`: asked when the application is deployed (a name, a public address, a secret
+   * reference). Absent means the field is part of the design. A secret is still only a reference.
+   */
+  supply: z.enum(["design", "deploy"]).optional(),
 });
 
 export const ResourcesSchema = z.object({
   cpu: z.number().positive().max(256),
   memoryMiB: z.number().positive().max(4_194_304),
 });
+
+/** A minimum or maximum for the whole application. An absent bound is not checked. */
+const budgetBound = z.number().positive().max(1_048_576);
+export const ResourceBudgetSchema = z.object({
+  cpuMin: budgetBound.optional(),
+  cpuMax: budgetBound.optional(),
+  memoryMinMiB: budgetBound.optional(),
+  memoryMaxMiB: budgetBound.optional(),
+});
+export type ResourceBudget = z.infer<typeof ResourceBudgetSchema>;
 
 /**
  * A persistent volume a module keeps (docs/architecture/STORAGE.md): each of its instances
@@ -332,6 +347,8 @@ export const ApplicationAssemblySchema = z.object({
     /** Design-time hypervisor target; absent means the default platform. A retired target
      *  (`xen`, offered briefly) reads as the default, so files saved with it still import. */
     target: z.object({ platform: z.preprocess((v) => (v === "xen" ? "incus" : v), z.enum(PLATFORMS)) }).optional(),
+    /** Minimum and maximum vCPU and memory for the whole application. Absent means no budget. */
+    budget: ResourceBudgetSchema.optional(),
   }),
   editor: z.object({
     layoutVersion: z.literal(LAYOUT_VERSION),

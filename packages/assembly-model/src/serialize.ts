@@ -13,7 +13,7 @@ export function serializeAssembly(a: ApplicationAssembly): string {
   const byId = <T extends { id: string }>(xs: readonly T[]) => [...xs].sort((p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0));
   const sorted: ApplicationAssembly = {
     ...a,
-    spec: { modules: byId(a.spec.modules), connections: byId(a.spec.connections), ...(a.spec.links?.length ? { links: byId(a.spec.links) } : {}), ...(a.spec.target ? { target: a.spec.target } : {}) },
+    spec: { modules: byId(a.spec.modules), connections: byId(a.spec.connections), ...(a.spec.links?.length ? { links: byId(a.spec.links) } : {}), ...(a.spec.target ? { target: a.spec.target } : {}), ...(a.spec.budget ? { budget: a.spec.budget } : {}) },
     editor: { ...a.editor, nodes: byId(a.editor.nodes) },
   };
   return JSON.stringify(canonical(sorted), null, 2) + "\n";

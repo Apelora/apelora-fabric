@@ -377,6 +377,32 @@
             "platform"
           ],
           "additionalProperties": false
+        },
+        "budget": {
+          "type": "object",
+          "properties": {
+            "cpuMin": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1048576
+            },
+            "cpuMax": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1048576
+            },
+            "memoryMinMiB": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1048576
+            },
+            "memoryMaxMiB": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1048576
+            }
+          },
+          "additionalProperties": false
         }
       },
       "required": [
@@ -1281,6 +1307,13 @@
                         "minLength": 1,
                         "maxLength": 48
                       }
+                    },
+                    "supply": {
+                      "type": "string",
+                      "enum": [
+                        "design",
+                        "deploy"
+                      ]
                     }
                   },
                   "required": [

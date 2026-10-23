@@ -76,6 +76,10 @@ test.describe("hypervisor target and totals", () => {
     await expect(page.getByTestId("totals-chip")).toContainText("vCPU");
     await page.getByTestId("totals-chip").click();
     await expect(page.getByTestId("assembly-totals")).toContainText("vCPU");
+    await page.getByTestId("budget-cpu-max").fill("0.1");
+    await expect(page.getByTestId("budget-error")).toContainText("above the maximum");
+    await page.getByTestId("budget-cpu-max").fill("");
+    await expect(page.getByTestId("budget-error")).toHaveCount(0);
     await page.getByTestId("props-close").click();
     await node(page, "nginx-01").click();
     await node(page, "nginx-02").click({ modifiers: ["ControlOrMeta"] });

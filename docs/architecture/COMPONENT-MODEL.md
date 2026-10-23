@@ -16,8 +16,8 @@ These are general, long-established ideas in component-based and infrastructure-
 | **Hierarchical composition** | A selection of modules is packaged as a class (`composition`) whose exposed ports map to inner terminals; its `net` maps to every inner NIC. Components can contain components. | Implemented (grouping, ungrouping, export/import); drill-in view planned |
 | **Network interface** | Every module has a `net` terminal (a NIC) that plugs into a network or a network module; unplugged it uses the default network. | Implemented |
 | **Link tags** | Terminals sharing a name are linked without a drawn cable. | Implemented |
-| **Setup parameters** | Per-module values (names, public addresses, credentials by reference) supplied when an application is deployed. | Planned |
-| **Volumes and resource budgets** | Persistent volumes per module (class defaults or set in the Studio; not for stateless classes) and resources per module are implemented; a minimum/maximum resource budget per application is planned. | Partly implemented |
+| **Setup parameters** | Per-module values supplied when an application is deployed. A class marks a field `supply: "deploy"`. The deploy step asks for it. A name or public address is sent as `environment.SETUP_*`. A credential is the reference name in `environment.SECRET_*`; the secret itself is not stored. NGINX's server name and certificate reference, and the gateway's public name, are asked this way. | Implemented |
+| **Volumes and resource budgets** | Persistent volumes per module (class defaults or set in the Studio; not for stateless classes) and resources per module are implemented. An application can set a minimum and maximum for vCPU and memory; the design is refused when the modules, counted once per replica, fall outside it. | Implemented |
 | **Catalog sharing** | Exporting/importing classes and assemblies as portable, versioned, diff-friendly text. | Partly implemented (JSON) |
 
 ## What "original" means here
