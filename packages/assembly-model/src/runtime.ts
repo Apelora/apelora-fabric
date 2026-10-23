@@ -113,6 +113,20 @@ export function instanceRequestFor(
   };
 }
 
+/** A property id as an environment-key token. A loop, so a long run of punctuation cannot make a regex backtrack. */
+function setupToken(id: string): string {
+  let out = "";
+  let gap = false;
+  for (const ch of id.toUpperCase()) {
+    const alnum = (ch >= "A" && ch <= "Z") || (ch >= "0" && ch <= "9");
+    if (!alnum) { gap = out.length > 0; continue; }
+    if (gap) out += "_";
+    out += ch;
+    gap = false;
+  }
+  return out;
+}
+
 /**
  * Deploy-time fields the instance receives. A name or address is `environment.SETUP_*`.
  * A credential is the reference name in `environment.SECRET_*`. The secret itself is never copied.
@@ -124,7 +138,7 @@ export function setupEnvironment(cls: ModuleClass, config: ModuleInstance["confi
     if (prop.supply !== "deploy") continue;
     const value = effectiveValue(prop, config);
     if (value === undefined || value === "" || validateProperty(prop, value)) continue;
-    const token = prop.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const token = setupToken(prop.id);
     if (!token) continue;
     out[prop.type === "secret" ? `environment.SECRET_${token}` : `environment.SETUP_${token}`] = String(value);
   }

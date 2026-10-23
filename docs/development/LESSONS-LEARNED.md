@@ -174,6 +174,7 @@ Read these first. Most entries below come from one of four causes:
 
 ## Model and catalog
 
+- **CodeQL rejected the deploy-time environment key** (2026-10-24) → the token was built with `/^_+|_+$/`, and a property id is catalog input, so a long run of underscores makes that expression backtrack. → Turn the id into a token with a loop (`setupToken` in `packages/assembly-model/src/runtime.ts`). Do not trim a repeated character with a regular expression on catalog text.
 - **Every `mon` cable compiled to "module may reach the collector on 9100"** (2026-10-21) → the compiler treated every output as the consumer and used one default port per protocol, but metrics are *read* (the collector connects) and almost no software serves them on 9100. → Metrics outputs reverse the direction and use the class's own port (`ModuleClass.metrics`, `metricsEndpoint`); a class offers `mon` only when a collector can read metrics text on a port (`packages/module-catalog/src/metrics.test.ts`). Check a protocol's direction and real port before adding it to `DEFAULT_PORTS`.
 
 ## Renames and compatibility

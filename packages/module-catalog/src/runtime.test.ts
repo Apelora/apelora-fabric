@@ -69,6 +69,8 @@ describe("runtimes", () => {
     });
     const pasted = instanceRequestFor(nginx, { config: { "cert-secret": "Hunter2!" } }, target);
     expect(pasted.ok && pasted.request.config?.["environment.SECRET_CERT_SECRET"]).toBeUndefined();
+    const punctuated = instanceRequestFor({ ...nginx, properties: [...(nginx.properties ?? []), { id: "___a---b___", label: "Name", type: "string", required: false, supply: "deploy", default: "ok" }] }, {}, target);
+    expect(punctuated.ok && punctuated.request.config?.["environment.SETUP_A_B"]).toBe("ok");
   });
 
   it("design-only classes and unknown settings are not deployable", () => {
