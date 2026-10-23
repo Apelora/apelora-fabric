@@ -1,26 +1,26 @@
 import { expect, test } from "vitest";
 
-import type { ModuleStatus } from "@apelora/api-client";
+import type { InstanceHealth, ModuleStatus } from "@apelora/api-client";
 
 import { size, summary } from "./Applications";
 
-const item = (status: string, health?: ModuleStatus["health"]): ModuleStatus => ({
+const item = (status: string, health?: InstanceHealth): ModuleStatus => ({
   instance: "shop-web-01",
   location: "n1",
   module: "web",
   project: "apelora",
   status,
-  health: health ? { detail: health.health, ...health } : health,
+  health,
 });
 
 test("summary names an empty, healthy, mixed and fully failed set", () => {
   expect(summary([])).toEqual({ label: "No instances", dot: "status-neutral" });
-  expect(summary([item("Running", { health: "healthy", since: "2026-01-01T00:00:00Z" })])).toEqual({
+  expect(summary([item("Running", { health: "healthy", since: "2026-01-01T00:00:00Z", detail: "ok" })])).toEqual({
     label: "All running",
     dot: "status-success",
   });
   const mixed = summary([
-    item("Running", { health: "unhealthy", since: "2026-01-01T00:00:00Z" }),
+    item("Running", { health: "unhealthy", since: "2026-01-01T00:00:00Z", detail: "port check failing" }),
     item("Stopped"),
   ]);
   expect(mixed.dot).toBe("status-warning");
