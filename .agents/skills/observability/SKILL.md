@@ -54,7 +54,7 @@ A component is not done until you can tell, from outside, whether it is healthy 
 - **Whole-state gauges** (members by status, jobs by kind) use `Gauge::replace`, so a state that disappears is not kept at its last value.
 - **Outbox:** `apelora_outbox_pending`, `apelora_outbox_oldest_pending_age_seconds`, `apelora_outbox_failing` (set by the `outbox-relay` lease holder each pass, cleared with `replace([])` on the others) and `apelora_outbox_deliveries{topic,outcome}`. The `topic` label is allowed because topics are names from code; values go through `apelora_metrics::topic_label` (anything unexpected becomes `other`).
 - **Tests and global gauges:** families are process-wide statics and `sqlx::test`s run in parallel, so assert on what the function returns, and check a family's presence in the listener test (`deployment-worker/src/metrics.rs`).
-- **Lower layers** (Incus `/1.0/metrics` with a metrics-only certificate, PostgreSQL statistics views, OVN cluster status, SAN paths) are collected directly by the operator's collector. Do not proxy them through Apelora.
+- **Lower layers** (Incus `/1.0/metrics` with a metrics-only certificate, PostgreSQL statistics views, OVN cluster status, SAN paths) are collected directly by the operator's collector. Do not proxy them through Apelora. Incus metrics REAL INCUS TESTED 2026-10-23 (`scripts/test-cluster/metrics.sh`): `type=metrics` certificate, every member scraped, that certificate cannot list instances.
 - **Several API processes** expose the same queue and inventory gauges: aggregate them with `max`.
 
 ## Metrics (target practice)
