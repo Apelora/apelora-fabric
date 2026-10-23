@@ -3,9 +3,12 @@
 **Evidence:** the bundle part is tested locally (2026-10-21, macOS): `scripts/release/bundle.sh`
 built and signed a bundle with a throwaway key, and `scripts/release/verify.sh` accepted it,
 offline, and refused it after a file was changed, a file was added, the signature was removed,
-`SHA256SUMS` was edited, the signer was not allowed, or the archive held a link. The install,
-start and rollback steps are **NOT YET VERIFIED** on an installation: follow them with care and
-record the result here.
+`SHA256SUMS` was edited, the signer was not allowed, or the archive held a link.
+`scripts/ops/upgrade.sh` prints the staged order (worker stopped before the control plane) and,
+with `APPLY=1`, copies `bin/` and `web/` into a prefix while keeping the previous copies for
+`ROLLBACK=1`. That copy and the file rollback are tested by `scripts/ops/test-upgrade.sh`.
+Stopping the units, starting them, and restoring PostgreSQL are **NOT YET VERIFIED** on an
+installation: follow them with care and record the result here.
 
 Decision: [ADR 0010](../adr/0010-disconnected-installations.md). Checklist:
 [running without internet access](../architecture/DISCONNECTED.md).
@@ -53,9 +56,19 @@ by its generation, and resumes waiting on any Incus operation already started
 
 ## 4. Install
 
-- Replace the two binaries with the bundle's `bin/apelora-control-plane` and
-  `bin/apelora-deployment-worker` (same paths, owner and permissions as before).
-- Replace the static web files with `web/console/` and `web/studio/`.
+See the order first, without copying anything:
+
+```sh
+BUNDLE=/path/to/apelora-<version> PREFIX=/usr/local/share/apelora \
+  BACKUP=/srv/apelora-backups/apelora-db-<ts>.dump scripts/ops/upgrade.sh
+```
+
+`APPLY=1` with the same variables copies `bin/` and `web/` into `PREFIX` and keeps what was
+there under `PREFIX/previous`. It refuses to run without a non-empty `BACKUP`, and it never
+stops systemd. Then copy those files on to the paths the units actually run
+(`/usr/local/bin/apelora-control-plane`, `/usr/local/bin/apelora-deployment-worker`, and the
+web roots), with the same owner and permissions as before.
+
 - Keep the configuration (environment, certificates, `APELORA_IMAGE_MIRRORS`) as it is, unless the
   release notes say a setting changed. Never copy configuration from the bundle; it has none.
 
@@ -79,7 +92,8 @@ the worker.
 2. Restore the database from step 2:
    `pg_restore --clean --if-exists --dbname="$DATABASE_URL" apelora-before-<version>.dump`.
    Changes made after the backup (new deployments, audit entries) are lost; record what they were.
-3. Put back the previous bundle's binaries and web files.
+3. Put back the previous files: `APPLY=1 ROLLBACK=1 PREFIX=/usr/local/share/apelora scripts/ops/upgrade.sh`,
+   then copy them back onto the unit paths.
 4. Start the control plane, then the worker, and run the checks above.
 
 An older control plane refuses to start on a database migrated by a newer one, which is why the

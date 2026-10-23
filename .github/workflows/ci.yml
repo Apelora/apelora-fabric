@@ -159,6 +159,8 @@ jobs:
         run: |
           cargo run -q --locked -p apelora-control-plane -- token list >/dev/null
           bash scripts/ops/test-db-backup.sh
+      - name: Staged upgrade plan and file rollback (scripts/ops)
+        run: bash scripts/ops/test-upgrade.sh
 
   e2e-smoke:
     name: End-to-end smoke (Playwright, @smoke)
