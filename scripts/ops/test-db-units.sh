@@ -25,14 +25,21 @@ fi
 [[ $(id -u) == 0 ]] || { echo "error: run as root (sudo --preserve-env=DATABASE_URL)" >&2; exit 1; }
 [[ -n ${DATABASE_URL:-} ]] || { echo "error: set DATABASE_URL (a migrated Apelora database; it is only read)" >&2; exit 1; }
 
-if ! command -v pg_dump >/dev/null || ! pg_dump --version | grep -q ' 18\.'; then
+# /usr/bin/pg_dump is a wrapper that wants a cluster. The service's PATH has /usr/local/bin
+# first, so the real 18 binaries go there and the wrapper is never consulted.
+pg18=/usr/lib/postgresql/18/bin
+if [[ ! -x $pg18/pg_dump ]]; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -yq postgresql-common ca-certificates
   /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
   apt-get install -yq postgresql-client-18
 fi
-pg_dump --version | grep -q ' 18\.' || { echo "error: pg_dump 18 or newer is required" >&2; exit 1; }
+[[ -x $pg18/pg_dump && -x $pg18/pg_restore && -x $pg18/psql ]] || { echo "error: PostgreSQL 18 client tools are not in $pg18" >&2; exit 1; }
+for tool in pg_dump pg_restore psql; do
+  ln -sfn "$pg18/$tool" "/usr/local/bin/$tool"
+done
+"$pg18/pg_dump" --version
 command -v bash >/dev/null || { echo "error: bash is required" >&2; exit 1; }
 
 if ! getent passwd apelora >/dev/null; then
@@ -65,6 +72,11 @@ cleanup() {
   rm -f /etc/systemd/system/apelora-db-backup.service /etc/systemd/system/apelora-db-backup.timer \
     /etc/systemd/system/apelora-db-restore-drill.service /etc/systemd/system/apelora-db-restore-drill.timer \
     /etc/apelora/db-backup.env
+  local tool target
+  for tool in pg_dump pg_restore psql; do
+    target=$(readlink "/usr/local/bin/$tool" 2>/dev/null || true)
+    if [[ $target == "$pg18/$tool" ]]; then rm -f "/usr/local/bin/$tool"; fi
+  done
   systemctl daemon-reload >/dev/null 2>&1 || true
   if ((status != 0)); then
     echo "--- backup unit ---" >&2
