@@ -205,6 +205,16 @@ export function MembersTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: stri
         {(r) => (
           <div className="flex flex-col gap-6">
             <QuorumPanel q={r.quorum} />
+            {r.sites && (
+              <section className="flex flex-col gap-2 rounded-box border border-base-300 p-4" aria-labelledby="sites-title" data-testid="sites">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 id="sites-title" className="font-semibold">Sites</h3>
+                  <Badge tone={r.sites.planned ? "warn" : "neutral"} testId="sites-state">{r.sites.planned ? "Not started" : "One site"}</Badge>
+                </div>
+                <p className="text-sm" data-testid="sites-summary">{r.sites.survival}</p>
+                {r.sites.warning && <p className="text-sm text-base-content/70" data-testid="sites-warning">{r.sites.warning}</p>}
+              </section>
+            )}
             <FailedServers report={recovery} anyOffline={r.members.some((m) => m.status === "Offline")} canConfirm={actions.confirmFenced} onChanged={() => { reloadRecovery(); reload(); }} />
             <div className="flex flex-col gap-2">
               <SectionHeader title="Members" count={r.members.length} source={r.source} />

@@ -620,6 +620,7 @@ export type ClusterMembersReport = {
   quorum: ClusterQuorum;
   /** Stateless replicas that share a server. The supervisor moves one only when `APELORA_REBALANCE=1`; this list is the dry run. */
   rebalance?: RebalanceMove[];
+  sites: SiteReport;
   source: Source;
   upgrade?: null | UpgradeView;
   /** Version skew against the pinned Incus release, and whether an upgrade could start. */
@@ -3140,6 +3141,19 @@ export type SignInSettings = {
   directories: DirectoryView[];
   localAccounts: LocalAccountSetting;
   providers: ProviderView[];
+};
+
+/** The site this process is connected to, and whether a second site could hold another deployment (ADR 0008). One connected site is not a plan. */
+export type SiteReport = {
+  connectedSites: number;
+  members: number;
+  /** A sector in another site was named. The deployment is not started. */
+  planned: boolean;
+  region: string;
+  sector: string;
+  site: string;
+  survival: string;
+  warning?: string | null;
 };
 
 export type SnapshotItem = {

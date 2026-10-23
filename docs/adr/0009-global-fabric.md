@@ -1,6 +1,6 @@
 # ADR 0009 — A global fabric: regions, sites and sectors, with a control plane per region
 
-Status: **accepted; not built yet** · Date: 2026-10-21 · Extends: [ADR 0008 — sectors](0008-sectors.md) · Details: [global fabric](../architecture/GLOBAL-FABRIC.md), [capacity estimate](../design/capacity-global-fabric.md)
+Status: **accepted. The decision that names another site's sector is implemented and refuses while one site is connected. A plane per region, cross-site moves and cross-site networks are not built** · Date: 2026-10-21 · Extends: [ADR 0008 — sectors](0008-sectors.md) · Details: [global fabric](../architecture/GLOBAL-FABRIC.md), [capacity estimate](../design/capacity-global-fabric.md)
 
 ## Context
 

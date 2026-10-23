@@ -35,6 +35,23 @@ use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 /// How long one member's version may take before it is reported as unreadable.
 const VERSION_BUDGET: Duration = Duration::from_secs(5);
 
+/// The site this process is connected to, and whether a second site could hold another
+/// deployment (ADR 0008). One connected site is not a plan.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteReport {
+    pub region: String,
+    pub site: String,
+    pub sector: String,
+    pub members: u32,
+    pub connected_sites: u32,
+    /// A sector in another site was named. The deployment is not started.
+    pub planned: bool,
+    pub survival: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
 /// Members with their roles, the database majority and the Incus release each runs.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +63,7 @@ pub struct ClusterMembersReport {
     pub quorum: ClusterQuorum,
     /// Version skew against the pinned Incus release, and whether an upgrade could start.
     pub versions: ClusterVersions,
+    pub sites: SiteReport,
     /// Recent BMC power-offs, newest first. Empty when none have been recorded.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub power_offs: Vec<PowerOff>,
@@ -175,10 +193,37 @@ pub(super) async fn members(
         members: details,
         quorum,
         versions,
+        sites: site_report(info.clustered, members.len())?,
         power_offs,
         rebalance,
         upgrade,
     }))
+}
+
+/// The one Incus this process can reach, counted as one sector. A second site is not invented.
+fn site_report(clustered: bool, member_count: usize) -> Result<SiteReport, ApiError> {
+    let place =
+        apelora_metrics::Place::from_env(|key| std::env::var(key).ok()).map_err(|message| {
+            ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_place", message)
+        })?;
+    let count = if clustered { member_count } else { 1 };
+    let members = u32::try_from(count).unwrap_or(u32::MAX);
+    let home = apelora_domain::sites::Sector {
+        site: place.site.clone(),
+        name: place.sector.clone(),
+        members,
+    };
+    let plan = apelora_domain::sites::survival(&place.region, &home, std::slice::from_ref(&home));
+    Ok(SiteReport {
+        region: plan.region,
+        site: plan.site,
+        sector: plan.sector,
+        members: plan.members,
+        connected_sites: plan.connected_sites,
+        planned: plan.planned,
+        survival: plan.summary,
+        warning: plan.warning,
+    })
 }
 
 /// Power-off history, the rebalance dry run and the upgrade assistant. All empty when there

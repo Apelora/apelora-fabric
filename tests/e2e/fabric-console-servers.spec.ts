@@ -76,6 +76,8 @@ test("members: database roles, the majority, releases, capacity and groups", asy
   await expect(quorum).toContainText("Leadernode-1");
   // When all is well the figures carry it; the sentence appears when something is wrong.
   await expect(quorum.getByTestId("quorum-summary")).toHaveCount(0);
+  await expect(page.getByTestId("sites-state")).toHaveText("One site");
+  await expect(page.getByTestId("sites-summary")).toContainText("No other site is connected");
 
   const rows = page.getByTestId("server-member");
   await expect(rows).toHaveCount(4);
@@ -94,6 +96,18 @@ test("members: database roles, the majority, releases, capacity and groups", asy
   await expect(page.getByTestId("evacuate-member")).toHaveCount(4);
   await expect(page.locator(".btn-primary:visible")).toHaveCount(0);
   expect(await serious(page)).toEqual([]);
+});
+
+test("members: a second site is named and the deployment is not started", async ({ page }) => {
+  await stub(page, { ...base(), "/api/v1/cluster/members": { json: members({ sites: {
+    region: "north", site: "west", sector: "a", members: 4, connectedSites: 2, planned: true,
+    survival: "A second deployment of the application would be recorded in site east, sector b (2 members). This control plane does not start that deployment.",
+    warning: "Sector east/b has 50 members. Enrolment warns at 50.",
+  } }) } });
+  await page.goto("/#/servers/members");
+  await expect(page.getByTestId("sites-state")).toHaveText("Not started");
+  await expect(page.getByTestId("sites-summary")).toContainText("does not start that deployment");
+  await expect(page.getByTestId("sites-warning")).toContainText("Enrolment warns at 50");
 });
 
 test("members: one voter down puts the majority at risk, with the server's reason and next step", async ({ page }) => {

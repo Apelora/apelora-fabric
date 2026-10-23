@@ -24,6 +24,7 @@ pub mod readiness;
 pub mod rebalance;
 pub mod recovery;
 pub mod removal;
+pub mod sites;
 pub mod storage;
 pub mod tenancy;
 pub mod upgrade;

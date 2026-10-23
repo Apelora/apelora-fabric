@@ -14870,7 +14870,8 @@
           "clustered",
           "members",
           "quorum",
-          "versions"
+          "versions",
+          "sites"
         ],
         "properties": {
           "clustered": {
@@ -14899,6 +14900,9 @@
               "$ref": "#/components/schemas/RebalanceMove"
             },
             "description": "Stateless replicas that share a server. The supervisor moves one only when\n`APELORA_REBALANCE=1`; this list is the dry run."
+          },
+          "sites": {
+            "$ref": "#/components/schemas/SiteReport"
           },
           "source": {
             "$ref": "#/components/schemas/Source"
@@ -23549,6 +23553,53 @@
             "items": {
               "$ref": "#/components/schemas/ProviderView"
             }
+          }
+        }
+      },
+      "SiteReport": {
+        "type": "object",
+        "description": "The site this process is connected to, and whether a second site could hold another\ndeployment (ADR 0008). One connected site is not a plan.",
+        "required": [
+          "region",
+          "site",
+          "sector",
+          "members",
+          "connectedSites",
+          "planned",
+          "survival"
+        ],
+        "properties": {
+          "connectedSites": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "members": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "planned": {
+            "type": "boolean",
+            "description": "A sector in another site was named. The deployment is not started."
+          },
+          "region": {
+            "type": "string"
+          },
+          "sector": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "survival": {
+            "type": "string"
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

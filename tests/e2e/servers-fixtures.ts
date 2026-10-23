@@ -39,6 +39,10 @@ export const mixedBlocked: ClusterVersions = {
 
 export const members = (over: Partial<ClusterMembersReport> = {}): ClusterMembersReport => ({
   source, clustered: true,
+  sites: {
+    region: "default", site: "default", sector: "default", members: 4, connectedSites: 1, planned: false,
+    survival: "Connected to site default, sector default (4 members), in region default. Surviving a site means deploying the application again in another site's sector. No other site is connected, so that deployment is not planned.",
+  },
   members: [
     member("node-1", { roles: ["database-leader", "database"], leader: true }),
     member("node-2"),
