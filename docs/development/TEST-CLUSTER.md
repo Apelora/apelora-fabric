@@ -95,6 +95,8 @@ It installs the OVN database on the first member and the OVN controller on every
 
 With OVN in place, start the control plane with `APELORA_NETWORK_UPLINK=incusbr0` to enforce application connections. `bash scripts/test-cluster/ipv6.sh` (about a minute after a cold compile, needs port 8080 free) checks enforcement over IPv4 and over the IPv6 subnet Incus gives each application network, and an IPv6 service address from `fd42:198:100::/112` (`ovn.sh` sets `ipv6.routes`; the uplink bridge stays `ipv6.address=none`), then removes what it deployed. REAL INCUS TESTED 2026-10-22. `bash scripts/test-cluster/dns.sh` (same port, IPv4 service range) checks that consumers receive `APELORA_SERVICE_NAME_*` and that `network.sync` wrote `dns.domain` and `user.apelora.dns`; OVN DNS still answers instance names only. REAL INCUS TESTED 2026-10-23. `bash scripts/test-cluster/metrics.sh` (dry-run; `APPLY=1` to change the lab) trusts a metrics-only certificate and scrapes `/1.0/metrics` on every member. REAL INCUS TESTED 2026-10-23. Add `APELORA_VOLUME_POOL=local` to deploy modules with volumes, and `APELORA_BACKUP_POOL=backup` (control plane and worker) for backups after `bash scripts/test-cluster/backup-pool.sh` has created that pool.
 
+`bash scripts/test-cluster/install-units.sh` (dry-run; `APPLY=1` to change one member) installs the draft release's ARM64 binaries, the example systemd units and the NGINX example on `apelora-incus` under the `apelora` account. REAL INCUS TESTED 2026-10-23 from draft `v0.1.0-alpha.1`; issue #17 stays open until a published release on a production host. `APPLY=1 STOP=1` disables the units.
+
 Install replica anti-affinity (Incus's placement scriptlet, cluster-wide; `--remove` restores Incus's own placement) and check it:
 
 ```sh
