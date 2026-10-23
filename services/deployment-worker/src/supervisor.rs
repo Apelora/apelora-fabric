@@ -1692,6 +1692,53 @@ mod tests {
             "IPv6 listen takes only IPv6 backends: {:?}",
             lbs[0].backends
         );
+        let records = mock
+            .net()
+            .dns
+            .get(&format!("{PROJECT}/{}", network_name("shop")))
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            records.contains("web-01.shop.internal") && records.contains("fd42::1"),
+            "service names are published on the network: {records:?}"
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_publishes_service_names_on_the_application_network(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest, network_name};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("198.18.100.0/28".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+        };
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+        let records = mock
+            .net()
+            .dns
+            .get(&format!("{PROJECT}/{}", network_name("shop")))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(records, "web-01.shop.internal 198.18.100.1\n");
     }
 
     /// `shop`'s web service with a load balancer over both replicas (as `network.sync` makes it).
