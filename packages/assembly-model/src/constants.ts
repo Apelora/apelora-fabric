@@ -1,6 +1,7 @@
 export const PRODUCT_NAME = "Apelora";
 export const API_VERSION = "fabric.apelora/v1alpha1" as const;
 export const ASSEMBLY_KIND = "ApplicationAssembly" as const;
+export const CATALOG_KIND = "ModuleCatalog" as const;
 export const LAYOUT_VERSION = 1 as const;
 
 export const PORT_TYPES = [

@@ -3,6 +3,7 @@ import {
   API_VERSION,
   ARCHITECTURES,
   ASSEMBLY_KIND,
+  CATALOG_KIND,
   CATEGORIES,
   DENSITIES,
   LAYOUT_VERSION,
@@ -336,6 +337,13 @@ export const ModuleClassSchema = z.object({
   custom: z.boolean().optional(),
 });
 
+/** A file of custom module classes. The same version and kind rules as an application. */
+export const ModuleCatalogSchema = z.object({
+  apiVersion: z.literal(API_VERSION),
+  kind: z.literal(CATALOG_KIND),
+  classes: z.array(ModuleClassSchema).min(1).max(200),
+});
+
 export const ApplicationAssemblySchema = z.object({
   apiVersion: z.literal(API_VERSION),
   kind: z.literal(ASSEMBLY_KIND),
@@ -383,6 +391,7 @@ export type LinkTag = z.infer<typeof LinkTagSchema>;
 export type Shape = z.infer<typeof ShapeSchema>;
 export type ShapeKind = Shape["kind"];
 export type EditorNode = z.infer<typeof EditorNodeSchema>;
+export type ModuleCatalog = z.infer<typeof ModuleCatalogSchema>;
 export type ApplicationAssembly = z.infer<typeof ApplicationAssemblySchema>;
 export type Density = ApplicationAssembly["editor"]["density"];
 export type Category = ModuleClass["category"];

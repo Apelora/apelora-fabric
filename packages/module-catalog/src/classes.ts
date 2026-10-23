@@ -46,7 +46,7 @@ const BASE_CLASSES: readonly ModuleClass[] = [
     ]),
   cls("apache", "Apache httpd", "Web & Application", "Apache HTTP Server (httpd): modular web server and reverse proxy.", "apache",
     [p("http", "in", "input", "http", "HTTP requests"), p("db", "db", "output", "mysql", "MySQL-compatible connection", { optional: true, multiplicity: "one" }), p("upstream", "up", "output", "http", "Back-end servers it proxies to", { optional: true, multiplicity: "many" })], 1, 512, [
-      prop("server-name", "Server name", "string", { default: "localhost", group: "Server" }),
+      prop("server-name", "Server name", "string", { default: "localhost", group: "Server", supply: "deploy", description: "The name this server answers. Asked again when the application is deployed." }),
       prop("mpm", "Processing model", "enum", { options: ["event", "worker", "prefork"], default: "event", required: true, group: "Server", description: "event suits most sites; prefork is for modules that are not thread-safe." }),
       prop("document-root", "Document root", "string", { default: "/var/www/html", group: "Server" }),
       prop("keepalive", "Keep connections alive", "bool", { default: true, group: "Server" }),
@@ -73,7 +73,7 @@ const BASE_CLASSES: readonly ModuleClass[] = [
   cls("rabbitmq", "RabbitMQ", "Messaging & Streaming", "AMQP message broker.", "rabbitmq",
     [p("amqp", "amqp", "input", "amqp", "Producers and consumers", { multiplicity: "many" }), MON()], 1, 1024, [prop("vhost", "Virtual host", "string", { default: "/", group: "Broker" }), prop("user-secret", "User password secret reference", "secret", { default: "mq-password", required: true, group: "Access" })]),
   cls("linux-base", "Linux base", "Operating Systems", "Minimal Linux base image for custom modules.", "linux-base",
-    [], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System" }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
+    [], 1, 512, [prop("hostname", "Hostname", "string", { default: "node", required: true, group: "System", supply: "deploy", description: "Name of this machine. Asked again when the application is deployed." }), prop("packages", "Extra packages", "string", { group: "System", description: "Space-separated package names to install." })]),
   ...EXTRA_CLASSES,
 ];
 

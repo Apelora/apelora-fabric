@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
 import { MODULE_CLASSES, logoUrl } from "@apelora/module-catalog";
 import { categoryColor } from "../../features/editor/categories";
 import { draftFromClass, emptyDraft, useCustomCatalog } from "../../features/catalog/customCatalog";
 import { CATEGORIES, DENSITY_SIZE, type ModuleClass } from "@apelora/assembly-model";
 import { useStudioApi } from "../../features/editor/context";
+import { readCatalog } from "../../features/applications/transfer";
+import { catalogFile, saveText } from "../../features/export/file";
 import { canvasBridge, CATALOG_MIME } from "../../features/editor/bridge";
 import { IconPencil, IconPlus, IconSearch } from "../icons";
 
@@ -43,6 +45,7 @@ export function ModuleCatalog() {
   const { screenToFlowPosition } = useReactFlow();
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const catalogFileInput = useRef<HTMLInputElement>(null);
   const q = query.trim().toLowerCase();
 
   const custom = useCustomCatalog((s) => s.classes);
@@ -90,12 +93,27 @@ export function ModuleCatalog() {
               </button>
               {open && items.length === 0 && cat === "Custom" && (
                 <div className="apl-catalog-grid mb-1.5 rounded-box border border-dashed border-base-300 p-2 text-[11px] leading-snug text-base-content/60" data-testid="custom-empty">
-                  No custom modules yet. Create one with its own ports and settings, save a configured module as one, or group several modules (Ctrl+G).
+                  No custom modules yet. Create one, save a configured module as one, group several (Ctrl+G), or import a catalog file.
                 </div>
               )}
               {open && items.length > 0 && <div className="apl-catalog-grid grid grid-cols-2 gap-1.5 pb-1.5 pt-0.5">{items.map((c) => <Tile key={`${c.id}@${c.version}`} cls={c} onAdd={add} onEdit={(k, editing) => useCustomCatalog.getState().openDesigner(draftFromClass(k, editing))} />)}</div>}
               {open && cat === "Custom" && (
-                <button type="button" className="btn btn-xs btn-outline mb-1.5 w-full" data-testid="new-module" onClick={() => useCustomCatalog.getState().openDesigner(emptyDraft())}><IconPlus size={12} />Create module…</button>
+                <div className="mb-1.5 flex flex-col gap-1">
+                  <button type="button" className="btn btn-xs btn-outline w-full" data-testid="new-module" onClick={() => useCustomCatalog.getState().openDesigner(emptyDraft())}><IconPlus size={12} />Create module…</button>
+                  <div className="flex gap-1">
+                    <button type="button" className="btn btn-xs btn-ghost flex-1" data-testid="catalog-export" disabled={custom.length === 0} onClick={() => { const file = catalogFile(useCustomCatalog.getState().classes); saveText(file.name, file.text); }}>Export</button>
+                    <button type="button" className="btn btn-xs btn-ghost flex-1" data-testid="catalog-import" onClick={() => catalogFileInput.current?.click()}>Import</button>
+                  </div>
+                  <input ref={catalogFileInput} type="file" accept="application/json,.json" hidden data-testid="catalog-import-input" onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    void readCatalog(f).then((r) => {
+                      if (!r.ok) { api.getState().setImportErrors(r.errors); return; }
+                      api.getState().toast("success", r.added === 0 ? "Those modules are already in this catalog." : `Imported ${r.added} custom module${r.added === 1 ? "" : "s"}.`);
+                    });
+                  }} />
+                </div>
               )}
             </div>
           );

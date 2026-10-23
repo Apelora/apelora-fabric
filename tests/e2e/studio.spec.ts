@@ -1348,6 +1348,34 @@ test.describe("catalog", () => {
     await expect(page.getByTestId("cfg-edition")).toBeVisible();
   });
 
+  test("a custom module exports as a catalog file and imports back after it is deleted", async ({ page }) => {
+    await open(page);
+    const custom = page.locator("[data-testid=catalog-section][data-category=Custom]");
+    await expect(page.getByTestId("catalog-export")).toBeDisabled();
+    await custom.getByTestId("new-module").click();
+    await page.getByTestId("designer-name").fill("Shared cache");
+    await page.getByTestId("designer-save").click();
+    const tile = custom.locator("[data-testid=catalog-tile][data-class-id=custom-shared-cache]");
+    await expect(tile).toBeVisible();
+    const dl = page.waitForEvent("download");
+    await page.getByTestId("catalog-export").click();
+    const file = await dl;
+    expect(file.suggestedFilename()).toBe("custom-modules.catalog.json");
+    const text = readFileSync((await file.path())!, "utf8");
+    expect(JSON.parse(text).kind).toBe("ModuleCatalog");
+    await tile.hover();
+    await page.getByRole("button", { name: "Edit Shared cache" }).click();
+    await page.getByTestId("designer-delete").click();
+    await expect(tile).toHaveCount(0);
+    await page.getByTestId("catalog-import-input").setInputFiles({ name: "custom-modules.catalog.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await expect(tile).toBeVisible();
+    await page.getByTestId("catalog-import-input").setInputFiles({ name: "again.json", mimeType: "application/json", buffer: Buffer.from(text) });
+    await expect(page.getByText("already in this catalog")).toBeVisible();
+    await tile.hover();
+    await page.getByRole("button", { name: "Edit Shared cache" }).click();
+    await page.getByTestId("designer-delete").click();
+  });
+
   test("tiles show every built-in module, grouped, with collapse all / expand all", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.length);

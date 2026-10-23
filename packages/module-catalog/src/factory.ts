@@ -4,7 +4,7 @@ export const p = (id: string, name: string, direction: Port["direction"], type: 
   id, name, direction, type, description, optional: opts.optional ?? false, multiplicity: opts.multiplicity ?? "many",
 });
 
-export const prop = (id: string, label: string, type: Property["type"], o: Partial<Omit<Property, "id" | "label" | "type">> = {}): Property => ({ id, label, type, required: false, ...o });
+export const prop = (id: string, label: string, type: Property["type"], o: Partial<Omit<Property, "id" | "label" | "type">> = {}): Property => ({ id, label, type, required: false, ...(type === "secret" ? { supply: "deploy" as const } : {}), ...o });
 
 /** Every module has a network interface: plug it into a network or a network module; unplugged it joins the default network. */
 export const NIC: Port = { id: "net", name: "net", direction: "input", type: "network", optional: true, multiplicity: "one", description: "Network interface (NIC). Plug into a network or a network module; unplugged, it joins the default network." };
