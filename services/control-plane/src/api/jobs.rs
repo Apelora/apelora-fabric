@@ -294,9 +294,9 @@ pub(super) async fn with_actions(
 ) -> Result<Vec<Job>, ApiError> {
     let pool = store(state)?;
     let mut contexts = HashMap::new();
-    // Pages are already clamped at the store and at GET /api/v1/jobs (`JOB_LIST_LIMIT`). Cap
-    // the allocation there too so a caller-supplied length cannot size the buffer.
-    let mut out = Vec::with_capacity(rows.len().min(JOB_LIST_LIMIT as usize));
+    // Size from the page limit, not `rows.len()`: CodeQL still treats `.min(limit)` as
+    // caller-controlled (`rust/uncontrolled-allocation-size`).
+    let mut out = Vec::with_capacity(JOB_LIST_LIMIT as usize);
     for row in rows {
         let auth = authority(state, pool, &row, &mut contexts).await?;
         let permitted = allow(p, auth.permission, &auth.resource)
