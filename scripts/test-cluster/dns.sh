@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Service names on the disposable test cluster (ADR 0004): deploys a client connected to a
-# stateless web module, then checks that the consumer received APELORA_SERVICE_NAME_* and
-# that network.sync wrote dns.domain and user.apelora.dns on the application network.
-# OVN's own DNS still answers instance names only; the service name is not expected to
-# resolve inside the application. Every check prints PASS or FAIL; the first FAIL stops
+# stateless web module and an optional resolver, then checks that the consumer received
+# APELORA_SERVICE_NAME_* , that network.sync wrote dns.domain and user.apelora.dns, and
+# that the client resolves the service name through the resolver. OVN's own DNS still
+# answers instance names only. Every check prints PASS or FAIL; the first FAIL stops
 # the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,ovn}.sh done, the dev PostgreSQL (infra/dev/compose.yaml), jq,
@@ -17,7 +17,8 @@ repo=$(cd "$here/../.." && pwd)
 run=$(mktemp -d -t apelora-dns)
 log="$run/dns.log"
 APP=dnscheck
-API=http://127.0.0.1:8080/api/v1
+addr=${APELORA_API_ADDR:-127.0.0.1:8080}
+API=http://$addr/api/v1
 export DATABASE_URL=${DATABASE_URL:-postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora}
 # shellcheck disable=SC1091
 source "$HOME/.config/apelora/test-cluster/env"
@@ -78,8 +79,16 @@ SQL
 trap cleanup EXIT
 
 say "Service names — run directory $run"
-if curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; then fail "something already listens on 127.0.0.1:8080"; fi
-(cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker)
+if curl -s -m 2 -o /dev/null "http://$addr/"; then fail "something already listens on $addr"; fi
+target=aarch64-unknown-linux-musl
+if ! rustup target list --installed | grep -qx "$target"; then rustup target add "$target"; fi
+host=$(rustc -vV | awk '/^host:/{print $2}')
+linker=$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld
+[ -x "$linker" ] || linker=$(rustc --print sysroot)/lib/rustlib/$host/bin/gcc-ld/ld.lld
+(cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker && \
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$linker" cargo build -q --release -p apelora-dns-resolver --target "$target")
+export APELORA_DNS_BINARY="$repo/target/$target/release/apelora-dns"
+[ -x "$APELORA_DNS_BINARY" ] || fail "no Linux resolver at $APELORA_DNS_BINARY"
 umask 077
 out=$("$repo/target/debug/apelora-control-plane" token create --name dnscheck --role fabric-admin 2>&1)
 echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
@@ -95,6 +104,7 @@ debian='{project: "", name: "", kind: "container", start: true, source: {protoco
 body=$(jq -n --arg nginx "$nginx" "{
   project: \"apelora\", document: {apiVersion: \"fabric.apelora/v1alpha1\", kind: \"ApplicationAssembly\"},
   modules: [
+    {module: \"dns-01\", dnsResolver: true, spec: $debian},
     {module: \"client-01\", spec: $debian},
     {module: \"web-01\", availability: \"stateless\", spec: {project: \"\", name: \"\", kind: \"container\", start: true,
       source: {protocol: \"oci\", server: \"https://docker.io\", alias: \$nginx}}}],
@@ -120,7 +130,20 @@ r=$(reach "$APP-client-01" "$svc")
 [ "$r" = OPEN ] && pass "client-01 reaches the service address on port 80" || fail "client-01 → $svc:80 is $r"
 
 hosts=$(lookup "$APP-web-01")
-echo "$hosts" | grep -q . && pass "OVN DNS answers the instance name: $hosts" || fail "OVN DNS does not answer $APP-web-01"
+echo "$hosts" | grep -q . && pass "the instance name resolves: $hosts" || fail "the instance name does not resolve"
+# The client booted before dns.nameservers pointed at the resolver, so it keeps the
+# resolvers it was given until it starts again (the same rule as the discovery environment).
+incus_ restart "$APP-client-01" --project apelora >/dev/null
+for _ in $(seq 1 30); do
+  st=$(incus_ list "$APP-client-01" --project apelora -c s --format csv | tr -d '[:space:]')
+  [ "$st" = RUNNING ] && break
+  sleep 2
+done
+[ "$st" = RUNNING ] || fail "client did not come back ($st)"
+ns=$(incus_ network get "$APP" dns.nameservers --project apelora)
+echo "$ns" | grep -q . && pass "dns.nameservers is $ns" || fail "dns.nameservers is empty"
 svc_hosts=$(lookup "web-01.$APP.internal")
-[ -z "$svc_hosts" ] && pass "OVN DNS does not answer the service name (records are for a resolver)" || fail "OVN DNS unexpectedly answered web-01.$APP.internal: $svc_hosts"
-say "done: service names are published; OVN still answers instance names only"
+echo "$svc_hosts" | grep -q "$svc" && pass "client resolves the service name: $svc_hosts" || fail "web-01.$APP.internal resolved to ${svc_hosts:-nothing}, wanted $svc"
+again=$(lookup "$APP-web-01")
+echo "$again" | grep -q . && pass "the instance name still resolves: $again" || fail "the instance name stopped resolving"
+say "done: the resolver answers the service name; instance names still resolve"

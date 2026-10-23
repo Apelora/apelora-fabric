@@ -873,6 +873,7 @@ mod tests {
             internet: Default::default(),
             guest_os: Default::default(),
             readiness: None,
+            dns_resolver: false,
         }
     }
 
@@ -1526,6 +1527,7 @@ mod tests {
             service_range: None,
             published: Vec::new(),
             internet: Default::default(),
+            resolvers: Vec::new(),
         };
         let sync = async |s: &SyncRequest| {
             let before = mock.net().acl_writes;
@@ -1579,6 +1581,7 @@ mod tests {
             service_range: None,
             published: Vec::new(),
             internet: Default::default(),
+            resolvers: Vec::new(),
         };
         let set = |m: &MockIncus| m.net().address_sets[&format!("{PROJECT}/shop-web-01")].clone();
         // IPv4 is there and goes into the set at once, but the sync is not done.
@@ -1624,6 +1627,7 @@ mod tests {
             service_range: None,
             published: Vec::new(),
             internet: Default::default(),
+            resolvers: Vec::new(),
         };
         match crate::network::sync(&pool, &provider, &s).await {
             Outcome::Failed(m) => assert!(m.contains(&r1), "{m}"),
@@ -1672,6 +1676,7 @@ mod tests {
             service_range: Some("fd42::/124".into()),
             published: Vec::new(),
             internet: Default::default(),
+            resolvers: Vec::new(),
         };
         assert_eq!(
             crate::network::sync(&pool, &provider, &s).await,
@@ -1727,6 +1732,7 @@ mod tests {
             service_range: Some("198.18.100.0/28".into()),
             published: Vec::new(),
             internet: Default::default(),
+            resolvers: Vec::new(),
         };
         assert_eq!(
             crate::network::sync(&pool, &provider, &s).await,

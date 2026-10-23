@@ -11,6 +11,7 @@ members = [
   "crates/telemetry",
   "services/control-plane",
   "services/deployment-worker",
+  "services/dns-resolver",
 ]
 
 [workspace.package]

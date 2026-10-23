@@ -109,6 +109,9 @@ tar -xzf /tmp/cp.tgz -C /tmp
 tar -xzf /tmp/worker.tgz -C /tmp
 install -m 0755 /tmp/apelora-control-plane-$TAG-linux-$ARCH/apelora-control-plane /usr/local/bin/apelora-control-plane
 install -m 0755 /tmp/apelora-deployment-worker-$TAG-linux-$ARCH/apelora-deployment-worker /usr/local/bin/apelora-deployment-worker
+if [ -f /tmp/apelora-deployment-worker-$TAG-linux-$ARCH/apelora-dns ]; then
+  install -m 0755 /tmp/apelora-deployment-worker-$TAG-linux-$ARCH/apelora-dns /usr/local/bin/apelora-dns
+fi
 rm -rf /tmp/apelora-control-plane-$TAG-linux-$ARCH /tmp/apelora-deployment-worker-$TAG-linux-$ARCH /tmp/cp.tgz /tmp/worker.tgz
 tar -xzf /tmp/studio.tgz -C /srv/apelora/studio
 tar -xzf /tmp/console.tgz -C /srv/apelora/console

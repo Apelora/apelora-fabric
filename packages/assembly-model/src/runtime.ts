@@ -150,6 +150,8 @@ export interface DeployableModule {
   volumes: Volume[];
   /** Keeps running when it is moved (also in `spec.config`). */
   liveMigration: boolean;
+  /** Answers service names inside the application (ADR 0004). Only the resolver class. */
+  dnsResolver: boolean;
 }
 
 /** A module that stays in the design only, and why. */
@@ -176,7 +178,7 @@ export function deploymentModules(
     if (!cls) { skip(`unknown module class ${a.classRef.name} ${a.classRef.version}`); continue; }
     if (cls.composition) { skip("components are deployed as their parts in a later version"); continue; }
     const r = instanceRequestFor(cls, a, { project, name: a.id });
-    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), ...(readinessOf(cls, a) ? { readiness: readinessOf(cls, a) } : {}), resources: a.resources, volumes: volumesOf(cls, a), liveMigration: a.liveMigration ?? false });
+    if (r.ok) deployable.push({ module: a.id, name: a.name, spec: r.request, replicas: replicasOf(cls, a), availability: availabilityOf(cls), internet: a.internet ?? "none", guestOs: guestOsOf(cls), ...(readinessOf(cls, a) ? { readiness: readinessOf(cls, a) } : {}), resources: a.resources, volumes: volumesOf(cls, a), liveMigration: a.liveMigration ?? false, dnsResolver: cls.id === "resolver" });
     else skip(r.error);
   }
   return { deployable, designOnly };

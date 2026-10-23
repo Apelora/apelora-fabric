@@ -44,6 +44,11 @@ Facts from the test cluster (Incus 7.0.1, OVN 25.03):
   re-allocated, which Apelora does not do while the module remains in the design.
 - The variables carry addresses, not secrets; credentials are never put in the environment by
   this mechanism.
+- 2026-10-23: step 4 is the catalog class `resolver`. The worker installs `apelora-dns` in that
+  instance only, advertises it as the network's nameserver, and has it forward every name it
+  does not hold. Applications that do not include it are unchanged. REAL INCUS TESTED the same
+  day (`scripts/test-cluster/dns.sh`): a client resolved the service name to the service
+  address, and the instance name still resolved.
 
 ## Alternatives
 

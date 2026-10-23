@@ -23,6 +23,46 @@ use apelora_domain::storage::{VOLUME_KEY, VolumeMount};
 use apelora_domain::{JoinToken, PendingJoin};
 use base64::Engine as _;
 
+/// `path` and `project` for the instance file API. Slashes in the path are escaped.
+fn file_query(path: &str, project: &str) -> String {
+    fn enc(value: &str) -> String {
+        let mut out = String::new();
+        for b in value.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    out.push(b as char);
+                }
+                _ => out.push_str(&format!("%{b:02X}")),
+            }
+        }
+        out
+    }
+    format!("path={}&project={}", enc(path), enc(project))
+}
+
+/// The guest unit for the service-name resolver. It re-reads its records on every query.
+const DNS_UNIT: &str = "\
+[Unit]
+Description=Apelora service names
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/apelora-dns
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+";
+
+/// Debian's stub listener owns `127.0.0.53:53`. The kernel then refuses `0.0.0.0:53`,
+/// so the resolver cannot start until that listener is off. The container's own lookups
+/// still go through the stub address, which this process answers once it has the port.
+const RESOLVED_DROPIN: &str = "\
+[Resolve]
+DNSStubListener=no
+";
+
 /// Connection settings. Certificates are PEM bytes loaded by the caller from outside the
 /// repository; the server certificate is pinned (no public CA roots are trusted).
 #[derive(Clone)]
@@ -1229,6 +1269,8 @@ impl IncusClient {
         name: &str,
         application: &str,
         records: &str,
+        nameservers: Option<&str>,
+        upstream: Option<&str>,
     ) -> Result<(), AdapterError> {
         let current = self
             .get::<Value>(&format!("/1.0/networks/{name}?project={project}"))
@@ -1242,7 +1284,38 @@ impl IncusClient {
             "dns.domain".into(),
             Value::String(format!("{application}.internal")),
         );
+        // DHCP search list. `incus` stays so a short instance name still finds the record
+        // OVN registered under that domain; the application's domain is tried first.
+        config.insert(
+            "dns.search".into(),
+            Value::String(format!("{application}.internal,incus")),
+        );
         config.insert("user.apelora.dns".into(), Value::String(records.to_owned()));
+        // `None` leaves dns.nameservers alone (the resolver is not ready yet). An empty
+        // list removes one Apelora installed. A list makes the instances ask the resolver.
+        match nameservers {
+            None => {}
+            Some("") => {
+                if config.get("user.apelora.dns.via").and_then(Value::as_str) == Some("resolver") {
+                    config.remove("dns.nameservers");
+                    config.remove("user.apelora.dns.via");
+                    config.remove("user.apelora.dns.upstream");
+                }
+            }
+            Some(list) => {
+                config.insert("dns.nameservers".into(), Value::String(list.to_owned()));
+                config.insert(
+                    "user.apelora.dns.via".into(),
+                    Value::String("resolver".into()),
+                );
+                if let Some(up) = upstream {
+                    config.insert(
+                        "user.apelora.dns.upstream".into(),
+                        Value::String(up.to_owned()),
+                    );
+                }
+            }
+        }
         config.insert(MANAGED_KEY.into(), Value::String("true".into()));
         config.insert(
             APPLICATION_KEY.into(),
@@ -1956,6 +2029,181 @@ impl IncusClient {
         Ok(LogTail::from_bytes(&kept, size, max))
     }
 
+    async fn require_running(&self, project: &str, name: &str) -> Result<(), AdapterError> {
+        match self.instance(project, name).await? {
+            None => Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Some(s) if !s.managed => Err(AdapterError::Api {
+                status: 409,
+                message: "the instance is not managed by Apelora".into(),
+            }),
+            Some(s) if s.status != "Running" => Err(AdapterError::Api {
+                status: 409,
+                message: format!("the instance is {}", s.status.to_lowercase()),
+            }),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Reads a small file from a running instance Apelora owns.
+    pub(crate) async fn read_instance_file(
+        &self,
+        project: &str,
+        name: &str,
+        path: &str,
+    ) -> Result<String, AdapterError> {
+        self.require_running(project, name).await?;
+        let what = format!("GET file {path}");
+        let res = self
+            .http
+            .get(format!(
+                "{}/1.0/instances/{name}/files?{}",
+                self.base,
+                file_query(path, project)
+            ))
+            .send()
+            .await
+            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", chain(&e))))?;
+        let status = res.status().as_u16();
+        let bytes = res.bytes().await.map_err(|e| {
+            AdapterError::Connectivity(format!("{what}: HTTP {status}: {}", chain(&e)))
+        })?;
+        if status >= 400 {
+            return Err(AdapterError::Api {
+                status,
+                message: format!("{what}: HTTP {status}"),
+            });
+        }
+        if bytes.len() > 8192 {
+            return Err(AdapterError::Api {
+                status: 413,
+                message: format!("{what}: larger than 8192 bytes"),
+            });
+        }
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+
+    /// The `error` field of an Incus JSON body, or the body itself, shortened.
+    fn body_error(body: &str) -> String {
+        let text = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(|e| e.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| body.trim().to_owned());
+        let mut short: String = text.chars().take(240).collect();
+        if text.chars().count() > 240 {
+            short.push('…');
+        }
+        if short.is_empty() {
+            "no detail".into()
+        } else {
+            short
+        }
+    }
+
+    /// Writes a file into a running instance Apelora owns, replacing it when it exists.
+    async fn put_instance_file(
+        &self,
+        project: &str,
+        name: &str,
+        path: &str,
+        mode: u32,
+        bytes: &[u8],
+    ) -> Result<(), AdapterError> {
+        self.require_running(project, name).await?;
+        let what = format!("POST file {path}");
+        let res = self
+            .http
+            .post(format!(
+                "{}/1.0/instances/{name}/files?{}",
+                self.base,
+                file_query(path, project)
+            ))
+            .header("X-Incus-uid", "0")
+            .header("X-Incus-gid", "0")
+            .header("X-Incus-mode", format!("{mode:04o}"))
+            .header("X-Incus-type", "file")
+            .header("X-Incus-write", "overwrite")
+            .header("Content-Type", "application/octet-stream")
+            .body(bytes.to_vec())
+            .send()
+            .await
+            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", chain(&e))))?;
+        let status = res.status().as_u16();
+        if status >= 400 {
+            let body = res.text().await.unwrap_or_default();
+            let detail = Self::body_error(&body);
+            return Err(AdapterError::Api {
+                status,
+                message: format!("{what}: HTTP {status}: {detail}"),
+            });
+        }
+        Ok(())
+    }
+
+    /// Puts the resolver binary, its records and its forwarders in place, and the unit that
+    /// runs it. The caller starts the unit.
+    pub(crate) async fn install_dns_resolver(
+        &self,
+        project: &str,
+        name: &str,
+        records: &str,
+        upstream: &str,
+        binary: &[u8],
+    ) -> Result<(), AdapterError> {
+        if binary.len() < 4 || &binary[..4] != b"\x7fELF" {
+            return Err(AdapterError::InvalidConfig(
+                "apelora-dns is not a Linux executable".into(),
+            ));
+        }
+        // A running executable cannot be replaced in place ("text file busy"). The caller
+        // renames this onto `/usr/local/bin/apelora-dns` after the write.
+        self.put_instance_file(
+            project,
+            name,
+            "/usr/local/bin/apelora-dns.new",
+            0o755,
+            binary,
+        )
+        .await?;
+        self.put_instance_file(
+            project,
+            name,
+            "/etc/apelora-dns.records",
+            0o644,
+            records.as_bytes(),
+        )
+        .await?;
+        self.put_instance_file(
+            project,
+            name,
+            "/etc/apelora-dns.upstream",
+            0o644,
+            upstream.as_bytes(),
+        )
+        .await?;
+        self.put_instance_file(
+            project,
+            name,
+            "/etc/systemd/system/apelora-dns.service",
+            0o644,
+            DNS_UNIT.as_bytes(),
+        )
+        .await?;
+        // The directory is created by the caller before this write.
+        self.put_instance_file(
+            project,
+            name,
+            "/etc/systemd/resolved.conf.d/apelora.conf",
+            0o644,
+            RESOLVED_DROPIN.as_bytes(),
+        )
+        .await
+    }
+
     /// `POST /1.0/instances/<name>/exec` without a terminal, then waits for the operation and
     /// reads the command's exit status from its metadata. The instance must be Apelora's and
     /// running (checked first). A command still running at the time limit is cancelled.
@@ -1967,22 +2215,7 @@ impl IncusClient {
         uid: u32,
         timeout_secs: u8,
     ) -> Result<crate::ProbeRun, AdapterError> {
-        match self.instance(project, name).await? {
-            None => return Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
-            Some(s) if !s.managed => {
-                return Err(AdapterError::Api {
-                    status: 409,
-                    message: "the instance is not managed by Apelora".into(),
-                });
-            }
-            Some(s) if s.status != "Running" => {
-                return Err(AdapterError::Api {
-                    status: 409,
-                    message: format!("the instance is {}", s.status.to_lowercase()),
-                });
-            }
-            Some(_) => {}
-        }
+        self.require_running(project, name).await?;
         let body = json!({
             "command": command,
             "environment": { "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },

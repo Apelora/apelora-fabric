@@ -24,6 +24,8 @@ const a = (id: string, name: string, cat: ModuleClass["category"], summary: stri
 
 export const EXTRA_CLASSES: readonly ModuleClass[] = [
   // ---- Network & Security ----
+  a("resolver", "Resolver", "Network & Security", "Answers service names inside the application. It is not added unless the design includes it, and connected modules still receive each provider's address in the environment.", "generic-network",
+    [], [], 1, 128),
   a("pfsense", "pfSense", "Network & Security", "Open-source firewall and router.", "pfsense",
     [i("wan", "network", "Uplink", "o1")], [o("lan", "network", "Protected network", "")], 2, 1024,
     [prop("default-policy", "Default policy", "enum", { options: ["deny", "allow"], default: "deny", required: true, group: "Firewall" }), sec("admin-secret", "Admin password reference", "firewall-admin")]),

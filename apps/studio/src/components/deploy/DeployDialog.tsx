@@ -84,7 +84,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the dialog opens
   }, [open]);
 
-  const desired = () => split.deployable.map((d) => ({ module: d.module, spec: d.spec, replicas: d.replicas, availability: d.availability, internet: d.internet, guestOs: d.guestOs, readiness: d.readiness }));
+  const desired = () => split.deployable.map((d) => ({ module: d.module, spec: d.spec, replicas: d.replicas, availability: d.availability, internet: d.internet, guestOs: d.guestOs, readiness: d.readiness, ...(d.dnsResolver ? { dnsResolver: true } : {}) }));
   /** The design's connections between modules that are deployed (rules for the server). */
   const connections = () => {
     const deployed = new Set(split.deployable.map((d) => d.module));

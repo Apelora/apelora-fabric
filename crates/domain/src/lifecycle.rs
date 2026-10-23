@@ -428,6 +428,7 @@ mod tests {
             internet: Default::default(),
             guest_os: Default::default(),
             readiness: None,
+            dns_resolver: false,
         };
         assert_eq!(
             replicas_of(&[d("web-01", 3), d("api-01", 1)]),
@@ -661,6 +662,7 @@ mod tests {
             internet: Default::default(),
             guest_os: Default::default(),
             readiness: None,
+            dns_resolver: false,
         };
         let list = [
             d("web", Availability::Stateless),

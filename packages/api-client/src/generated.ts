@@ -857,6 +857,8 @@ export type DesignStatus = "draft" | "validated" | "published";
 /** One module of the design, turned into the instances it should run as. */
 export type DesiredModule = {
   availability?: Availability;
+  /** This module answers service names for the application (ADR 0004 step 4). Absent means it does not: a resolver is never added unless the design asks for one. */
+  dnsResolver?: boolean;
   /** The operating system inside (from the class): decides which sessions it offers. */
   guestOs?: GuestOs;
   /** What it may reach outside the application (enforced with the connections). */

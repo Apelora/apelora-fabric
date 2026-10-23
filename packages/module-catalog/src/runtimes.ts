@@ -26,6 +26,12 @@ export const RUNTIMES: Readonly<Record<string, Runtime>> = {
     kind: "incus-vm",
     image: { server: "https://images.linuxcontainers.org", alias: "debian/13" },
   },
+  // Optional (ADR 0004): not added to an application unless the design includes it.
+  // The worker installs apelora-dns and points the network's nameservers at this instance.
+  resolver: {
+    kind: "incus-system-container",
+    image: { server: "https://images.linuxcontainers.org", alias: "debian/13" },
+  },
   debian: {
     kind: "incus-system-container",
     imageBy: {

@@ -97,6 +97,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "apelora-dns-resolver"
+version = "0.0.0"
+dependencies = [
+ "apelora-domain",
+]
+
+[[package]]
 name = "apelora-domain"
 version = "0.0.0"
 dependencies = [
