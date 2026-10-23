@@ -1,22 +1,15 @@
 # Back up and restore Apelora's own database
 
-Decision: [ADR 0011](../adr/0011-one-design-every-size.md) decision 6 (backed up outside the cluster, restores drilled) and decision 7 (a small installation may run its plane on the cluster it manages, so the plane must be restorable onto any Linux host). Scripts: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, self-test `scripts/ops/test-db-backup.sh`.
+Decision: [ADR 0011](../adr/0011-one-design-every-size.md) decision 6 (backed up outside the cluster, restores drilled) and decision 7 (a small installation may run its plane on the cluster it manages, so the plane must be restorable onto any Linux host). Scripts: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, `scripts/ops/db-restore-new-host.sh`, `scripts/ops/wal-archive.sh`, `scripts/ops/wal-restore.sh`, `scripts/ops/db-basebackup.sh`. Self-tests: `scripts/ops/test-db-backup.sh`, `scripts/ops/test-db-archive.sh`, `scripts/ops/test-db-restore-host.sh`, `scripts/ops/test-db-units.sh`.
 
-**Evidence:**
+**Evidence (2026-10-23, PostgreSQL 18.6):**
 
-- **Tested against a real PostgreSQL 18.6** (the local dev database from `infra/dev/compose.yaml`), 2026-10-21:
-  - backup;
-  - restore drill into a scratch database;
-  - refusal of a damaged file;
-  - encryption with `openssl cms` and a drill that decrypts;
-  - retention.
+- Logical backup, scratch restore, retention, a damaged file refused, `openssl cms`, and `age` 1.3.2: the dev database on this workstation, client tools from `postgres:18-alpine`. The `age` drill decrypted, restored and verified. CI runs the same self-test, and requires `age` to be installed.
+- Continuous archiving, on a throwaway PostgreSQL 18.6 that was removed afterwards: `archive_command` stored a completed segment, `pg_stat_archiver.failed_count` stayed 0, a base backup used `--wal-method=none`, and recovery into a new data directory returned a row that was written only after that backup. The source server was stopped before the new data directory started.
+- Logical restore onto another PostgreSQL (a second server on `127.0.0.1:15442`, not the dev database's port): 29 migrations and 196 audit rows came back, and the dev database still had 196 audit rows. Restoring into the live server, or into a database that already has tables, was refused.
+- The example backup and drill units are started by `test-db-units.sh` where systemd is running. That script is part of CI (ubuntu-24.04). It was not run on this workstation, which has no systemd, and it does not wait for 02:15 or Sunday 04:00.
 
-  It ran on macOS (client tools from a container, `APELORA_PG_CLIENT_IMAGE`) and on Linux (native client tools in a Debian container). CI runs the self-test on every Rust change.
-- **NOT YET VERIFIED:**
-  - encryption with `age` (not installed where the tests ran);
-  - the systemd units below;
-  - continuous archiving;
-  - the full restore of the plane onto a new host.
+Not done: a production host, a second physical machine, and leaving the timers to fire on their own calendars. Issue #17 (the install-page control plane, worker and web server units, from a published release) is a different gap and stays open.
 
 ## 1. What to back up, and what is not in the dump
 
@@ -112,7 +105,7 @@ With no recipient, the dump is written unencrypted (mode `0600`), and encryption
 
 ## 5. Schedule (systemd example)
 
-Example units are in [`infra/systemd/`](../../infra/systemd/): `apelora-db-backup.service` with `apelora-db-backup.timer` (02:15 UTC, 15 minutes of jitter), and `apelora-db-restore-drill.service` with `apelora-db-restore-drill.timer` (Sunday 04:00 UTC). Copy them to `/etc/systemd/system/`. CI parses them; they have not been run on a production host.
+Example units are in [`infra/systemd/`](../../infra/systemd/): `apelora-db-backup.service` with `apelora-db-backup.timer` (02:15 UTC, 15 minutes of jitter), and `apelora-db-restore-drill.service` with `apelora-db-restore-drill.timer` (Sunday 04:00 UTC). Copy them to `/etc/systemd/system/`. CI parses every example unit, and `scripts/ops/test-db-units.sh` starts these two services and enables both timers on a systemd host. That has not been done on a production host, and the test does not wait for the calendar.
 
 Enable both timers:
 
@@ -131,13 +124,21 @@ Alert on symptoms, not only on unit failures:
 
 ## 6. Continuous archiving (recommended for production)
 
-A daily dump can lose up to a day of changes. Production installations should also use PostgreSQL's continuous archiving, which keeps every change. It depends on how you run PostgreSQL, so it is not scripted here.
+A daily dump can lose up to a day of changes. Production installations should also use PostgreSQL's continuous archiving, which keeps every change. The scripts are `wal-archive.sh` (the server's `archive_command`), `db-basebackup.sh` (a base backup that waits until the segment it needs is in the archive) and `wal-restore.sh` (the new server's `restore_command`). The server still has to be configured where PostgreSQL runs:
+
+```
+archive_mode = on
+archive_command = '/opt/apelora/ops/wal-archive.sh %p %f'
+archive_timeout = 60
+```
+
+`APELORA_WAL_DIR` is the off-cluster directory from §2, and it must be set in the server's environment. The role that runs `db-basebackup.sh` needs replication. A logical dump is still required: it restores across a major version, and the base backup does not.
 
 1. **Base backups and archived write-ahead log.** PostgreSQL writes every change to its write-ahead log (WAL).
    - With `archive_mode = on` and an `archive_command` (or `archive_library`), each completed WAL segment is copied to the off-cluster storage of §2.
    - `archive_timeout` (e.g. 60 s) bounds how long a quiet database waits before a segment is shipped, so it bounds the data at risk.
    - A **base backup** (`pg_basebackup`, weekly or daily) gives the starting point. The archive must hold every segment from the oldest base backup you keep onwards.
-2. **Point-in-time recovery.** Restore the base backup into an empty data directory, set `restore_command` to fetch segments from the archive, and optionally `recovery_target_time`. Then start the server: it replays WAL up to the target and opens.
+2. **Point-in-time recovery.** Restore the base backup into an empty data directory. Put an empty `recovery.signal` file there, and start the server with `restore_command = '/opt/apelora/ops/wal-restore.sh %f %p'` and `APELORA_WAL_DIR` in its environment. A missing file makes `wal-restore.sh` exit 1 and print nothing, which is how recovery knows it has reached the end. Optionally set `recovery_target_time`. The server replays the archived segments and then opens.
 3. **Monitor the archiver.**
    - `SELECT archived_count, failed_count, last_archived_time, last_failed_time FROM pg_stat_archiver;`
    - Alert when `last_archived_time` falls behind or `failed_count` grows.
@@ -149,7 +150,7 @@ A standby server (streaming replication) protects against losing the primary's h
 
 ## 7. The restore drill
 
-A backup that has never been restored does not count as one. The Console will show the age of the last **verified** restore (see *Open points*).
+A backup that has never been restored does not count as one. The Console shows the age of the last verified restore when `APELORA_DB_BACKUP_DIR` points at this directory.
 
 ```sh
 set -a; . /etc/apelora/db-backup.env; set +a
@@ -208,10 +209,12 @@ Steps:
    createuser --login apelora          # then set its password from the secret store
    createdb --owner apelora apelora
    ```
-5. **Restore** (decrypt first if needed: `age --decrypt -i KEY` or `openssl cms -decrypt -binary -inform DER -inkey KEY -recip CERT`):
+5. **Restore** with `db-restore-new-host.sh`. It refuses the live server (same host and port) and a database that already has tables, decrypts when you give the key, restores, runs the drill's checks, and keeps the database.
    ```sh
-   pg_restore --dbname=apelora --no-owner --role=apelora --exit-on-error --single-transaction apelora-db-<time>.dump
+   DATABASE_URL=postgres://…live… APELORA_RESTORE_DATABASE_URL=postgres://…new-host…/apelora \
+     APELORA_BACKUP_DIR=/srv/apelora-backups /opt/apelora/ops/db-restore-new-host.sh
    ```
+   Decrypt an encrypted backup with `--age-identity` or `--openssl-key` and `--openssl-cert`, as for the drill.
 6. **Check** it like the drill does:
    - `SELECT count(*), max(version) FROM _sqlx_migrations WHERE success` equals the manifest's `migrations`;
    - the audit trigger is present: `SELECT tgname FROM pg_trigger WHERE tgname = 'audit_events_no_change'`.
@@ -248,5 +251,5 @@ Changes in that window:
 
 ## Open points
 
-- The Fabric Console view of "age of the last verified restore" (wave 4). The drill already writes the data, in `restore-drill-last-verified.json`. The control plane cannot yet read it, because the backup directory is off-cluster by design. Options are a small endpoint the drill reports to, or a row in the database written by the drill.
-- The full restore of §8 and continuous archiving have not been exercised yet.
+- The timers have not fired from their own calendars, and none of this has been run on a production host. A second physical machine has not been used: the new-host proof was a second PostgreSQL on the same workstation.
+- Starting the control plane and the worker on that restored database, and reconciling what the backup missed (§9), has not been done as one drill. The restore stops once the database verifies.

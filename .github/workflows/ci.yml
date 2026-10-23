@@ -127,7 +127,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     # Persistence and worker tests run against a real PostgreSQL (fresh database per test).
     services:
       postgres:
@@ -156,9 +156,15 @@ jobs:
         # databases. The client tools run from the same image as the service.
         env:
           APELORA_PG_CLIENT_IMAGE: postgres:18-alpine
+          APELORA_REQUIRE_AGE: "1"
         run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq age
           cargo run -q --locked -p apelora-control-plane -- token list >/dev/null
           bash scripts/ops/test-db-backup.sh
+          bash scripts/ops/test-db-archive.sh
+          bash scripts/ops/test-db-restore-host.sh
+          sudo --preserve-env=DATABASE_URL env APELORA_REQUIRE_SYSTEMD=1 bash scripts/ops/test-db-units.sh
       - name: Staged upgrade plan and file rollback (scripts/ops)
         run: bash scripts/ops/test-upgrade.sh
 

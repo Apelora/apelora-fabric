@@ -177,6 +177,44 @@ json_str() {
 # Backup files: apelora-db-<UTC timestamp>.dump, optionally .age or .cms, beside .sha256 and .json.
 BACKUP_NAME_RE='^apelora-db-[0-9]{8}T[0-9]{6}Z\.dump(\.age|\.cms)?$'
 
+# Names PostgreSQL gives archive_command and restore_command: a segment, a timeline history, or a
+# backup history file. Nothing else, and never a path. Read by wal-archive.sh, wal-restore.sh and
+# db-basebackup.sh.
+# shellcheck disable=SC2034
+WAL_NAME_RE='^([0-9A-F]{24}|[0-9A-F]{8}\.history|[0-9A-F]{24}\.[0-9A-F]{8}\.backup)$'
+
+# Where this connection points, as host:port/database, for the "not the live database" check.
+pg_endpoint() { printf '%s:%s/%s' "${PGHOST:-local socket}" "${PGPORT:-5432}" "${PGDATABASE:-?}"; }
+
+# Runs db-verify.sql against a restored database. Appends to the caller's checks_json
+# (which must already be set). Returns 1 when a check failed or the queries did not run.
+run_restore_checks() {
+  local database=$1 manifest=$2 sql results status check detail
+  local -a failed=()
+  sql=$(dirname "${BASH_SOURCE[0]}")/db-verify.sql
+  [[ -f $sql ]] || die "missing $sql (it is installed next to the ops scripts)"
+  # The SQL is streamed on standard input. A client container cannot see the host path.
+  if ! results=$(pg_psql --dbname="$database" -v manifest="$manifest" -f - <"$sql"); then
+    note "the verification queries failed on $database"
+    return 1
+  fi
+  while IFS='|' read -r status check detail; do
+    [[ -n $status ]] || continue
+    note "  [$status] $check: $detail"
+    checks_json+=",{\"check\":$(json_str "$check"),\"status\":$(json_str "$status"),\"detail\":$(json_str "$detail")}"
+    [[ $status == fail ]] && failed+=("$check")
+  done <<<"$results"
+  if ((${#failed[@]} > 0)); then
+    note "verification failed: ${failed[*]}"
+    return 1
+  fi
+  grep -q '^ok|audit append-only|' <<<"$results" || {
+    note "the audit append-only probe did not run"
+    return 1
+  }
+  return 0
+}
+
 # Prints complete backups in a directory (data file, checksum and manifest all present), oldest first.
 list_backups() {
   local dir=$1 f base

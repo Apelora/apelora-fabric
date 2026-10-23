@@ -112,6 +112,26 @@ else
   echo "SKIP  openssl cms encryption (openssl not installed)"
 fi
 
+# Encryption with age: only public recipients on the backup side, the identity for the drill.
+if command -v age >/dev/null && command -v age-keygen >/dev/null; then
+  keys=$work/age
+  mkdir -p "$keys"
+  age-keygen -o "$keys/identity" >>"$log" 2>&1
+  age-keygen -y "$keys/identity" >"$keys/recipients"
+  aged=$work/aged
+  mkdir -p "$aged"
+  expect 1 "backup refuses an age identity given as the recipient" "${backup[@]}" --dir "$aged" --age-recipients "$keys/identity"
+  expect 0 "backup encrypts with age to a public recipient" "${backup[@]}" --dir "$aged" --age-recipients "$keys/recipients"
+  expect 1 "drill of an age backup without the identity fails clearly" "${drill[@]}" --dir "$aged"
+  expect 0 "drill decrypts, restores and verifies an age backup" "${drill[@]}" --dir "$aged" --age-identity "$keys/identity"
+else
+  if [[ ${APELORA_REQUIRE_AGE:-0} == 1 ]]; then
+    flunk "age encryption (age is not installed)"
+  else
+    echo "SKIP  age encryption (age not installed)"
+  fi
+fi
+
 # No password in anything printed or written; no scratch database left behind.
 password=$(pg_env_from_url "$DATABASE_URL"; printf '%s' "${PGPASSWORD:-}")
 if [[ -n $password ]] && grep -rqF -- "$password" "$log" "$dir" "$other"; then
