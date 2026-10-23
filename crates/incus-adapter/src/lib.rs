@@ -663,7 +663,7 @@ impl Provider {
     /// Publishes service names on an application network: `dns.domain` is
     /// `<application>.internal` and `user.apelora.dns` is one `name address` per line.
     /// The existing configuration is kept (a replace would drop the uplink and the addresses
-    /// Incus recorded). NOT REAL INCUS TESTED.
+    /// Incus recorded). REAL INCUS TESTED 2026-10-23 (`scripts/test-cluster/dns.sh`).
     pub async fn publish_service_dns(
         &self,
         project: &str,
