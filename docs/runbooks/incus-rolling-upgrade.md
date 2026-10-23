@@ -2,8 +2,10 @@
 
 **Evidence:** the readings (Servers → Members and Upgrades, `GET /api/v1/cluster/members`) are
 REAL INCUS TESTED read-only, 2026-10-21 (Incus 7.0.1, four members: three voters and a stand-by).
-The upgrade procedure itself is **NOT YET VERIFIED**: it is written from the Incus documentation
-for the pinned release and our design, and has not been run on the test cluster.
+The package upgrade was run on the empty four-member lab on 2026-10-23 (7.0.1 → 7.0.2).
+The first member blocked the other three until they were upgraded; all four then reported
+Online. Evacuation was not exercised: the cluster held no instances. Apelora's Upgrades
+tab was not the tool that installed the packages.
 
 Apelora does not install or upgrade Incus. It shows where the cluster stands, previews each
 evacuation and audits it; the package upgrade happens on each server.

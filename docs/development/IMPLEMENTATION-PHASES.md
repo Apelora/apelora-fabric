@@ -53,7 +53,7 @@ Slice 4 done: catalog runtime fields. `ModuleClass.runtime` (system container, O
 
 Slice 5: cluster membership ([ADR 0003](../adr/0003-incus-identities-and-cluster-join.md)). A separate, optional, unrestricted admin identity loaded only by the control plane; a fabric administrator approves a new member by asking for its single-use join token (`POST /api/v1/cluster/join-tokens`), which is shown once and never stored, logged or audited; pending tokens are listed without secrets and can be revoked; tokens living longer than an hour get a warning. Bootstrap of the first member stays on its host (`incus admin init`). REAL INCUS TESTED (2026-10-20): a second member was approved through `POST /api/v1/cluster/join-tokens` and joined with that token (piped to `scripts/test-cluster/add-member.sh`, never on a command line); the API then showed two online members and no pending token, preflight reported "2 online", and `join_tokens_need_the_admin_identity_and_can_be_revoked` (issue, list without secret, revoke; refused for the deploy identity) and the whole real suite passed on the two-member cluster. The join first failed because the VMs' NAT network isolates VMs from each other; members now talk over a separate network.
 
-Remaining: a run on 7.0.2 itself.
+The lab's four members run package 7.0.2 (2026-10-23). Functional evidence before that date was produced on 7.0.1.
 
 ## 05 — Fabric Console
 

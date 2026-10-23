@@ -110,7 +110,7 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 
 ## Known limitations
 
-- **Incus 7.0.2** is pinned but not yet tested: the package repository still ships 7.0.1, which all evidence was produced with.
+- **Incus 7.0.2** is what the lab runs. The LTS package `1:7.0.2-debian13-202610211947` was installed on all four members on 2026-10-23 (stand-by, then the other voters, database leader last). The first upgrade blocked the other three until they ran the same release; afterwards every member was Online on 7.0.2, with three database voters and one stand-by. The cluster was empty, so nothing was evacuated. Earlier evidence was produced on 7.0.1.
 - **OVN HA and TLS** (issue #13): `scripts/test-cluster/ovn-ha.sh` converts the lab's one database into three clustered northbound/southbound databases with TLS (`APPLY=1`, 2026-10-22, four members, OVN 25.03). REAL INCUS TESTED: raft had three members; stopping the leader's `ovn-ovsdb-server-nb/sb` elected another (term 3); 15 OVN ACLs on `apelora-default` were unchanged; Incus still listed 30 leftover module ACLs over `ssl:` remotes; a Debian container on that network pinged the OVN router (10.13.53.1) 5/5 with 0% loss during the outage. `ovn.sh` still starts the single-node plaintext shortcut.
 - **One architecture** (aarch64) on the test cluster: no mixed-architecture evidence.
 - **IPv6:** application-network rules and IPv6 service addresses (`fd42:198:100::/112` on `ipv6.routes`) REAL INCUS TESTED 2026-10-22 (`ipv6.sh`). The servers' own cluster addresses stay IPv4. Do not set `ipv6.address` on the lab's NAT `incusbr0` (it wedged `network create` until `incusd` was SIGKILL-started).
