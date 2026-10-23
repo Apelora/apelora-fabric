@@ -2,7 +2,7 @@
 
 Status: **target design** · Date: 2026-10-21 · Decisions: [ADR 0008 — sectors](../adr/0008-sectors.md), [ADR 0009 — global fabric](../adr/0009-global-fabric.md) · Numbers: [capacity estimate](../design/capacity-global-fabric.md) · Today's limits and connections: [connections and scale](CONNECTIONS-AND-SCALE.md) · Where the product is going: [cloud roadmap](CLOUD-ROADMAP.md)
 
-Apelora starts on three servers and is meant to grow into a cloud spread over cities, countries and continents. This page explains how the same building blocks scale to that, and what has to be added at each step. Nothing here is built yet beyond one sector; every section ends with what is built today.
+Apelora starts on three servers and is meant to grow into a cloud spread over cities, countries and continents. This page explains how the same building blocks scale to that, and what has to be added at each step. One control plane and one sector are what runs. The members report names that site and refuses to plan a second deployment until another site is connected; a second Incus cluster is not managed. Every section ends with what is built today.
 
 ![Regions, sites and sectors](../assets/diagrams/global-fabric.svg)
 
@@ -51,7 +51,7 @@ How it grows:
   Revoking a role takes effect in a region as soon as the copy reaches it (seconds). Identity-provider tokens are short-lived (at most an hour), which bounds the rest.
 - **One Console.** It asks the global plane for shared things and the region's plane for operations, with the same sign-in. Lists across regions come from the global roll-ups and say how fresh they are.
 
-*Built today:* one control plane, one sector.
+*Built today:* one control plane, one sector. Servers → Members names that site and sector and says a second deployment is not planned (MOCK VERIFIED). A second Incus cluster is not connected.
 
 ## 3. Networking
 

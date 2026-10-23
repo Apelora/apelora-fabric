@@ -1,6 +1,6 @@
 # ADR 0008 — Sectors: linking Incus clusters into one fabric
 
-Status: **accepted; not built yet; extended by [ADR 0009](0009-global-fabric.md) (regions, sites and a plane per region)** · Date: 2026-10-21 · Related: [ADR 0001](0001-incus-first.md), [connections and scale](../architecture/CONNECTIONS-AND-SCALE.md)
+Status: **accepted. The survival decision is implemented and refuses while one site is connected. A sectors table, a second Incus adapter, access scope and the links are not built. Extended by [ADR 0009](0009-global-fabric.md) (regions, sites and a plane per region)** · Date: 2026-10-21 · Related: [ADR 0001](0001-incus-first.md), [connections and scale](../architecture/CONNECTIONS-AND-SCALE.md)
 
 ## Context
 
@@ -36,7 +36,7 @@ These are *estimates*: the per-sector limit comes from Incus; above that the lim
 - Capacity grows by adding sectors: 20 sectors of 50 servers is 1,000 servers under one Console, each sector small enough to keep its blast radius to one rack.
 - Placement first chooses a sector (by the application's setting, capacity and labels), then Incus places instances inside it.
 - The Console groups servers, health and capacity by sector; the Studio asks for a sector only when there is more than one.
-- Work needed: a `sectors` table and API, an adapter per sector, `sector` on applications, the scope in the access model, sector-aware health and capacity views, and the per-process state fixes in [connections and scale §4](../architecture/CONNECTIONS-AND-SCALE.md#4-scaling-issues-found-and-the-fix-for-each) so the control plane itself can run as several processes.
+- Work needed: a `sectors` table and API, an adapter per sector, `sector` on applications, the scope in the access model, sector-aware health and capacity views, and the per-process state fixes in [connections and scale §4](../architecture/CONNECTIONS-AND-SCALE.md#4-scaling-issues-found-and-the-fix-for-each) so the control plane itself can run as several processes. The first decision is in: `apelora_domain::sites` names the sector a second deployment would use, and the members report refuses that plan while only one site is connected. It does not start the deployment.
 
 ## Alternatives considered
 

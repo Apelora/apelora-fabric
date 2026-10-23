@@ -40,6 +40,19 @@ async fn members_show_roles_quorum_and_versions() {
     let (status, r) = get(&state, "/api/v1/cluster/members").await;
     assert_eq!(status, StatusCode::OK, "{r}");
     assert_eq!(r["source"]["provider"], "mock");
+    assert_eq!(r["sites"]["planned"], false);
+    assert_eq!(r["sites"]["connectedSites"], 1);
+    assert_eq!(r["sites"]["members"], 3);
+    let place = apelora_metrics::Place::from_env(|key| std::env::var(key).ok()).expect("place");
+    assert_eq!(r["sites"]["region"], place.region);
+    assert_eq!(r["sites"]["site"], place.site);
+    assert_eq!(r["sites"]["sector"], place.sector);
+    assert!(
+        r["sites"]["survival"]
+            .as_str()
+            .is_some_and(|s| s.contains("No other site is connected")),
+        "{r}"
+    );
     assert_eq!(r["clustered"], true);
     assert_eq!(r["members"][0]["name"], "mock-member-01");
     assert_eq!(r["members"][0]["databaseRole"], "voter");
