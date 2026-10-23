@@ -13,6 +13,7 @@ on:
       - "crates/auth/**"
       - "crates/domain/src/access.rs"
       - "crates/domain/src/lifecycle.rs"
+      - "crates/telemetry/**"
       - ".cargo/mutants.toml"
       - ".github/workflows/mutation.yml"
 
@@ -42,6 +43,8 @@ jobs:
         run: cargo mutants -p apelora-auth --no-shuffle -j 2
       - name: Interactive access and lifecycle rules
         run: cargo mutants -p apelora-domain --no-shuffle -j 2 -f crates/domain/src/access.rs -f crates/domain/src/lifecycle.rs
+      - name: Logs and optional traces
+        run: cargo mutants -p apelora-telemetry --no-shuffle -j 2 -f crates/telemetry/src/lib.rs --timeout 60
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

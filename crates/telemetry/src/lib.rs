@@ -57,41 +57,64 @@ struct OtlpLayer {
     tx: tokio::sync::mpsc::Sender<String>,
 }
 
+/// Parsed `APELORA_OTLP_ENDPOINT`. Empty and `off` mean traces stay off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TracesEndpoint {
+    pub url: String,
+    /// True when the host is loopback. Non-loopback still exports, with a warning: the collector
+    /// belongs inside the installation.
+    pub loopback: bool,
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    host.parse::<std::net::IpAddr>()
+        .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Empty and the documented `off` value. Both also fail `Url::parse`; kept so those values stay
+/// explicit for operators. Equivalent for mutation testing.
+fn traces_disabled(raw: &str) -> bool {
+    let endpoint = raw.trim();
+    endpoint.is_empty() || endpoint == "off"
+}
+
+/// Parse the operator's OTLP base URL. Appends `/v1/traces` when the path does not already end
+/// with it. Only `http` and `https` are accepted.
+pub fn traces_endpoint(raw: &str) -> Option<TracesEndpoint> {
+    if traces_disabled(raw) {
+        return None;
+    }
+    let endpoint = raw.trim();
+    match reqwest::Url::parse(endpoint) {
+        Ok(mut u) if u.scheme() == "http" || u.scheme() == "https" => {
+            if !u.path().ends_with("/v1/traces") {
+                let path = u.path().trim_end_matches('/');
+                u.set_path(&format!("{path}/v1/traces"));
+            }
+            let host = u.host_str().unwrap_or("");
+            Some(TracesEndpoint {
+                url: u.to_string(),
+                loopback: is_loopback_host(host),
+            })
+        }
+        _ => None,
+    }
+}
+
 impl OtlpLayer {
     fn from_env(service: &'static str) -> Option<Self> {
         let raw = std::env::var("APELORA_OTLP_ENDPOINT").ok()?;
-        let endpoint = raw.trim();
-        if endpoint.is_empty() || endpoint == "off" {
-            return None;
+        let parsed = traces_endpoint(&raw)?;
+        if !parsed.loopback {
+            eprintln!(
+                "APELORA_OTLP_ENDPOINT is not loopback; keep the receiver inside this installation"
+            );
         }
-        let url = match reqwest::Url::parse(endpoint) {
-            Ok(mut u) if u.scheme() == "http" || u.scheme() == "https" => {
-                if !u.path().ends_with("/v1/traces") {
-                    let path = u.path().trim_end_matches('/');
-                    u.set_path(&format!("{path}/v1/traces"));
-                }
-                if let Some(host) = u.host_str()
-                    && host != "127.0.0.1"
-                    && host != "localhost"
-                    && host != "::1"
-                {
-                    eprintln!(
-                        "APELORA_OTLP_ENDPOINT is not loopback; keep the receiver inside this installation"
-                    );
-                }
-                u.to_string()
-            }
-            Ok(_) => {
-                eprintln!(
-                    "APELORA_OTLP_ENDPOINT must be an http or https URL; traces are not exported"
-                );
-                return None;
-            }
-            Err(_) => {
-                eprintln!("APELORA_OTLP_ENDPOINT is not a URL; traces are not exported");
-                return None;
-            }
-        };
+        let url = parsed.url;
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             eprintln!(
                 "APELORA_OTLP_ENDPOINT is set but there is no Tokio runtime; traces are not exported"
@@ -276,7 +299,7 @@ impl SpanFields for SpanData {
 }
 
 /// `record_debug` wraps strings in quotes; OTLP attributes should not keep them.
-fn unquote(s: String) -> String {
+pub fn unquote(s: String) -> String {
     s.strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
         .map(ToOwned::to_owned)
@@ -368,5 +391,105 @@ mod tests {
             ja["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"],
             jb["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"]
         );
+    }
+
+    #[test]
+    fn a_missing_request_id_uses_the_job_id_as_the_trace_seed() {
+        let start = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let end = start + Duration::from_millis(1);
+        let a = Stub {
+            name: "job",
+            start,
+            fields: HashMap::from([("job", "same-job".into())]),
+        };
+        let b = Stub {
+            name: "job",
+            start,
+            fields: HashMap::from([("request_id", "-".into()), ("job", "same-job".into())]),
+        };
+        let ja: serde_json::Value =
+            serde_json::from_str(&encode_span("worker", &a, end)).expect("json");
+        let jb: serde_json::Value =
+            serde_json::from_str(&encode_span("worker", &b, end)).expect("json");
+        assert_eq!(
+            ja["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"],
+            jb["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["traceId"]
+        );
+    }
+
+    #[test]
+    fn otlp_payload_uses_server_span_kind_and_nanosecond_times() {
+        let start = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let end = start + Duration::from_millis(12);
+        let a = Stub {
+            name: "request",
+            start,
+            fields: HashMap::from([
+                ("request_id", "req-2".into()),
+                ("method", "POST".into()),
+                ("path", "/api/v1/jobs".into()),
+            ]),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&encode_span("apelora-control-plane", &a, end)).expect("json");
+        let span = &v["resourceSpans"][0]["scopeSpans"][0]["spans"][0];
+        assert_eq!(span["kind"], 2);
+        assert_eq!(span["startTimeUnixNano"], "1700000000000000000");
+        assert_eq!(span["endTimeUnixNano"], "1700000000012000000");
+        assert_eq!(
+            v["resourceSpans"][0]["scopeSpans"][0]["scope"]["name"],
+            "apelora"
+        );
+        let attrs = span["attributes"].as_array().expect("attrs");
+        let keys: Vec<&str> = attrs
+            .iter()
+            .map(|a| a["key"].as_str().expect("key"))
+            .collect();
+        assert!(keys.contains(&"request_id"));
+        assert!(keys.contains(&"method"));
+        assert!(keys.contains(&"path"));
+        assert!(!keys.contains(&"job"));
+    }
+
+    #[test]
+    fn traces_endpoint_accepts_loopback_http_and_rejects_other_schemes() {
+        let local = traces_endpoint("http://127.0.0.1:4318").expect("loopback");
+        assert!(local.loopback);
+        assert!(local.url.ends_with("/v1/traces"));
+        assert!(!local.url.contains("/v1/traces/v1/traces"));
+        let already = traces_endpoint("http://127.0.0.1:4318/v1/traces").expect("path kept");
+        assert_eq!(already.url.matches("/v1/traces").count(), 1);
+        assert!(
+            traces_endpoint("https://localhost:4318")
+                .expect("localhost")
+                .loopback
+        );
+        assert!(traces_endpoint("http://[::1]:4318").expect("ipv6").loopback);
+        assert!(
+            traces_endpoint("http://127.0.0.2:4318")
+                .expect("loopback net")
+                .loopback
+        );
+        assert!(
+            traces_endpoint("http://LocalHost:4318")
+                .expect("case")
+                .loopback
+        );
+        let remote = traces_endpoint("http://10.0.0.1:4318").expect("still exported");
+        assert!(!remote.loopback);
+        assert!(remote.url.ends_with("/v1/traces"));
+        assert!(traces_endpoint("off").is_none());
+        assert!(traces_endpoint("").is_none());
+        assert!(traces_endpoint("   ").is_none());
+        assert!(traces_endpoint("ftp://127.0.0.1:4318").is_none());
+        assert!(traces_endpoint("not a url").is_none());
+    }
+
+    #[test]
+    fn debug_quoted_field_values_lose_the_wrapping_quotes() {
+        assert_eq!(unquote("\"req-1\"".into()), "req-1");
+        assert_eq!(unquote("req-1".into()), "req-1");
+        assert_eq!(unquote("\"still-open".into()), "\"still-open");
+        assert_eq!(unquote("123".into()), "123");
     }
 }
