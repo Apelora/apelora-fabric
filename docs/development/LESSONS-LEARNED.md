@@ -115,6 +115,9 @@ Read these first. Most entries below come from one of four causes:
 
 ## Lab, shell and tooling
 
+- **Incus installed on the first new guest and failed on the other three** (2026-10-24) → those guests were still running their first-boot package setup, which held `/var/lib/apt/lists/lock`. The installer called `apt-get` once and exited. → `scripts/test-cluster/install-incus.sh` waits for cloud-init, then retries apt while the lock is held.
+- **Copying a file to several new hosts at once did not record their host keys** (2026-10-24) → OpenSSH rewrites `known_hosts` through a temporary name, and the parallel copies collided (`known_hosts.old: File exists`). → Add new hosts one at a time, or give each copy its own `UserKnownHostsFile`.
+- **A storage helper said creating a volume timed out, and the volume was empty** (2026-10-24) → the helper returned after the volume existed and before the image was copied (a 3 GiB volume holding 56 KiB). Copying the image into that volume worked. → After that error, check how much of the volume is used. If it is empty, copy the image into it. Do not run the helper again; it tries to create the same volume.
 - **`npm run lint` failed with "multiple candidate TSConfigRootDirs"** (2026-10-21) → agent worktrees live under `.claude/worktrees/` inside the repository, and ESLint scanned their copies. → `.claude/**` is in the ESLint ignores; any new repo-wide tool must ignore it too.
 - **"`cargo run` gives development mode" was wrong inside the repository** (2026-10-21) → `.cargo/config.toml` sets `DATABASE_URL` for every cargo command. → Development mode is `DATABASE_URL= cargo run -p apelora-control-plane`; check tool-level config before documenting a default.
 
