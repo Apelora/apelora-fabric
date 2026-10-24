@@ -1,6 +1,6 @@
 # ADR 0014 — Fencing by switching a server off through its BMC
 
-Status: **accepted; built (fence provider slice)** · Date: 2026-10-21 · Amends [ADR 0013](0013-fencing-before-restart.md) · Design: [VM recovery on shared storage](../design/vm-recovery-on-shared-storage.md) §3 package 4 · Testing: [without hardware](../guides/testing-without-hardware.md)
+Status: **accepted; built (fence provider slice)** · Date: 2026-10-21 · Amends [ADR 0013](0013-fencing-before-restart.md) · Design: [Restarting a virtual machine after its server stops](../design/vm-recovery-on-shared-storage.md) · Testing: [without hardware](../guides/testing-without-hardware.md)
 
 ## Context
 
