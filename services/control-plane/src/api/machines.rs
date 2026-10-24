@@ -289,7 +289,7 @@ pub(super) async fn approve(
         StatusCode::CREATED,
         Json(MachineApproved {
             enrol_command: format!(
-                "sudo bash {ENROL_SCRIPT} --name {name} --address <this server's cluster address>"
+                "sudo bash {ENROL_SCRIPT} --name {name} --address <this server's cluster address> --pool-size <size of the local loop pool, such as 20GiB>"
             ),
             name,
             expires_at: t.expires_at,

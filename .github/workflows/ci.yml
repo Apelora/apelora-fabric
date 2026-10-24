@@ -161,9 +161,11 @@ jobs:
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq age
           cargo run -q --locked -p apelora-control-plane -- token list >/dev/null
+          bash scripts/enrol/test-enrol-member.sh
           bash scripts/ops/test-db-backup.sh
           bash scripts/ops/test-db-archive.sh
           bash scripts/ops/test-db-restore-host.sh
+          bash scripts/ops/test-db-plane.sh
           sudo --preserve-env=DATABASE_URL env APELORA_REQUIRE_SYSTEMD=1 bash scripts/ops/test-db-units.sh
       - name: Staged upgrade plan and file rollback (scripts/ops)
         run: bash scripts/ops/test-upgrade.sh

@@ -252,4 +252,4 @@ Changes in that window:
 ## Open points
 
 - The timers have not fired from their own calendars, and none of this has been run on a production host. A second physical machine has not been used: the new-host proof was a second PostgreSQL on the same workstation.
-- Starting the control plane and the worker on that restored database, and reconciling what the backup missed (§9), has not been done as one drill. The restore stops once the database verifies.
+- On 2026-10-24 `scripts/ops/test-db-plane.sh` did the next step on this workstation, still on throwaway PostgreSQL 18 servers (ports 15444 and 15445, not the development database, provider mock, no Incus). The restored database held the pending `instance.stop` from the backup and not a second job inserted afterwards. The control plane answered `GET /api/v1/health`. The worker claimed that job: one attempt, status `failed`, error `instance apelora/from-backup does not exist`, because that instance was never created. Comparing Incus with the restored records (§9) on a live cluster has not been done. Issue #17 stays open.

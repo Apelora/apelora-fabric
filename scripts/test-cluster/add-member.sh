@@ -25,7 +25,6 @@ IFS= read -r token || true
 [[ $token =~ ^[A-Za-z0-9+/=]{20,}$ ]] || { echo "expected a join token on standard input" >&2; exit 1; }
 
 vm() { limactl shell --workdir / "$VM" "$@"; }
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 
 state=$(limactl list --format '{{.Status}}' "$VM" 2>/dev/null || true)
 case "$state" in
@@ -42,9 +41,8 @@ fi
 addr=$(vm ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1 | head -1)
 [ -n "$addr" ] || { echo "the VM has no address on eth0" >&2; exit 1; }
 
-# The lab's storage pool is a loop file: give the new member its size.
-printf -- '- entity: storage-pool\n  name: local\n  key: size\n  value: 20GiB\n' >"$tmp/member-config.yaml"
-args=(--name "$MEMBER" --address "$addr" --member-config /tmp/apelora-member-config.yaml)
+# The lab's storage pool is a sized loop file. --pool-size answers size and an empty source.
+args=(--name "$MEMBER" --address "$addr" --pool-size 20GiB)
 # When the cluster uses OVN (ovn.sh), the new member needs its OVN controller.
 first=${APELORA_TEST_VM:-apelora-incus}
 if [ -n "$(limactl shell --workdir / "$first" sudo incus config get network.ovn.northbound_connection </dev/null)" ]; then
@@ -58,8 +56,7 @@ if [ -n "$(limactl shell --workdir / "$first" sudo incus config get network.ovn.
   args+=(--ovn-remote "$ovn_remote" --ovn-encap-ip "$addr")
 fi
 limactl copy "$here/../enrol/enrol-member.sh" "$VM:/tmp/apelora-enrol-member.sh"
-limactl copy "$tmp/member-config.yaml" "$VM:/tmp/apelora-member-config.yaml"
 printf '%s\n' "$token" | vm sudo bash /tmp/apelora-enrol-member.sh "${args[@]}"
 unset token
-vm rm -f /tmp/apelora-enrol-member.sh /tmp/apelora-member-config.yaml
+vm rm -f /tmp/apelora-enrol-member.sh
 vm sudo incus cluster list -c nusr </dev/null

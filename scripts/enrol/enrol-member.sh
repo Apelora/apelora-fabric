@@ -5,40 +5,74 @@
 # the join token from Apelora's "Approve" on standard input (or pasted at the prompt, which does
 # not echo it). The token never appears on a command line, in a file or in the output.
 #
-#   sudo bash enrol-member.sh --name m4 --address 10.0.0.14 [--member-config pool.yaml] \
+#   sudo bash enrol-member.sh --name m4 --address 10.0.0.14 \
+#        [--pool-size 20GiB | --member-config pool.yaml] \
 #        [--ovn-remote tcp:10.0.0.11:6642 --ovn-encap-ip 10.0.0.14]
 #
 # Steps: checks this server; configures its OVN controller (when asked); joins the Incus cluster
 # with the token; then holds the new member out of automatic placement
 # (scheduler.instance=manual) until an administrator admits it in Apelora.
 #
-# --member-config FILE: per-member settings for the join, as YAML list items, e.g.
+# --pool-size SIZE: the cluster's "local" pool is a sized loop (btrfs). The join has to answer
+# both questions Incus asks: the size, and an empty source so Incus creates the loop file.
+# A real disk uses --member-config instead (YAML list items), for example:
 #   - entity: storage-pool
 #     name: local
 #     key: source
 #     value: /dev/nvme1n1
 set -euo pipefail
 
-usage() { sed -n '5,9p' "$0" | sed 's/^# //' >&2; exit 2; }
+usage() {
+  echo "usage: enrol-member.sh --name NAME --address IP [--pool-size 20GiB | --member-config FILE] [--ovn-remote tcp:HOST:6642 --ovn-encap-ip IP]" >&2
+  echo "The join token is read from standard input and is never a command argument." >&2
+  exit 2
+}
 die() { echo "enrol: $*" >&2; exit 1; }
 
-name="" address="" member_config="" ovn_remote="" encap_ip=""
+# YAML for a sized loop pool named local. An empty source is the answer that creates the file.
+write_pool_config() {
+  printf '%s\n' \
+    "- entity: storage-pool" \
+    "  name: local" \
+    "  key: size" \
+    "  value: \"$pool_size\"" \
+    "- entity: storage-pool" \
+    "  name: local" \
+    "  key: source" \
+    "  value: \"\""
+}
+
+name="" address="" member_config="" pool_size="" ovn_remote="" encap_ip="" print_config=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) name=${2:-}; shift 2 ;;
     --address) address=${2:-}; shift 2 ;;
     --member-config) member_config=${2:-}; shift 2 ;;
+    --pool-size) pool_size=${2:-}; shift 2 ;;
     --ovn-remote) ovn_remote=${2:-}; shift 2 ;;
     --ovn-encap-ip) encap_ip=${2:-}; shift 2 ;;
+    --print-member-config) print_config=1; shift ;;
     *) usage ;;
   esac
 done
 [ -n "$name" ] && [ -n "$address" ] || usage
 [[ $name =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "invalid member name: $name"
 [[ $address =~ ^[0-9A-Fa-f.:]+$ ]] || die "the address must be this server's IP address"
-[ "$(id -u)" -eq 0 ] || die "run as root"
+[ -z "$pool_size" ] || [ -z "$member_config" ] || die "pass --pool-size or --member-config, not both"
+[ -z "$pool_size" ] || [[ $pool_size =~ ^[1-9][0-9]{0,5}(KiB|MiB|GiB|TiB)$ ]] || die "pool size must look like 20GiB"
 [ -z "$member_config" ] || [ -r "$member_config" ] || die "cannot read $member_config"
 [ -z "$ovn_remote" ] || [ -n "$encap_ip" ] || die "--ovn-remote needs --ovn-encap-ip"
+if [ "$print_config" -eq 1 ]; then
+  if [ -n "$pool_size" ]; then write_pool_config; exit 0; fi
+  if [ -n "$member_config" ]; then cat "$member_config"; exit 0; fi
+  die "--print-member-config needs --pool-size or --member-config"
+fi
+[ "$(id -u)" -eq 0 ] || die "run as root"
+if [ -n "$pool_size" ]; then
+  member_config=$(mktemp)
+  trap 'rm -f "$member_config"' EXIT
+  write_pool_config >"$member_config"
+fi
 
 # --- This server ------------------------------------------------------------------------------
 command -v incus >/dev/null || die "Incus is not installed"
