@@ -31,9 +31,9 @@ POOL=${APELORA_SHARED_POOL:-shared}
 declare -A VMS=([apelora-test-1]=apelora-incus [apelora-test-2]=apelora-incus-2 [apelora-test-3]=apelora-incus-3 [apelora-test-4]=apelora-incus-4)
 CORE=apelora-test-1   # the API address, the OVN central database: never stopped
 BMC=${HA_DRILL_BMC:-0}
-# HA_DRILL_VM=1 deploys the module as a virtual machine (the same shared-pool recovery).
-# Not run: it needs nested virtualisation or a physical server. Do not record a result from it
-# until three runs have been read back the way the container drill is.
+# HA_DRILL_VM=1 deploys the module as a virtual machine (migration.stateful=true, root disk
+# and volume on the shared pool). REAL INCUS TESTED 2026-10-23, three runs: running again
+# 141–144 s after the member was force-stopped, the marker read back 158–164 s after the stop.
 VM=${HA_DRILL_VM:-0}
 KIND=container
 if [ "$VM" = 1 ]; then KIND=virtual-machine; fi
@@ -42,6 +42,15 @@ if [ "$VM" = 1 ]; then KIND=virtual-machine; fi
 source "$CONF/env"
 member() { limactl shell --workdir / "$1" sudo bash -s 2>/dev/null; }   # script on stdin
 incus_() { echo "incus $* </dev/null" | member apelora-incus; }
+# A virtual machine is RUNNING in Incus once its process is up, before the guest agent answers.
+wait_guest() {
+  local _n="$1" _
+  for _ in $(seq 1 "$_n"); do
+    echo "incus exec $INST --project apelora -- true </dev/null" | member apelora-incus && return 0
+    sleep 2
+  done
+  return 1
+}
 say() { printf '%s %s\n' "$(date +%T)" "$*" | tee -a "${log:-/dev/null}"; }
 
 # ---- the lab as it is now (read-only) ----------------------------------------------------------
@@ -87,6 +96,12 @@ check() {
 }
 
 plan_text() {
+  kind_word=container
+  vm_note=""
+  if [ "$KIND" = virtual-machine ]; then
+    kind_word="virtual machine"
+    vm_note=", migration.stateful=true"
+  fi
   if [ "$BMC" = 1 ]; then
     step7=" 7. cut the member's Incus port (tcp 8443, both directions) with nftables inside its VM: the VM keeps
     running and renewing its storage lease; the worker has APELORA_BMC_MAP (lima provider for the four
@@ -107,8 +122,8 @@ Steps of 'run':
  2. token create --role fabric-admin (that database only); start the control plane on $API_ADDR
     (APELORA_SHARED_POOL=$POOL, APELORA_VOLUME_POOL=local) and the worker (deploy identity only,
     fence probe from $CONF/fence-probe.env, APELORA_SUPERVISE_SECS=5, metrics $METRICS_ADDR)
- 3. POST /api/v1/applications/apelora-ha-test-<id>/deployments: module db, stateful, debian/13 container,
-    volume data 256 MiB at /srv/data, class data-replicated (root disk and volume on $POOL)
+ 3. POST /api/v1/applications/apelora-ha-test-<id>/deployments: module db, stateful, debian/13 $kind_word,
+    volume data 256 MiB at /srv/data, class data-replicated (root disk and volume on $POOL)${vm_note}
  4. incus exec apelora-ha-test-<id>-db -- write a marker file into /srv/data
  5. if it does not run on one of [${victims[*]}]: incus stop / incus move --target ${victims[0]} / incus start
  6. wait until the worker has learned all four members' storage leases (member_lock_hosts)
@@ -130,6 +145,7 @@ case $MODE in
     out=$(mktemp -t apelora-ha-drill-plan)
     plan_text | tee "$out"
     echo "fingerprint=$fingerprint" >> "$out"
+    echo "kind=$KIND" >> "$out"
     echo
     echo "Nothing was changed. To run it: $0 run $out"
     exit 0 ;;
@@ -138,7 +154,10 @@ case $MODE in
     [ -n "$planfile" ] && [ -f "$planfile" ] || { echo "run needs the plan file that '$0 plan' wrote" >&2; exit 2; }
     [ $(( $(date +%s) - $(stat -f %m "$planfile") )) -lt 1800 ] || { echo "the plan is older than 30 minutes: plan again" >&2; exit 2; }
     check || { echo "the lab is not ready any more: nothing was changed" >&2; exit 1; }
-    grep -qx "fingerprint=$fingerprint" "$planfile" || { echo "the members changed since the plan: plan again" >&2; exit 1; } ;;
+    grep -qx "fingerprint=$fingerprint" "$planfile" || { echo "the members changed since the plan: plan again" >&2; exit 1; }
+    planned=$(grep -m1 '^kind=' "$planfile" | cut -d= -f2-)
+    [ "$planned" = container ] || [ "$planned" = virtual-machine ] || { echo "the plan does not name the instance kind: plan again" >&2; exit 2; }
+    [ "$planned" = "$KIND" ] || { echo "HA_DRILL_VM does not match the plan ($planned): plan again with the same setting" >&2; exit 2; } ;;
   *) echo "usage: $0 plan | run <planfile>" >&2; exit 2 ;;
 esac
 
@@ -202,18 +221,27 @@ worker_pid=$!
 for _ in $(seq 1 30); do curl -s "$API/health" >/dev/null 2>&1 && break; sleep 1; done
 say "control plane (pid $cp_pid) and worker (pid $worker_pid) running on database $DB"
 
-body=$(jq -n '{ project: "apelora", document: {apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly"},
-  modules: [{ module: "db", availability: "stateful", spec: { project: "", name: "", kind: "'"$KIND"'", start: true,
+body=$(jq -n --arg kind "$KIND" '{ project: "apelora", document: {apiVersion: "fabric.apelora/v1alpha1", kind: "ApplicationAssembly"},
+  modules: [{ module: "db", availability: "stateful", spec: { project: "", name: "", kind: $kind, start: true,
     source: { protocol: "simplestreams", server: "https://images.linuxcontainers.org", alias: "debian/13" },
-    volumes: [{ name: "data", sizeMib: 256, path: "/srv/data", class: "data-replicated" }] } }], connections: [] }')
+    volumes: [{ name: "data", sizeMib: 256, path: "/srv/data", class: "data-replicated" }] } }], connections: [] }
+  | if $kind == "virtual-machine" then .modules[0].spec.config = {"migration.stateful": "true"} else . end')
 res=$(api -X POST -H "Idempotency-Key: $APP-1" -d "$body" "$API/applications/$APP/deployments")
-say "deployed: $(echo "$res" | jq -c '[.plan.items[]? | [.instance, .action]]')"
-for _ in $(seq 1 90); do
+say "deployed ($KIND): $(echo "$res" | jq -c '[.plan.items[]? | [.instance, .action]]')"
+tries=90
+[ "$KIND" = virtual-machine ] && tries=300
+for _ in $(seq 1 "$tries"); do
   st=$(incus_ list "$INST" --project apelora -c sL -f csv)
   [[ $st == RUNNING,* ]] && break
   sleep 2
 done
 [[ $st == RUNNING,* ]] || { say "FAIL: $INST did not start: $st"; exit 1; }
+if [ "$KIND" = virtual-machine ]; then
+  wait_guest 90 || { say "FAIL: the guest agent did not answer"; exit 1; }
+  stateful=$(incus_ config get "$INST" migration.stateful --project apelora | tr -d '[:space:]')
+  say "migration.stateful=${stateful:-unset}"
+  [ "$stateful" = true ] || { say "FAIL: the VM was created without migration.stateful=true"; exit 1; }
+fi
 root=$(incus_ config device get "$INST" root pool --project apelora)
 say "$INST runs on ${st#RUNNING,}; root disk on pool $root; volume $(incus_ storage volume list "$POOL" --project apelora -f csv -c n | tr '\n' ' ')"
 [ "$root" = "$POOL" ] || { say "FAIL: the root disk is not on $POOL"; exit 1; }
@@ -226,6 +254,16 @@ if [[ " ${victims[*]} " != *" $loc "* ]]; then
   incus_ move "$INST" --target "${victims[0]}" --project apelora
   incus_ start "$INST" --project apelora
   loc=${victims[0]}
+  for _ in $(seq 1 120); do
+    st=$(incus_ list "$INST" --project apelora -c sL -f csv)
+    [[ $st == RUNNING,*"$loc" ]] && break
+    sleep 2
+  done
+  [[ $st == RUNNING,*"$loc" ]] || { say "FAIL: $INST did not start on $loc after the move: $st"; exit 1; }
+  wait_guest 90 || { say "FAIL: the guest agent did not answer on $loc"; exit 1; }
+  moved=$(echo "incus exec $INST --project apelora -- cat /srv/data/marker </dev/null" | member apelora-incus || true)
+  [ "$moved" = "$marker" ] || { say "FAIL: the marker did not survive the move to $loc: '$moved'"; exit 1; }
+  say "marker intact on $loc before the failure"
 fi
 victim=$loc
 vm=${VMS[$victim]}
@@ -283,7 +321,10 @@ for _ in $(seq 1 450); do
   sleep 2
 done
 [[ $st == RUNNING,* && $st != *,"$victim" ]] || { say "FAIL: $INST did not restart elsewhere: $st"; exit 1; }
-got=$(echo "incus exec $INST --project apelora -- cat /srv/data/marker </dev/null" | member apelora-incus)
+if [ "$KIND" = virtual-machine ]; then
+  wait_guest 120 || { say "FAIL: the guest agent did not answer after the restart on ${st#RUNNING,}"; exit 1; }
+fi
+got=$(echo "incus exec $INST --project apelora -- cat /srv/data/marker </dev/null" | member apelora-incus || true)
 [ "$got" = "$marker" ] && say "PASS: the marker written before the failure is there on ${st#RUNNING,}" || { say "FAIL: marker '$got'"; exit 1; }
 psql_ -c "select 'failure '||id||' detected '||detected_at||' heartbeat '||coalesce(last_heartbeat::text,'-')||' fenced '||coalesce(fenced_at::text,'-')||' decided '||coalesce(decided_at::text,'-') from member_failures" | tee -a "$log"
 psql_ -c "select at||' '||actor||' '||action||' '||target from audit_events where action like 'cluster.member.%' or action like 'application.instance.%' order by at" | tee -a "$log"

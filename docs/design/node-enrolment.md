@@ -1,32 +1,19 @@
-# Node enrolment and provisioners (Phase 09)
+# Enrolling a server
 
-Status: agreed (follows [ADR 0002](../adr/0002-bare-metal-provisioning-maas.md), accepted) · Date: 2026-10-20
+A new server goes from known to an Incus member that Apelora can place modules on. An administrator approves each step that changes something, and each step is audited. The operating system can be installed by hand, or by [MAAS](provisioner-maas.md).
 
-## 1. Problem and scope
+Apelora keeps a machine record, issues a single-use join token, and runs an enrolment script on the host. A new member is held out of placement until it has been checked, and then admitted. Fabric Console is where this is done. Removing a member from the cluster is a separate action.
 
-A new server must go from "known to the administrator" to "Incus member that Apelora places
-modules on", the same way whatever installed it, with an administrator approving every step
-that changes something, and every step audited.
+Apelora does not provide PXE, DHCP, or its own power controller, and it does not store controller credentials. Incus places instances. This covers tens of machines, with one administrator acting at a time.
 
-- **Goals (slice 1):** machine records with a provider; the **manual** provider (operating
-  system installed by hand); approval issuing a single-use join token; an enrolment script for
-  the host; a new member held from placement until Apelora has validated it; admission making it
-  eligible; Fabric Console views.
-- **Later slices:** a MAAS adapter (discovery, commissioning, OS deployment with the enrolment
-  cloud-init, power), removing a member from the cluster, a burn-in before admission (built through MAAS: see
-  [provisioner-maas.md](provisioner-maas.md)).
-- **Non-goals:** writing PXE, DHCP or BMC tooling; storing BMC credentials (they stay in the
-  provisioner); placing instances ourselves (Incus places, ADR 0001).
-- **Scale:** tens of machines; one administrator acting at a time.
-
-## 2. Design
+## What is recorded
 
 ```mermaid
 flowchart LR
   admin[Administrator<br/>Fabric Console] -->|register, approve, admit| api[Control plane]
   api -->|join token, member config| incus[(Incus cluster<br/>admin identity)]
   api --> db[(PostgreSQL<br/>machines, audit)]
-  api -. later .-> maas[Provisioner adapter<br/>MAAS]
+  api --> maas[MAAS]
   host[New server] -->|enrol-member.sh, token on stdin| incus
 ```
 
@@ -74,7 +61,7 @@ script and token through cloud-init; nothing in the lifecycle above changes.
 | `GET /api/v1/cluster/members/{member}/removal` | removal check (dry run): what is left on it, blockers, warnings | — |
 | `POST /api/v1/cluster/members/{member}/remove` `{confirm}` | remove an evacuated, empty member for good (the machine becomes `left`) | `cluster.member.remove` |
 
-## 3. Failure handling
+## When it fails
 
 | Failure | Behaviour |
 |---|---|
@@ -84,10 +71,10 @@ script and token through cloud-init; nothing in the lifecycle above changes.
 | Incus unreachable | 502 like every other Incus call; records unchanged |
 | Two administrators approve at once | the second gets 409 (`approval_pending`) |
 
-## 4. Security
+## Security
 
-Join tokens are never stored, logged or audited (ADR 0003); the approve response is
-`no-store`; the enrolment script reads the token from standard input. All mutating calls need
-`manage-infrastructure`, the admin identity and the database (audit). BMC credentials are not
-stored by Apelora: with a MAAS provider they stay in MAAS ([the adapter](provisioner-maas.md)); the only
-place Apelora handles one is the worker's own process environment, for fencing (ADR 0014).
+A join token is not stored, logged, or audited. The approve response is `no-store`. The enrolment script reads the token from standard input. Every call that changes something needs `manage-infrastructure`, the admin identity, and the database. Controller credentials stay in MAAS. The only credential Apelora handles itself is in the worker's environment, for fencing.
+
+## See also
+
+[Installing a server with MAAS](provisioner-maas.md) · [Bare-metal provisioning](../adr/0002-bare-metal-provisioning-maas.md) · [Join tokens](../adr/0003-incus-identities-and-cluster-join.md) · [Fencing by powering off](../adr/0014-bmc-power-off-fencing.md)

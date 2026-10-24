@@ -1,116 +1,39 @@
-# Restarting VM modules after a server dies
+# Restarting a virtual machine after its server stops
 
-Status: **the same recovery plan as containers (unit test, 2026-10-22). The VM drill has not been
-run.** Related: [ADR 0013](../adr/0013-fencing-before-restart.md),
-[mobility and HA](mobility-and-ha.md), [lab shared storage](../development/TEST-CLUSTER.md),
-[implementation phases, 08](../development/IMPLEMENTATION-PHASES.md).
+When a server stops, a virtual machine whose disks are all on the shared pool is started on another server. It starts cold. The stopped server cannot hand over its memory. A planned move is a different operation: the machine keeps running and is live-migrated.
 
-Items marked *assumption* were not confirmed with the owner. Nothing here is claimed until it has
-been drilled; every result will be labelled MOCK VERIFIED, CONTRACT VERIFIED or REAL INCUS TESTED.
+## What happens
 
-## 1. Where things stand
+Apelora restarts the machine only after the server is fenced. Fencing is the shared-storage lease read as dead from a healthy server, a person confirming the server is off, or the machine's controller reporting that it is powered off. Time alone never fences it.
 
-| | State |
-|---|---|
-| Live migration for planned moves (a VM moves running, 0.26 s longest pause; containers and data-local VMs stop, copy and start) | Built, REAL INCUS TESTED |
-| Stateless replicas replaced on other servers, failing replicas restarted | Built, REAL INCUS TESTED |
-| Restart of a failed server's stateful or single-instance **container** modules whose disks are all on the shared pool, after fencing (sanlock lease DEAD, or a person confirms the server is off) | Built; three drills, running again 144–155 s after the server stopped, data intact. REAL INCUS TESTED |
-| Same for **VM** modules on the shared pool | The plan is Restart after fencing (unit test, MOCK VERIFIED). `HA_DRILL_VM=1` is in `ha-drill.sh`. **Not drilled** |
-| `data-replicated` chosen in the Studio | **Built (2026-10-21)**: one choice per module in Properties → Volumes (all its volumes on the shared pool or all on its server; mixing is refused by the schema and by the API), carried in the plan request and named in the deploy review. MOCK VERIFIED in the browser; whether the pool exists is the control plane's answer at plan time |
-| A BMC power-off as fencing evidence | Built (ADR 0014). The Console shows the audit history, not the mapping |
-| Partition drills (member cut off from the other servers but not from the SAN, and the reverse) | Not run |
+Incus then starts the instance on another member. Incus reports the virtual machine as Running when its process is up, which is before the guest agent answers. Anything that needs a command inside the guest waits for that agent.
 
-A dead server cannot hand over its memory, so this is restart-based recovery: the VM comes back
-cold from shared storage, after about 2.5 minutes today. Live migration helps only for planned
-moves. As far as we know Xen's HA also restarts VMs after fencing, so parity is realistic
-(*assumption*): the difference today is speed and proof, not capability.
+In the Studio, Properties → Volumes puts every volume of a module on the shared pool, or every volume on the module's own server. Mixing the two is refused. The plan names the choice. Whether the pool exists is answered when the application is planned.
 
-## 2. Goal and what is out of scope
+## How long it took in the lab
 
-**Goal:** when a server dies, VM modules on shared storage restart on another server without
-anyone acting, quickly, with evidence, and with no chance of two writers on one disk.
+Three runs on 2026-10-23, Incus 7.0.2, nested virtual machines, not a physical server. Each run force-stopped `apelora-test-2`. The guest was Debian 13, with its root disk and a 256 MiB volume on the shared pool, and with migration while running enabled.
 
-**Out of scope:** seamless failover with no restart, Ceph-specific fencing, failback automation,
-and rebalancing (slice C).
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Server reported offline | 24 s | 25 s | 24 s |
+| Lease dead, machine running on the other server | 144 s | 141 s | 144 s |
+| File written beforehand read back from the guest | 163 s | 158 s | 164 s |
 
-## 3. Work packages
+The same drill for a container, three earlier runs, had the module running again 144–155 seconds after its server stopped. The file was intact.
 
-Each package says what it needs from the environment (§6) before it can start.
+Powering the server off through its controller does not make this faster on the lab's storage. Clustered LVM still waits for the lease to expire. On 2026-10-21 a cut-off member was fenced at 61 seconds and the instance was running again at 220 seconds. That path does cover a server that can still reach the disks while it is cut off from the other servers, which the lease alone cannot see. It has not been drilled as a network partition.
 
-**1. VM drill on the shared pool.** First, because it can overturn the design. ADR 0013 fact 3:
-lvmcluster activates VM disks shared (`-asy`), so the lock layer does not stop a second writer of
-a VM's disk; the sanlock lease plus the watchdog is the only guard. Add a VM case to
-`scripts/test-cluster/ha-drill.sh` using the *Linux base* VM class with its root disk on the
-`shared` pool, and check:
-- `plan_recovery` and `blocked_by_storage` handle a VM, whose configuration comes back `null`
-  from an offline member;
-- the relink succeeds with `migration.stateful=true` and its state volume;
-- the VM boots cold and its data is intact;
-- the start is not refused by a lock held a few seconds longer.
-Any gap goes through the usual bug flow: a failing test first, then the fix. Evidence: three runs
-like the container drill. *Needs:* the shared-pool lab with VM support (nested virtualisation or
-real servers).
+## What is not covered
 
-**2. Partition and confirmation drills.** The proof that Apelora never writes twice:
-- cut a member off from the other servers but not from the SAN: the lease stays LIVE, nothing
-  restarts, the `member-unfenced` alert fires;
-- cut a member off from the SAN: the watchdog resets it and the lease goes DEAD;
-- run *Confirm powered off…* end to end against the lab.
-*Needs:* a way to cut network paths per member in the lab (packet filter rules on the lab VMs).
+These have not been run:
 
-**3. The Studio can choose `data-replicated`. Done (2026-10-21).** The smallest package, and independent UI work.
-Add a storage-class choice to the volume editor (`setVolumes`/`volumesOf` in `assembly-model` and
-the inspector), refuse mixing with `data-local` the way the API does, and add a Playwright test
-and a real-browser check. *Needs:* nothing from the lab; this can be built and verified now.
+- A server cut off from the others but still able to reach the shared disks, and the reverse.
+- Confirming "powered off" from the console against the lab.
+- A physical server.
 
-**4. Fencing through a BMC (built 2026-10-21, ADR 0014).** Not the speed lever it was thought to be (see below); it closes the partition case. Recovery takes about 140 s
-today because sanlock's `host_dead_seconds` is the floor. With a power-off fence: Incus marks the
-member Offline at 20 s, Apelora powers it off through its BMC, the evidence is "powered off", and
-recovery was expected to land around 40–60 s. **Measured on the lab (2026-10-21, [ADR 0014](../adr/0014-bmc-power-off-fencing.md)): fenced at 61 s, running again at 220 s** — clustered LVM still waits for sanlock to expire the dead host's lease (about 140 s after its last renewal), so the BMC fence does not shorten recovery on this storage; it fences a server cut off from the cluster that still reaches the SAN, which the lease alone cannot.
-- A `FenceProvider` trait next to the SSH probe in `services/deployment-worker/src/fencing.rs`, a
-  new `power-off` evidence kind in `apelora_domain::fencing::decide`, and an ADR 0014 amending 0013.
-- BMC credentials stay in the backend's secret store, never in the database, logs or the browser
-  (non-negotiable 7).
-- The power-off is confirmed by reading the power state back; a "sent" reply is not enough.
-- Redfish first, IPMI later (built 2026-10-22, ADR 0014). The lab has no BMC, so build a Lima-VM
-  provider that force-stops the VM and exercises the same code path; the Redfish and IPMI
-  providers are CONTRACT VERIFIED until they run on real hardware.
-- The most dangerous code in the project: a wrong target powers off a healthy server. It needs the
-  same mapping safeguards as the sanlock path: identity learned while Online, a typed or approved
-  allowlist, and a refusal if the member is Online.
-*Needs:* the answers in §5, and ideally real servers with a BMC.
+Recovery is a restart. It does not keep the machine running, and it does not move it back when the old server returns.
 
-**5. Optional: fence on the first healthy observer's DEAD reading** (the open item in the design
-document). Saves about 9 s; low priority.
+## See also
 
-## 4. Order and risks
-
-Do 1 and 2 first and together; do 3 in parallel (it needs no lab); do 4 last, because it needs the
-hardware answer and an ADR first.
-
-- The VM drill may find that start-after-relink needs a code change. That is why it comes first.
-- A BMC fence can power off a healthy server if its mapping is wrong (see 4).
-- Not claimed until drilled: anything about VMs.
-
-## 5. Questions that change the design (open)
-
-1. Are there real servers with BMCs (Redfish or IPMI) to test on, or only the Lima lab?
-   Recommendation: build against the lab, label Redfish CONTRACT VERIFIED until real hardware exists.
-2. What recovery time is wanted? About 2.5 minutes is acceptable for a first release if packages 1–3
-   are enough; about one minute needs package 4.
-3. Should the BMC fence run automatically or only with a person's approval? Recommendation:
-   automatic once an allowlist is configured; anything else makes the night-time case no better
-   than today's confirmation path.
-
-## 6. What the environment must provide before this starts
-
-| Package | Needed |
-|---|---|
-| 1 | The four-member lab with the `shared` lvmcluster pool, VMs able to run on it (nested virtualisation on the lab VMs, or physical servers), the *Linux base* VM class |
-| 2 | Per-member network and storage-path cuts in the lab (packet filter rules), the sanlock watchdog working in the lab VMs |
-| 3 | Nothing beyond the repository |
-| 4 | An agreed answer to §5, a BMC or the Lima provider, a secret store for BMC credentials, ADR 0014 |
-
-The lab (Lima) is not on every developer machine; until it is, packages 1, 2 and 4 stay planned and
-the documents keep saying NOT YET VERIFIED. Package 3 and the writing of the design for 4 (ADR 0014,
-the failure table, the first slice) do not wait.
+[Moving modules and surviving a failure](mobility-and-ha.md) · [When a member fails](../runbooks/member-failure.md) · [Fencing before a restart](../adr/0013-fencing-before-restart.md) · [The lab](../development/TEST-CLUSTER.md)

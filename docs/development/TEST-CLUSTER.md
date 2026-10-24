@@ -135,7 +135,7 @@ bash scripts/test-cluster/ha-drill.sh plan              # read-only: checks the 
 bash scripts/test-cluster/ha-drill.sh run <planfile>    # refuses without a fresh plan for the same member list
 ```
 
-It never stops `apelora-san`, `apelora-test-1` (the API address and the OVN database) or the database leader, and only a member whose loss keeps the quorum; it runs its own database, control plane (:8095) and worker (:9495) and removes everything on exit. Timings: [member failure](../runbooks/member-failure.md#modules-on-shared-storage).
+It never stops `apelora-san`, `apelora-test-1` (the API address and the OVN database) or the database leader, and only a member whose loss keeps the quorum; it runs its own database, control plane (:8095) and worker (:9495) and removes everything on exit. `HA_DRILL_VM=1` (set for both `plan` and `run`) deploys a virtual machine with `migration.stateful=true` instead of a container, and waits for the guest agent before it reads the marker back. Timings: [member failure](../runbooks/member-failure.md#modules-on-shared-storage).
 
 Blocked egress (ADR 0010: an installation without internet access). Outbound traffic from the members, and from the instances they run, is dropped except to the lab's own networks (the members' directly connected subnets, which include the host and `incusbr0`), the members' DNS resolvers, and the mirror you declare:
 
