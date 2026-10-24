@@ -26,8 +26,23 @@ if command -v incus >/dev/null; then
   exit 0
 fi
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -q
-apt-get install -yq curl gpg btrfs-progs
+
+# A new guest is still installing its own packages. apt then exits at once with the lists
+# lock held, which is what happened on three of four guests (2026-10-24).
+if command -v cloud-init >/dev/null 2>&1; then
+  cloud-init status --wait >&2 || true
+fi
+apt_get() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if apt-get "$@"; then return 0; fi
+    echo "package install is busy, waiting ($i)" >&2
+    sleep 5
+  done
+  return 1
+}
+apt_get update -q
+apt_get install -yq curl gpg btrfs-progs
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc
 want=4EFC590696CB15B87C73A3AD82CC8797C838DCFD
@@ -42,7 +57,7 @@ Components: main
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/zabbly.asc
 EOF
-apt-get update -q
-apt-get install -yq incus
+apt_get update -q
+apt_get install -yq incus
 forward_incusbr0
 incus version
