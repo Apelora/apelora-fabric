@@ -66,6 +66,14 @@ After the VM was started again (run 3): the member was Online after 15 s, its ow
 the next generation after 29 s, the worker had learned it after 76 s (it reads Online members'
 leases once a minute), and the failure was closed.
 
+The same drill with `HA_DRILL_VM=1` (2026-10-23, Incus 7.0.2, a debian/13 virtual machine,
+`migration.stateful=true`, root disk and a 256 MiB volume on `shared`; three runs, each
+force-stopping `apelora-test-2`). Incus reported the instance Running on `apelora-test-1` at
+t+144 s, t+141 s and t+144 s. The guest agent answers after that, so the file written beforehand
+was read back at t+163 s, t+158 s and t+164 s. Each time the stopped member was Online again
+within 19 s and the worker learned its new lease (generations 7, 8 and 9) within 83 s. This is a
+cold start. It was nested virtual machines on the lab, not a physical server.
+
 In run 1 Incus also reported the three members that were **not** stopped as Offline for about 10 s
 (the heartbeat round was held up by the dead member). Apelora opened failures for them, saw their
 leases LIVE, fenced nothing and closed them again: this is why nothing restarts on Incus's word alone.

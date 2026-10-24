@@ -1,7 +1,7 @@
 # Restarting VM modules after a server dies
 
-Status: **the same recovery plan as containers (unit test, 2026-10-22). The VM drill has not been
-run.** Related: [ADR 0013](../adr/0013-fencing-before-restart.md),
+Status: **REAL INCUS TESTED 2026-10-23** (three `HA_DRILL_VM=1` drills on the four-member lab).
+Related: [ADR 0013](../adr/0013-fencing-before-restart.md),
 [mobility and HA](mobility-and-ha.md), [lab shared storage](../development/TEST-CLUSTER.md),
 [implementation phases, 08](../development/IMPLEMENTATION-PHASES.md).
 
@@ -15,7 +15,7 @@ been drilled; every result will be labelled MOCK VERIFIED, CONTRACT VERIFIED or 
 | Live migration for planned moves (a VM moves running, 0.26 s longest pause; containers and data-local VMs stop, copy and start) | Built, REAL INCUS TESTED |
 | Stateless replicas replaced on other servers, failing replicas restarted | Built, REAL INCUS TESTED |
 | Restart of a failed server's stateful or single-instance **container** modules whose disks are all on the shared pool, after fencing (sanlock lease DEAD, or a person confirms the server is off) | Built; three drills, running again 144–155 s after the server stopped, data intact. REAL INCUS TESTED |
-| Same for **VM** modules on the shared pool | The plan is Restart after fencing (unit test, MOCK VERIFIED). `HA_DRILL_VM=1` is in `ha-drill.sh`. **Not drilled** |
+| Same for **VM** modules on the shared pool | Built. REAL INCUS TESTED 2026-10-23: three drills, a debian/13 virtual machine with `migration.stateful=true`, root disk and a 256 MiB volume on `shared`. Incus reported it Running on another member 141–144 s after its server was force-stopped, and the file written beforehand was read back 158–164 s after the stop. Cold start, not a live handover. Nested virtual machines on the lab, not a physical server |
 | `data-replicated` chosen in the Studio | **Built (2026-10-21)**: one choice per module in Properties → Volumes (all its volumes on the shared pool or all on its server; mixing is refused by the schema and by the API), carried in the plan request and named in the deploy review. MOCK VERIFIED in the browser; whether the pool exists is the control plane's answer at plan time |
 | A BMC power-off as fencing evidence | Built (ADR 0014). The Console shows the audit history, not the mapping |
 | Partition drills (member cut off from the other servers but not from the SAN, and the reverse) | Not run |
@@ -37,19 +37,22 @@ and rebalancing (slice C).
 
 Each package says what it needs from the environment (§6) before it can start.
 
-**1. VM drill on the shared pool.** First, because it can overturn the design. ADR 0013 fact 3:
-lvmcluster activates VM disks shared (`-asy`), so the lock layer does not stop a second writer of
-a VM's disk; the sanlock lease plus the watchdog is the only guard. Add a VM case to
-`scripts/test-cluster/ha-drill.sh` using the *Linux base* VM class with its root disk on the
-`shared` pool, and check:
-- `plan_recovery` and `blocked_by_storage` handle a VM, whose configuration comes back `null`
-  from an offline member;
-- the relink succeeds with `migration.stateful=true` and its state volume;
-- the VM boots cold and its data is intact;
-- the start is not refused by a lock held a few seconds longer.
-Any gap goes through the usual bug flow: a failing test first, then the fix. Evidence: three runs
-like the container drill. *Needs:* the shared-pool lab with VM support (nested virtualisation or
-real servers).
+**1. VM drill on the shared pool. Done (2026-10-23).** ADR 0013 fact 3 still holds: lvmcluster
+activates VM disks shared (`-asy`), so the lock layer does not stop a second writer of a VM's
+disk; the sanlock lease plus the watchdog is the only guard. `HA_DRILL_VM=1` deploys a debian/13
+virtual machine with `migration.stateful=true` (read back from the instance), its root disk and a
+256 MiB `data-replicated` volume on `shared`. Three runs on the four-member lab, each
+force-stopping `apelora-test-2` and reading the marker back on `apelora-test-1`:
+
+| | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|
+| Incus Offline | t+24 s | t+25 s | t+24 s |
+| Lease DEAD, fenced, Running on the other member | t+144 s | t+141 s | t+144 s |
+| Marker read back from the guest | t+163 s | t+158 s | t+164 s |
+
+The start was not refused by a lock held a few seconds longer. The guest agent answers after
+Incus already says Running, so the drill waits for `incus exec` before it reads the marker.
+Partition drills are still not run.
 
 **2. Partition and confirmation drills.** The proof that Apelora never writes twice:
 - cut a member off from the other servers but not from the SAN: the lease stays LIVE, nothing

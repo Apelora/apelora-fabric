@@ -126,7 +126,7 @@ sequenceDiagram
 - Worker: `fencing.rs` (SSH probe), `recovery.rs` (supervisor step and the `instance.recover` job), metrics, alert rule `member-unfenced`.
 - API: `GET /api/v1/cluster/recovery`, `POST /api/v1/cluster/members/{member}/fencing` (`cluster.fence_confirm`, approval); the control plane resolves `data-replicated` to `APELORA_SHARED_POOL`; the Health page's Incus row says whether each failed server is fenced.
 - Console: Servers → Members, *Failed servers*: fencing state, the reason or the evidence, per instance *Restarts on …* or *Waits for its server* with why, *Confirm powered off…* (typed name).
-- Evidence: MOCK VERIFIED (worker, API, Console with a stubbed API and axe); REAL INCUS TESTED: `shared_pool_instances_keep_their_disks_on_it_and_move_without_copying` and three `ha-drill.sh` runs (timeline in the [runbook](../runbooks/member-failure.md#modules-on-shared-storage)). Not drilled: a VM on the shared pool, a partitioned (not stopped) member, the confirmation path against the lab.
+- Evidence: MOCK VERIFIED (worker, API, Console with a stubbed API and axe); REAL INCUS TESTED: `shared_pool_instances_keep_their_disks_on_it_and_move_without_copying`, three container `ha-drill.sh` runs and three VM runs (`HA_DRILL_VM=1`, 2026-10-23; timeline in the [runbook](../runbooks/member-failure.md#modules-on-shared-storage)). Not drilled: a partitioned (not stopped) member, and the confirmation path against the lab.
 - Open: the Studio cannot choose `data-replicated` yet (the API accepts it); a BMC fence provider; Ceph-specific evidence; fencing as soon as any healthy observer (whose own lease is LIVE) reports DEAD, instead of the freshest reading only (run 3 fenced 9 s after member 1 saw DEAD).
 
 ## 4. Failure handling of a move
