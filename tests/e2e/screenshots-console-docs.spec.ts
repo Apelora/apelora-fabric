@@ -1,6 +1,8 @@
 import { expect, test, type Page, type Request, type Route } from "@playwright/test";
 import { open, openDeploy } from "./helpers";
+import { servers as healthServers, server as healthServer } from "./health-fixtures";
 import { auditItem, base as identityBase, items, stub as identityStub, whoami } from "./identity-fixtures";
+import { groups, member, members, noRecovery } from "./servers-fixtures";
 
 // Run with: SCREENSHOTS=1 npx playwright test tests/e2e/screenshots-console-docs.spec.ts
 // Console pages for the documentation, with a stubbed control plane and made-up names and numbers.
@@ -119,6 +121,76 @@ test("console MAAS machines screenshot 1440x900", async ({ page }) => {
   await fullHeight(page, 1440, 900);
   await settled(page);
   await page.screenshot({ path: "docs/screenshots/38-console-machines-1440x900.png" });
+});
+
+const serverRoutes = (report: ReturnType<typeof members>) => ({
+  ...common,
+  "GET /api/v1/cluster/members": { json: report },
+  "GET /api/v1/cluster/groups": { json: groups() },
+  "GET /api/v1/cluster/recovery": { json: noRecovery() },
+  "GET /api/v1/health/servers": { json: healthServers("incus", ["node-1", "node-2", "node-3", "node-4"].map((n) => healthServer(n))) },
+});
+
+test("console evacuate dialog screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await stub(page, {
+    ...serverRoutes(members()),
+    "GET /api/v1/cluster/members/node-2/evacuation": { json: { source: src, plan: {
+      member: "node-2", targets: ["node-1", "node-3"], blocked: [],
+      warnings: ["replicas of shop/web-01 share node-1 until restore: one failure takes them all", "down during the evacuation: shop-db-01"],
+      items: [
+        { project: "apelora", instance: "shop-web-01-r2", status: "Running", mode: "auto", outcome: "moves if it can; stopped during the move", application: "shop", module: "web-01", impact: "stays up (1 other replica)" },
+        { project: "apelora", instance: "shop-db-01", status: "Running", mode: "stop", outcome: "stops here until restore", application: "shop", module: "db-01", impact: "down until restore (stateful)" },
+      ],
+    } } },
+  });
+  await page.goto(`${CONSOLE}/#/servers/members`);
+  await page.getByRole("button", { name: "Evacuate node-2" }).click();
+  const dialog = page.getByTestId("evacuate-dialog");
+  await expect(dialog.getByTestId("evacuation-item")).toHaveCount(2);
+  await dialog.getByTestId("evacuate-confirm").fill("node-2");
+  await expect(dialog.getByTestId("evacuate-start")).toBeEnabled();
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/47-console-evacuate-1440x900.png" });
+});
+
+test("console restore dialog screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const report = members();
+  report.members[1] = member("node-2", { status: "Evacuated", message: "Evacuated" });
+  await stub(page, serverRoutes(report));
+  await page.goto(`${CONSOLE}/#/servers/members`);
+  await page.getByRole("button", { name: "Restore node-2" }).click();
+  await expect(page.getByTestId("confirm-dialog")).toContainText("Restore node-2?");
+  await page.getByTestId("confirm-input").fill("node-2");
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/48-console-restore-1440x900.png" });
+});
+
+test("console remove member dialog screenshot 1440x900", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const report = members();
+  report.members = [
+    member("node-1", { roles: ["database-leader", "database"], leader: true }),
+    member("node-2"),
+    member("node-4", { status: "Evacuated", message: "Evacuated" }),
+  ];
+  if (report.sites) report.sites = { ...report.sites, members: 3 };
+  await stub(page, {
+    ...serverRoutes(report),
+    "GET /api/v1/cluster/members/node-4/removal": { json: { source: src, plan: {
+      member: "node-4", status: "Evacuated", instances: [], volumes: [], blocked: [],
+      warnings: ["the cluster keeps 2 database members (fewer than three): losing one more member can stop it", "2 members remain: replicas have fewer places to spread over", "to use the server again, reinstall it and enrol it as a new machine"],
+    } } },
+  });
+  await page.goto(`${CONSOLE}/#/servers/members`);
+  await page.getByRole("button", { name: "Remove node-4 from the cluster" }).click();
+  const dialog = page.getByTestId("remove-member-dialog");
+  await expect(dialog.getByTestId("removal-warning")).toHaveCount(3);
+  await dialog.getByTestId("remove-member-confirm").fill("node-4");
+  await expect(dialog.getByTestId("remove-member-start")).toBeEnabled();
+  await settled(page);
+  await page.screenshot({ path: "docs/screenshots/49-console-remove-member-1440x900.png" });
 });
 
 test("studio deploy screenshots 1440x900", async ({ page }) => {
