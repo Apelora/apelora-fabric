@@ -3919,7 +3919,7 @@ export type Responses = {
   create_group: GroupDto;
   /** Members of a group. Needs `user.view` or `group.manage` on the group's organisation. */
   group_members: UserList;
-  /** Adds a person to a group. Needs `group.manage`. */
+  /** Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles, the right to grant each of them to that person (the same escalation guard as a direct assignment; refused with `membership_refused`). */
   add_group_member: null;
   /** Removes a person from a group; their access through it ends on their next request. Needs `group.manage`. */
   remove_group_member: null;

@@ -1127,6 +1127,65 @@ pub(super) async fn group_members(
     }))
 }
 
+/// Joining a group gives the person every role the group holds, so the caller must be able to
+/// grant each of the group's live assignments to that person, exactly as `create_assignment`
+/// checks a direct grant. A refusal is audited and answered 403 `membership_refused`.
+async fn check_joining(
+    pool: &apelora_persistence::Pool,
+    p: &Principal,
+    g: &db::GroupRow,
+    group_res: &Resource,
+    user: Uuid,
+) -> Res<()> {
+    let held = db::load_engine(pool, &[PrincipalRef::Group { id: g.id }]).await?;
+    let (engine, subject) = actor(p);
+    for a in &held.assignments {
+        let role = match &a.role {
+            RoleRef::Builtin { key } => Builtin::parse(key).map(ResolvedRole::builtin),
+            RoleRef::Custom { id } => held.custom_roles.get(id).map(ResolvedRole::custom),
+        };
+        // An assignment whose role or scope can no longer be resolved is refused, not skipped.
+        let verdict = match (role, resource_of(pool, &a.scope).await) {
+            (Some(role), Ok(scope_res)) => check_assignment(
+                &engine,
+                &subject,
+                &AssignRequest {
+                    role: &role,
+                    scope: &a.scope,
+                    resource: &scope_res,
+                    principal: PrincipalRef::User { id: user },
+                    emergency: a.kind == AssignmentKind::Emergency,
+                    expires_at: a.expires_at,
+                },
+                now(),
+            )
+            .map_err(|e| (role.name.clone(), e.to_string())),
+            (role, _) => Err((
+                role.map_or_else(|| "an unknown role".to_owned(), |r| r.name),
+                "the group holds a role whose scope cannot be checked".to_owned(),
+            )),
+        };
+        if let Err((role, why)) = verdict {
+            audit_alone(
+                pool,
+                p,
+                "group.member.add",
+                &g.name,
+                "denied",
+                Some(group_res),
+                &json!({ "user": user, "role": role, "scope": a.scope, "reason": why }),
+            )
+            .await?;
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "membership_refused",
+                format!("this group holds {role}, which you could not grant to that person: {why}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn change_member(
     state: &AppState,
     p: &Principal,
@@ -1147,6 +1206,9 @@ async fn change_member(
     db::user(pool, user)
         .await?
         .ok_or_else(|| not_found("user"))?;
+    if add {
+        check_joining(pool, p, &g, &res, user).await?;
+    }
     let mut tx = begin(pool).await?;
     if add {
         db::add_group_member(&mut *tx, group, user, &p.actor_ref()).await?;
@@ -1185,7 +1247,9 @@ async fn change_member(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Adds a person to a group. Needs `group.manage`.
+/// Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles,
+/// the right to grant each of them to that person (the same escalation guard as a direct
+/// assignment; refused with `membership_refused`).
 #[utoipa::path(put, path = "/api/v1/identity/groups/{group}/members/{user}", tag = "identity", operation_id = "add_group_member",
     params(("group" = Uuid, Path, description = "Group id"), ("user" = Uuid, Path, description = "User id")),
     responses((status = 204), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]

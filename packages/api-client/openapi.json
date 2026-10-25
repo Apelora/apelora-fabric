@@ -6188,7 +6188,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Adds a person to a group. Needs `group.manage`.",
+        "summary": "Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles,\nthe right to grant each of them to that person (the same escalation guard as a direct\nassignment; refused with `membership_refused`).",
         "operationId": "add_group_member",
         "parameters": [
           {

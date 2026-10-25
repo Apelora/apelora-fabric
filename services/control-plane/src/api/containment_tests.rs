@@ -604,3 +604,100 @@ async fn the_last_member_of_the_super_admin_group_cannot_leave_it(pool: Pool) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "denied");
 }
+
+/// Joining a group is receiving its roles: the escalation guard applies to every role the group holds.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn joining_a_group_never_gives_more_than_the_caller_could_grant(pool: Pool) {
+    let l = lab(pool.clone());
+    let w = world(&l).await;
+    let clerk = l.user("sub-clerk", "clerk").await;
+    let eve = l.user("sub-eve", "eve").await;
+    custom_at_platform(
+        &l,
+        &w.admin,
+        clerk,
+        "Group clerk",
+        &["group.manage", "user.view"],
+    )
+    .await;
+    let t = l.token("sub-clerk", "clerk");
+    let group = |name: &'static str| {
+        let admin = w.admin.clone();
+        let l = &l;
+        async move {
+            let (s, g) = l
+                .req(
+                    "POST",
+                    "/api/v1/identity/groups",
+                    &admin,
+                    Some(json!({ "name": name })),
+                )
+                .await;
+            assert_eq!(s, StatusCode::CREATED, "{g}");
+            g["id"].as_str().expect("id").to_owned()
+        }
+    };
+    let owners = group("Platform owners").await;
+    let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "group", "id": owners }, "role": { "type": "builtin", "key": "platform-super-admin" }, "scope": { "type": "platform" } }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let acme_owners = group("Acme owners").await;
+    let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "group", "id": acme_owners }, "role": { "type": "builtin", "key": "organization-owner" }, "scope": { "type": "organization", "id": w.acme } }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let plain = group("Book club").await;
+
+    let member = |g: &str, u: Uuid| format!("/api/v1/identity/groups/{g}/members/{u}");
+    // The clerk may not put himself, or anyone else, into a group that holds roles he could not grant.
+    for (g, who) in [
+        (&owners, clerk),
+        (&owners, eve),
+        (&acme_owners, clerk),
+        (&acme_owners, eve),
+    ] {
+        let (s, b) = l.req("PUT", &member(g, who), &t, None).await;
+        assert_eq!(
+            (s, code(&b)),
+            (StatusCode::FORBIDDEN, Some("membership_refused")),
+            "{g} {who}: {b}"
+        );
+    }
+    let joined: i64 = sqlx::query_scalar("SELECT count(*) FROM group_members")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(joined, 0, "nobody joined a privileged group");
+    assert_eq!(
+        l.req("GET", "/api/v1/identity/roles", &t, None).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        l.req(
+            "POST",
+            "/api/v1/identity/roles",
+            &t,
+            Some(json!({ "name": "x", "permissions": ["user.view"] }))
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN,
+        "the clerk is still not a super admin"
+    );
+    // A group without roles is the clerk's to run.
+    assert_eq!(
+        l.req("PUT", &member(&plain, eve), &t, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+    // Someone who could grant the group's roles may add members.
+    assert_eq!(
+        l.req("PUT", &member(&owners, eve), &w.admin, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let rows = audit_rows(&pool, "group.member.add").await;
+    assert_eq!(
+        rows.iter().map(|(o, _)| o.as_str()).collect::<Vec<_>>(),
+        ["denied", "denied", "denied", "denied", "success", "success"]
+    );
+    assert!(
+        rows[0].1.contains("platform-super-admin") || rows[0].1.contains("Platform Super Admin"),
+        "{rows:?}"
+    );
+}
