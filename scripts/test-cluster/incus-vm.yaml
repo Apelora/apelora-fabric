@@ -26,8 +26,17 @@ networks:
   - vzNAT: true
   - lima: user-v2
 portForwards:
+  # Forward nothing. A rule for 0.0.0.0 alone does not match services bound to the guest's
+  # loopback (the lab's control plane and PostgreSQL on 127.0.0.1), and Lima's built-in last
+  # rule would forward those to the host's own 8080 and 5432.
   - guestIP: 0.0.0.0
+    guestIPMustBeZero: false
     guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: 127.0.0.1
+    guestPortRange: [1, 65535]
+    proto: any
     ignore: true
 
 provision:

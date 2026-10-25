@@ -429,6 +429,17 @@ impl InstanceSpec {
         {
             return Err(format!("config key {k} is reserved for Apelora"));
         }
+        if let Some((k, v)) = self
+            .config
+            .iter()
+            .find(|(k, v)| !caller_config_allowed(k, v))
+        {
+            return Err(format!(
+                "config key {k} (value {v:?}) is not one Apelora passes to Incus; a caller may set \
+                 limits.cpu, limits.cpu.allowance, limits.memory, migration.stateful, \
+                 cluster.evacuate, environment.<NAME> and user.<key>"
+            ));
+        }
         if let Some(v) = self.volumes.iter().find(|v| v.pool.is_some()) {
             return Err(format!(
                 "volume {}: the pool is chosen by Apelora from the volume class",
@@ -442,6 +453,43 @@ impl InstanceSpec {
             );
         }
         Ok(())
+    }
+}
+
+/// Whether a caller may put `key = value` into an instance's Incus config. An allow-list, so
+/// that a key which lets an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel
+/// limits) is refused by Apelora even when the project is not restricted (preflight only warns).
+fn caller_config_allowed(key: &str, value: &str) -> bool {
+    let plain = value.len() <= 4096 && !value.chars().any(char::is_control);
+    let token = |s: &str, first: fn(char) -> bool, rest: fn(char) -> bool, max: usize| {
+        let mut c = s.chars();
+        s.len() <= max && c.next().is_some_and(first) && c.all(rest)
+    };
+    match key {
+        "limits.cpu" | "limits.cpu.allowance" | "limits.memory" => plain && value.len() <= 32,
+        "migration.stateful" => matches!(value, "true" | "false"),
+        "cluster.evacuate" => matches!(value, "auto" | "live-migrate" | "migrate" | "stop"),
+        _ => {
+            if let Some(name) = key.strip_prefix("environment.") {
+                plain
+                    && token(
+                        name,
+                        |c| c.is_ascii_uppercase() || c == '_',
+                        |c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_',
+                        128,
+                    )
+            } else if let Some(name) = key.strip_prefix("user.") {
+                plain
+                    && token(
+                        name,
+                        |c| c.is_ascii_lowercase() || c.is_ascii_digit(),
+                        |c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c),
+                        64,
+                    )
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -704,6 +752,58 @@ mod tests {
             }
             .validate()
             .is_err()
+        );
+    }
+
+    #[test]
+    fn a_caller_may_set_only_the_instance_config_keys_apelora_passes_on() {
+        let with = |pairs: &[(&str, &str)]| InstanceSpec {
+            config: pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+            ..spec()
+        };
+        // What the Studio sends (resources, live migration, deploy-time fields) and plain
+        // environment and user keys.
+        let studio = with(&[
+            ("limits.cpu", "2"),
+            ("limits.cpu.allowance", "50%"),
+            ("limits.memory", "512MiB"),
+            ("migration.stateful", "true"),
+            ("cluster.evacuate", "live-migrate"),
+            ("environment.SETUP_SERVER_NAME", "shop.example.org"),
+            ("environment.SECRET_DB_PASSWORD", "db-password"),
+            ("environment.LOG_LEVEL", "info"),
+            ("user.team", "web"),
+        ]);
+        assert_eq!(studio.validate_from_caller(), Ok(()));
+        // Keys that would let an instance reach its host, whatever the project allows.
+        for (k, v) in [
+            ("security.privileged", "true"),
+            ("security.nesting", "true"),
+            ("security.syscalls.intercept.mount", "true"),
+            ("raw.lxc", "lxc.apparmor.profile=unconfined"),
+            ("raw.idmap", "both 0 0"),
+            ("raw.qemu", "-device x"),
+            ("linux.kernel_modules", "overlay"),
+            ("limits.kernel.nofile", "1"),
+            ("boot.host_shutdown_timeout", "1"),
+            ("cluster.evacuate", "stop; reboot"),
+            ("migration.stateful", "yes please"),
+            ("environment.lower_case", "x"),
+            ("environment.", "x"),
+            ("user.", "x"),
+            ("unknown", "x"),
+        ] {
+            let err = with(&[(k, v)]).validate_from_caller().expect_err(k);
+            assert!(err.contains(k), "{k}: {err}");
+        }
+        // Apelora's own keys stay reserved.
+        assert!(
+            with(&[("environment.APELORA_SERVICE_DB", "10.0.0.1")])
+                .validate_from_caller()
+                .is_err()
         );
     }
 

@@ -40,6 +40,7 @@ flowchart LR
   - `created` — Apelora created it with the baseline below;
   - `adopted` — it existed; Apelora checked `restricted=true`, granted it and leaves its restrictions as they are (it reports differences from the baseline).
   An existing project that is **not restricted is never adopted**: the environment stays `pending` with that reason.
+- **Instance settings a caller may send** are an allow-list in Apelora itself (`InstanceSpec::validate_from_caller`): `limits.cpu`, `limits.cpu.allowance`, `limits.memory`, `migration.stateful`, `cluster.evacuate`, `environment.<NAME>` and `user.<key>`. Keys that let an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel limits) are refused before Incus sees them, so a project that was left unrestricted (preflight only warns) does not turn deploy rights into host rights.
 
 ### 2.1 Baseline configuration of a created project
 
