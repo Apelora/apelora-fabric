@@ -44,6 +44,8 @@ Apelora Fabric is released from `main` by pushing a version tag. The release wor
 
 The workflow writes them from the commit subjects since the previous version tag, with a link to the full comparison, how to install that version, and how to check the downloads. Write commit subjects so they read well in that list: what changed, for whom.
 
+When a version changes something an existing installation relies on (a database migration that changes behaviour, a permission, a refused setting), add an **Upgrading from the previous version** section at the top once the release is published: what changes at first start and what an administrator must do. Then `gh release edit "$TAG" --notes-file notes.md --repo Apelora/apelora-fabric`.
+
 ## If a release goes wrong
 
 - **The workflow failed before publishing:** fix on `main`, then tag the next number. Delete the failed tag only if nothing was published: `git push origin :refs/tags/$TAG`.

@@ -27,7 +27,8 @@ description: Cut and publish Apelora Fabric releases — version tags (v0.1.0-al
 2. Pick the next tag: `git tag --list 'v*' --sort=-v:refname | head -3`.
 3. `git tag -a "$TAG" -m "Apelora $TAG" && git push origin "$TAG"`; watch `release.yml`.
 4. Verify: `gh release view "$TAG"`, download the assets, check `SHA256SUMS-*`, `gh attestation verify <archive> --repo Apelora/apelora-fabric`.
-5. Tell the owner the release link and what it contains.
+5. If the version changes behaviour an existing installation relies on (migrations, permissions, refused settings), add an *Upgrading from the previous version* section to the top of the notes (`gh release edit "$TAG" --notes-file …`).
+6. Tell the owner the release link and what it contains.
 
 ## Acceptance
 
