@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { expect, open, openDeploy, openProps } from "./helpers";
+import { assemblyState, expect, open, openDeploy, openProps } from "./helpers";
 
 // Deploying from the Studio, against a stubbed control plane: the Studio must only deploy
 // modules that have a runtime, show the server's plan before changing anything, follow the
@@ -119,6 +119,45 @@ test.describe("deploying from the Studio", () => {
     expect(drafts, "the overlay never changes the design: no draft was saved").toBe(0);
   });
 
+  test("a deployed application's canvas shows live state when opened later, not only after deploying", async ({ page }) => {
+    let polled = 0;
+    const ok = { allowed: true, reason: null };
+    const info = {
+      name: "shop", description: "", icon: "generic-box", archived: false, createdAt: now, updatedAt: now, latestRevision: 1,
+      project: { id: "p1", name: "Shop", organizationId: "o1", organizationSlug: "acme", slug: "shop" },
+      environment: { id: "e1", name: "production", slug: "production", kind: "production", incusProject: "apelora" },
+      actions: { start: ok, restart: ok, stop: ok },
+      design: { status: "published", draftVersion: 1, publishedVersion: 1, hasUnpublishedChanges: false, validationErrors: 0, updatedAt: now },
+      deployment: { status: "running", modules: 1, replicas: { desired: 2, healthy: 2, running: 2, unhealthy: 0 }, observedAt: now, stale: false, source: "incus", lastActivityAt: now, deployedVersion: 1, operation: null },
+    };
+    await page.addInitScript(() => { localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("apelora.apiToken", "apl_test_token_for_stub"); });
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=module-node]");
+    const doc = await assemblyState(page);
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "GET /api/v1/applications/shop": () => ({ json: { application: info, modules: [], operations: [], versions: [{ revision: 1, published: true, label: null, draftVersion: 1, createdBy: "alex", createdAt: now }] } }),
+      "GET /api/v1/applications/shop/draft": () => ({ json: { document: doc, version: 1, updatedAt: now, updatedBy: "alex", validationErrors: [] } }),
+      "GET /api/v1/applications/shop/status": () => { polled += 1; return { json: { source: { provider: "incus", observedAt: now }, items: [
+        { module: "nginx-01", instance: "shop-nginx-01", project: "apelora", status: "Running", location: "node-1" },
+        { module: "nginx-01", instance: "shop-nginx-01-r2", project: "apelora", status: "Running", location: "node-2" },
+      ], services: [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }], trafficBlocked: "Traffic cannot move to replacement replicas: Incus refuses load balancer changes while cluster member node-3 is unreachable." } }; },
+    });
+    await page.goto("/studio/applications/shop/designer");
+    await page.waitForSelector("[data-testid=module-node]");
+    const live = page.locator(`[data-node-id="nginx-01"] [data-testid=live-status]`);
+    await expect(live).toHaveAttribute("data-state", "Running");
+    await expect(live).toHaveAttribute("title", /shop-nginx-01-r2: Running on node-2[\s\S]*Service address 198\.18\.100\.1/);
+    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running");
+    await expect(page.getByTestId("traffic-blocked")).toHaveAttribute("title", /while cluster member node-3 is unreachable/);
+    // Leaving the canvas stops asking for the state.
+    await page.goto("/studio/applications");
+    const after = polled;
+    await page.waitForTimeout(6000);
+    expect(polled).toBe(after);
+  });
+
   test("a conflict blocks deploying and nothing is sent", async ({ page }) => {
     let deployCalls = 0;
     await stub(page, {
@@ -142,8 +181,8 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/whoami": () => ({ json: operator }),
       "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [
         { ...item("nginx-01", "resize", "limits.cpu 1 → 2, limits.memory 512MiB → 1GiB"), changes: [{ key: "limits.cpu", from: "1", to: "2" }, { key: "limits.memory", from: "512MiB", to: "1GiB" }] },
-        item("nginx-02", "keep", "already running"),
-      ], warnings: [] } }),
+        { ...item("nginx-02", "keep", "already deployed (Running); keeps its previous image (updating running modules is not built yet)"), outdated: ["image"] },
+      ], warnings: ["commerce-stack-nginx-02 keeps the image or settings it was created with: deploying does not update running modules yet; remove the module and deploy it again to apply the design"] } }),
     });
     await open(page);
     await openDeploy(page);
@@ -154,6 +193,11 @@ test.describe("deploying from the Studio", () => {
     await expect(rows.first()).toContainText("Resize");
     await expect(rows.first()).toContainText("limits.cpu 1 → 2");
     await expect(page.getByTestId("deploy-apply")).toHaveText("Deploy 1 change");
+    // A running instance built from another image is kept and says so; it is not counted as a change.
+    await expect(rows.nth(1)).toHaveAttribute("data-outdated", "image");
+    await expect(rows.nth(1)).toContainText("Keep · outdated");
+    await expect(rows.nth(1)).toContainText("keeps its previous image");
+    await expect(page.getByTestId("deploy-dialog")).toContainText("deploying does not update running modules yet");
   });
 
   test("the review shows quota use, and a deployment over quota cannot be applied", async ({ page }) => {

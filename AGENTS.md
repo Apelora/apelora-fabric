@@ -48,9 +48,11 @@ SCREENSHOTS=1 npx playwright test tests/e2e/screenshots.spec.ts
 npm run schema           # regenerate JSON Schemas
 cargo deny check && node scripts/licenses/check-npm.mjs   # dependency licences, advisories, sources
 bash scripts/security/scan-secrets.sh   # no private keys or tokens in tracked files
+git tag -a v0.1.0-alpha.N -m "Apelora v0.1.0-alpha.N" && git push origin v0.1.0-alpha.N   # publish a pre-release (docs/development/RELEASING.md)
 bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/development/UPSTREAM-INCUS.md)
 bash scripts/test-cluster/up.sh && source ~/.config/apelora/test-cluster/env   # disposable Incus in a Lima VM (docs/development/TEST-CLUSTER.md)
 DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1   # REAL INCUS TESTED lifecycle
+bash scripts/test-cluster/ui-e2e.sh   # sign-in to deploy to traffic, through the Console and Studio on the test cluster (tests/lab)
 ```
 
 ## How to change things
@@ -82,6 +84,7 @@ DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --
 | HA, storage, recovery | `reconciliation-ha`, `storage-recovery`, `storage-volumes` |
 | Tests and evidence | `testing-operations`, `quality-assurance`, `playwright-qa` |
 | CI, workflows, Dependabot, code scanning | `ci-pipeline`, `testing-operations` |
+| Releases (version tags, pre-releases, release notes) | `release-management`, `ci-pipeline` |
 | Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
 | Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
 | Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |

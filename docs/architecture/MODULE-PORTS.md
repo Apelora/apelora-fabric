@@ -22,13 +22,17 @@ How terminals are arranged on every module, so a diagram reads the same way rega
 |---|---|---|---|
 | `net` | network | in | Network interface (NIC) |
 | `wan` / `lan` | network | in / out | Firewall, router and VPN uplink and protected side |
-| `in` / `out` | http, or the broker's protocol | in / out | Primary traffic through proxies and brokers |
+| `in` / `out` | http, or the broker's protocol | in / out | Primary traffic through proxies. A broker has only `in`: producers and consumers are both clients that connect to it |
 | `http`, `ui`, `api` | http | in | Web UI or API of an application |
 | `db` | postgres, mysql… | out | The application's database (single cable) |
 | `cache` | redis, memcached | out | Cache or session store |
 | `store` | s3, http | out | Object storage or search backend |
 | `mq` | kafka, amqp, redis | out | Message stream or queue |
-| `repl` / `peer` | database protocol | out | Replication or cluster gossip with sibling nodes |
+| `repl` / `peer` | database or broker protocol | out | Replication or cluster links with sibling nodes; always connectable to the service input of another module of the same class |
+| `primary` / `bridge` | the service's protocol | out | The server this one copies from (a replica's primary, a DNS secondary's primary) or bridges to (MQTT) |
+| `api` / `query` | http | in / out | A query API (Prometheus, Loki, Tempo) and the dashboard output that reads it: Grafana's `query` connects to Prometheus's `api` |
+| `dns`, `fwd` | dns | in / out | DNS queries, and the upstream resolvers a DNS server forwards to |
+| `peer` / `routes` | bgp | in / out | BGP sessions a routing daemon accepts and opens (TCP 179) |
 | `mon` | metrics | out | Metrics endpoint a collector reads (its `scrape` input); only on classes whose metrics are readable as text on a port, see [Metrics](#metrics-the-mon-output) |
 | `audit` | syslog | out | Audit log stream; feeds log pipelines such as Logstash |
 
@@ -36,7 +40,7 @@ How terminals are arranged on every module, so a diagram reads the same way rega
 
 ```
 Web tier            HAProxy            PostgreSQL           Kafka
-in   → ● ┌────┐ ● → out   sql → ● ┌────┐ ● → repl   in → ● ┌────┐ ● → out
+in   → ● ┌────┐ ● → out   sql → ● ┌────┐ ● → repl   in → ● ┌────┐ ● → peer
 net  → ● │    │ ● → mon   net → ● │    │ ● → mon    net → ● │    │ ● → mon
 ```
 
@@ -66,4 +70,4 @@ Rules (enforced by `packages/module-catalog/src/metrics.test.ts`):
 
 ## Adding modules
 
-Add a class in `packages/module-catalog/src/classes-extra.ts` using the shorthand helpers (`i` for inputs, `o` for outputs, `mon()` for metrics), describe its metrics in `packages/module-catalog/src/metrics.ts`, put the icon in `assets/logos/` (record origin and licence in `ATTRIBUTION.md`, or use a `generic-*` icon), run `npm test` (the catalog-quality tests check placement, icons, settings and schema) and `npm run catalog:doc`.
+Add a class in `packages/module-catalog/src/classes-extra.ts` using the shorthand helpers (`i` for inputs, `o` for outputs, `mon()` for metrics), place it in its category and subcategory in `packages/module-catalog/src/taxonomy.ts` (the Studio menu, this reference and the website read that grouping), describe its metrics in `packages/module-catalog/src/metrics.ts`, put the icon in `assets/logos/` (record origin and licence in `ATTRIBUTION.md`, or use a `generic-*` icon), run `npm test` (the catalog-quality tests check placement, icons, settings and schema) and `npm run catalog:doc`.

@@ -32,6 +32,8 @@ Distilled knowledge from upstream repositories and documents the owner has share
 
 **Incus** (seen 2026-10): 7.0 LTS released May 2026, supported to June 2031 (2 years of fixes, then security only). Host minimums include kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables. Supports LXC system containers, OCI application containers and QEMU VMs; Raft-replicated cluster database; projects, profiles, images, storage pools (incl. Ceph, LINSTOR), networks (bridge, OVN with ACLs, DNS zones, forwards, load balancers), placement scriptlets (Starlark), evacuation/restore, metrics, OIDC and fine-grained authorisation, a low-level backup API and built-in basic S3. Live migration of ordinary LXC containers is limited; stopped moves are reliable. `cluster.healing_threshold` defaults to disabled. Local Unix-socket access equals root on the host.
 
+**Incus load balancers while a member is offline** (seen 2026-10-25, v7.0.2, `internal/server/network/driver_ovn.go` `LoadBalancerUpdate`, `internal/server/cluster/notify.go`): after changing an OVN load balancer, Incus notifies every other member to refresh BGP prefixes with the `NotifyAll` policy, which fails with "peer node … is down" when any member is offline, and the change is reverted. Create and delete use the same policy. So no load balancer in the cluster can change while one member is offline: Apelora cannot move a service address's traffic to a substitute replica. OVN's health check does not reliably help either: on the lab the dead replica's check stayed online, then had no status, and OVN kept sending it traffic. Reproduced on the lab; v7.0.1 has the same check. Candidate upstream fix: use `NotifyAlive` for that BGP refresh (an offline member refreshes its prefixes when it returns). Report it upstream as a human (Incus policy below). Until then the operator removes a member that will not return soon; updates then succeed.
+
 **IncusOS** (seen 2026-10-22): a whole operating system that boots Incus, not a package Apelora installs. Its management API is published as Apache-2.0 and is a separate API, usually reached through the Incus listener under an `/os` prefix. We do not call it, flash its images, enroll its boot keys, or store its secrets. The lab stays the Lima cluster. The upgrade assistant still records a package upgrade on a general-purpose host; on this OS the equivalent is an image update that keeps the previous image bootable, and we do not perform it.
 
 What changes a decision:
@@ -75,6 +77,24 @@ A newly added machine can start commissioning on its own. Release sends disk era
 | **InfluxDB** | MIT or Apache-2.0 | Version 3 Core: time-series database, Parquet files on local disk or object storage, SQL and InfluxQL queries, compatible 1.x/2.x write APIs, embedded Python processing engine, HTTP API on port 8181 |
 
 Running a module image does not link its code into ours; record the licence in the manifest's provenance anyway.
+
+### Catalog additions (checked 2026-10-25, design-only)
+
+Licences from each project's own repository or documentation, for the 59 classes added with the two-level taxonomy. All are open-source licences unless the caution says otherwise.
+
+| Area | Modules and licences |
+|---|---|
+| Routing, DNS, DHCP | FRRouting GPL-2.0-or-later; BIRD GPL-2.0-or-later; Keepalived GPL-2.0-or-later; CoreDNS Apache-2.0; PowerDNS Authoritative GPL-2.0-only; Unbound BSD-3-Clause; BIND 9 MPL-2.0; Kea MPL-2.0; NetBox Apache-2.0 |
+| VPN, firewall | strongSwan GPL-2.0-or-later; Headscale BSD-3-Clause; OpenWrt GPL-2.0-only (its metrics package Apache-2.0) |
+| Runtimes, systems | Go BSD-3-Clause; openSUSE (distribution, mixed open licences) |
+| Data | YugabyteDB Apache-2.0 (the database only; its management product is not open source); PgBouncer ISC; Valkey BSD-3-Clause; FerretDB Apache-2.0; Meilisearch MIT for the Community Edition (enterprise parts BUSL-1.1); Trino Apache-2.0; Superset Apache-2.0; Garage AGPL-3.0; SeaweedFS Apache-2.0; Samba GPL-3.0-or-later |
+| Messaging | Debezium Apache-2.0; Flink Apache-2.0 |
+| Observability | VictoriaMetrics Apache-2.0; node and blackbox exporters Apache-2.0; Zabbix AGPL-3.0-only (7.0 and later); Loki AGPL-3.0-only (some folders Apache-2.0); Vector MPL-2.0; Fluent Bit Apache-2.0; Tempo AGPL-3.0; OpenSearch Dashboards Apache-2.0; Alertmanager Apache-2.0; Uptime Kuma MIT |
+| Security | FreeIPA GPL-3.0-or-later; OpenBao MPL-2.0; step-ca Apache-2.0; Vaultwarden AGPL-3.0-only; CrowdSec MIT; Suricata GPL-2.0-only; Wazuh mostly GPL-2.0-only, newer engine code AGPL-3.0-or-later (differs by version) |
+| Developer tools | Forgejo GPL-3.0-or-later from v9 (MIT before); Woodpecker Apache-2.0; Harbor Apache-2.0; Distribution (registry) Apache-2.0 |
+| Applications | Mattermost source AGPL-3.0 with Apache-2.0 parts, binaries MIT; Synapse AGPL-3.0-or-later (or a commercial licence); Jitsi Meet Apache-2.0; Ghost MIT; Drupal GPL-2.0-or-later; MediaWiki GPL-2.0-or-later; Postfix EPL-2.0 or IPL-1.0; Dovecot MIT and LGPL-2.1; Roundcube GPL-3.0-or-later; Odoo Community LGPL-3.0-only; Matomo GPL-3.0-or-later |
+
+Facts that shaped these manifests: Mattermost's metrics endpoint needs a commercial licence (the free edition has no `mon` output); Meilisearch's metrics are experimental; Kea has no built-in metrics text (its project's monitoring agent exports them); BIND's statistics channel answers JSON/XML, not metrics text; Uptime Kuma's metrics depend on the version (newer ones add an off switch); step-ca's metrics listener is in the source but not in its documentation. Already in the catalog with a source-available licence: Vault and Consul (BUSL-1.1) and recent ScyllaDB releases; CockroachDB, ArangoDB and MongoDB are believed to be source-available too (not rechecked on this date). OpenBao (MPL-2.0) and Valkey (BSD-3-Clause) are the open alternatives to Vault and Redis; FerretDB the open MongoDB-protocol one.
 
 ### Metrics facts that shaped the catalog (researched 2026-10)
 

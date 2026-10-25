@@ -39,7 +39,8 @@ flowchart LR
   - `pending` — not prepared by Apelora yet (created before this feature, no admin identity configured, or the last attempt failed; `incus_detail` says why);
   - `created` — Apelora created it with the baseline below;
   - `adopted` — it existed; Apelora checked `restricted=true`, granted it and leaves its restrictions as they are (it reports differences from the baseline).
-  An existing project that is **not restricted is never adopted**: the environment stays `pending` with that reason.
+  An existing project that is **not restricted is never adopted**: the environment stays `pending` with that reason. An existing project is adopted **only when a platform administrator (`cluster.manage`) named it** when creating the environment (`incusProject`; recorded as `environments.incus_project_chosen`, migration 0032). A project whose name merely matches the name derived from the environment's identifiers, and a project that carries another environment's `user.apelora.environment`, are never adopted: creating the environment answers `409 incus_project_exists` and creates nothing, and preparing an existing environment answers the same and leaves it `pending` with the reason (audited as denied). Environments adopted before this rule, and ones a platform administrator mapped, keep their project.
+- **Instance settings a caller may send** are an allow-list in Apelora itself (`InstanceSpec::validate_from_caller`): `limits.cpu`, `limits.cpu.allowance`, `limits.memory`, `migration.stateful`, `cluster.evacuate`, `environment.<NAME>` and `user.<key>`. Keys that let an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel limits) are refused before Incus sees them, so a project that was left unrestricted (preflight only warns) does not turn deploy rights into host rights.
 
 ### 2.1 Baseline configuration of a created project
 

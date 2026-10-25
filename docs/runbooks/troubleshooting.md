@@ -1,8 +1,7 @@
 # Troubleshooting with logs and the audit trail
 
-**Evidence:** the log lines and request ids below were produced by the control plane with the
-mock provider (2026-10-21); the worker and Incus lines are covered by unit and contract tests
-(MOCK VERIFIED / CONTRACT VERIFIED). They have not yet been read off a real cluster incident.
+Use this page to find out why something failed: which log lines to look for, how to follow one
+request from the API to the worker and Incus, and what to hand over when you ask for help.
 
 Both services, `apelora-control-plane` and `apelora-deployment-worker`, write one line per event
 to standard output. The audit trail (`GET /api/v1/audit`, Fabric Console → Audit) is a
@@ -51,10 +50,6 @@ last error; `GET /api/v1/jobs/{id}/detail` adds every attempt and the linked job
 [Retrying and cancelling a job](#retrying-and-cancelling-a-job)).
 
 ### From a request id to the job and the Incus operation
-
-**Evidence:** CONTRACT VERIFIED with the mock provider and a real PostgreSQL (2026-10-21,
-`one_request_id_links_the_request_its_audit_row_the_job_and_the_incus_operation`); not yet
-followed on a real cluster incident.
 
 1. **Request → job.** The audit row of the request (`<kind>.requested`, `application.deploy.requested`,
    `application.<action>.requested`) has `requestId` and, for single jobs, `jobId` in its detail.
@@ -190,9 +185,6 @@ answering, `INFO health: Incus is reachable again` when it is back.
 
 ### Retrying and cancelling a job
 
-**Evidence:** MOCK VERIFIED with a real PostgreSQL (API, worker and persistence tests,
-2026-10-21); not yet used on a real cluster incident.
-
 The job's page (Console → Operations → the change; `GET /api/v1/jobs/{id}/detail`) shows every
 attempt with its worker, start, duration, outcome, error and the Incus operations it started;
 who queued the job; its request id; and the jobs linked to it (retries, and other jobs the same
@@ -237,11 +229,6 @@ FROM job_attempts WHERE job_id = '…' ORDER BY attempt`; `SELECT id, status FRO
 retry_of = '…'`.
 
 ### Reading an instance's logs
-
-**Evidence:** CONTRACT VERIFIED (adapter against spec-shaped replies) and MOCK VERIFIED (API and
-Console). REAL INCUS TESTED 2026-10-23 on a running Debian container on the four-member lab
-(`a_real_instance_has_a_detail_log_files_and_a_bounded_console_log`: `lxc.log` listed and tailed,
-console log 612 bytes, a path outside the listed files refused).
 
 Console → Instances → the instance → Logs, or the API:
 
@@ -324,9 +311,8 @@ in any case. A job that starts about 2 s late means the wake-up is not working:
 
 ### `TRUNCATE audit_events` is refused
 
-By design: `audit_events is append-only`. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`
-(migration 0022). Retention will come with monthly partitions (EVERY-SIZE.md §5 item 9); until
-then the table only grows. When cleaning up test data, delete the other rows in their own
+By design: `audit_events is append-only`. Triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`.
+Retention through monthly partitions is planned; until then the table only grows. When cleaning up test data, delete the other rows in their own
 statements and leave the audit trail alone.
 
 ### The outbox backlog grows
@@ -369,9 +355,8 @@ uploaded anywhere; the file exists only where you save it, so it works without i
 
 **Never in a bundle:** tokens, passwords, certificates or keys. Every part is built from listed
 fields, and every byte also passes through a scrubber that replaces Apelora tokens (`apl_`,
-`aps_`, `apu_`, `apt_`, `apw_`), PEM blocks, bearer values, JSON web tokens and passwords in URLs
-(`settings::scrub`; `account_tests::the_support_bundle_holds_the_parts_and_never_a_planted_secret`
-plants secrets in every source). Still look through log lines you add yourself.
+`aps_`, `apu_`, `apt_`, `apw_`), PEM blocks, bearer values, JSON web tokens and passwords in URLs.
+Still look through log lines you add yourself.
 
 **Effective settings** (Administration → Settings, `GET /api/v1/settings`, needs `cluster.view`):
 every setting the control plane and the worker read, with the value this control plane started

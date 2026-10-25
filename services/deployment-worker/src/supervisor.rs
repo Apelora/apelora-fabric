@@ -498,11 +498,22 @@ impl Supervisor {
                 } else {
                     "instance.create"
                 };
+                // A new instance is stopped in Incus until its create job has started it.
+                let in_flight =
+                    apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
+                        .await?
+                        || (stopped
+                            && apelora_persistence::job_in_flight(
+                                pool,
+                                "instance.create",
+                                &d.project,
+                                &item.instance,
+                            )
+                            .await?);
                 if da.availability != Availability::Stateless {
                     // Still being created or started by a job: nothing is lost yet.
                     let instance = format!("{}/{}", d.project, item.instance);
-                    if !apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
-                        .await?
+                    if !in_flight
                         && self
                             .should_report(&instance, if stopped { "stopped" } else { "missing" })
                     {
@@ -521,8 +532,7 @@ impl Supervisor {
                     tracing::debug!(application = %d.application, instance = %format!("{}/{}", d.project, item.instance), "supervisor: stopped on purpose through Apelora; left stopped");
                     continue;
                 }
-                if apelora_persistence::job_in_flight(pool, kind, &d.project, &item.instance)
-                    .await?
+                if in_flight
                     || apelora_persistence::job_failed_recently(
                         pool,
                         kind,
@@ -1197,6 +1207,47 @@ mod tests {
         );
     }
 
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_replica_still_being_created_is_not_started_by_the_supervisor(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        // Incus has the new instance, still stopped, while its create job starts it.
+        provider
+            .change_state(
+                PROJECT,
+                "shop-web-01",
+                apelora_domain::InstanceAction::Stop,
+                true,
+            )
+            .await
+            .expect("stopped");
+        let create = enqueue_job(
+            &pool,
+            "instance.create",
+            None,
+            &json!({ "project": PROJECT, "name": "shop-web-01" }),
+            None,
+        )
+        .await
+        .expect("enqueue")
+        .id();
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            Vec::<String>::new(),
+            "the create job is still starting it"
+        );
+        sqlx::query("UPDATE jobs SET status = 'succeeded' WHERE id = $1")
+            .bind(create)
+            .execute(&pool)
+            .await
+            .expect("done");
+        assert_eq!(
+            supervise_once(&pool, &provider).await.expect("pass"),
+            vec!["shop-web-01".to_owned()],
+            "stopped with nothing in flight: started again"
+        );
+    }
+
     fn set_member(mock: &MockIncus, name: &str, status: &str) {
         let mut members = mock.members.lock().unwrap_or_else(|e| e.into_inner());
         members
@@ -1649,6 +1700,60 @@ mod tests {
                 .count(),
             1,
             "only replica 2 has IPv6: {set:?}"
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_refused_while_a_member_is_down_says_which_member_and_why(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("198.18.100.0/28".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+            resolvers: Vec::new(),
+        };
+        mock.net().unreachable_member = Some("mock-member-02.invalid:8443".into());
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => {
+                assert!(
+                    m.starts_with("Traffic cannot move to replacement replicas"),
+                    "{m}"
+                );
+                assert!(
+                    m.contains("while cluster member mock-member-02 is unreachable"),
+                    "{m}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        // A member Incus no longer lists is named by its address.
+        mock.net().unreachable_member = Some("192.0.2.9:8443".into());
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => {
+                assert!(m.contains("the cluster member at 192.0.2.9:8443"), "{m}")
+            }
+            other => panic!("{other:?}"),
+        }
+        mock.net().unreachable_member = None;
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
         );
     }
 

@@ -666,10 +666,10 @@ async fn a_running_application_offers_stop_only_and_a_stopped_one_offers_start_o
         (StatusCode::CONFLICT, Some("confirmation_required")),
         "{b}"
     );
-    assert!(
-        b["error"]["message"]
-            .as_str()
-            .is_some_and(|m| m.contains("db-01 (stateful)")),
+    // People read this message in the Studio and Console: it says what happens, not which field to send.
+    assert_eq!(
+        b["error"]["message"],
+        "Stopping shop interrupts service for clients of db-01 (stateful). Data is kept.",
         "{b}"
     );
     assert_eq!(

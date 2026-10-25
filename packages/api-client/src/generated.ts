@@ -327,6 +327,8 @@ export type ApplicationStatus = {
   /** Allocated service addresses (empty without a database or service range). */
   services: ServiceStatus[];
   source: Source;
+  /** Present while the application's service addresses cannot move traffic to replacement replicas because Incus refuses load balancer changes (a cluster member is unreachable): what happens, which member, and what to do. */
+  trafficBlocked?: string | null;
 };
 
 export type ApplicationVolumes = {
@@ -527,9 +529,9 @@ export type CheckedEntry = {
   displayName?: string | null;
   dn: string;
   email?: string | null;
-  /** Group names from the directory. */
+  /** The person's groups: each group's full DN (normalized), or a value that is not a DN. */
   groups: string[];
-  /** Apelora groups whose external name matches one of `groups`. */
+  /** Apelora groups mapped to this directory (`directory`) and to one of `groups`; empty for settings not saved yet. */
   mappedGroups: string[];
   /** The stable id Apelora would identify the person by. */
   subject: string;
@@ -830,6 +832,7 @@ export type DeploymentInfo = {
   /** The published version the application was last deployed from. */
   deployedVersion?: number | null;
   lastActivityAt?: string | null;
+  /** Modules in the deployed version; 0 until a version is deployed. */
   modules: number;
   /** When the control plane last observed Incus for this answer (RFC 3339). */
   observedAt: string;
@@ -882,6 +885,8 @@ export type DirectoryCheck = {
 
 /** Settings to check (saved or not) and a test username and password, which are used for one bind and never stored or logged. */
 export type DirectoryCheckRequest = {
+  /** The saved directory these settings are for, if any: only its group mappings are shown. */
+  directory?: string | null;
   password: string;
   settings: DirectoryInput;
   username: string;
@@ -1158,17 +1163,42 @@ export type Grant = {
 
 export type GroupDto = {
   description: string;
-  /** The group's name in the identity provider's tokens, when members come from there. */
+  /** The group's name in its source's tokens (a directory group's full DN), when members come from there. */
   externalName?: string | null;
+  /** Who may assert membership: an identity provider's issuer, or `directory:<id>`. */
+  externalSource?: string | null;
   id: string;
   name: string;
+  /** Mapped before sources were recorded: it matches nobody until a platform administrator sets its source (`PUT /api/v1/identity/groups/{group}/external`). */
+  needsSource: boolean;
   /** `null` = a platform group. */
   organizationId?: string | null;
 };
 
+/** The group outside Apelora a group mirrors. */
+export type GroupExternal = {
+  /** The group's name in the source's tokens; for a directory, the group's full DN. */
+  name: string;
+  /** One of the `sources` the group list names. */
+  source: string;
+};
+
 export type GroupList = {
   items: GroupDto[];
+  /** The sources a group can be mapped to. */
+  sources: GroupSource[];
 };
+
+/** A place whose group memberships Apelora accepts: an identity provider (its tokens' groups) or a directory (its groups' DNs). */
+export type GroupSource = {
+  /** What a mapping records: the provider's issuer, or `directory:<id>`. */
+  id: string;
+  kind: GroupSourceKind;
+  name: string;
+};
+
+/** The kind of a source of external groups. */
+export type GroupSourceKind = "identity-provider" | "directory";
 
 export type GrowVolume = {
   /** The new size in MiB; at least the current one (volumes only grow). */
@@ -2272,7 +2302,7 @@ export type NewAssignment = {
 };
 
 export type NewEnvironment = {
-  /** Platform administrators only: map an existing Incus project instead of the derived name. */
+  /** Platform administrators only: map an existing Incus project instead of the derived name. Only a project named here can be adopted; one that carries another environment's marker never is. */
   incusProject?: string | null;
   kind: EnvKind;
   name: string;
@@ -2281,7 +2311,10 @@ export type NewEnvironment = {
 
 export type NewGroup = {
   description?: string;
+  /** The group's name in the source's tokens; for a directory, the group's full DN. */
   externalName?: string | null;
+  /** Required with `externalName`: one of the `sources` the group list names. */
+  externalSource?: string | null;
   name: string;
   organizationId?: string | null;
 };
@@ -2532,6 +2565,8 @@ export type PlanItem = {
   instance: string;
   /** The module in the design (for `remove`: the label of the instance being removed). */
   module: string;
+  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running modules is not built yet. */
+  outdated?: string[];
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;
   /** 1-based replica number. */
@@ -3642,6 +3677,7 @@ export const operations = {
   prepare_incus_project: { method: "POST", path: "/api/v1/identity/environments/{id}/incus-project", params: ["id"], public: false },
   groups: { method: "GET", path: "/api/v1/identity/groups", params: [], public: false },
   create_group: { method: "POST", path: "/api/v1/identity/groups", params: [], public: false },
+  set_group_external: { method: "PUT", path: "/api/v1/identity/groups/{group}/external", params: ["group"], public: false },
   group_members: { method: "GET", path: "/api/v1/identity/groups/{group}/members", params: ["group"], public: false },
   add_group_member: { method: "PUT", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
   remove_group_member: { method: "DELETE", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
@@ -3846,11 +3882,11 @@ export type Responses = {
   approvals: ApprovalList;
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
   request_approval: ApprovalDto;
-  /** Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once. */
+  /** Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API tokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once. */
   approve_request: ApprovalDto;
   /** Withdraws your own pending request. Needs `approval.request`. */
   cancel_request: ApprovalDto;
-  /** Rejects a request. Needs `approval.grant`. */
+  /** Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused). */
   reject_request: ApprovalDto;
   /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
@@ -3910,15 +3946,17 @@ export type Responses = {
   identity_audit: AuditList;
   /** Grants a person a platform role for a short time, with a recorded reason (break-glass). You cannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`. */
   grant_emergency_access: AssignmentDto;
-  /** Creates or adopts the environment's Incus project now (idempotent): the restricted project with its default profile, granted to the deploy identity, then the quotas mirrored. Needs `environment.manage` on the environment's project; 503 without an admin identity. */
+  /** Creates or adopts the environment's Incus project now (idempotent): the restricted project with its default profile, granted to the deploy identity, then the quotas mirrored. An existing project is adopted only when it carries this environment's marker or a platform administrator named it when creating the environment; otherwise 409 `incus_project_exists`. Needs `environment.manage` on the environment's project; 503 without an admin identity. */
   prepare_incus_project: IncusProjectPrepared;
   /** Groups the caller may see. Needs `user.view`. */
   groups: GroupList;
-  /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to an identity-provider group name is platform-only. */
+  /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to a group of an identity provider or directory is platform-only and needs the source (`externalSource`): only that source's credentials map onto it, and a directory group is named by its full DN. */
   create_group: GroupDto;
+  /** Maps a platform group onto a group of an identity provider or directory, or sets the source of a mapping made before sources were recorded (`needsSource`). Needs platform `group.manage`, and, since the source's members then receive the group's roles, the right to grant each of them (the escalation guard; `membership_refused`). A directory group is named by its full DN. */
+  set_group_external: GroupDto;
   /** Members of a group. Needs `user.view` or `group.manage` on the group's organisation. */
   group_members: UserList;
-  /** Adds a person to a group. Needs `group.manage`. */
+  /** Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles, the right to grant each of them to that person (the same escalation guard as a direct assignment; refused with `membership_refused`). */
   add_group_member: null;
   /** Removes a person from a group; their access through it ends on their next request. Needs `group.manage`. */
   remove_group_member: null;
@@ -3948,7 +3986,7 @@ export type Responses = {
   projects_list: IdentityProjectList;
   /** Environments of a project. Needs `project.view` on it. */
   environments: EnvironmentList;
-  /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators may map an existing one. Needs `environment.manage`. */
+  /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators (`cluster.manage`) may map an existing one. When the derived project already exists and Apelora did not create it for this environment, nothing is created: 409 `incus_project_exists`. Needs `environment.manage`. */
   create_environment: EnvironmentDto;
   /** A scope's quota and use. Needs `organization.view` (organisation) or `project.view` (project, environment) on it, or `quota.manage`. */
   quota: QuotaView;
@@ -4211,6 +4249,7 @@ export type Bodies = {
   prepare_incus_project: never;
   groups: never;
   create_group: NewGroup;
+  set_group_external: GroupExternal;
   group_members: never;
   add_group_member: never;
   remove_group_member: never;

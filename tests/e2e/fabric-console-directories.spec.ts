@@ -21,7 +21,7 @@ const LAB = {
 const DOWN = { ...LAB, id: uid(301), name: "Branch office", url: "ldap://ldap.branch.example.org:389", startTls: true, groupAttribute: null, groupBaseDn: "ou=groups,dc=branch", groupFilter: "(member={dn})", reachable: false, problem: "certificate-untrusted", error: "the directory's certificate is not trusted: add the certificate authority that signed it (PEM)" };
 const OLD = { ...LAB, id: uid(302), name: "Old forest", url: "ldaps://old.example.org", enabled: false, reachable: false, groupAttribute: null };
 const settings = (directories: unknown[]) => ({ json: { providers: [], apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: { enabled: false, ready: 0, pending: 0 }, directories } });
-const CHECK_OK = { json: { ok: true, problem: null, message: "signed in as ada and read the entry with 2 groups", entry: { dn: "uid=ada,ou=people,dc=example,dc=org", subject: "0b6a7c1e-1111-4c1a-9f00-000000000001", username: "ada", email: "ada@example.org", displayName: "Ada Admin", groups: ["dev-admins", "dev-operators"], mappedGroups: ["Platform admins"] } }, delayMs: 300 };
+const CHECK_OK = { json: { ok: true, problem: null, message: "signed in as ada and read the entry with 2 groups", entry: { dn: "uid=ada,ou=people,dc=example,dc=org", subject: "0b6a7c1e-1111-4c1a-9f00-000000000001", username: "ada", email: "ada@example.org", displayName: "Ada Admin", groups: ["cn=dev-admins,ou=groups,dc=example,dc=org", "cn=dev-operators,ou=groups,dc=example,dc=org"], mappedGroups: ["Platform admins"] } }, delayMs: 300 };
 
 test("lists directories with their status in words", { tag: "@smoke" }, async ({ page }) => {
   await stub(page, { ...base(), "GET /api/v1/identity/sign-in": settings([LAB, DOWN, OLD]) });
@@ -78,7 +78,7 @@ test("adding refuses plain LDAP, checks a test sign-in without saving the passwo
   await expect(dialog.getByTestId("directory-check-run")).toHaveText("Checking…");
   const ok = dialog.getByTestId("directory-check-ok");
   await expect(ok).toContainText("Signed in as Ada Admin");
-  await expect(ok).toContainText("dev-admins, dev-operators");
+  await expect(ok).toContainText("cn=dev-admins,ou=groups,dc=example,dc=org, cn=dev-operators,ou=groups,dc=example,dc=org");
   await expect(dialog.getByTestId("directory-check-mapped")).toHaveText("Platform admins");
   expect(countOf(calls, "POST /api/v1/identity/sign-in/directories")).toBe(0);
 
@@ -93,7 +93,8 @@ test("adding refuses plain LDAP, checks a test sign-in without saving the passwo
     baseDn: null, userFilter: null, idAttribute: "entryUUID", usernameAttribute: "uid", emailAttribute: "mail", nameAttribute: "cn",
     groupAttribute: "memberOf", groupBaseDn: null, groupFilter: null, groupNameAttribute: "cn", enabled: true,
   };
-  expect(bodyOf(calls, "POST /api/v1/identity/sign-in/directories/check")).toEqual([{ settings: settingsSent, username: "ada", password: "test-password-9" }]);
+  // Not saved yet: no directory, so no group mappings to show.
+  expect(bodyOf(calls, "POST /api/v1/identity/sign-in/directories/check")).toEqual([{ settings: settingsSent, directory: null, username: "ada", password: "test-password-9" }]);
   const saved = bodyOf(calls, "POST /api/v1/identity/sign-in/directories");
   expect(saved).toEqual([{ ...settingsSent, groupBaseDn: "ou=groups,dc=example,dc=org" }]);
   expect(JSON.stringify(saved)).not.toContain("test-password-9");
@@ -144,7 +145,9 @@ test("row actions: check from the edit dialog, edit, turn off, and remove with t
   await check.getByTestId("directory-check-password").fill("pw-1");
   await check.getByTestId("directory-check-run").click();
   await expect(check.getByTestId("directory-check-ok")).toContainText("Signed in as Ada Admin");
-  expect((bodyOf(calls, "POST /api/v1/identity/sign-in/directories/check")[0] as { settings: { url: string } }).settings.url).toBe(LAB.url);
+  const checked = bodyOf(calls, "POST /api/v1/identity/sign-in/directories/check")[0] as { settings: { url: string }; directory: string | null };
+  expect(checked.settings.url).toBe(LAB.url);
+  expect(checked.directory, "a saved directory's mappings are the ones shown").toBe(LAB.id);
   await check.getByRole("button", { name: "Cancel" }).click();
   await expect(check).toBeHidden();
   expect(countOf(calls, `PUT /api/v1/identity/sign-in/directories/${LAB.id}`)).toBe(0);

@@ -1,14 +1,7 @@
 # Update Apelora without internet access
 
-**Evidence:** the bundle part is tested locally (2026-10-21, macOS): `scripts/release/bundle.sh`
-built and signed a bundle with a throwaway key, and `scripts/release/verify.sh` accepted it,
-offline, and refused it after a file was changed, a file was added, the signature was removed,
-`SHA256SUMS` was edited, the signer was not allowed, or the archive held a link.
-`scripts/ops/upgrade.sh` prints the staged order (worker stopped before the control plane) and,
-with `APPLY=1`, copies `bin/` and `web/` into a prefix while keeping the previous copies for
-`ROLLBACK=1`. That copy and the file rollback are tested by `scripts/ops/test-upgrade.sh`.
-Stopping the units, starting them, and restoring PostgreSQL are **NOT YET VERIFIED** on an
-installation: follow them with care and record the result here.
+Use this page to move an installation without internet access to a new Apelora release, from a
+signed bundle carried in on approved media, with a way back if the check fails.
 
 Decision: [ADR 0010](../adr/0010-disconnected-installations.md). Checklist:
 [running without internet access](../architecture/DISCONNECTED.md).
@@ -100,3 +93,9 @@ the worker.
 
 An older control plane refuses to start on a database migrated by a newer one, which is why the
 database is restored before the old binaries start.
+
+## Before you rely on it
+
+- Checking the bundle, and copying and rolling back the files, have been tested. Stopping and
+  starting the services and restoring PostgreSQL, as in steps 3, 5 and 7, have not yet been carried
+  out on an installation. Rehearse the whole update once on a test installation.

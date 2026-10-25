@@ -35,7 +35,7 @@ use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{HeaderValue, Method, StatusCode, header};
+use axum::http::{Extensions, HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
@@ -216,7 +216,7 @@ pub fn client_ip(peer: IpAddr, forwarded_for: Option<&str>, trusted: &[Cidr]) ->
 }
 
 /// The bucket key for an address: IPv4 as is, IPv6 by its /64.
-fn bucket_key(ip: IpAddr) -> IpAddr {
+pub(super) fn bucket_key(ip: IpAddr) -> IpAddr {
     match canonical(ip) {
         IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & (u128::MAX << 64))),
         v4 => v4,
@@ -371,9 +371,14 @@ impl Limiter {
     }
 
     fn client(&self, req: &Request) -> Option<IpAddr> {
-        let peer = req.extensions().get::<ConnectInfo<SocketAddr>>()?.0.ip();
-        let forwarded = req
-            .headers()
+        self.client_of(req.extensions(), req.headers())
+    }
+
+    /// The client address of a request (see the module notes): the peer, or what a trusted
+    /// proxy forwarded for. `None` without connection information.
+    pub fn client_of(&self, extensions: &Extensions, headers: &HeaderMap) -> Option<IpAddr> {
+        let peer = extensions.get::<ConnectInfo<SocketAddr>>()?.0.ip();
+        let forwarded = headers
             .get_all("x-forwarded-for")
             .iter()
             .filter_map(|v| v.to_str().ok())

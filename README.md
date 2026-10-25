@@ -77,14 +77,20 @@ Results are labelled by how they were checked: **REAL INCUS TESTED** (on the dis
 
 ## Quick start
 
-The designer runs in the browser. On its own it uses mock data and deploys nothing.
+Try the designer in your browser first, then deploy to a small Incus cluster that runs in virtual machines on your workstation. You need Node.js 22 or later; the second part also needs Docker, the Rust toolchain and an Apple Silicon Mac with [Lima](https://lima-vm.io).
+
+### 1. Try the designer
 
 ```sh
 npm install
 npm run dev          # Studio at http://127.0.0.1:5173
 ```
 
-To deploy for real, start PostgreSQL, the control plane and a disposable Incus cluster (Lima VMs on your workstation, standing in for physical servers):
+Open <http://127.0.0.1:5173>. On its own, the Studio uses sample data and deploys nothing.
+
+### 2. Deploy to a cluster on your workstation
+
+Start PostgreSQL, a disposable Incus cluster (Lima virtual machines standing in for physical servers), the control plane and the Fabric Console:
 
 ```sh
 docker compose -f infra/dev/compose.yaml up -d       # PostgreSQL on 127.0.0.1:15432
@@ -94,7 +100,22 @@ cargo run -p apelora-control-plane                   # API at http://127.0.0.1:8
 npm run dev:console                                  # Fabric Console at http://127.0.0.1:5174
 ```
 
-No hardware needed: [testing without hardware](docs/guides/testing-without-hardware.md) says what the lab proves and what it cannot. The full walkthrough, including API tokens and adding cluster members, is in [docs/development/TEST-CLUSTER.md](docs/development/TEST-CLUSTER.md). How to sign in (development mode, API tokens, your organisation's identity provider) is in [docs/guides/signing-in.md](docs/guides/signing-in.md).
+### 3. Sign in
+
+Create an administrator token in another terminal. It is shown only once:
+
+```sh
+cargo run -p apelora-control-plane -- token create --name me --role fabric-admin
+```
+
+Open the Fabric Console at <http://127.0.0.1:5174> and paste the token. The Servers page lists the cluster's members.
+
+### Next
+
+- [Testing without hardware](docs/guides/testing-without-hardware.md): what you can try on one workstation, and what needs real servers.
+- [Test cluster walkthrough](docs/development/TEST-CLUSTER.md): more members, OVN networking, shared storage.
+- [Signing in](docs/guides/signing-in.md): development mode, API tokens, your organisation's identity provider.
+- On your own servers: [servers and network](docs/guides/servers-and-network.md), then [install Incus](docs/guides/install-incus.md), then [install Apelora Fabric](docs/guides/installing-apelora.md).
 
 ### Checks
 

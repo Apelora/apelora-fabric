@@ -16,3 +16,14 @@ containerd:
 # eth0 (user-v2): the network the members reach each other on.
 networks:
   - lima: user-v2
+portForwards:
+  # Forward nothing (see incus-vm.yaml): the iSCSI target is reached over the VMs' own network.
+  - guestIP: 0.0.0.0
+    guestIPMustBeZero: false
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true
+  - guestIP: 127.0.0.1
+    guestPortRange: [1, 65535]
+    proto: any
+    ignore: true

@@ -1460,6 +1460,78 @@ async fn disabling_an_account_ends_its_running_session(pool: Pool) {
     assert_eq!(closed_reason(&mut ws).await, "access-revoked");
 }
 
+/// A terminal opened with an Apelora sign-in (`apu_`) lives no longer than that sign-in: signing
+/// out, an administrator ending it, or a password reset ends the terminal at the next re-check.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn ending_the_sign_in_that_opened_a_session_ends_the_session(pool: Pool) {
+    use super::sessions_auth_tests::{create, session, set_up};
+    let r = rig(pool).await;
+    let admin = &r.s.w.admin;
+    let (s, b) =
+        r.l.req(
+            "PUT",
+            "/api/v1/identity/sign-in/local-accounts",
+            admin,
+            Some(json!({ "enabled": true })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let (lena, link) = create(&r.l.state, admin, "lena").await;
+    let password = "correct horse battery";
+    assert_eq!(
+        set_up(&r.l.state, &link, password).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let (s, b) =
+        r.l.grant(
+            admin,
+            lena,
+            "instance-access",
+            json!({ "type": "project", "id": r.s.w.acme_prod }),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let addr = serve(r.l.state.clone().with_console(ConsoleSettings {
+        recheck: Duration::from_millis(150),
+        ..ConsoleSettings::default()
+    }))
+    .await;
+    let open = |token: String| {
+        let r = &r;
+        async move {
+            let approval = r.approval(&token, WEB).await;
+            let (s, t) = r
+                .open_with(&token, WEB, &[("apelora-approval", &approval)])
+                .await;
+            assert_eq!(s, StatusCode::CREATED, "{t}");
+            let mut ws = connect_ws(addr, &protocols(&t), None).await.unwrap();
+            read_until(&mut ws, "$ ").await;
+            ws
+        }
+    };
+
+    // Signing out.
+    let token = session(&r.l.state, "lena", password).await;
+    let mut ws = open(token.clone()).await;
+    let (s, b) = r.l.req("POST", "/api/v1/sign-out", &token, None).await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "{b}");
+    assert_eq!(closed_reason(&mut ws).await, "access-revoked");
+
+    // A password reset by an administrator (which revokes every sign-in of the person).
+    let token = session(&r.l.state, "lena", password).await;
+    let mut ws = open(token).await;
+    let (s, b) =
+        r.l.req(
+            "POST",
+            &format!("/api/v1/identity/local-accounts/{lena}/reset"),
+            admin,
+            None,
+        )
+        .await;
+    assert!(s.is_success(), "{s} {b}");
+    assert_eq!(closed_reason(&mut ws).await, "access-revoked");
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn only_the_owner_or_an_operator_can_end_a_session(pool: Pool) {
     let r = rig(pool).await;

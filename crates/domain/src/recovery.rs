@@ -310,6 +310,7 @@ mod tests {
             }),
             evacuate: None,
             unreachable: location == "m2",
+            built_from: None,
             limits: Default::default(),
         }
     }

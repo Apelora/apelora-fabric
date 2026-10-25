@@ -2,6 +2,13 @@
   "generatedBy": "npm run catalog:doc (packages/module-catalog/src/images.ts); do not edit by hand",
   "images": [
     {
+      "class": "resolver",
+      "displayName": "Resolver",
+      "protocol": "simplestreams",
+      "server": "https://images.linuxcontainers.org",
+      "alias": "debian/13"
+    },
+    {
       "class": "nginx",
       "displayName": "NGINX",
       "setting": "channel = stable",
@@ -20,13 +27,6 @@
     {
       "class": "linux-base",
       "displayName": "Linux base",
-      "protocol": "simplestreams",
-      "server": "https://images.linuxcontainers.org",
-      "alias": "debian/13"
-    },
-    {
-      "class": "resolver",
-      "displayName": "Resolver",
       "protocol": "simplestreams",
       "server": "https://images.linuxcontainers.org",
       "alias": "debian/13"

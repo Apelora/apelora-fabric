@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createEmptyAssembly, type ApplicationAssembly } from "@apelora/assembly-model";
 
 import { useBackend } from "../../features/applications/backend";
+import { useLive } from "../../features/deploy/live";
 import type { DesignerBinding } from "../../features/applications/draftSync";
 import { assemblyFromDocument } from "../../features/applications/document";
 import { useAppDetail } from "../../features/applications/hooks";
@@ -46,6 +47,14 @@ function DesignerTab({ detail, onChanged }: { detail: AppDetailView; onChanged: 
   const [load, setLoad] = useState<DraftLoad>({ kind: "loading" });
   const [publishing, setPublishing] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // A deployed application's canvas shows what runs, however it was opened (not only right after deploying here).
+  const project = detail.application.environment?.incusProject ?? detail.application.project.slug;
+  const deployed = backend.kind === "api" && detail.application.deployment.deployedVersion != null;
+  useEffect(() => {
+    if (!deployed) return;
+    useLive.getState().watch(name, project);
+    return () => useLive.getState().stop();
+  }, [deployed, name, project]);
   useEffect(() => {
     let live = true;
     setLoad({ kind: "loading" });

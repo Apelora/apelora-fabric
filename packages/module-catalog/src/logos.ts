@@ -6,4 +6,4 @@ export function logoUrl(icon: string): string | undefined {
 }
 
 /** Original, trademark-free icons offered when designing a custom module. */
-export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "generic-network", "generic-window", "generic-desktop", "generic-directory", "generic-passkey", "gateway", "haproxy", "linux-base"] as const;
+export const GENERIC_ICONS = ["generic-box", "generic-server", "generic-database", "generic-shield", "generic-queue", "generic-chart", "generic-network", "generic-window", "generic-desktop", "generic-directory", "generic-passkey", "generic-router", "generic-dns", "generic-log", "generic-key", "generic-mail", "generic-pipeline", "gateway", "haproxy", "linux-base"] as const;

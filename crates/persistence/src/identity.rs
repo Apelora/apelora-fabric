@@ -571,29 +571,122 @@ pub struct GroupRow {
     pub organization_id: Option<Uuid>,
     pub name: String,
     pub external_name: Option<String>,
+    /// Who may assert membership of the external group: an OpenID Connect issuer, or
+    /// `directory:<id>`. `None` on a mapping made before sources were recorded (migration 0033):
+    /// it matches nothing until an administrator sets the source.
+    pub external_source: Option<String>,
     pub description: String,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: OffsetDateTime,
 }
 
-const GROUP_COLS: &str = "id, organization_id, name, external_name, description, created_at";
+const GROUP_COLS: &str =
+    "id, organization_id, name, external_name, external_source, description, created_at";
+
+/// A group outside Apelora that a group mirrors: its name as `source` spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExternalGroup<'a> {
+    /// An OpenID Connect issuer, or `directory:<id>`.
+    pub source: &'a str,
+    /// The group's name in the source's tokens, or a directory group's full DN.
+    pub name: &'a str,
+}
+
+/// The source of a directory's groups, as recorded with a mapping and a session.
+pub fn directory_source(directory: Uuid) -> String {
+    format!("directory:{directory}")
+}
 
 pub async fn create_group(
     db: impl sqlx::PgExecutor<'_>,
     organization_id: Option<Uuid>,
     name: &str,
-    external_name: Option<&str>,
+    external: Option<ExternalGroup<'_>>,
     description: &str,
 ) -> Result<GroupRow> {
-    sqlx::query_as(&format!("INSERT INTO groups (id, organization_id, name, external_name, description) VALUES ($1,$2,$3,$4,$5) RETURNING {GROUP_COLS}"))
+    sqlx::query_as(&format!("INSERT INTO groups (id, organization_id, name, external_name, external_source, description) VALUES ($1,$2,$3,$4,$5,$6) RETURNING {GROUP_COLS}"))
         .bind(Uuid::new_v4())
         .bind(organization_id)
         .bind(name)
-        .bind(external_name)
+        .bind(external.map(|e| e.name))
+        .bind(external.map(|e| e.source))
         .bind(description)
         .fetch_one(db)
         .await
-        .map_err(|e| db_conflict(e, "a group with that name or identity-provider name"))
+        .map_err(|e| db_conflict(e, "a group with that name, or a mapping of that source's group"))
+}
+
+/// Maps a group onto a group of `external.source` (or changes the mapping).
+pub async fn set_group_external(
+    db: impl sqlx::PgExecutor<'_>,
+    id: Uuid,
+    external: ExternalGroup<'_>,
+) -> Result<GroupRow> {
+    sqlx::query_as(&format!(
+        "UPDATE groups SET external_name = $2, external_source = $3 WHERE id = $1 RETURNING {GROUP_COLS}"
+    ))
+    .bind(id)
+    .bind(external.name)
+    .bind(external.source)
+    .fetch_optional(db)
+    .await
+    .map_err(|e| db_conflict(e, "a mapping of that source's group"))?
+    .ok_or_else(|| StoreError::NotFound(format!("group {id}")))
+}
+
+/// Gives mappings made before sources were recorded (migration 0033) a source, once: only when
+/// the caller found exactly one source, and only the first time it is asked (the marker in
+/// `platform_settings` goes from `pending` to `done` in the same transaction, with an audit row
+/// `group.sources.backfill` by the control plane). Returns how many mappings were bound, or
+/// `None` when it had run already.
+pub async fn backfill_group_sources(
+    pool: &PgPool,
+    only_source: Option<&str>,
+) -> Result<Option<u64>> {
+    let mut tx = pool.begin().await?;
+    let claimed = sqlx::query(
+        "UPDATE platform_settings SET value = '\"done\"'::jsonb, updated_at = now(), updated_by = 'control-plane'
+         WHERE key = 'identity.group_sources_backfill' AND value = '\"pending\"'::jsonb",
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if claimed == 0 {
+        return Ok(None);
+    }
+    let bound = match only_source {
+        Some(source) => {
+            sqlx::query(
+                "UPDATE groups SET external_source = $1 WHERE external_name IS NOT NULL AND external_source IS NULL",
+            )
+            .bind(source)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        }
+        None => 0,
+    };
+    let unbound: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM groups WHERE external_name IS NOT NULL AND external_source IS NULL",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    audit_event(
+        &mut *tx,
+        &AuditEntry {
+            actor: "control-plane",
+            actor_type: "system",
+            actor_name: None,
+            action: "group.sources.backfill",
+            target: only_source.unwrap_or("-"),
+            outcome: "success",
+            scope: None,
+            detail: &json!({ "bound": bound, "source": only_source, "stillWithoutSource": unbound }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Some(bound))
 }
 
 pub async fn group(pool: &PgPool, id: Uuid) -> Result<Option<GroupRow>> {
@@ -648,14 +741,25 @@ pub async fn group_members(pool: &PgPool, group_id: Uuid) -> Result<Vec<UserRow>
     Ok(sqlx::query_as(&format!("SELECT {USER_COLS} FROM users WHERE id IN (SELECT user_id FROM group_members WHERE group_id = $1) ORDER BY username NULLS LAST")).bind(group_id).fetch_all(pool).await?)
 }
 
-/// Groups a person belongs to: by local membership and by the group names in their token.
+/// Groups a person belongs to: by local membership, and by the group names their credential
+/// carries, matched only against mappings of the credential's own `source` (its issuer, or
+/// `directory:<id>`). Without a source, or for a mapping without one, names match nothing.
 pub async fn groups_of(
     pool: &PgPool,
     user_id: Uuid,
+    source: Option<&str>,
     token_groups: &BTreeSet<String>,
 ) -> Result<BTreeSet<Uuid>> {
     let names: Vec<String> = token_groups.iter().cloned().collect();
-    let rows = sqlx::query("SELECT id FROM groups WHERE id IN (SELECT group_id FROM group_members WHERE user_id = $1) OR external_name = ANY($2)").bind(user_id).bind(names).fetch_all(pool).await?;
+    let rows = sqlx::query(
+        "SELECT id FROM groups WHERE id IN (SELECT group_id FROM group_members WHERE user_id = $1)
+            OR ($3::text IS NOT NULL AND external_source = $3 AND external_name = ANY($2))",
+    )
+    .bind(user_id)
+    .bind(names)
+    .bind(source)
+    .fetch_all(pool)
+    .await?;
     Ok(rows.into_iter().map(|r| r.get("id")).collect())
 }
 

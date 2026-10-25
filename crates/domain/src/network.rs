@@ -678,9 +678,79 @@ pub fn ipv4_range_within(inner: &str, outer: &str) -> bool {
     }
 }
 
+/// Incus 7.0 refuses every load balancer change in the cluster while a member it must notify
+/// cannot be reached (`peer node <address> is down`), so a service address keeps sending to the
+/// replicas it had. Returns that member's address (`host:port`) when `error` is this refusal.
+pub fn offline_member_blocking(error: &str) -> Option<&str> {
+    let (_, rest) = error.split_once("peer node ")?;
+    let (address, _) = rest.split_once(" is down")?;
+    (!address.is_empty() && !address.contains(char::is_whitespace)).then_some(address)
+}
+
+/// The member Incus reaches at `address` (`host:port`, as in [`offline_member_blocking`]).
+pub fn member_at<'a>(
+    members: &'a [crate::ClusterMember],
+    address: &str,
+) -> Option<&'a crate::ClusterMember> {
+    members.iter().find(|m| {
+        let url = m.url.trim_end_matches('/');
+        url.strip_prefix("https://").unwrap_or(url) == address
+    })
+}
+
+/// How [`traffic_blocked_reason`] begins, so a recorded job error can be recognised.
+pub const TRAFFIC_BLOCKED: &str = "Traffic cannot move to replacement replicas";
+
+/// What an operator reads while [`offline_member_blocking`] holds; `member` is its name when known.
+pub fn traffic_blocked_reason(member: &str) -> String {
+    format!(
+        "{TRAFFIC_BLOCKED}: Incus refuses load balancer changes while {member} is unreachable. Bring it back, or remove it from the cluster (runbook: Member failure)."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_because_a_member_is_unreachable_names_that_member() {
+        let e = "Incus API error 500: PUT /1.0/networks/fo/load-balancers/198.18.100.1?project=apelora: Failed updating load balancer: peer node 192.168.104.3:8443 is down";
+        assert_eq!(offline_member_blocking(e), Some("192.168.104.3:8443"));
+        assert_eq!(
+            offline_member_blocking("Incus API error 500: peer node [fd00::3]:8443 is down"),
+            Some("[fd00::3]:8443")
+        );
+        for other in [
+            "Incus API error 404: not found",
+            "peer node  is down",
+            "peer node 10.0.0.1:8443 is slow",
+            "",
+        ] {
+            assert_eq!(offline_member_blocking(other), None, "{other}");
+        }
+        let member = |name: &str, url: &str| crate::ClusterMember {
+            name: name.into(),
+            url: url.into(),
+            roles: vec![],
+            status: "Online".into(),
+            message: String::new(),
+            architecture: "aarch64".into(),
+            failure_domain: "default".into(),
+            database: true,
+            groups: vec![],
+            scheduler: "all".into(),
+        };
+        let members = [
+            member("test-1", "https://192.168.104.2:8443"),
+            member("test-2", "https://192.168.104.3:8443/"),
+        ];
+        assert_eq!(
+            member_at(&members, "192.168.104.3:8443").map(|m| m.name.as_str()),
+            Some("test-2")
+        );
+        assert!(member_at(&members, "192.168.104.9:8443").is_none());
+        assert!(traffic_blocked_reason("test-2").contains("while test-2 is unreachable"));
+    }
 
     #[test]
     fn intended_acls_are_what_sync_writes_and_drift_ignores_order() {

@@ -15,11 +15,14 @@ export const MON_DESCRIPTION = "Metrics a collector reads through its scrape inp
 /** The metrics output (`mon`): last on the right, optional, any number of collectors. Only for classes whose metrics a collector can read as text on a port (`readableMetrics`). */
 export const MON = (id = "mon"): Port => p(id, "mon", "output", "metrics", MON_DESCRIPTION, { optional: true, multiplicity: "many" });
 
+/** A built-in class before it is placed in the taxonomy (`taxonomy.ts` gives its category and subcategory). */
+export type ClassDef = Omit<ModuleClass, "category" | "subcategory">;
+
 export const cls = (
-  id: string, displayName: string, category: ModuleClass["category"], summary: string, icon: string,
+  id: string, displayName: string, summary: string, icon: string,
   ports: Port[], cpu: number, memoryMiB: number, properties: Property[] = [],
-): ModuleClass => ({
-  id, version: "1.0.0", displayName, category, summary, iconAssetPath: icon,
+): ClassDef => ({
+  id, version: "1.0.0", displayName, summary, iconAssetPath: icon,
   runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports: ports.some((q) => q.id === "net") ? ports : [...ports, { ...NIC }], resources: { cpu, memoryMiB }, ...(properties.length ? { properties } : {}),
 });
 

@@ -1,15 +1,8 @@
 # Back up and restore Apelora's own database
 
-Decision: [ADR 0011](../adr/0011-one-design-every-size.md) decision 6 (backed up outside the cluster, restores drilled) and decision 7 (a small installation may run its plane on the cluster it manages, so the plane must be restorable onto any Linux host). Scripts: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, `scripts/ops/db-restore-new-host.sh`, `scripts/ops/wal-archive.sh`, `scripts/ops/wal-restore.sh`, `scripts/ops/db-basebackup.sh`. Self-tests: `scripts/ops/test-db-backup.sh`, `scripts/ops/test-db-archive.sh`, `scripts/ops/test-db-restore-host.sh`, `scripts/ops/test-db-units.sh`.
+This page backs up Apelora's own database outside the cluster, proves each backup with a restore drill, and restores the control plane onto a new host when its host is lost. You need shell access to a host that reaches PostgreSQL, and storage that does not depend on the cluster.
 
-**Evidence (2026-10-23, PostgreSQL 18.6):**
-
-- Logical backup, scratch restore, retention, a damaged file refused, `openssl cms`, and `age` 1.3.2: the dev database on this workstation, client tools from `postgres:18-alpine`. The `age` drill decrypted, restored and verified. CI runs the same self-test, and requires `age` to be installed.
-- Continuous archiving, on a throwaway PostgreSQL 18.6 that was removed afterwards: `archive_command` stored a completed segment, `pg_stat_archiver.failed_count` stayed 0, a base backup used `--wal-method=none`, and recovery into a new data directory returned a row that was written only after that backup. The source server was stopped before the new data directory started.
-- Logical restore onto another PostgreSQL (a second server on `127.0.0.1:15442`, not the dev database's port): 29 migrations and 196 audit rows came back, and the dev database still had 196 audit rows. Restoring into the live server, or into a database that already has tables, was refused.
-- The example backup and drill units are started by `test-db-units.sh` where systemd is running. That script is part of CI (ubuntu-24.04). It was not run on this workstation, which has no systemd, and it does not wait for 02:15 or Sunday 04:00.
-
-Not done: a production host, a second physical machine, and leaving the timers to fire on their own calendars. Issue #17 (the install-page control plane, worker and web server units, from a published release) is a different gap and stays open.
+Decision: [ADR 0011](../adr/0011-one-design-every-size.md) decision 6 (backed up outside the cluster, restores drilled) and decision 7 (a small installation may run its plane on the cluster it manages, so the plane must be restorable onto any Linux host). Scripts: `scripts/ops/db-backup.sh`, `scripts/ops/db-restore-drill.sh`, `scripts/ops/db-restore-new-host.sh`, `scripts/ops/wal-archive.sh`, `scripts/ops/wal-restore.sh`, `scripts/ops/db-basebackup.sh`.
 
 ## 1. What to back up, and what is not in the dump
 
@@ -105,7 +98,7 @@ With no recipient, the dump is written unencrypted (mode `0600`), and encryption
 
 ## 5. Schedule (systemd example)
 
-Example units are in [`infra/systemd/`](../../infra/systemd/): `apelora-db-backup.service` with `apelora-db-backup.timer` (02:15 UTC, 15 minutes of jitter), and `apelora-db-restore-drill.service` with `apelora-db-restore-drill.timer` (Sunday 04:00 UTC). Copy them to `/etc/systemd/system/`. CI parses every example unit, and `scripts/ops/test-db-units.sh` starts these two services and enables both timers on a systemd host. That has not been done on a production host, and the test does not wait for the calendar.
+Example units are in [`infra/systemd/`](../../infra/systemd/): `apelora-db-backup.service` with `apelora-db-backup.timer` (02:15 UTC, 15 minutes of jitter), and `apelora-db-restore-drill.service` with `apelora-db-restore-drill.timer` (Sunday 04:00 UTC). Copy them to `/etc/systemd/system/`.
 
 Enable both timers:
 
@@ -114,7 +107,7 @@ systemctl daemon-reload
 systemctl enable --now apelora-db-backup.timer apelora-db-restore-drill.timer
 ```
 
-**See it in the Console.** Set `APELORA_DB_BACKUP_DIR` on the control plane to the directory the backup script writes to (read access is enough; the dumps themselves may live elsewhere). *Administration → Apelora's database backups* then shows the newest backup (age, size, encryption), the last verified restore, and any failed drill, with warnings at 26 hours without a backup, 35 days without a verified restore, an unencrypted backup or an empty one, and a failing state at 72 hours, 70 days or a drill that failed after the last pass (`GET /api/v1/database-backups`, needs `cluster.view`). It only reads the scripts' records; it runs nothing. MOCK VERIFIED (records written in a temporary directory); not checked against a real scheduled run.
+**See it in the Console.** Set `APELORA_DB_BACKUP_DIR` on the control plane to the directory the backup script writes to (read access is enough; the dumps themselves may live elsewhere). *Administration → Apelora's database backups* then shows the newest backup (age, size, encryption), the last verified restore, and any failed drill, with warnings at 26 hours without a backup, 35 days without a verified restore, an unencrypted backup or an empty one, and a failing state at 72 hours, 70 days or a drill that failed after the last pass (`GET /api/v1/database-backups`, needs `cluster.view`). It only reads the scripts' records; it runs nothing.
 
 Alert on symptoms, not only on unit failures:
 - the newest `apelora-db-*.json` is older than 26 hours;
@@ -249,7 +242,8 @@ Changes in that window:
   - check sign-in settings.
 - **Machines and join tokens.** Machines enrolled after the backup must be enrolled again. Unused join tokens issued since then should be revoked in Incus.
 
-## Open points
+## Before you rely on it
 
-- The timers have not fired from their own calendars, and none of this has been run on a production host. A second physical machine has not been used: the new-host proof was a second PostgreSQL on the same workstation.
-- On 2026-10-24 `scripts/ops/test-db-plane.sh` did the next step on this workstation, still on throwaway PostgreSQL 18 servers (ports 15444 and 15445, not the development database, provider mock, no Incus). The restored database held the pending `instance.stop` from the backup and not a second job inserted afterwards. The control plane answered `GET /api/v1/health`. The worker claimed that job: one attempt, status `failed`, error `instance apelora/from-backup does not exist`, because that instance was never created. Comparing Incus with the restored records (§9) on a live cluster has not been done. Issue #17 stays open.
+- The scripts have been run against PostgreSQL 18, and the example units have been started on a test host. The timers have not yet run on their own schedule on a production host. Check the first scheduled backup and drill yourself (Administration → Apelora's database backups shows them).
+- Restoring onto a new host has been tried with a second PostgreSQL on the same machine, not on a second machine.
+- Starting the control plane and the worker on a restored database has been rehearsed on one machine without a cluster (`scripts/ops/test-db-plane.sh`): the jobs in the backup were picked up and later ones were absent. Reconciling what the backup missed against a live cluster (§9) has not been rehearsed. Rehearse the whole path once before you need it.

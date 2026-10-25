@@ -25,6 +25,8 @@ Playwright MCP is configured for Chromium in `.mcp.json` (restart Claude Code af
 6. **Cross-platform modifiers.** For additive selection use `click({ modifiers: ["ControlOrMeta"] })` and `keyboard.press("ControlOrMeta+…")`. A plain `Control`-click is a right-click on macOS, so such tests pass on Linux CI and fail on Mac.
 7. **Prove a regression test.** Before keeping an app fix, show the new test fails without it (e.g. `git stash` the fix, rerun). If the test passes without the fix, the fix is unproven: revert it and keep the test as coverage only.
 8. Fabric Console specs live in `tests/e2e/fabric-console.spec.ts` (project `console-1440`, base URL `:5174`); mock the API with `page.route("**/api/v1/…")` so tests never depend on a running backend.
+9. **Stubs hide wiring gaps.** A stubbed spec proves what a screen does with an answer, not that the screen asks for it in every way people arrive (the Studio's live overlay only worked right after deploying in the same page). Flows that matter end to end also go into `tests/lab/ui.spec.ts`, which drives the real control plane on the test cluster (`bash scripts/test-cluster/ui-e2e.sh`; never in CI). It runs on its own ports, so it never reuses a dev server.
+10. **`reuseExistingServer` reuses whatever answers on 5173/5174**, including a dev server started from another checkout or worktree, which then tests that code. Before trusting a run from a worktree, check which directory the server runs from (`lsof -a -p $(lsof -tiTCP:5173 -sTCP:LISTEN) -d cwd`).
 
 ## CI (`docs/development/CI.md`, skill `ci-pipeline`)
 

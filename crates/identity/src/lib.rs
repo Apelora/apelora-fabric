@@ -154,17 +154,12 @@ impl Verifier {
         jwks_url: &str,
         min_refresh: Duration,
     ) -> Result<Arc<Self>, TokenError> {
-        let local =
-            jwks_url.starts_with("http://127.0.0.1") || jwks_url.starts_with("http://localhost");
-        if !jwks_url.starts_with("https://") && !local {
+        if !secure_url(jwks_url) {
             return Err(TokenError::KeysUnavailable(
                 "the key set URL must use https".into(),
             ));
         }
-        let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(5))
-            .build()
-            .map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
+        let client = http_client()?;
         Ok(Arc::new(Self {
             cfg,
             keys: Keys::Remote {
@@ -208,11 +203,14 @@ impl Verifier {
                     let stale = c.fetched.is_none_or(|t| t.elapsed() >= *min_refresh);
                     if stale {
                         let fetched = async {
-                            let res = client.get(url).send().await?.error_for_status()?;
-                            res.json::<JwkSet>().await
+                            let res = client.get(url).send().await.map_err(|e| e.to_string())?;
+                            successful(res)?
+                                .json::<JwkSet>()
+                                .await
+                                .map_err(|e| e.to_string())
                         }
                         .await
-                        .map_err(|e| TokenError::KeysUnavailable(e.to_string()));
+                        .map_err(TokenError::KeysUnavailable);
                         apelora_metrics::IDP_KEY_FETCHES
                             .inc(&["key_set", if fetched.is_ok() { "ok" } else { "error" }]);
                         let fetched = fetched?;
@@ -400,12 +398,47 @@ pub struct Discovery {
     pub jwks_uri: String,
 }
 
-/// https, or plain http to this computer (a development identity provider).
+/// https, or plain http to this computer (a development identity provider). The URL is parsed:
+/// plain http needs a host that is exactly `localhost`, `127.0.0.1` or `::1`, without user
+/// information, so `http://localhost.example.org` or `http://127.0.0.1@example.org` are refused.
 pub fn secure_url(u: &str) -> bool {
-    u.starts_with("https://")
-        || u.starts_with("http://127.0.0.1")
-        || u.starts_with("http://localhost")
-        || u.starts_with("http://[::1]")
+    let Ok(url) = reqwest::Url::parse(u) else {
+        return false;
+    };
+    match url.scheme() {
+        "https" => url.host_str().is_some_and(|h| !h.is_empty()),
+        "http" => {
+            url.username().is_empty()
+                && url.password().is_none()
+                && url
+                    .host_str()
+                    .is_some_and(|h| matches!(h, "localhost" | "127.0.0.1" | "[::1]"))
+        }
+        _ => false,
+    }
+}
+
+/// The client for discovery documents and key sets: a short deadline, and no redirects, so a
+/// provider (or anything between) cannot send the request to an address `secure_url` never
+/// checked.
+fn http_client() -> Result<reqwest::Client, TokenError> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| TokenError::KeysUnavailable(e.to_string()))
+}
+
+/// A response with a success status, or the reason (a redirect is not followed and is refused).
+fn successful(res: reqwest::Response) -> Result<reqwest::Response, String> {
+    let status = res.status();
+    if status.is_success() {
+        Ok(res)
+    } else if status.is_redirection() {
+        Err(format!("HTTP {status}: redirects are not followed"))
+    } else {
+        Err(format!("HTTP {status}"))
+    }
 }
 
 /// Reads a provider's discovery document and checks that it names the same issuer and secure
@@ -424,21 +457,19 @@ async fn discover_once(issuer: &str) -> Result<(Discovery, usize), TokenError> {
             "the issuer must be an https:// URL".into(),
         ));
     }
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| TokenError::KeysUnavailable(e.to_string()))?;
+    let client = http_client()?;
     let unavailable =
-        |what: &str, e: reqwest::Error| TokenError::KeysUnavailable(format!("{what}: {e}"));
-    let doc: Discovery = client
+        |what: &str, e: &dyn std::fmt::Display| TokenError::KeysUnavailable(format!("{what}: {e}"));
+    let res = client
         .get(format!("{issuer}/.well-known/openid-configuration"))
         .send()
         .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| unavailable("discovery document", e))?
+        .map_err(|e| unavailable("discovery document", &e))?;
+    let doc: Discovery = successful(res)
+        .map_err(|e| unavailable("discovery document", &e))?
         .json()
         .await
-        .map_err(|e| unavailable("discovery document", e))?;
+        .map_err(|e| unavailable("discovery document", &e))?;
     if doc.issuer.trim_end_matches('/') != issuer {
         return Err(TokenError::KeysUnavailable(format!(
             "the provider calls itself {}, not {issuer}",
@@ -457,15 +488,16 @@ async fn discover_once(issuer: &str) -> Result<(Discovery, usize), TokenError> {
             "the provider names an insecure endpoint ({bad})"
         )));
     }
-    let keys: JwkSet = client
+    let res = client
         .get(&doc.jwks_uri)
         .send()
         .await
-        .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| unavailable("key set", e))?
+        .map_err(|e| unavailable("key set", &e))?;
+    let keys: JwkSet = successful(res)
+        .map_err(|e| unavailable("key set", &e))?
         .json()
         .await
-        .map_err(|e| unavailable("key set", e))?;
+        .map_err(|e| unavailable("key set", &e))?;
     Ok((doc, keys.keys.len()))
 }
 

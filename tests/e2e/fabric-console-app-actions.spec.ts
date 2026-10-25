@@ -54,7 +54,7 @@ test("a stop asks first, asks again when the server says clients lose service, a
     "POST /api/v1/applications/shop/operations": (req) => {
       const body = req.postDataJSON() as { action: string; confirmDisruption?: boolean };
       sent.push(body);
-      if (!body.confirmDisruption) return { status: 409, json: { error: { code: "confirmation_required", message: "stop will interrupt service for clients of db (stateful). Send confirmDisruption to proceed; data is kept." } } };
+      if (!body.confirmDisruption) return { status: 409, json: { error: { code: "confirmation_required", message: "Stopping shop interrupts service for clients of db (stateful). Data is kept." } } };
       return { status: 202, json: { created: true, operation: operation("running", 0) } };
     },
     "GET /api/v1/applications/shop/operations/44444444-4444-4444-8444-444444444444": () => { polls++; return { json: polls < 2 ? operation("running", 1) : operation("succeeded", 2, { finishedAt: now }) }; },

@@ -22,10 +22,12 @@ pub struct SessionRecord {
     /// `password` or `directory`.
     pub method: String,
     pub external_groups: Vec<String>,
+    /// Where `external_groups` come from (`directory:<id>`); `None`: they map onto nothing.
+    pub group_source: Option<String>,
     pub expires_at: OffsetDateTime,
 }
 
-const COLS: &str = "id, user_id, method, external_groups, expires_at";
+const COLS: &str = "id, user_id, method, external_groups, group_source, expires_at";
 
 /// Creates a session that lasts at most `absolute_secs`; returns the token (only here) and the
 /// record. Also forgets sessions that ended more than a week ago.
@@ -33,17 +35,25 @@ pub async fn create_session(
     pool: &Pool,
     user_id: Uuid,
     method: &str,
-    external_groups: &[String],
+    groups: SessionGroups<'_>,
     absolute_secs: i64,
 ) -> Result<(String, SessionRecord)> {
     create_session_in(
         &mut *pool.acquire().await?,
         user_id,
         method,
-        external_groups,
+        groups,
         absolute_secs,
     )
     .await
+}
+
+/// The external groups a session carries, and the source that named them.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SessionGroups<'a> {
+    pub names: &'a [String],
+    /// `directory:<id>`; `None` when there are no external groups.
+    pub source: Option<&'a str>,
 }
 
 /// [`create_session`] inside the caller's transaction (`&mut tx`), so it commits or rolls back
@@ -52,19 +62,20 @@ pub async fn create_session_in(
     conn: &mut sqlx::PgConnection,
     user_id: Uuid,
     method: &str,
-    external_groups: &[String],
+    groups: SessionGroups<'_>,
     absolute_secs: i64,
 ) -> Result<(String, SessionRecord)> {
     let token = random_secret(PREFIX)?;
     let rec = sqlx::query_as::<_, SessionRecord>(&format!(
-        "INSERT INTO user_sessions (id, user_id, token_hash, method, external_groups, expires_at)
-         VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6)) RETURNING {COLS}"
+        "INSERT INTO user_sessions (id, user_id, token_hash, method, external_groups, group_source, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7)) RETURNING {COLS}"
     ))
     .bind(Uuid::new_v4())
     .bind(user_id)
     .bind(hash(&token))
     .bind(method)
-    .bind(external_groups)
+    .bind(groups.names)
+    .bind(groups.source)
     .bind(absolute_secs as f64)
     .fetch_one(&mut *conn)
     .await?;
@@ -99,6 +110,20 @@ pub async fn authenticate_session(
     .bind(hash(presented))
     .bind(idle_secs as f64)
     .fetch_optional(pool)
+    .await?)
+}
+
+/// Is the session still live: not revoked (sign-out, an administrator, a password reset or
+/// change, the person disabled) and before its absolute expiry? Unlike
+/// [`authenticate_session`] it neither records a use nor applies the idle limit: it answers for
+/// something the session opened, such as a terminal, that is itself in use.
+pub async fn session_is_live(pool: &Pool, id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM user_sessions s JOIN users u ON u.id = s.user_id
+           WHERE s.id = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.disabled_at IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(pool)
     .await?)
 }
 

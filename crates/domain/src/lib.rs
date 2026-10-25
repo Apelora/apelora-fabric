@@ -135,7 +135,15 @@ pub struct Instance {
     /// `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub limits: std::collections::BTreeMap<String, String>,
+    /// What the instance was built from ([`SPEC_KEY`], [`plan::spec_fingerprint`]); `None` for an
+    /// instance created before Apelora recorded it. Read by the planner, not part of the API.
+    #[serde(skip)]
+    pub built_from: Option<String>,
 }
+
+/// Instance config key with what an instance was built from ([`plan::spec_fingerprint`]),
+/// written when it is created.
+pub const SPEC_KEY: &str = "user.apelora.spec";
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application
 /// and the module (a node in the Studio design) it was deployed for.
@@ -419,15 +427,40 @@ impl InstanceSpec {
     }
 
     /// [`validate`](Self::validate), plus what only Apelora may set: a caller's spec must not
-    /// carry Apelora's discovery variables (`environment.APELORA_*`, ADR 0004).
+    /// carry Apelora's discovery variables (`environment.APELORA_*`, ADR 0004), the owner labels,
+    /// the network attachment, a root disk pool or volume pools. The application path checks the
+    /// spec Apelora will create with the caller's own `owner` put back (see `applications::check`).
     pub fn validate_from_caller(&self) -> Result<(), String> {
         self.validate()?;
+        if self.owner.is_some() {
+            return Err(
+                "the owner labels (owner) are set by Apelora when an application is deployed"
+                    .into(),
+            );
+        }
+        if self.network.is_some() {
+            return Err(
+                "the network attachment (network) is set by Apelora from the application's connections"
+                    .into(),
+            );
+        }
         if let Some(k) = self
             .config
             .keys()
             .find(|k| k.starts_with("environment.APELORA_"))
         {
             return Err(format!("config key {k} is reserved for Apelora"));
+        }
+        if let Some((k, v)) = self
+            .config
+            .iter()
+            .find(|(k, v)| !caller_config_allowed(k, v))
+        {
+            return Err(format!(
+                "config key {k} (value {v:?}) is not one Apelora passes to Incus; a caller may set \
+                 limits.cpu, limits.cpu.allowance, limits.memory, migration.stateful, \
+                 cluster.evacuate, environment.<NAME> and user.<key>"
+            ));
         }
         if let Some(v) = self.volumes.iter().find(|v| v.pool.is_some()) {
             return Err(format!(
@@ -442,6 +475,43 @@ impl InstanceSpec {
             );
         }
         Ok(())
+    }
+}
+
+/// Whether a caller may put `key = value` into an instance's Incus config. An allow-list, so
+/// that a key which lets an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel
+/// limits) is refused by Apelora even when the project is not restricted (preflight only warns).
+fn caller_config_allowed(key: &str, value: &str) -> bool {
+    let plain = value.len() <= 4096 && !value.chars().any(char::is_control);
+    let token = |s: &str, first: fn(char) -> bool, rest: fn(char) -> bool, max: usize| {
+        let mut c = s.chars();
+        s.len() <= max && c.next().is_some_and(first) && c.all(rest)
+    };
+    match key {
+        "limits.cpu" | "limits.cpu.allowance" | "limits.memory" => plain && value.len() <= 32,
+        "migration.stateful" => matches!(value, "true" | "false"),
+        "cluster.evacuate" => matches!(value, "auto" | "live-migrate" | "migrate" | "stop"),
+        _ => {
+            if let Some(name) = key.strip_prefix("environment.") {
+                plain
+                    && token(
+                        name,
+                        |c| c.is_ascii_uppercase() || c == '_',
+                        |c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_',
+                        128,
+                    )
+            } else if let Some(name) = key.strip_prefix("user.") {
+                plain
+                    && token(
+                        name,
+                        |c| c.is_ascii_lowercase() || c.is_ascii_digit(),
+                        |c| c.is_ascii_lowercase() || c.is_ascii_digit() || "._-".contains(c),
+                        64,
+                    )
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -705,6 +775,103 @@ mod tests {
             .validate()
             .is_err()
         );
+    }
+
+    #[test]
+    fn a_caller_may_set_only_the_instance_config_keys_apelora_passes_on() {
+        let with = |pairs: &[(&str, &str)]| InstanceSpec {
+            config: pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+            ..spec()
+        };
+        // What the Studio sends (resources, live migration, deploy-time fields) and plain
+        // environment and user keys.
+        let studio = with(&[
+            ("limits.cpu", "2"),
+            ("limits.cpu.allowance", "50%"),
+            ("limits.memory", "512MiB"),
+            ("migration.stateful", "true"),
+            ("cluster.evacuate", "live-migrate"),
+            ("environment.SETUP_SERVER_NAME", "shop.example.org"),
+            ("environment.SECRET_DB_PASSWORD", "db-password"),
+            ("environment.LOG_LEVEL", "info"),
+            ("user.team", "web"),
+        ]);
+        assert_eq!(studio.validate_from_caller(), Ok(()));
+        // Keys that would let an instance reach its host, whatever the project allows.
+        for (k, v) in [
+            ("security.privileged", "true"),
+            ("security.nesting", "true"),
+            ("security.syscalls.intercept.mount", "true"),
+            ("raw.lxc", "lxc.apparmor.profile=unconfined"),
+            ("raw.idmap", "both 0 0"),
+            ("raw.qemu", "-device x"),
+            ("linux.kernel_modules", "overlay"),
+            ("limits.kernel.nofile", "1"),
+            ("boot.host_shutdown_timeout", "1"),
+            ("cluster.evacuate", "stop; reboot"),
+            ("migration.stateful", "yes please"),
+            ("environment.lower_case", "x"),
+            ("environment.", "x"),
+            ("user.", "x"),
+            ("unknown", "x"),
+        ] {
+            let err = with(&[(k, v)]).validate_from_caller().expect_err(k);
+            assert!(err.contains(k), "{k}: {err}");
+        }
+        // Apelora's own keys stay reserved.
+        assert!(
+            with(&[("environment.APELORA_SERVICE_DB", "10.0.0.1")])
+                .validate_from_caller()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_caller_cannot_set_what_only_apelora_sets() {
+        let owner = InstanceSpec {
+            owner: Some(Owner {
+                application: "shop".into(),
+                module: "web-01".into(),
+                replica: 1,
+            }),
+            ..spec()
+        };
+        assert_eq!(
+            owner.validate(),
+            Ok(()),
+            "Apelora's own specs carry an owner"
+        );
+        assert!(
+            owner
+                .validate_from_caller()
+                .is_err_and(|e| e.contains("owner"))
+        );
+        let network = InstanceSpec {
+            network: Some(network::NetworkAttachment {
+                network: "apl-shop".into(),
+                acl: "apl-shop-web-01".into(),
+                uplink: "incusbr0".into(),
+            }),
+            ..spec()
+        };
+        assert_eq!(network.validate(), Ok(()));
+        assert!(
+            network
+                .validate_from_caller()
+                .is_err_and(|e| e.contains("network"))
+        );
+        let root = InstanceSpec {
+            root_pool: Some("shared".into()),
+            ..spec()
+        };
+        assert!(
+            root.validate_from_caller()
+                .is_err_and(|e| e.contains("rootPool"))
+        );
+        assert_eq!(spec().validate_from_caller(), Ok(()));
     }
 
     #[test]

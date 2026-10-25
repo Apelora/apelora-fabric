@@ -542,6 +542,14 @@ fn chain(e: &dyn std::error::Error) -> String {
     out
 }
 
+/// A transport error's cause chain for the caller, without the request URL: reqwest's text names
+/// Incus's address and port, which must not reach API error bodies. The full text goes to the
+/// server's log (debug), with the request it belongs to.
+fn transport(what: &str, e: reqwest::Error) -> String {
+    tracing::debug!(request = %what, error = %chain(&e), "incus: transport error");
+    chain(&e.without_url())
+}
+
 /// When the certificates a client was built with stop being valid (Unix seconds).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CertificateExpiry {
@@ -687,9 +695,11 @@ impl IncusClient {
             Ok(r) => r,
             Err(e) => {
                 // Keep the cause chain: it says whether TLS verification, the network or a timeout failed.
-                let e = chain(&e);
-                tracing::debug!(request = %what, error = %e, "incus: request not sent or not answered");
-                return Err(AdapterError::Connectivity(format!("{what}: {e}")));
+                tracing::debug!(request = %what, "incus: request not sent or not answered");
+                return Err(AdapterError::Connectivity(format!(
+                    "{what}: {}",
+                    transport(&what, e)
+                )));
             }
         };
         let status = res.status().as_u16();
@@ -698,7 +708,7 @@ impl IncusClient {
         let bytes = res.bytes().await.map_err(|e| {
             AdapterError::Connectivity(format!(
                 "{what}: HTTP {status}, reading the reply: {}",
-                chain(&e)
+                transport(&what, e)
             ))
         })?;
         let env: Envelope<T> = match serde_json::from_slice(&bytes) {
@@ -1983,16 +1993,15 @@ impl IncusClient {
             .send()
             .await
             .map_err(|e| {
-                let e = chain(&e);
-                tracing::debug!(request = %what, error = %e, "incus: request not sent or not answered");
-                AdapterError::Connectivity(format!("{what}: {e}"))
+                tracing::debug!(request = %what, "incus: request not sent or not answered");
+                AdapterError::Connectivity(format!("{what}: {}", transport(&what, e)))
             })?;
         let status = res.status().as_u16();
         tracing::debug!(request = %what, status, "incus: response");
         let read_err = |e: reqwest::Error| {
             AdapterError::Connectivity(format!(
                 "{what}: HTTP {status}, reading the reply: {}",
-                chain(&e)
+                transport(&what, e)
             ))
         };
         if status >= 400 {
@@ -2062,10 +2071,10 @@ impl IncusClient {
             ))
             .send()
             .await
-            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", chain(&e))))?;
+            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", transport(&what, e))))?;
         let status = res.status().as_u16();
         let bytes = res.bytes().await.map_err(|e| {
-            AdapterError::Connectivity(format!("{what}: HTTP {status}: {}", chain(&e)))
+            AdapterError::Connectivity(format!("{what}: HTTP {status}: {}", transport(&what, e)))
         })?;
         if status >= 400 {
             return Err(AdapterError::Api {
@@ -2131,7 +2140,7 @@ impl IncusClient {
             .body(bytes.to_vec())
             .send()
             .await
-            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", chain(&e))))?;
+            .map_err(|e| AdapterError::Connectivity(format!("{what}: {}", transport(&what, e))))?;
         let status = res.status().as_u16();
         if status >= 400 {
             let body = res.text().await.unwrap_or_default();
@@ -2435,6 +2444,7 @@ impl IncusClient {
                 let expanded = i.expanded_config.unwrap_or_default();
                 Instance {
                     unreachable,
+                    built_from: config.get(apelora_domain::SPEC_KEY).cloned(),
                     kind: match i.kind.as_str() {
                         "container" => InstanceKind::Container,
                         "virtual-machine" => InstanceKind::VirtualMachine,

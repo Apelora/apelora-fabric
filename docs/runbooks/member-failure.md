@@ -1,27 +1,26 @@
 # A server fails
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 — a member's VM (a Lima VM standing in for a physical
-server) was force-stopped three times on the test cluster with two members and three times with
-three members (`demo.sh`, recovery delay 30 s): stateless replicas were substituted and later retired automatically; the service was whole
-again 84–206 s after the failure. REAL INCUS TESTED, 2026-10-21 (four members, Incus 7.0.1,
-clustered LVM pool `shared` on the lab SAN, `scripts/test-cluster/ha-drill.sh`): a stateful module
-on the shared pool restarted on another member 144–155 s after its member's VM was force-stopped (three runs),
-only once that member's storage lease was dead, with its data intact (§ Modules on shared
-storage). Removing a member that never returns is NOT YET VERIFIED.
+Use this page when a cluster member goes Offline: what Apelora does on its own, and what you do.
 
 ## What happens on its own
 
 1. Incus marks the member *Offline* after about 20 s. Its instances stay listed (status `Error`,
    configuration unknown). Incus does not move them (`cluster.healing_threshold` stays off).
-2. Service addresses keep sending a share of requests to the dead member's replicas: the load
-   balancer's health checks run on the member that hosts the replica, so they cannot notice it
-   is gone. Expect failed requests until step 3.
-3. After `APELORA_RECOVER_AFTER_SECS` (default 120 s) the replica supervisor creates a substitute
-   (`<replica>-s<n>`) on another member for every stateless replica stranded there, and the next
-   network sync replaces the dead backend in the load balancer. Audited as
-   `application.replica.substitute`. Incus sometimes refuses load balancer updates for the
-   whole outage (`peer node … is down`); the sync is retried, and in the one run where it never
-   got through the service still became whole after about 3.5 minutes.
+2. Service addresses keep sending a share of requests to the dead member's replicas. The load
+   balancer's health checks run on the member that hosts the replica, so they cannot notice that
+   it is gone. Expect failed requests until step 3.
+3. After `APELORA_RECOVER_AFTER_SECS` (default 120 s), the replica supervisor creates a substitute
+   (`<replica>-s<n>`) on another member for every stateless replica stranded there. The next
+   network sync replaces the dead backend in the load balancer. This is audited as
+   `application.replica.substitute`.
+
+   With Incus 7.0, the load balancer cannot change while the member is offline: Incus refuses
+   every load balancer update in the cluster (`peer node … is down`). The substitute then runs but
+   gets no traffic, and the service address can keep sending a share of requests to the dead
+   replica until the member returns or you remove it (what to do, step 2). Apelora says so, naming
+   the member: on the application's row in the Console (Workloads → Applications), as *Traffic
+   stuck* in the Studio's header, in the failed `network.sync` job, and in the *Jobs are failing*
+   alert. The notice clears after the first network sync that goes through.
 4. Singletons and stateful modules whose disks are all on the shared pool (volume class
    `data-replicated`) restart on another member once the failed one is **fenced** (next section).
    Everything else on a member-local pool is **not** recovered automatically: it waits for its
@@ -30,53 +29,51 @@ storage). Removing a member that never returns is NOT YET VERIFIED.
 
 ## What to do
 
-1. Confirm the failure: Servers → Members shows the member Offline; check the server's power, network
-   and Incus service.
-2. For single-instance and stateful modules on the member: wait for the member if it will be
-   back soon. Otherwise restore them elsewhere from your backups (stateful data is never
-   recreated from scratch by Apelora).
-3. When the member returns, Incus starts its instances again. Each replica slot then holds two
+1. Confirm the failure: Servers → Members shows the member Offline. Check the server's power,
+   network and Incus service.
+2. Decide whether the member will be back soon. If it will not, and service addresses must
+   stop sending requests to its replicas, remove it from the cluster with Incus on a remaining
+   member: `incus cluster remove --force <member>`. Apelora does not force a removal for you.
+   A forced removal deletes the member and the records of every instance on it, so do it only
+   after step 3 for anything stateful. Afterwards load balancer updates go through again and the
+   substitutes receive the traffic.
+3. For single-instance and stateful modules on the member: wait for the member if it will be
+   back soon. Otherwise restore them elsewhere from your backups (Apelora never recreates
+   stateful data from scratch).
+4. When the member returns, Incus starts its instances again. Each replica slot then holds two
    instances; the supervisor keeps the one that puts replicas back on different members and
    deletes the other (`application.replica.retire`).
-4. If a load balancer still shows backends as `unknown` in
+5. If a load balancer still shows backends as `unknown` in
    `GET /1.0/networks/<network>/load-balancers/<address>/state`, the next network sync re-applies
    its health check; a failed sync is retried after a minute.
 
 ## Modules on shared storage
 
 Design: [moving modules](../design/mobility-and-ha.md) §3b, decision: [ADR 0013](../adr/0013-fencing-before-restart.md).
-Needs the fence probe on the worker (`APELORA_FENCE_PROBE=ssh`, [settings](../architecture/CONNECTIONS-AND-SCALE.md) connection 22);
-without it, only step 4 below fences a member.
+This needs the fence probe on the worker (`APELORA_FENCE_PROBE=ssh`, [settings](../architecture/CONNECTIONS-AND-SCALE.md) connection 22).
+Without it, only step 4 below fences a member.
 
-What happens, with the times measured by `ha-drill.sh` (t = the VM was force-stopped; three runs
-on 2026-10-21, a container module with a 256 MiB volume; run 1 was before the job waited for the
-lock in step 6, a fourth attempt was stopped before the failure because of a stale SSH host key):
+What happens, with typical times after the server stopped:
 
-| Step | What | Run 1 | Run 2 | Run 3 |
-|---|---|---|---|---|
-| 1 | Incus marks the member Offline (no heartbeat for 20 s) | t+22 s | t+23 s | t+23 s |
-| 2 | The supervisor opens the failure (`cluster.member.failed`); Servers → Members shows *Waiting for fencing*: "its storage lease is still being renewed (LIVE)" | t+29 s | t+30 s | t+30 s |
-| 3 | sanlock on member 1 sees the lease's renewals stop (FAIL) | t+85 s | t+92 s | t+74 s |
-| 4 | A healthy member's sanlock reports the lease DEAD (140 s after its last renewal; its watchdog would have reset it if it were still running). The supervisor records the evidence (`cluster.member.fenced`) and the decision, and queues one `instance.recover` job | t+139 s | t+148 s | t+144 s |
-| 5 | The job relinks the instance to another member (`POST /1.0/instances/<name>?target=`; Incus moves the records, nothing is copied) | t+139 s | t+148 s | t+144 s |
-| 6 | The start there is refused while *that* member's sanlock still sees the lease held ("LV locked by other host"): each member judges the lease from its own readings. The job waits without using up attempts | 7 s, 3 attempts | waited 5 s | no wait |
-| 7 | Running on the other member, the data written before the failure intact (`application.instance.recovered`) | t+146 s | t+155 s | t+144 s |
+| Step | What | About |
+|---|---|---|
+| 1 | Incus marks the member Offline (no heartbeat for 20 s) | 22 s |
+| 2 | The supervisor opens the failure (`cluster.member.failed`). Servers → Members shows *Waiting for fencing*: "its storage lease is still being renewed (LIVE)" | 30 s |
+| 3 | sanlock on another member sees the lease's renewals stop (FAIL) | 75–90 s |
+| 4 | A healthy member's sanlock reports the lease DEAD, 140 s after its last renewal (its watchdog would have reset the server if it were still running). The supervisor records the evidence (`cluster.member.fenced`) and the decision, and queues one `instance.recover` job | 140–150 s |
+| 5 | The job relinks the instance to another member (`POST /1.0/instances/<name>?target=`). Incus moves the records; nothing is copied | 140–150 s |
+| 6 | The start there may be refused for a few seconds while *that* member's sanlock still sees the lease held ("LV locked by other host"): each member judges the lease from its own readings. The job waits without using up attempts | 0–7 s more |
+| 7 | The module runs on the other member, with the data written before the failure intact (`application.instance.recovered`) | 145–155 s |
 
-After the VM was started again (run 3): the member was Online after 15 s, its own lease LIVE with
-the next generation after 29 s, the worker had learned it after 76 s (it reads Online members'
-leases once a minute), and the failure was closed.
+A virtual machine module restarts the same way, as a cold start: Incus reports it Running about
+140–145 s after the failure, and its guest answers some 15–20 s later.
 
-The same drill with `HA_DRILL_VM=1` (2026-10-23, Incus 7.0.2, a debian/13 virtual machine,
-`migration.stateful=true`, root disk and a 256 MiB volume on `shared`; three runs, each
-force-stopping `apelora-test-2`). Incus reported the instance Running on `apelora-test-1` at
-t+144 s, t+141 s and t+144 s. The guest agent answers after that, so the file written beforehand
-was read back at t+163 s, t+158 s and t+164 s. Each time the stopped member was Online again
-within 19 s and the worker learned its new lease (generations 7, 8 and 9) within 83 s. This is a
-cold start. It was nested virtual machines on the lab, not a physical server.
+When the server is started again, it is Online within about 20 s. The worker learns its new lease
+within a minute or two (it reads Online members' leases once a minute), and the failure is closed.
 
-In run 1 Incus also reported the three members that were **not** stopped as Offline for about 10 s
-(the heartbeat round was held up by the dead member). Apelora opened failures for them, saw their
-leases LIVE, fenced nothing and closed them again: this is why nothing restarts on Incus's word alone.
+While one server is failing, Incus can briefly report healthy servers as Offline too. Apelora then
+opens failures for them, sees their leases LIVE, fences nothing and closes them again. This is why
+nothing restarts on Incus's word alone.
 
 What to do:
 
@@ -85,46 +82,73 @@ What to do:
 2. If it stays *Waiting for fencing* (alert `member-unfenced` after 5 minutes), read the reason:
    - **lease still LIVE**: the server may still be running, cut off from the other servers but not
      from the SAN. Its modules keep running there. Find out; do not confirm unless it is off.
-   - **no healthy server answered the probe**: check the probe (`fence-probe.sh status` on the lab;
-     the worker log `recovery: the fence probe failed`). On the lab, a VM restarted since the probe
-     was set up has new SSH host keys: run `fence-probe.sh apply` again.
+   - **no healthy server answered the probe**: check the probe. The worker logs
+     `recovery: the fence probe failed`. The probe pins each server's SSH host key, so a server
+     whose host key changed is refused until the probe is set up again for it.
    - **never read this server's lease / generation changed**: Apelora cannot prove it; go to step 4.
 3. If its lease is FAIL, wait: it becomes DEAD within 140 s of the last renewal.
 4. Only when you have checked that the server is switched off (or cut off from the SAN), use
    *Confirm powered off…* on Servers → Members (name typed; `cluster.fence_confirm`, which needs
    another person's approval). The next supervision pass restarts its modules elsewhere.
-5. When the server returns: Incus marks it Online; its instances that were restarted elsewhere are
+5. When the server returns: Incus marks it Online. Its instances that were restarted elsewhere are
    no longer recorded on it, so Incus does not start them there. Its sanlock rejoins the lockspace at
-   boot (`lvmlocks.service`) with a new lease generation, which the worker learns again; Apelora closes
-   the failure. Nothing was evacuated, so there is nothing to restore in Incus. Move instances back
-   with *Move…* if you want them there.
+   boot (`lvmlocks.service`) with a new lease generation, which the worker learns again, and Apelora
+   closes the failure. Nothing was evacuated, so there is nothing to restore in Incus. Move instances
+   back with *Move…* if you want them there.
 
 ### A server cut off but still running: fencing through its BMC
 
-[ADR 0014](../adr/0014-bmc-power-off-fencing.md). When the worker has a BMC mapping for the server (`APELORA_BMC_MAP`, [testing without hardware](../guides/testing-without-hardware.md) for the lab's version), a member Offline for `APELORA_BMC_FENCE_AFTER_SECS` (default 30) is switched off through its BMC, its power state is read back, and *Off* is the fence. This is the case the lease cannot settle: a server cut off from the other servers that still reaches the SAN keeps renewing its lease (LIVE) and would never be fenced.
+[ADR 0014](../adr/0014-bmc-power-off-fencing.md). This is the case the lease cannot settle: a server
+cut off from the other servers that still reaches the SAN keeps renewing its lease (LIVE), and would
+never be fenced.
 
-Measured by `HA_DRILL_BMC=1 ha-drill.sh` on 2026-10-21 (REAL INCUS TESTED, the lab's `lima` provider standing in for a BMC; the Redfish provider is CONTRACT VERIFIED only): the member's Incus port was cut with nftables and its VM kept running.
+When the worker has a mapping to the server's baseboard management controller (BMC)
+(`APELORA_BMC_MAP`, see the [settings reference](../architecture/SETTINGS.md)), a member Offline for
+`APELORA_BMC_FENCE_AFTER_SECS` (default 30) is switched off through its BMC. Its power state is read
+back, and *Off* is the fence.
+
+What happens when a server is cut off but keeps running (times after the cut):
 
 | t | What |
 |---|---|
 | +22 s | Incus reports the member Offline |
 | +29 s | The supervisor opens the failure: *its storage lease is still being renewed (LIVE)* |
 | +61 s | After the 30 s grace: power state read (On), power-off sent, **Off read back**: fenced (`cluster.member.power_off`, `cluster.member.fenced`), decision recorded, restart queued |
-| +152 s / +215 s | sanlock sees the powered-off host's lease FAIL, then DEAD (about 140 s after its last renewal, which stopped at the power-off) |
-| +220 s | The instance runs on another member, the marker file written before the failure intact |
+| +152 s / +215 s | sanlock sees the powered-off server's lease FAIL, then DEAD (about 140 s after its last renewal, which stopped at the power-off) |
+| +220 s | The instance runs on another member, with the data written before the failure intact |
 
-So the BMC fences earlier and in a case nothing else can, but **it does not shorten the restart** on clustered LVM: Incus refuses the start until sanlock expires the dead host's lease. The restart job waits without using up attempts (5 attempts, 26 Incus operations in the drill).
+So the BMC fences earlier, and in a case nothing else can, but **it does not shorten the restart** on
+clustered LVM: Incus refuses the start until sanlock expires the dead server's lease. The restart
+job waits without using up attempts.
 
 What to know:
 
-- Apelora never switches a server off when: it was Offline for less than the grace, half or more of the members are Offline (more likely the control plane's own network), another server was already switched off by Apelora and is still down (confirm the second one yourself), or it switched this one off in the last 10 minutes. Each refusal is audited once as `cluster.member.power_off` with outcome `denied` and the reason.
-- A failed attempt is audited with outcome `failed` and its reason (`apelora_bmc_power_offs_total{outcome}` counts success, failed, refused, unreadable); a person's *Confirm powered off…* still works and wins.
-- Before enabling a mapping on real servers, read each BMC's power state with the check described in the ADR (the BMC must report the mapped hardware UUID), and test on one server you can afford to lose.
-- **A BMC without Redfish (IPMI).** Map it as `{ "provider": "ipmi", "host": "<BMC address>", "user": "<operator user>", "secretRef": "APELORA_BMC_SECRET_<NAME>", "uuid": "<system GUID>" }` (`port` defaults to 623). Give the BMC user the operator role, not administrator. The BMC must offer cipher suite 17 or 3; one that offers only weaker suites is refused (`the BMC offers neither cipher suite 17 nor 3`), so use Redfish or MAAS for it. The GUID is the server's system UUID as the operating system reports it (`dmidecode -s system-uuid`); byte-order differences between BMCs are handled. Read it once without switching anything: `APELORA_IPMI_TEST_HOST=… APELORA_IPMI_TEST_USER=… APELORA_IPMI_TEST_UUID=… APELORA_BMC_SECRET_IPMI_TEST=… cargo test -p apelora-deployment-worker --test real_ipmi -- --ignored --nocapture` prints the power state and checks that a wrong GUID is refused. The IPMI provider is CONTRACT VERIFIED only; this would be its first run on a real BMC.
+- Apelora never switches a server off when: it was Offline for less than the grace; half or more of
+  the members are Offline (more likely the control plane's own network); another server was already
+  switched off by Apelora and is still down (confirm the second one yourself); or it switched this
+  one off in the last 10 minutes. Each refusal is audited once as `cluster.member.power_off` with
+  outcome `denied` and the reason.
+- A failed attempt is audited with outcome `failed` and its reason
+  (`apelora_bmc_power_offs_total{outcome}` counts success, failed, refused, unreadable). A person's
+  *Confirm powered off…* still works and wins.
+- Before enabling a mapping on real servers, read each BMC's power state with the check described
+  in the ADR (the BMC must report the mapped hardware UUID), and test on one server you can afford
+  to lose.
+- **A BMC without Redfish (IPMI).** Map it as `{ "provider": "ipmi", "host": "<BMC address>", "user": "<operator user>", "secretRef": "APELORA_BMC_SECRET_<NAME>", "uuid": "<system GUID>" }` (`port` defaults to 623). Give the BMC user the operator role, not administrator. The BMC must offer cipher suite 17 or 3; one that offers only weaker suites is refused (`the BMC offers neither cipher suite 17 nor 3`), so use Redfish or MAAS for it. The GUID is the server's system UUID as the operating system reports it (`dmidecode -s system-uuid`); byte-order differences between BMCs are handled. Read it once without switching anything: `APELORA_IPMI_TEST_HOST=… APELORA_IPMI_TEST_USER=… APELORA_IPMI_TEST_UUID=… APELORA_BMC_SECRET_IPMI_TEST=… cargo test -p apelora-deployment-worker --test real_ipmi -- --ignored --nocapture` prints the power state and checks that a wrong GUID is refused.
 
-## A member that will not return (NOT YET VERIFIED)
+## A member that will not return
 
-Apelora does not remove an unreachable member (an evacuated, reachable one: [member-removal.md](member-removal.md)).
-Remove it from the cluster with `incus cluster remove --force <member>` on a remaining member
-(this deletes the records of its instances), then let the supervisor recreate missing stateless
-replicas. Keep at least three database members so the cluster keeps quorum when one is lost.
+Apelora does not remove an unreachable member (for an evacuated, reachable one, see
+[member-removal.md](member-removal.md)).
+
+1. On a remaining member, remove it from the cluster with `incus cluster remove --force <member>`.
+   This deletes the records of its instances.
+2. Let the supervisor recreate the missing stateless replicas.
+3. Keep at least three database members, so the cluster keeps quorum when one is lost.
+
+## Before you rely on it
+
+- The times on this page come from a lab of virtual machines with clustered LVM on a test SAN.
+  Your servers and storage will differ; measure them once on your own hardware.
+- The Redfish and IPMI providers have been checked against test servers only, not real BMCs.
+- Removing a member that will not return, including to unblock its service addresses, has not been tried on a cluster yet.

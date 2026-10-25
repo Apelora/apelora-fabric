@@ -19,7 +19,7 @@ export function ApplicationCard({ app }: { app: AppView }) {
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
         <div><dt className="text-base-content/70">Project</dt><dd className="truncate" data-testid="app-project">{app.project.name}{app.environment ? ` · ${app.environment.name}` : ""}</dd></div>
         <div><dt className="text-base-content/70">Design</dt><dd><DesignBadge app={app} /></dd></div>
-        <div><dt className="text-base-content/70">Modules</dt><dd data-testid="app-modules">{d.modules || app.design.draftVersion ? `${d.modules}` : "0"}</dd></div>
+        <div><dt className="text-base-content/70">Modules</dt><dd data-testid="app-modules" title={d.deployedVersion == null && d.modules === 0 ? "Counted once a version is deployed" : undefined}>{d.deployedVersion == null && d.modules === 0 ? "—" : d.modules}</dd></div>
         <div><dt className="text-base-content/70">Health</dt><dd data-testid="app-health">{healthLine(app)}</dd></div>
         <div className="col-span-2"><dt className="text-base-content/70">Last activity</dt><dd title={d.lastActivityAt ?? ""} data-testid="app-activity">{timeAgo(d.lastActivityAt ?? app.updatedAt)}</dd></div>
       </dl>

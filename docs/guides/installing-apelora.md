@@ -1,8 +1,6 @@
 # Install Apelora Fabric
 
-Install the control plane, the worker, PostgreSQL and the two screens on top of an Incus cluster. Do [servers and network](servers-and-network.md) and [install Incus](install-incus.md) first: this page needs the cluster's address, its certificate, the two client certificates and the project name they produce.
-
-**Evidence:** the services have run together against the four-server lab (REAL INCUS TESTED; see [current state](../architecture/current-state.md)). The example systemd units and NGINX configuration are parsed in CI on ubuntu-24.04 (`scripts/ci/verify-install-examples.sh`). They have also been **started** on one lab member from the draft release `v0.1.0-alpha.1` (`scripts/test-cluster/install-units.sh`, 2026-10-23: `User=apelora`, `ProtectHome=true`, both units active, `/api/v1/health` connected to the cluster, Studio and Console 200 through the example proxy). That is not a published release and not a production host (issue #17). Treat a first installation as an evaluation, and say what you find.
+This page installs the control plane, the worker, PostgreSQL and the two web screens (Studio and Fabric Console) on top of an Incus cluster. Before you start, finish [servers and network](servers-and-network.md) and [install Incus](install-incus.md). You need what they produce: the cluster's address, its certificate, the two client certificates and the project name.
 
 Values you choose are written as variables, for example `$DB_HOST`. Nothing here needs a fixed address, name or path.
 
@@ -19,7 +17,7 @@ Apelora is not in the data path: running instances keep running if the control p
 
 ## 1. PostgreSQL
 
-Any PostgreSQL the control plane and the worker can reach (development uses the version in `infra/dev/compose.yaml`). Create a role and a database for Apelora; the schema is created and upgraded automatically whenever the control plane or the worker connects, so the role needs the right to create tables in its own database.
+Create a role and a database for Apelora on any PostgreSQL server that the control plane and the worker can reach. Development uses the version in `infra/dev/compose.yaml`. Both services create and upgrade the schema whenever they connect, so the role needs the right to create tables in its own database.
 
 ```sh
 DB_USER=...  DB_NAME=...  DB_HOST=...
@@ -28,13 +26,13 @@ sudo -u postgres createdb --owner "$DB_USER" "$DB_NAME"
 # DATABASE_URL=postgres://$DB_USER:<password>@$DB_HOST:5432/$DB_NAME   (use TLS between hosts)
 ```
 
-Back the database up: [back up and restore Apelora's own database](../runbooks/apelora-database-backup.md).
+Plan backups now: [back up and restore Apelora's own database](../runbooks/apelora-database-backup.md).
 
 ## 2. Get the programs
 
 ### From a release
 
-Every version tag (`v*`) triggers the release workflow, which builds each service for **x86-64 and ARM64** and each screen as its own archive, with SHA-256 checksums, and attaches them to a draft GitHub release that a maintainer reviews and publishes. When a release is published, it is at <https://github.com/Apelora/apelora-fabric/releases>:
+Each release has both services for x86-64 and ARM64, each screen as its own archive, and SHA-256 (Secure Hash Algorithm) checksums. Releases are at <https://github.com/Apelora/apelora-fabric/releases>. Download the files and check them:
 
 ```sh
 TAG=...          # the release's tag
@@ -51,11 +49,13 @@ curl -fLO "$BASE/SHA256SUMS-apps"
 sha256sum --check --ignore-missing SHA256SUMS-services-$ARCH SHA256SUMS-apps
 ```
 
-The service archives hold the program, the `LICENSE` and the `README.md`; the screen archives hold the files to serve.
+The last command prints `OK` after each file name. Do not continue if any file fails.
+
+Each service archive holds the program, the `LICENSE` and the `README.md`. Each screen archive holds the files to serve.
 
 ### From source
 
-You need the Rust toolchain the repository pins (`rust-toolchain.toml`; `rustup` installs it) and Node.js as `engines` in `package.json` says:
+You need the Rust toolchain the repository pins (`rust-toolchain.toml`; `rustup` installs it) and the Node.js version that `engines` in `package.json` names:
 
 ```sh
 git clone https://github.com/Apelora/apelora-fabric && cd apelora-fabric
@@ -66,7 +66,7 @@ npm ci && npm run build                  # apps/studio/dist and apps/fabric-cons
 
 ## 3. Configure
 
-Both services read **environment variables**. Put them in a file only root can read and hand it to your service manager; secrets come from there or from your secret store, never from the repository. The complete list, with defaults, is the [settings reference](../architecture/SETTINGS.md), generated from the code; what is needed to start is:
+Both services read environment variables. Put them in a file that only root can read, and give that file to your service manager. Secrets come from that file or from your secret store, never from the repository. The [settings reference](../architecture/SETTINGS.md) lists every setting with its default. These are the settings you need to start:
 
 ```sh
 # /etc/apelora/apelora.env   (root:root, mode 0600)   -- both services
@@ -89,17 +89,64 @@ APELORA_NETWORK_UPLINK=$UPLINK
 APELORA_SERVICE_ADDRESSES=$SERVICE_RANGE
 ```
 
-The control plane refuses to listen on an address other than loopback without TLS of its own or a declared proxy, and without a database. Without `APELORA_NETWORK_UPLINK` it deploys but does not enforce the connections you draw. Optional features have their own settings: volumes and backups (`APELORA_VOLUME_POOL`, `APELORA_BACKUP_POOL`), alerts, fencing, sign-in; each is described on its page.
+To listen on any address other than loopback, the control plane needs a database and either TLS (Transport Layer Security) of its own or a declared proxy. Otherwise it refuses to start.
+
+Without `APELORA_NETWORK_UPLINK`, Apelora deploys but does not enforce the connections you draw.
+
+Optional features have their own settings, each described on its own page: volumes and backups (`APELORA_VOLUME_POOL`, `APELORA_BACKUP_POOL`), alerts, fencing and sign-in.
 
 ## 4. Run the services
 
-Run both under a service manager so they restart. Example systemd units live in [`infra/systemd/`](../../infra/systemd/): `apelora-control-plane.service` and `apelora-deployment-worker.service`, same environment file, a dedicated `apelora` account that can read `/etc/apelora/apelora.env` and the Incus certificates (put those under `/etc/apelora`, not a home directory — the units set `ProtectHome=true`). Copy them to `/etc/systemd/system/` and `systemctl enable --now` each. CI parses the units (`systemd-analyze verify`) on ubuntu-24.04. The units have been started on a lab member from the draft release (`install-units.sh`, 2026-10-23); they have **not** been run on a production host from a published release (issue #17).
+Run both services under a service manager, so they restart after a failure. The repository has example systemd units in [`infra/systemd/`](../../infra/systemd/): `apelora-control-plane.service` and `apelora-deployment-worker.service`. Both use the same environment file and run as a dedicated `apelora` account.
 
-Both write one line per event to standard output (`APELORA_LOG_FORMAT=json` for structured logs). Metrics, logs, traces and an example collector (Prometheus, Loki, Tempo, Pyroscope, Grafana): [monitoring](../architecture/MONITORING.md). Several workers can run at once; they share the job queue safely. Do not give the worker the administrator Incus identity.
+1. Create the account, and install the two programs where the units expect them (from source, they are in `target/release/`):
+
+   ```sh
+   useradd --system --no-create-home --shell /usr/sbin/nologin apelora
+   tar -xzf apelora-control-plane-$TAG-linux-$ARCH.tar.gz
+   tar -xzf apelora-deployment-worker-$TAG-linux-$ARCH.tar.gz
+   install -m 0755 apelora-control-plane-$TAG-linux-$ARCH/apelora-control-plane /usr/local/bin/
+   install -m 0755 apelora-deployment-worker-$TAG-linux-$ARCH/apelora-deployment-worker /usr/local/bin/
+   ```
+
+2. Put the Incus certificates and keys under `/etc/apelora`, not in a home directory: the units set `ProtectHome=true`. `$DIR` in step 3 is then `/etc/apelora`. The `apelora` account must be able to read them. It does not need to read `/etc/apelora/apelora.env`: systemd reads that file as root before it starts the service, so keep it `root:root`, mode `0600`.
+
+3. Copy the two units to `/etc/systemd/system/`, then start them:
+
+   ```sh
+   systemctl daemon-reload
+   systemctl enable --now apelora-control-plane apelora-deployment-worker
+   systemctl is-active apelora-control-plane apelora-deployment-worker
+   ```
+
+   The last command prints `active` twice.
+
+Both services write one line per event to standard output. Set `APELORA_LOG_FORMAT=json` for structured logs. For metrics, logs, traces and an example collector (Prometheus, Loki, Tempo, Pyroscope, Grafana), see [monitoring](../architecture/MONITORING.md).
+
+You can run several workers at once: they share the job queue safely. Never give a worker the administrator Incus identity.
 
 ## 5. Serve Studio and Console
 
-Serve the two directories as static files over HTTPS, each on its own host name, and pass `/api/` to the control plane, so each browser talks to one origin only. The repository's example, [`infra/serve/apelora.conf`](../../infra/serve/apelora.conf) (NGINX syntax), also sets the security headers and the content security policy, which a browser test checks. CI runs `nginx -t` on that file with dummy certificates. The same example has been serving Studio and Console on a lab member (200 over TLS, `/api/v1/health` through the proxy, 2026-10-23); it has **not** been run as a production proxy (issue #17).
+Serve the two screens as static files over HTTPS, each on its own host name. Each host passes `/api/` to the control plane, so each browser talks to one origin only.
+
+The repository's example, [`infra/serve/apelora.conf`](../../infra/serve/apelora.conf), is written for NGINX. It also sets the security headers and the content security policy. Adapt its host names and certificate paths, and keep the headers.
+
+```sh
+install -d -m 0755 /srv/apelora/studio /srv/apelora/console /etc/apelora/serve
+tar -xzf apelora-studio-$TAG.tar.gz -C /srv/apelora/studio
+tar -xzf apelora-fabric-console-$TAG.tar.gz -C /srv/apelora/console
+install -m 0644 infra/serve/apelora.conf infra/serve/api-proxy.conf infra/serve/web-security-headers.conf /etc/apelora/serve/
+# include /etc/apelora/serve/apelora.conf from NGINX's configuration, then:
+nginx -t && systemctl reload nginx
+```
+
+Check that the API answers through the proxy, where `$CONSOLE_HOST` is the Console's host name:
+
+```sh
+curl -fsS "https://$CONSOLE_HOST/api/v1/health"
+```
+
+The answer contains `"status":"ok"` and, once the control plane reaches Incus, `"incus":{"connected":true}`.
 
 ## 6. Create the first administrator
 
@@ -107,12 +154,29 @@ Serve the two directories as static files over HTTPS, each on its own host name,
 DATABASE_URL=... apelora-control-plane token create --name "$ADMIN_NAME" --role fabric-admin
 ```
 
-The token is shown once. Sign in to the Console with it ([signing in](signing-in.md) covers your identity provider afterwards), then open **Servers → Preflight** and **Health**: they say what is not yet right (a project the deploy identity cannot see, a member that is unreachable).
+The command prints `Created token …`, then the token on the next line. The token is shown only once.
+
+1. Sign in to the Console with the token. [Signing in](signing-in.md) shows how to add your identity provider afterwards.
+2. Open **Servers → Preflight** and **Health**. They list anything not yet right, such as a project the deploy identity cannot see, or a member that is unreachable.
 
 ## 7. Add servers later
 
-In the Console, **Servers → Machines and join tokens** registers a machine, approves it and shows a single-use join token; `scripts/enrol/enrol-member.sh` on the new server joins it to the cluster, and it is held out of placement until you admit it after its checks: [add a server to the cluster](../runbooks/member-join.md).
+1. In the Console, open **Servers → Machines and join tokens**. Register the machine and approve it. The Console shows a single-use join token.
+2. On the new server, run `scripts/enrol/enrol-member.sh` with that token. It joins the cluster and stays out of placement.
+3. Admit the server in the Console after its checks pass.
+
+The full procedure: [add a server to the cluster](../runbooks/member-join.md).
 
 ## Keep it healthy
 
-[Rotate Apelora's Incus certificates](../runbooks/certificates.md) before they expire (they last as long as you made them), upgrade Incus one server at a time ([rolling upgrade](../runbooks/incus-rolling-upgrade.md)), and keep the [runbooks](../runbooks/README.md) at hand. Without internet access: [running without internet access](../architecture/DISCONNECTED.md).
+- [Rotate Apelora's Incus certificates](../runbooks/certificates.md) before they expire. They last as long as you made them.
+- Upgrade Incus one server at a time: [rolling upgrade](../runbooks/incus-rolling-upgrade.md).
+- Keep the [runbooks](../runbooks/README.md) at hand.
+- Without internet access: [running without internet access](../architecture/DISCONNECTED.md).
+
+## Before you rely on it
+
+- Apelora has run against a lab of virtual machines, and these units and the NGINX example have run on one lab server. It has not yet run on a production host. Treat your first installation as an evaluation, plan a trial before production, and report what you find.
+- Releases so far are early previews (alpha versions).
+
+What has been tested: [what works today](../architecture/current-state.md).

@@ -542,6 +542,9 @@ pub(super) async fn delete(
 #[derive(Deserialize, ToSchema)]
 pub struct DirectoryCheckRequest {
     pub settings: DirectoryInput,
+    /// The saved directory these settings are for, if any: only its group mappings are shown.
+    #[serde(default)]
+    pub directory: Option<Uuid>,
     pub username: String,
     #[schema(format = Password)]
     pub password: String,
@@ -557,9 +560,10 @@ pub struct CheckedEntry {
     pub username: String,
     pub email: Option<String>,
     pub display_name: Option<String>,
-    /// Group names from the directory.
+    /// The person's groups: each group's full DN (normalized), or a value that is not a DN.
     pub groups: Vec<String>,
-    /// Apelora groups whose external name matches one of `groups`.
+    /// Apelora groups mapped to this directory (`directory`) and to one of `groups`; empty for
+    /// settings not saved yet.
     pub mapped_groups: Vec<String>,
 }
 
@@ -598,13 +602,17 @@ pub(super) async fn check(
     tracing::info!(directory = %fields.name, url = %fields.url, username, outcome = ?result.as_ref().err().map(Failure::problem), "directory check");
     Ok(Json(match result {
         Ok(person) => {
-            let mapped = match &state.auth {
-                super::Auth::Tokens(pool) => db::mapped_groups(pool, &person.groups)
-                    .await?
-                    .into_iter()
-                    .map(|(_, name)| name)
-                    .collect(),
-                super::Auth::DisabledForDevelopment => Vec::new(),
+            let mapped = match (&state.auth, req.directory) {
+                (super::Auth::Tokens(pool), Some(directory)) => db::mapped_groups(
+                    pool,
+                    &apelora_persistence::identity::directory_source(directory),
+                    &person.groups,
+                )
+                .await?
+                .into_iter()
+                .map(|(_, name)| name)
+                .collect(),
+                _ => Vec::new(),
             };
             DirectoryCheck {
                 ok: true,
@@ -637,8 +645,9 @@ pub(super) async fn check(
 
 // ---- sign-in -----------------------------------------------------------------------------------
 
-/// A person the directory vouched for. `groups` are the directory's group names: they become
-/// the session's external groups and map onto Apelora groups by external name.
+/// A person the directory vouched for. `groups` are the directory's groups (full DNs): they
+/// become the session's external groups, with `directory:<id>` as their source, and map onto
+/// Apelora groups mapped to that directory and DN.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryIdentity {
     pub directory_id: Uuid,

@@ -1,15 +1,13 @@
 # The deploy identity cannot see its project
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20.
-
-Symptoms: Preflight reports *Project <name> is not visible to Apelora's Incus identity*;
+Symptoms: Preflight reports *Project `<name>` is not visible to Apelora's Incus identity*;
 deployments fail with *User does not have permission for project*; instance lists come back
 empty although instances exist.
 
-Cause seen on the test cluster: the project had been deleted and recreated. Incus removes a
-deleted project from every restricted certificate's project list; a running server can keep
-authorising by project name until it rebuilds its identity cache (for example when a member
-goes offline), and access then disappears.
+A common cause: the project was deleted and created again. Incus removes a deleted project from
+every restricted certificate's project list. A running server can keep authorising by project name
+until it rebuilds its identity cache (for example when a member goes offline), and access then
+disappears.
 
 1. On a cluster member, show the restricted certificate:
    `incus config trust show <fingerprint>` — `projects:` lacks the deploy project.

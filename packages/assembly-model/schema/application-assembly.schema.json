@@ -132,7 +132,10 @@
                         "nfs",
                         "mssql",
                         "smb",
-                        "rdp"
+                        "rdp",
+                        "dns",
+                        "bgp",
+                        "imap"
                       ]
                     },
                     "optional": {
@@ -635,19 +638,21 @@
                 "type": "string",
                 "enum": [
                   "Custom",
-                  "Network & Security",
-                  "Security & Identity",
-                  "Load Balancing",
-                  "Web & Application",
-                  "Databases & Cache",
-                  "Messaging & Streaming",
-                  "Search & Analytics",
-                  "Storage",
-                  "Monitoring",
-                  "Operating Systems",
-                  "Microsoft Windows",
-                  "Utilities"
+                  "Networking",
+                  "Runtimes & OS",
+                  "Data",
+                  "Messaging",
+                  "Observability",
+                  "Security & identity",
+                  "Developer tools",
+                  "Applications",
+                  "Microsoft Windows"
                 ]
+              },
+              "subcategory": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
               },
               "summary": {
                 "type": "string",
@@ -1194,7 +1199,10 @@
                         "nfs",
                         "mssql",
                         "smb",
-                        "rdp"
+                        "rdp",
+                        "dns",
+                        "bgp",
+                        "imap"
                       ]
                     },
                     "optional": {
@@ -1576,7 +1584,10 @@
                                   "nfs",
                                   "mssql",
                                   "smb",
-                                  "rdp"
+                                  "rdp",
+                                  "dns",
+                                  "bgp",
+                                  "imap"
                                 ]
                               },
                               "optional": {

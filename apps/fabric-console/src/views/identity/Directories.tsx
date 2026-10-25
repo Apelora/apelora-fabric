@@ -69,7 +69,7 @@ function groupsIn(d: DirectoryView): string {
  * A test sign-in with a username and password typed for this check only: they are sent once,
  * never saved, and cleared when the dialog closes.
  */
-function CheckPanel({ settings, onAuth, ready }: { settings: () => DirectoryInput; onAuth: (m: string) => void; ready: boolean }) {
+function CheckPanel({ settings, directory, onAuth, ready }: { settings: () => DirectoryInput; directory: string | null; onAuth: (m: string) => void; ready: boolean }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [result, setResult] = useState<DirectoryCheck | null>(null);
@@ -77,7 +77,7 @@ function CheckPanel({ settings, onAuth, ready }: { settings: () => DirectoryInpu
   const id = useId();
   const submit = () => void run.run(async () => {
     setResult(null);
-    setResult(await client.request("check_directory", { body: { settings: settings(), username: username.trim(), password } }));
+    setResult(await client.request("check_directory", { body: { settings: settings(), directory, username: username.trim(), password } }));
   });
   const canRun = ready && !!username.trim() && !!password && !run.busy;
   // Enter runs the check, never the settings form around it.
@@ -108,7 +108,7 @@ function CheckPanel({ settings, onAuth, ready }: { settings: () => DirectoryInpu
             <dt className="text-base-content/70">Stable ID</dt><dd className="font-mono [overflow-wrap:anywhere]">{result.entry.subject}</dd>
             <dt className="text-base-content/70">Groups</dt><dd>{result.entry.groups.length ? result.entry.groups.join(", ") : "None"}</dd>
             <dt className="text-base-content/70">Apelora groups</dt>
-            <dd data-testid="directory-check-mapped">{result.entry.mappedGroups.length ? result.entry.mappedGroups.join(", ") : "None match yet: give a group this external name under Groups."}</dd>
+            <dd data-testid="directory-check-mapped">{result.entry.mappedGroups.length ? result.entry.mappedGroups.join(", ") : directory ? "None match yet: under Groups, take a group's members from this directory with one of these DNs." : "Save the directory first; then, under Groups, take a group's members from it with one of these DNs."}</dd>
           </dl>
         </Notice>
       )}
@@ -209,7 +209,7 @@ function DirectoryDialog({ open, editing, onAuth, onClose, onSaved }: { open: bo
           <input type="checkbox" className="checkbox checkbox-sm" checked={f.enabled} onChange={(e) => set("enabled")(e.target.checked)} data-testid="directory-enabled" />
           Offer this directory on the sign-in page
         </label>
-        {open && <CheckPanel settings={() => inputOf(f)} onAuth={onAuth} ready={ok} />}
+        {open && <CheckPanel settings={() => inputOf(f)} directory={editing?.id ?? null} onAuth={onAuth} ready={ok} />}
         {save.error && <ErrorPanel message={save.error} testId="directory-save-error" />}
         <div className="modal-action mt-0">
           <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>

@@ -1,8 +1,9 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { MODULE_CLASSES, lookupClass, sampleCommerceStack, sampleNetworkedStack } from "./index";
+import { CATALOG_TREE } from "./taxonomy";
 import {
-  ModuleClassSchema as ClassSchema, CATEGORIES, PORT_TYPES, effectiveValue as effVal, validateProperty as valProp, minHeightForPorts, portTypesCompatible,
+  ModuleClassSchema as ClassSchema, CATEGORIES, SUBCATEGORIES, PORT_TYPES, compileNetwork, effectiveValue as effVal, validateProperty as valProp, minHeightForPorts, portTypesCompatible,
   addShape, duplicateShape, moveShapes, orderShape, removeShapes, resizeShape, shapeContents, updateShape, zoneAround, SHAPE_PALETTE, ShapeSchema,
   addModule, addPort, alignNodes, ensureNics, groupModules, groupCandidates, ungroupModule, usedCustomClasses, ModuleClassSchema, type ModuleClass, cableToTag, explainTag, removeModules as removeApps, renameTag, tagNet, tagPort, tagToCable, untagPort, effectiveValue, resetConfig, setConfig, validateProperty, disconnectPort, extractSubset, findFreeSpot, insertSubset, connect, createEmptyAssembly, disconnect, effectiveSize, minModuleHeight, movePort,
   parseAssembly, removeModules, removePort, resizeNode, serializeAssembly, setDensity, validateAssembly,
@@ -434,7 +435,7 @@ describe("catalog quality", () => {
     for (const c of classes) for (const q of c.ports.filter((x) => x.id === "mon")) expect(portTypesCompatible(q.type, prom.type), c.id).toBe(true);
   });
   it("identity providers and Microsoft Windows modules exist; no Microsoft artwork is bundled", () => {
-    for (const id of ["keycloak", "authelia", "authentik", "pocketid", "openldap", "zitadel"]) expect(lookupClass(id, "1.0.0")?.category, id).toBe("Security & Identity");
+    for (const id of ["keycloak", "authelia", "authentik", "pocketid", "openldap", "zitadel"]) expect(lookupClass(id, "1.0.0")?.category, id).toBe("Security & identity");
     const win = classes.filter((c) => c.category === "Microsoft Windows");
     expect(win.map((c) => c.id)).toEqual(expect.arrayContaining(["windows-server", "windows-11", "windows-10", "active-directory", "iis", "sql-server", "dotnet", "smb-files", "rd-gateway", "exchange"]));
     for (const c of win) expect(["dotnet"].includes(c.iconAssetPath) || c.iconAssetPath.startsWith("generic-"), `${c.id} icon ${c.iconAssetPath}`).toBe(true);
@@ -443,6 +444,107 @@ describe("catalog quality", () => {
   });
   it("requested favourites exist: Kafka, HAProxy, Apache httpd, CouchDB, Redis, MongoDB, MySQL, Cassandra", () => {
     for (const id of ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "elasticsearch", "traefik", "envoy"]) expect(lookupClass(id, "1.0.0"), id).toBeDefined();
+  });
+  it("requested additions exist: FRRouting for routing and common open-source infrastructure", () => {
+    expect(lookupClass("frr", "1.0.0")).toMatchObject({ category: "Networking", subcategory: "Routing" });
+    for (const id of ["bird", "keepalived", "coredns", "powerdns", "unbound", "kea", "strongswan", "valkey", "ferretdb", "garage", "seaweedfs", "loki", "tempo", "vector", "alertmanager", "node-exporter", "openbao", "step-ca", "forgejo", "woodpecker", "mattermost"]) expect(lookupClass(id, "1.0.0"), id).toBeDefined();
+  });
+});
+
+describe("taxonomy", () => {
+  const classes = [...MODULE_CLASSES];
+  it("places every built-in class once, in a known category and subcategory, never in Custom", () => {
+    const placed = Object.values(CATALOG_TREE).flatMap((subs) => Object.values(subs).flat());
+    expect([...placed].sort()).toEqual(classes.map((c) => c.id).sort());
+    for (const c of classes) {
+      expect(c.category, c.id).not.toBe("Custom");
+      expect(SUBCATEGORIES[c.category], `${c.id}: ${c.subcategory}`).toContain(c.subcategory);
+    }
+  });
+  it("uses exactly the model's subcategories, in the same order, each holding a handful of tiles", () => {
+    for (const cat of CATEGORIES.filter((x) => x !== "Custom")) {
+      const tree = CATALOG_TREE[cat as Exclude<typeof cat, "Custom">];
+      expect(Object.keys(tree), cat).toEqual([...SUBCATEGORIES[cat]]);
+      for (const [sub, ids] of Object.entries(tree)) {
+        expect(ids.length, `${cat} › ${sub}`).toBeGreaterThanOrEqual(2);
+        expect(ids.length, `${cat} › ${sub}`).toBeLessThanOrEqual(8);
+      }
+    }
+  });
+  it("lists classes in menu order: by category, then subcategory, then position", () => {
+    const order = classes.map((c) => `${CATEGORIES.indexOf(c.category)}.${SUBCATEGORIES[c.category].indexOf(c.subcategory!)}`);
+    const rank = (k: string) => k.split(".").map(Number) as [number, number];
+    for (let i = 1; i < order.length; i++) {
+      const [a1, a2] = rank(order[i - 1]!);
+      const [b1, b2] = rank(order[i]!);
+      expect(a1 < b1 || (a1 === b1 && a2 <= b2), `${classes[i]!.id} is out of menu order`).toBe(true);
+    }
+  });
+});
+
+describe("connections between catalog classes", () => {
+  const classes = [...MODULE_CLASSES];
+  it("a peer, replication or bridge output links to another module of the same class", () => {
+    for (const c of classes) {
+      for (const out of c.ports.filter((q) => q.direction === "output" && ["peer", "repl", "primary", "bridge"].includes(q.id))) {
+        const ins = c.ports.filter((q) => q.direction === "input" && q.type !== "network");
+        expect(ins.some((q) => portTypesCompatible(out.type, q.type)), `${c.id}.${out.id} (${out.type}) has no matching input on ${c.id}`).toBe(true);
+      }
+    }
+  });
+  it("brokers take producers and consumers on one client input; their outputs only link brokers", () => {
+    for (const id of ["kafka", "pulsar", "nats", "activemq", "rabbitmq", "mosquitto"]) {
+      const c = lookupClass(id, "1.0.0")!;
+      const outs = c.ports.filter((q) => q.direction === "output" && q.type !== "metrics");
+      for (const q of outs) expect(["peer", "bridge"], `${id}.${q.id}`).toContain(q.id);
+      const clients = c.ports.filter((q) => q.direction === "input" && q.type !== "network");
+      expect(clients, id).toHaveLength(1);
+      expect(clients[0]!.description, id).toMatch(/consumers|subscribers/);
+    }
+  });
+  it("a dashboard reads Prometheus: Grafana's query output reaches Prometheus's API, never the reverse", () => {
+    let a = createEmptyAssembly("t");
+    const g = addModule(a, lookupClass("grafana", "1.0.0")!, { x: 0, y: 0 }); a = g.assembly;
+    const p = addModule(a, lookupClass("prometheus", "1.0.0")!, { x: 300, y: 0 }); a = p.assembly;
+    const r = connect(a, { moduleId: g.id, portId: "query" }, { moduleId: p.id, portId: "api" });
+    if (!("assembly" in r)) throw new Error(r.error.message);
+    const plan = compileNetwork(r.assembly, "t", lookupClass);
+    expect(plan.intents.map((i) => `${i.from}->${i.to} ${i.protocol}`)).toEqual([`${g.id}->${p.id} http`]);
+    expect(lookupClass("prometheus", "1.0.0")!.ports.filter((q) => q.direction === "output" && q.type === "http").map((q) => q.id)).toEqual(["alerts"]);
+  });
+  it("a new routing daemon peers over BGP with another one, on TCP 179", () => {
+    let a = createEmptyAssembly("t");
+    const f = addModule(a, lookupClass("frr", "1.0.0")!, { x: 0, y: 0 }); a = f.assembly;
+    const b = addModule(a, lookupClass("bird", "1.0.0")!, { x: 300, y: 0 }); a = b.assembly;
+    const r = connect(a, { moduleId: f.id, portId: "routes" }, { moduleId: b.id, portId: "peer" });
+    if (!("assembly" in r)) throw new Error(r.error.message);
+    expect(compileNetwork(r.assembly, "t", lookupClass).intents.map((i) => `${i.transport}/${i.number}`)).toEqual(["tcp/179"]);
+    expect("error" in connect(a, { moduleId: f.id, portId: "routes" }, { moduleId: b.id, portId: "net" })).toBe(true);
+  });
+});
+
+describe("logo provenance", () => {
+  const attribution = readFileSync(new URL("../assets/logos/ATTRIBUTION.md", import.meta.url), "utf8");
+  it("every bundled brand mark is listed with its source and licence; original icons are named as ours", () => {
+    const files = readdirSync(new URL("../assets/logos/", import.meta.url)).filter((f) => f.endsWith(".svg"));
+    for (const f of files) {
+      if (f.startsWith("generic-") || ["gateway.svg", "haproxy.svg", "linux-base.svg"].includes(f)) {
+        expect(attribution, f).toMatch(f.startsWith("generic-") ? /`generic-\*\.svg` set/ : new RegExp(`\`${f.replace(".", "\\.")}\``));
+        continue;
+      }
+      const row = attribution.split("\n").find((l) => l.startsWith(`| ${f} |`));
+      expect(row, `${f} is not listed in ATTRIBUTION.md`).toBeDefined();
+      expect(row!.split("|").length, `${f}: product, source and licence columns`).toBeGreaterThanOrEqual(6);
+    }
+  });
+  it("every logo is a small, local SVG without scripts or outside references", () => {
+    for (const c of MODULE_CLASSES) {
+      const svg = readFileSync(new URL(`../assets/logos/${c.iconAssetPath}.svg`, import.meta.url), "utf8");
+      expect(svg.startsWith("<svg "), c.iconAssetPath).toBe(true);
+      expect(svg, c.iconAssetPath).toMatch(/viewBox="0 0 24 24"/);
+      expect(svg, c.iconAssetPath).not.toMatch(/<script|foreignObject|href=|url\(/i);
+      expect(svg.length, c.iconAssetPath).toBeLessThan(20_000);
+    }
   });
 });
 

@@ -1,15 +1,15 @@
 # Rotate Apelora's Incus certificates
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 — both identities rotated on the three-member test
-cluster with `rotate-identity.sh`; the old certificates were gone from the trust store, the
-deploy identity kept its project restriction, and the real Incus tests passed with the new ones.
+Use this page before a certificate expires, and at once if a key may have leaked.
 
-Apelora talks to Incus with two client certificates (ADR 0003): the **deploy identity**,
-restricted to the deploy projects (control plane and worker), and the **admin identity**,
-unrestricted (control plane only, cluster administration). The test cluster issues them for 90
-days; rotate them well before they expire, and at once if a key may have leaked. Fabric Console →
-Administration → System shows when each expires (`GET /api/v1/system`, `certificates`), and warns
-30 days ahead.
+Apelora talks to Incus with two client certificates (ADR 0003):
+
+- the **deploy identity**, restricted to the deploy projects, used by the control plane and the worker;
+- the **admin identity**, unrestricted, used by the control plane only for cluster administration.
+
+Certificates made as in [install Incus](../guides/install-incus.md) last 90 days. Rotate them well
+before they expire. Fabric Console → Administration → System shows when each expires
+(`GET /api/v1/system`, `certificates`) and warns 30 days ahead.
 
 Rotation never leaves Apelora without access:
 
@@ -26,8 +26,5 @@ Rotation never leaves Apelora without access:
 6. Check: Preflight passes; the Fabric Console lists instances; the audit log shows normal
    activity.
 
-On the test cluster, `scripts/test-cluster/rotate-identity.sh client|admin` does steps 1–5
-(stopping before step 5 if the check in step 3 fails).
-
-A certificate that may have leaked: rotate as above, at once; the old one stops working the
+A certificate that may have leaked: rotate as above, at once. The old one stops working the
 moment it leaves the trust store (step 5).

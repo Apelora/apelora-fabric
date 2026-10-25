@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { catalogTile } from "./helpers";
 
 // Application Management in the Studio. Two backends are exercised: the browser-only one (no control
 // plane reachable; runtime state is unknown and nothing can be started) and the control-plane one,
@@ -88,7 +89,7 @@ test.describe("applications in this browser (no control plane)", () => {
     await create(page, "shop-b");
     expect(await page.getByTestId("module-node").count()).toBe(0);
     // Add a module to B from the catalog, then let the draft save.
-    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
+    await (await catalogTile(page, "nginx")).click();
     await expect(page.getByTestId("module-node")).toHaveCount(1);
     await expect(page.getByTestId("save-state")).toHaveAttribute("data-sync", "saved", { timeout: 8000 });
 
@@ -160,7 +161,7 @@ test.describe("applications in this browser (no control plane)", () => {
     await page.goto("/");
     await page.waitForSelector("[data-testid=module-node]");
     const before = await page.getByTestId("module-node").count();
-    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
+    await (await catalogTile(page, "nginx")).click();
     await expect(page.getByTestId("module-node")).toHaveCount(before + 1);
     await expect(page.getByTestId("save-state")).toHaveText("All changes saved");
     await page.reload();

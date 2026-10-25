@@ -29,7 +29,7 @@ const WIN_DESKTOP = "Optional: install a Windows metrics exporter service in the
 const FREEBSD = "FreeBSD-based: runs only as a virtual machine, and without an agent in the guest Incus sees QEMU-level numbers only.";
 
 export const METRICS: Readonly<Record<string, Metrics>> = {
-  // ---- Network & Security ----
+  // ---- Networking ----
   resolver: M("none", "none", "checked", ["Queries answered from the application's service names", "Queries forwarded to the previous resolvers"], {
     note: "Serves the names Apelora publishes for service addresses and forwards every other name. It has no metrics endpoint; Incus still reports the instance.",
   }),
@@ -61,7 +61,7 @@ export const METRICS: Readonly<Record<string, Metrics>> = {
     note: "The management socket is clear text with at most a password: keep it on localhost or a Unix socket.",
   }),
 
-  // ---- Security & Identity ----
+  // ---- Security & identity ----
   keycloak: M("native", "text", "checked", ["Request rate and latency by status", "Database pool use", "Logins and failed logins per realm", "JVM heap after collection"], {
     port: 9000, path: "/metrics", separateListener: true, health: { port: 9000, path: "/health/ready" },
     enable: "Turn on the class's Metrics endpoint setting (a build option); health is a separate switch. Both are served on the management port.",
@@ -125,7 +125,7 @@ export const METRICS: Readonly<Record<string, Metrics>> = {
     note: "The open-source project was renamed in 2025–26: check package and program names before building a runtime.",
   }),
 
-  // ---- Web & Application ----
+  // ---- Web, runtimes and applications ----
   nginx: M("native", "page", "checked", ["Active connections", "Dropped connections (accepted minus handled)", "Request rate", "Reading, writing and waiting connections"], {
     path: "/stub_status", auth: "configurable", separateListener: true,
     enable: "Add a status location (stub_status, built into the official images) on a server block of its own, on a port you choose, and allow only the collector's address. The vendor's exporter process turns the page into metrics text on 9113.",
@@ -405,5 +405,300 @@ export const METRICS: Readonly<Record<string, Metrics>> = {
     port: 2379, path: "/metrics", onByDefault: true, localOnly: true, auth: "configurable", health: { port: 2379, path: "/health" },
     enable: "Always served on the client listener, which binds to localhost by default: set the client URLs (or a separate metrics listener) to the application network address.",
     note: "Needs a client certificate only when the client listener requires them.",
+  }),
+
+  // ======== Added 2026-10: researched against each project's documentation or source on 2026-10-25 ========
+
+  // ---- Routing ----
+  frr: M("exporter", "text", "partly-checked", ["BGP sessions established versus configured", "Prefixes received per neighbour", "OSPF neighbours in full state", "BFD sessions down"], {
+    port: 9342, path: "/metrics", separateListener: true,
+    enable: "FRRouting serves no metrics endpoint of its own. Run a separate exporter process inside the instance that reads the daemons through their shell; it serves on 9342.",
+    note: `Route state is also readable inside the instance with the routing shell. ${NO_AUTH}`,
+  }),
+  bird: M("exporter", "text", "partly-checked", ["Protocol sessions up versus configured", "Routes imported and exported per protocol", "Route changes", "Daemon reachable"], {
+    port: 9324, path: "/metrics", separateListener: true,
+    enable: "BIRD serves no metrics endpoint; statistics come from its control socket. Run a separate exporter process that reads the socket; it serves on 9324.",
+    note: NO_AUTH,
+  }),
+  keepalived: M("exporter", "text", "partly-checked", ["Which instance holds the virtual address", "State changes", "Real servers up versus configured", "Advertisements received"], {
+    port: 9165, path: "/metrics", separateListener: true,
+    enable: "Keepalived offers SNMP and statistics files written on a signal, not metrics text. A separate exporter process inside the instance serves them on 9165.",
+    note: `VRRP is IP protocol 112 between the two instances: both must share a network that passes it, and in a container the virtual address needs network-admin rights. ${NO_AUTH}`,
+  }),
+
+  // ---- DNS and DHCP ----
+  coredns: M("native", "text", "checked", ["Queries and responses by code", "Request latency", "Cache hits and misses", "Forward errors and upstream latency", "Panics"], {
+    port: 9153, path: "/metrics", localOnly: true, separateListener: true, health: { port: 8080, path: "/health" },
+    enable: "Add the metrics plugin line to the server block (it listens on localhost:9153 unless an address is given); give it the application network address so a collector can read it.",
+    note: `Readiness is a separate plugin on 8181 (/ready). ${NO_AUTH}`,
+  }),
+  powerdns: M("native", "text", "checked", ["Queries and answers per second", "Server failures", "Packet cache hit ratio", "Backend query latency", "Latency"], {
+    port: 8081, path: "/metrics", localOnly: true, auth: "configurable", separateListener: true,
+    enable: "Turn on the built-in web server (off by default; 127.0.0.1:8081, allowed only from localhost) and widen its address and allow-list to the collector. Version 4.4 and later serve metrics text there.",
+    note: "A web server password protects it with basic authentication; the API key does not cover this path.",
+  }),
+  unbound: M("exporter", "text", "checked", ["Queries and cache hit ratio", "Recursion time", "SERVFAIL answers", "Requests dropped or over the limit", "DNSSEC validation failures"], {
+    port: 9167, path: "/metrics", separateListener: true,
+    enable: "Unbound serves no metrics endpoint: turn on its remote control (off by default, port 8953) and run a separate exporter process that reads it; it serves on 9167.",
+    note: NO_AUTH,
+  }),
+  bind9: M("native", "json", "checked", ["Queries by type and result", "Recursive clients", "Zone transfer failures", "Cache size", "Server failures"], {
+    auth: "configurable", separateListener: true,
+    enable: "Add a statistics channel on an address and port of your choice (none by default) and limit it to the collector with an allow list; it answers JSON and XML.",
+    note: "JSON and XML, not metrics text, so there is no mon output. A separate exporter process can turn the channel into metrics text on 9119. The channel has no authentication: keep it on the application network.",
+  }),
+  kea: M("exporter", "text", "partly-checked", ["Addresses assigned versus pool size", "Declined addresses", "Packets received and dropped", "Lease database errors"], {
+    port: 9547, path: "/metrics", separateListener: true,
+    enable: "Kea's statistics are JSON through its command channel (statistic-get-all). The project's own monitoring agent, run next to it, exports them as metrics text on 9547.",
+    note: `DHCP answers broadcasts on its own network: plug its NIC into the network it serves. ${NO_AUTH}`,
+  }),
+  netbox: M("native", "text", "partly-checked", ["Request rate and latency", "Database query time", "Cache hits", "Background task queue"], {
+    port: 8080, portChosen: true, path: "/metrics",
+    enable: "Set METRICS_ENABLED (off by default); metrics are served on the web port, which the class sets to 8080.",
+    note: "The application does not protect /metrics: restrict it at the proxy so only the drawn mon connection reaches it. The status page (/api/status/) needs a token while sign-in is required.",
+  }),
+
+  // ---- VPN and firewalls ----
+  strongswan: M("native", "counters", "partly-checked", ["Established tunnels (IKE and child SAs)", "Bytes and packets per tunnel", "Rekey failures", "Half-open connections"], {
+    onByDefault: true,
+    enable: "Read tunnel state and counters inside the instance with the swanctl tool or the daemon's control socket. Separate exporters exist, but none has a settled default port.",
+    note: "IKE uses UDP 500 and 4500; the tunnels themselves need IPsec (ESP) or UDP encapsulation through the network.",
+  }),
+  headscale: M("native", "text", "checked", ["Connected nodes", "Registration and update errors", "API request latency", "Database errors"], {
+    port: 9090, path: "/metrics", onByDefault: true, localOnly: true, separateListener: true, health: { port: 8080, path: "/health" },
+    enable: "On by default on 127.0.0.1:9090 (metrics listen address); set it to the application network address so a collector can read it.",
+    note: `The same listener serves debug pages. ${NO_AUTH}`,
+  }),
+  openwrt: M("exporter", "text", "checked", ["Interface traffic and errors", "Wireless clients", "Connection tracking against the limit", "CPU load and memory"], {
+    port: 9100, path: "/metrics", localOnly: true, separateListener: true,
+    enable: "Install the node metrics agent package (not installed by default); its shipped configuration listens on the loopback interface on 9100, so set its listen interface to the LAN.",
+    note: `Runs as a virtual machine. ${NO_AUTH}`,
+  }),
+
+  // ---- Runtimes and systems ----
+  go: M("none", "none", "checked", ["Request rate, latency and errors", "Goroutines", "Heap in use", "Garbage-collection pauses"], {
+    note: "The runtime serves nothing: the program must serve its own metrics (a client library or OpenTelemetry). Until then only the resource use Incus reports is available.",
+  }),
+  opensuse: M("agent", "text", "unverified", OS_SIGNALS, { port: 9100, path: "/metrics", separateListener: true, enable: LINUX_AGENT, note: INCUS_CT }),
+
+  // ---- Data ----
+  yugabytedb: M("native", "text", "partly-checked", ["Read and write latency", "Leaderless tablets", "Under-replicated tablets", "Clock skew", "Disk use"], {
+    port: 9000, path: "/prometheus-metrics", onByDefault: true, separateListener: true,
+    enable: "Always served by the tablet server's web port 9000 (the master serves its own on 7000).",
+    note: `Only the database is Apache-2.0; the separate management product is not open source. ${NO_AUTH}`,
+  }),
+  pgbouncer: M("exporter", "text", "checked", ["Clients waiting for a connection", "Average wait time", "Server connections in use versus pool size", "Queries and transactions per second"], {
+    port: 9127, path: "/metrics", auth: "configurable", separateListener: true,
+    enable: "PgBouncer serves no metrics endpoint; its statistics are SQL views on its admin console. Run a separate exporter process with a stats user; it serves on 9127.",
+  }),
+  valkey: M("exporter", "text", "partly-checked", ["Memory used versus maxmemory", "Evictions", "Hit ratio", "Connected and blocked clients", "Replication offset lag"], {
+    port: 9121, path: "/metrics", auth: "configurable", separateListener: true,
+    enable: "Run a separate exporter process with a user limited to the commands it needs; it serves on 9121. The INFO command is the source and is always available.",
+    note: "The default configuration binds to localhost with protected mode on: set the bind address and a password before other modules can connect.",
+  }),
+  ferretdb: M("native", "text", "checked", ["Commands by name and result", "Command latency", "Open client connections", "PostgreSQL pool use"], {
+    port: 8088, path: "/debug/metrics", onByDefault: true, localOnly: true, separateListener: true, health: { port: 8088, path: "/debug/readyz" },
+    enable: "On by default on the debug listener 127.0.0.1:8088; set the debug address to the application network address so a collector can read it.",
+    note: `The project says its metric names are not stable yet. ${NO_AUTH}`,
+  }),
+  meilisearch: M("native", "text", "partly-checked", ["Search requests and latency", "Indexing tasks queued and failed", "Database and index size", "Documents per index"], {
+    port: 7700, path: "/metrics", auth: "token", health: { port: 7700, path: "/health" },
+    enable: "Experimental: start with the metrics feature flag (or turn it on through the experimental features API); served on the main port and read with an API key.",
+    note: "The Community Edition is MIT-licensed; enterprise-only parts of the repository carry a source-available licence.",
+  }),
+  trino: M("native", "text", "checked", ["Running and queued queries", "Failed queries", "Memory pool use", "Active workers", "JVM heap and GC"], {
+    port: 8080, path: "/metrics", onByDefault: true, auth: "configurable",
+    enable: "Always served on each node's HTTP port (OpenMetrics text). Without security a request names a user in a header; with security the user needs read access to system information.",
+  }),
+  superset: M("native", "protocol", "partly-checked", ["Dashboard and chart load time", "Query errors", "Async query backlog", "Cache hits"], {
+    health: { port: 8088, path: "/health" },
+    enable: "Superset pushes metrics to a StatsD-style collector through its stats logger setting instead of serving them.",
+    note: "Pushes, so there is no mon output. Run the metadata database and cache as their own modules and read those.",
+  }),
+  garage: M("native", "text", "checked", ["Cluster healthy and quorum", "Nodes connected", "S3 request rate and errors", "Blocks to resync", "Free space per node"], {
+    port: 3903, path: "/metrics", auth: "configurable", separateListener: true, health: { port: 3903, path: "/health" },
+    enable: "Set the admin API address (port 3903 in the project's examples); metrics are read with the metrics token if one is set.",
+    note: "Without a metrics token anyone who reaches the admin port can read them: set one, or keep the port on the application network.",
+  }),
+  seaweedfs: M("native", "text", "checked", ["Volume server disk use", "Request rate and errors per server", "Replication status", "Filer store latency"], {
+    port: 9327, portChosen: true, path: "/metrics", separateListener: true, health: { port: 9333, path: "/healthz" },
+    enable: "Off until a metrics port is given to each process (master, volume, filer, gateway); the class uses 9327.",
+    note: NO_AUTH,
+  }),
+  samba: M("native", "counters", "partly-checked", ["Connected clients", "Open files and locks", "Failed authentications", "Share throughput"], {
+    onByDefault: true,
+    enable: "Read sessions, shares and locks inside the instance with the smbstatus tool. A separate exporter process can serve them on 9922.",
+    note: "Serving SMB from an unprivileged container needs care with file ownership; a virtual machine is the simpler start.",
+  }),
+
+  // ---- Messaging ----
+  debezium: M("exporter", "text", "checked", ["Milliseconds behind the source", "Events captured and filtered", "Queue capacity left", "Connector connected"], {
+    port: 9404, portChosen: true, path: "/metrics", separateListener: true, health: { port: 8080, path: "/q/health" },
+    enable: "Set the bundled JVM metrics agent's port in its environment (no default; the class uses 9404); otherwise metrics are JMX only.",
+    note: NO_AUTH,
+  }),
+  flink: M("native", "text", "partly-checked", ["Job restarts", "Checkpoint duration and failures", "Backpressure", "Records in and out per second", "Task manager heap"], {
+    port: 9249, path: "/metrics", separateListener: true,
+    enable: "Configure the bundled metrics reporter (a plugin in the distribution, off by default); each job manager and task manager serves on 9249.",
+    note: `The REST API and web UI on 8081 also report job status as JSON. ${NO_AUTH}`,
+  }),
+
+  // ---- Observability ----
+  victoriametrics: M("native", "text", "checked", ["Ingestion rate", "Active series", "Slow inserts", "Disk space left", "Rows rejected"], {
+    port: 8428, path: "/metrics", onByDefault: true, auth: "configurable", health: { port: 8428, path: "/health" },
+    enable: "Always served on the main port; an auth key setting can protect it.",
+    note: "Its scrape input reads other modules' mon outputs, like Prometheus.",
+  }),
+  "node-exporter": M("native", "text", "checked", OS_SIGNALS, {
+    port: 9100, path: "/metrics", onByDefault: true, auth: "configurable", separateListener: true,
+    enable: "Always on; a web configuration file adds TLS and basic authentication.",
+    note: "Reports the instance it runs in; in a system container much of /proc is the host's view, so Incus's own numbers are the reliable ones there. Keep it on the application network.",
+  }),
+  "blackbox-exporter": M("native", "text", "checked", ["Probe success", "Probe duration", "HTTP status code", "Days until the certificate expires", "DNS lookup time"], {
+    port: 9115, path: "/metrics", onByDefault: true, auth: "configurable", separateListener: true,
+    enable: "Always on. A collector asks /probe with a target and a check name to run a check; /metrics reports the exporter itself.",
+    note: "Keep it on the application network: anyone who reaches it can make it probe addresses.",
+  }),
+  zabbix: M("native", "protocol", "partly-checked", ["Queue of delayed items", "Poller and trapper busy", "Value cache hits", "Unsupported items"], {
+    port: 10051,
+    enable: "The server reports its own health as internal items and as JSON statistics requested over its trapper port 10051.",
+    note: "Its own protocol, not metrics text, so there is no mon output. Zabbix can itself read metrics text from other modules.",
+  }),
+  loki: M("native", "text", "checked", ["Lines and bytes received per tenant", "Ingester flush failures", "Query latency", "Requests rejected by limits"], {
+    port: 3100, path: "/metrics", onByDefault: true, health: { port: 3100, path: "/ready" },
+    enable: "Always served on the HTTP port 3100.",
+    note: `Main code is AGPL-3.0. ${NO_AUTH}`,
+  }),
+  vector: M("native", "text", "checked", ["Events in and out per component", "Errors per component", "Buffer use", "Events discarded"], {
+    port: 9598, path: "/metrics", separateListener: true, health: { port: 8686, path: "/health" },
+    enable: "Add an internal metrics source and a metrics exporter sink (0.0.0.0:9598 by default); the API with its health check is off by default and binds to 127.0.0.1:8686.",
+    note: NO_AUTH,
+  }),
+  "fluent-bit": M("native", "text", "checked", ["Records in and out per plugin", "Retries and failed retries", "Errors", "Buffer chunks"], {
+    port: 2020, path: "/api/v2/metrics/prometheus", separateListener: true, health: { port: 2020, path: "/api/v1/health" },
+    enable: "Turn the built-in HTTP server on (off by default; 0.0.0.0:2020). The health check needs its own switch.",
+    note: NO_AUTH,
+  }),
+  tempo: M("native", "text", "checked", ["Spans received and refused", "Ingester flush failures", "Query latency", "Compaction backlog"], {
+    port: 3200, path: "/metrics", onByDefault: true, health: { port: 3200, path: "/ready" },
+    enable: "Always served on the HTTP port 3200.",
+    note: `The OTLP receivers listen on 4317 (gRPC) and 4318 (HTTP). ${NO_AUTH}`,
+  }),
+  "opensearch-dashboards": M("native", "json", "partly-checked", ["Overall status", "OpenSearch connection", "Plugin status", "Response times"], {
+    port: 5601, path: "/api/status", onByDefault: true, auth: "basic", health: { port: 5601, path: "/api/status" },
+    enable: "Always on; with the security plugin the caller signs in.",
+    note: "JSON, so there is no mon output. The sample configuration binds to localhost: set the server host to the application network address.",
+  }),
+  alertmanager: M("native", "text", "checked", ["Alerts received and invalid", "Notifications sent and failed per integration", "Notification latency", "Cluster members"], {
+    port: 9093, path: "/metrics", onByDefault: true, auth: "configurable", health: { port: 9093, path: "/-/ready" },
+    enable: "Always on on the web port; a web configuration file adds TLS and basic authentication.",
+    note: "Clustered instances gossip on 9094. Keep it on the application network: without authentication anyone who reaches it can silence alerts.",
+  }),
+  "uptime-kuma": M("native", "text", "partly-checked", ["Monitor up or down", "Response time per monitor", "Certificate days left", "Monitors paused"], {
+    port: 3001, path: "/metrics", auth: "basic",
+    enable: "Served on the web port 3001 with the account's basic authentication or an API key (adding a key turns basic authentication off). Newer versions add a switch that is off by default.",
+  }),
+
+  // ---- Security & identity ----
+  freeipa: M("native", "protocol", "unverified", ["Directory connections and operations", "Replication status", "Kerberos authentications", "Certificate expiry"], {
+    port: 389, auth: "configurable",
+    enable: "Its directory server publishes operational counters under cn=monitor, read over LDAP with an authenticated bind.",
+    note: "Read over LDAP, not as metrics text, so there is no mon output. Runs best as a virtual machine: it needs a fixed host name, Kerberos and several services.",
+  }),
+  openbao: M("native", "text", "checked", ["Sealed state", "Request latency and volume", "Leadership changes", "Active leases", "Storage latency"], {
+    port: 8200, path: "/v1/sys/metrics?format=prometheus", onByDefault: true, localOnly: true, auth: "token", health: { port: 8200, path: "/v1/sys/health" },
+    enable: "Bind the listener to the application network (the default is 127.0.0.1) and give the collector a token that may read sys/metrics, or allow unauthenticated metrics on that listener.",
+    note: "Only the active node answers with metrics; standbys redirect.",
+  }),
+  "step-ca": M("native", "text", "partly-checked", ["Certificates signed and failed", "ACME orders", "Provisioner errors", "Request latency"], {
+    port: 9102, portChosen: true, path: "/metrics", separateListener: true, health: { port: 9000, path: "/health" },
+    enable: "Set a metrics address in the CA configuration (none by default); it serves plain HTTP on a listener of its own. The class uses 9102.",
+    note: `Confirmed in the source, not in the project's documentation. ${NO_AUTH}`,
+  }),
+  vaultwarden: M("none", "none", "checked", ["Sign-in failures", "Response time", "Database reachable"], {
+    health: { port: 80, path: "/alive" },
+    note: "Serves no metrics; /alive checks the database. Only the resource use Incus reports is available.",
+  }),
+  crowdsec: M("native", "text", "checked", ["Lines parsed and unparsed per source", "Scenarios triggered", "Decisions active", "Bouncer requests"], {
+    port: 6060, path: "/metrics", onByDefault: true, localOnly: true, separateListener: true,
+    enable: "On by default on 127.0.0.1:6060; set the listen address to the application network address so a collector can read it.",
+    note: NO_AUTH,
+  }),
+  suricata: M("native", "counters", "partly-checked", ["Packets captured and dropped", "Alerts", "Flows", "Memory caps reached"], {
+    onByDefault: true,
+    enable: "Statistics go to its stats log, to stats events in its JSON event log and to its control socket inside the instance.",
+    note: "Inline prevention needs the traffic to pass through the instance: a virtual machine with two NICs is the simpler start.",
+  }),
+  wazuh: M("native", "json", "partly-checked", ["Agents connected and disconnected", "Events per second", "Queue use", "Alerts by level"], {
+    port: 55000, auth: "token",
+    enable: "The management API on 55000 (HTTPS, sign-in) reports agent and daemon statistics as JSON.",
+    note: "JSON, so there is no mon output. Agents use 1514 and enrolment 1515. Licensing differs between parts and versions (GPL-2.0 for most of the manager): check before packaging an image.",
+  }),
+
+  // ---- Developer tools ----
+  forgejo: M("native", "text", "checked", ["Object counts (repositories, users, issues)", "Memory", "Database and cache health", "Request latency"], {
+    port: 3000, path: "/metrics", auth: "token",
+    enable: "Set ENABLED in the metrics section (off by default) and a TOKEN that callers send as a bearer token.",
+    note: "Served on the main web port: without a token anyone who reaches the site can read it. GPL-3.0 or later from version 9.",
+  }),
+  woodpecker: M("native", "text", "checked", ["Pipelines running and pending", "Pipeline duration", "Workers connected", "Forge errors"], {
+    port: 8000, path: "/metrics", auth: "token", health: { port: 8000, path: "/healthz" },
+    enable: "Set the metrics token (WOODPECKER_PROMETHEUS_AUTH_TOKEN); /metrics is served on the server's HTTP port only then, and callers send it as a bearer token.",
+  }),
+  harbor: M("native", "text", "checked", ["Project and repository counts", "Push and pull rate", "Job service queue", "Registry storage use"], {
+    port: 9090, path: "/metrics", separateListener: true,
+    enable: "Turn metrics on in the installer configuration (off by default); the exporter, core, job service and registry serve on 9090.",
+    note: NO_AUTH,
+  }),
+  registry: M("native", "text", "checked", ["Requests by method and code", "Request latency", "Storage driver errors", "Cache hit ratio"], {
+    port: 5001, portChosen: true, path: "/metrics", separateListener: true, health: { port: 5001, path: "/debug/health" },
+    enable: "Configure the debug server (no default; the project's examples use 5001) and turn on its metrics.",
+    note: `The debug listener also reveals internals: keep it on the application network. ${NO_AUTH}`,
+  }),
+
+  // ---- Applications ----
+  mattermost: M("none", "none", "checked", ["Active users", "API latency", "WebSocket connections", "Database connections"], {
+    health: { port: 8065, path: "/api/v4/system/ping" },
+    note: "Its metrics endpoint (8067) needs a commercial licence, so the free edition serves none. Read the database and file store modules instead.",
+  }),
+  synapse: M("native", "text", "checked", ["Request rate and latency per endpoint", "Event persistence lag", "Federation send queue", "Database transaction time"], {
+    port: 9000, portChosen: true, path: "/_synapse/metrics", separateListener: true,
+    enable: "Set enable_metrics and add a metrics listener (the project's example uses 9000 on localhost); give it the application network address.",
+    note: NO_AUTH,
+  }),
+  jitsi: M("native", "text", "partly-checked", ["Conferences and participants", "Packet loss and stress level", "Bit rate in and out", "Health of the bridge"], {
+    port: 8080, path: "/metrics", onByDefault: true, localOnly: true, separateListener: true, health: { port: 8080, path: "/about/health" },
+    enable: "The video bridge serves metrics on its private REST port, bound to 127.0.0.1 by default: widen its address so a collector can read it. The focus serves its own on 8888.",
+    note: `Clients send media to the bridge over UDP 10000, which the gateway must publish. ${NO_AUTH}`,
+  }),
+  ghost: M("none", "none", "partly-checked", ["Response time", "Error responses", "Newsletter sends", "Database connections"], {
+    note: "Serves no documented metrics endpoint. Read the database and web server modules instead.",
+  }),
+  drupal: M("none", "none", "partly-checked", ["PHP worker pool saturation", "5xx responses and latency", "Cache hit ratio", "Cron runs"], {
+    note: "The core serves no metrics. Read the PHP-FPM, web server and database modules instead.",
+  }),
+  mediawiki: M("native", "protocol", "checked", ["Page render time", "Edits", "Job queue length", "Cache hit ratio"], {
+    enable: "MediaWiki pushes metrics to a StatsD-style collector set in its configuration instead of serving them.",
+    note: "Pushes, so there is no mon output.",
+  }),
+  postfix: M("exporter", "text", "checked", ["Mail queue size", "Deferred and bounced messages", "SMTP connections and rejections", "Delivery delay"], {
+    port: 9154, path: "/metrics", separateListener: true,
+    enable: "Postfix serves no metrics. A separate exporter process reads the queue and the mail log and serves them on 9154.",
+    note: NO_AUTH,
+  }),
+  dovecot: M("native", "text", "checked", ["Logins and failures", "Mail deliveries", "Active connections", "Authentication latency"], {
+    port: 9900, portChosen: true, path: "/metrics", separateListener: true,
+    enable: "Add an HTTP listener to the stats service (2.3.11 and later; the project's example uses 9900) and define the metrics to collect.",
+    note: NO_AUTH,
+  }),
+  roundcube: M("none", "none", "partly-checked", ["Sign-in failures", "IMAP and SMTP errors", "Response time"], {
+    note: "Serves no metrics. Read the mail and database modules instead.",
+  }),
+  odoo: M("none", "none", "checked", ["Request latency", "Worker restarts", "Cron backlog", "Database connections"], {
+    health: { port: 8069, path: "/web/health" },
+    note: "Serves no metrics; /web/health answers without sign-in. Read the database module instead.",
+  }),
+  matomo: M("none", "none", "partly-checked", ["Tracking requests per second", "Archiving duration", "Database size"], {
+    note: "Serves no metrics. Read the database and web server modules instead.",
   }),
 };

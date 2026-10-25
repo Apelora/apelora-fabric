@@ -278,6 +278,22 @@ pub async fn linked_jobs(pool: &PgPool, job: &JobView) -> Result<Vec<JobView>> {
     .await?)
 }
 
+/// The error of an application's most recent `network.sync` that has an outcome, while it is
+/// failing; `None` once one succeeds. Syncs queued again and not yet tried are skipped, so the
+/// answer does not flicker between retries.
+pub async fn failing_network_sync(pool: &PgPool, application: &str) -> Result<Option<String>> {
+    let latest: Option<(String, Option<String>)> = sqlx::query_as(
+        "SELECT j.status, j.last_error FROM jobs j JOIN applications a ON a.id = j.application_id
+         WHERE a.name = $1 AND j.kind = 'network.sync'
+           AND (j.status IN ('succeeded', 'failed') OR j.last_error IS NOT NULL)
+         ORDER BY j.updated_at DESC, j.id LIMIT 1",
+    )
+    .bind(application)
+    .fetch_optional(pool)
+    .await?;
+    Ok(latest.and_then(|(status, error)| (status != "succeeded").then_some(error).flatten()))
+}
+
 /// The name of the application a job belongs to.
 pub async fn application_name(pool: &PgPool, id: Uuid) -> Result<Option<String>> {
     Ok(

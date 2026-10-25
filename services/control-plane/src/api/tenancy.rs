@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Tenancy isolation and quotas (ADR 0012, `docs/design/tenancy-isolation.md`).
 //!
-//! - **Preparing an environment's Incus project**: created (or adopted when it exists and is
-//!   restricted) with the admin identity, given its own default profile, and added to the
+//! - **Preparing an environment's Incus project**: created with the admin identity (or adopted
+//!   when it exists, is restricted, and either carries this environment's marker or was named by
+//!   a platform administrator when the environment was created), given its own default profile, and added to the
 //!   deploy identity's project list; then read back with the deploy identity. The admin
 //!   identity is only ever used here, in the control plane, synchronously (ADR 0003).
 //! - **Quotas** on organisations, projects and environments: stored in Apelora, checked when a
@@ -340,11 +341,75 @@ pub struct IncusProjectPrepared {
     pub limits: Option<TenancyLimitOutcome>,
 }
 
-/// Steps on the Incus side; `Err` is the reason the environment stays pending.
+/// Why an environment's Incus project was not prepared.
+enum NotReady {
+    /// It stays pending; the text says why (retried before the next deployment).
+    Pending(String),
+    /// A project of that name exists and is not this environment's to use (409).
+    Foreign(String),
+}
+
+impl From<String> for NotReady {
+    fn from(why: String) -> Self {
+        NotReady::Pending(why)
+    }
+}
+
+impl From<&str> for NotReady {
+    fn from(why: &str) -> Self {
+        NotReady::Pending(why.to_owned())
+    }
+}
+
+/// Why an existing Incus project that does not carry this environment's marker may not be
+/// adopted, if it may not: it carries another environment's marker, or nobody holding
+/// `cluster.manage` named it for this environment (a derived name that happens to match is not
+/// a choice).
+fn foreign_project(name: &str, config: &BTreeMap<String, String>, chosen: bool) -> Option<String> {
+    if config.contains_key(t::ENVIRONMENT_KEY) {
+        return Some(format!(
+            "Incus project {name} belongs to another Apelora environment; choose another environment identifier"
+        ));
+    }
+    (!chosen).then(|| format!(
+        "Incus project {name} already exists and Apelora did not create it for this environment; choose another environment identifier, or ask a platform administrator to map the existing project explicitly when creating the environment"
+    ))
+}
+
+/// Before an environment is created: refuses (409 `incus_project_exists`) when its Incus project
+/// already exists and could not be adopted. Without an admin identity, or when Incus cannot be
+/// asked, nothing is refused here; preparing the project checks again.
+pub(super) async fn check_existing_project(
+    state: &AppState,
+    name: &str,
+    chosen: bool,
+) -> Result<(), ApiError> {
+    let Some(admin) = state.admin.as_deref() else {
+        return Ok(());
+    };
+    match admin.tenancy_project(name).await {
+        Ok(Some(p)) => match foreign_project(name, &p.config, chosen) {
+            Some(why) => Err(project_exists(why)),
+            None => Ok(()),
+        },
+        Ok(None) => Ok(()),
+        Err(e) => {
+            tracing::warn!(project = name, error = %e, "tenancy: cannot check whether the Incus project exists");
+            Ok(())
+        }
+    }
+}
+
+fn project_exists(why: String) -> ApiError {
+    ApiError::new(StatusCode::CONFLICT, "incus_project_exists", why)
+}
+
+/// Steps on the Incus side; `Err` is the reason the environment stays pending, or that the
+/// project is not its to use.
 async fn attempt(
     state: &AppState,
     chain: &db::EnvironmentChain,
-) -> Result<(TenancyIncusState, String, Vec<TenancyFinding>), String> {
+) -> Result<(TenancyIncusState, String, Vec<TenancyFinding>), NotReady> {
     let admin = state.admin.as_deref().ok_or(NO_ADMIN)?;
     let env = &chain.environment;
     let name = env
@@ -364,10 +429,13 @@ async fn attempt(
             (TenancyIncusState::Created, p.config)
         }
         Some(p) => {
+            if let Some(why) = foreign_project(name, &p.config, chain.incus_project_chosen) {
+                return Err(NotReady::Foreign(why));
+            }
             if p.config.get("restricted").map(String::as_str) != Some("true") {
-                return Err(format!(
+                return Err(NotReady::Pending(format!(
                     "Incus project {name} exists but is not restricted; Apelora adopts only restricted projects (set restricted=true, or map the environment to another project)"
-                ));
+                )));
             }
             (TenancyIncusState::Adopted, p.config)
         }
@@ -392,21 +460,21 @@ async fn attempt(
         }
     };
     let mut findings = t::findings(&config, &s);
-    if let Some(f) = grant(state, admin, name).await? {
+    if let Some(f) = grant(state, admin, name).await.map_err(NotReady::Pending)? {
         findings.push(f);
     }
     // The deploy identity must now see the project, or nothing can be deployed into it.
     match state.provider.tenancy_project(name).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return Err(format!(
+            return Err(NotReady::Pending(format!(
                 "the deploy identity cannot find Incus project {name}"
-            ));
+            )));
         }
         Err(e) => {
-            return Err(format!(
+            return Err(NotReady::Pending(format!(
                 "the deploy identity cannot use Incus project {name} yet: {e}"
-            ));
+            )));
         }
     }
     let detail = match st {
@@ -537,10 +605,16 @@ pub(super) async fn prepare(
 ) -> Result<IncusProjectPrepared, ApiError> {
     let pool = store(state)?;
     let env = &chain.environment;
+    let mut foreign = false;
     let (st, detail, findings) = match attempt(state, chain).await {
         Ok(x) => x,
-        Err(why) => {
+        Err(NotReady::Pending(why)) => {
             tracing::warn!(environment = %env.id, project = ?env.incus_project, reason = %why, "tenancy: Incus project not prepared");
+            (TenancyIncusState::Pending, why, Vec::new())
+        }
+        Err(NotReady::Foreign(why)) => {
+            tracing::warn!(environment = %env.id, project = ?env.incus_project, reason = %why, "tenancy: existing Incus project not adopted");
+            foreign = true;
             (TenancyIncusState::Pending, why, Vec::new())
         }
     };
@@ -555,7 +629,9 @@ pub(super) async fn prepare(
         p,
         "environment.incus_project.prepare",
         &target,
-        if st == TenancyIncusState::Pending {
+        if foreign {
+            "denied"
+        } else if st == TenancyIncusState::Pending {
             "failed"
         } else {
             "success"
@@ -565,6 +641,9 @@ pub(super) async fn prepare(
     )
     .await?;
     commit(tx).await?;
+    if foreign {
+        return Err(project_exists(detail));
+    }
     let limits = if st == TenancyIncusState::Pending {
         None
     } else {
@@ -962,11 +1041,13 @@ pub(super) async fn set_quota(
 }
 
 /// Creates or adopts the environment's Incus project now (idempotent): the restricted project
-/// with its default profile, granted to the deploy identity, then the quotas mirrored. Needs
+/// with its default profile, granted to the deploy identity, then the quotas mirrored. An existing
+/// project is adopted only when it carries this environment's marker or a platform administrator
+/// named it when creating the environment; otherwise 409 `incus_project_exists`. Needs
 /// `environment.manage` on the environment's project; 503 without an admin identity.
 #[utoipa::path(post, path = "/api/v1/identity/environments/{id}/incus-project", tag = "identity", operation_id = "prepare_incus_project",
     params(("id" = Uuid, Path, description = "Environment id")),
-    responses((status = 200, body = IncusProjectPrepared), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 503, body = ErrorBody)))]
+    responses((status = 200, body = IncusProjectPrepared), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn prepare_project(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,

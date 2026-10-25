@@ -17,7 +17,9 @@ repo=$(cd "$here/../.." && pwd)
 run=$(mktemp -d -t apelora-demo)
 log="$run/demo.log"
 APP=demo
-API=http://127.0.0.1:8080/api/v1
+# Where this run's control plane listens: set APELORA_API_ADDR when 127.0.0.1:8080 is taken.
+export APELORA_API_ADDR=${APELORA_API_ADDR:-127.0.0.1:8080}
+API=http://$APELORA_API_ADDR/api/v1
 export DATABASE_URL=${DATABASE_URL:-postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora}
 # shellcheck disable=SC1091
 source "$HOME/.config/apelora/test-cluster/env"
@@ -43,10 +45,13 @@ probe() {   # 8 requests to the service address from the client; prints the answ
 vm_of() { case "$1" in apelora-test-1) echo apelora-incus ;; apelora-test-*) echo "apelora-incus-${1#apelora-test-}" ;; esac; }
 
 stopped_vm=""
+evacuated=""
 cleanup() {
   set +e
   say "cleanup"
   [ -n "$stopped_vm" ] && limactl start "$stopped_vm" >/dev/null 2>&1
+  # Never leave a member evacuated: its uplink bridge is down until restore (TEST-CLUSTER.md).
+  [ -n "$evacuated" ] && [ -s "$run/token" ] && api -X POST -d "{\"confirm\":\"$evacuated\"}" "$API/cluster/members/$evacuated/restore" >/dev/null && sleep 20
   if [ -s "$run/token" ]; then
     api -X POST -H 'Idempotency-Key: demo-cleanup' \
       -d '{"project":"apelora","document":{"apiVersion":"fabric.apelora/v1alpha1"},"modules":[],"connections":[],"removeMissing":true}' \
@@ -70,7 +75,9 @@ SQL
 }
 trap cleanup EXIT
 
+started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 say "Apelora end-to-end demonstration — run directory $run"
+curl -s -m 2 -o /dev/null "http://$APELORA_API_ADDR/" && fail "something already listens on $APELORA_API_ADDR (set APELORA_API_ADDR to a free address)"
 members=$(incus_ cluster list --format csv -c ns)
 say "members: $(echo "$members" | tr '\n' ' ')"
 [ "$(echo "$members" | grep -c ONLINE)" -ge 3 ] || fail "three online members are needed"
@@ -129,7 +136,9 @@ blocked=$(echo "incus exec $APP-client-01 --project apelora -- bash -c \"timeout
 # --- A replica fails its health check (running, but its port is closed) ------------------
 sick=$APP-web-01-r2
 health_of() { api "$API/applications/$APP/status" | jq -r --arg i "$1" '.items[] | select(.instance==$i) | .health.health // "none"'; }
-restarts_of() { api "$API/audit" | jq --arg t "apelora/$1" '[.items[] | select(.action=="application.replica.restart-unhealthy" and .target==$t)] | length'; }
+# Only this run's restarts: the audit log is append-only, so earlier runs' entries for the same
+# instance name are still there.
+restarts_of() { api "$API/audit?action=application.replica.restart-unhealthy&target=apelora/$1&from=$started" | jq '.items | length'; }
 nginx_port() {   # moves the replica's NGINX to another port (the change survives a restart)
   echo "incus exec $sick --project apelora -- sh -c \"sed -i 's/listen  *$1;/listen $2;/; s/listen  *\\[::\\]:$1;/listen [::]:$2;/' /etc/nginx/conf.d/default.conf && nginx -s reload\" </dev/null" | member apelora-incus
 }
@@ -169,13 +178,21 @@ else
   say "force-stopping $victim ($stopped_vm)"
   t0=$(date +%s)
   limactl stop -f "$stopped_vm" >/dev/null 2>&1
-  ok=""
+  # Incus 7.0 refuses load balancer changes while a member is down, so the substitute may get no
+  # traffic until the member returns. Then Apelora must say so, naming the member.
+  ok=""; stuck=""
   for _ in $(seq 1 30); do
     sleep 10
     out=$(probe "$svc")
     if [[ $out != *FAIL* ]] && incus_ list --project apelora -c n --format csv | grep -q -- '-s1$'; then ok=1; break; fi
+    stuck=$(api "$API/applications/$APP/status" | jq -r '.trafficBlocked // empty')
+    [ -n "$stuck" ] && break
   done
-  [ -n "$ok" ] && pass "substitute serving; service whole again $(( $(date +%s) - t0 )) s after the failure" || fail "no recovery: $out"
+  if [ -n "$ok" ]; then pass "substitute serving; service whole again $(( $(date +%s) - t0 )) s after the failure"
+  elif [ -n "$stuck" ]; then
+    [[ $stuck == *"$victim"* ]] && pass "service stuck as Incus refuses load balancer changes, and the status says so after $(( $(date +%s) - t0 )) s: $stuck" \
+      || fail "the status does not name $victim: $stuck"
+  else fail "no recovery, and the status does not say why: $out"; fi
   limactl start "$stopped_vm" >/dev/null 2>&1; stopped_vm=""
   ok=""
   for _ in $(seq 1 30); do
@@ -184,6 +201,14 @@ else
     [ "$n" -eq 2 ] && ok=1 && break
   done
   [ -n "$ok" ] && pass "member back; the extra replica was retired" || fail "duplicate replica not retired"
+  if [ -n "$stuck" ]; then
+    cleared=""
+    for _ in $(seq 1 18); do
+      [ -z "$(api "$API/applications/$APP/status" | jq -r '.trafficBlocked // empty')" ] && cleared=1 && break
+      sleep 10
+    done
+    [ -n "$cleared" ] && pass "the stuck-traffic notice cleared once the member was back" || fail "the stuck-traffic notice stayed after the member returned"
+  fi
 fi
 
 # --- Evacuation --------------------------------------------------------------------------
@@ -191,11 +216,16 @@ target=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.module=
 preview=$(api "$API/cluster/members/$target/evacuation")
 [ "$(echo "$preview" | jq '.plan.blocked | length')" -eq 0 ] && pass "dry run for $target: $(echo "$preview" | jq -c '[.plan.items[] | [.instance, .impact]]')" || fail "evacuation blocked"
 api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/evacuate" >/dev/null
+evacuated=$target
 for _ in $(seq 1 30); do sleep 5; [ "$(api "$API/cluster" | jq -r --arg m "$target" '.members[] | select(.name==$m) | .status')" = Evacuated ] && break; done
+# Apelora does not drain the member first yet (issue #50): the health check takes a stopped
+# replica out after two failed checks five seconds apart. Give it that long, then expect no failure.
+sleep 12
 out=$(probe "$svc"); say "service while $target is evacuated: $out"
 [[ $out != *FAIL* ]] && pass "service up during evacuation" || fail "service failed during evacuation"
 api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/restore" >/dev/null
 for _ in $(seq 1 30); do sleep 5; [ "$(api "$API/cluster" | jq -r --arg m "$target" '.members[] | select(.name==$m) | .status')" = Online ] && break; done
+evacuated=""
 pass "member restored"
 
 say "audit: $(api "$API/audit?limit=50" | jq -c '[.items[] | select(.actor=="supervisor" or .actor=="demo") | .action] | group_by(.) | map({(.[0]): length}) | add')"

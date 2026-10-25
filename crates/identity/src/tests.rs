@@ -327,6 +327,131 @@ fn only_secure_or_local_urls_are_accepted() {
     assert!(super::secure_url("http://127.0.0.1:5556/dex"));
     assert!(!super::secure_url("http://id.example.test"));
     assert!(!super::secure_url("ftp://x"));
+    // Plain http only to this computer: the host must be exactly a loopback name or address.
+    for u in [
+        "http://localhost.evil.example/dex",
+        "http://127.0.0.1.evil.example/",
+        "http://127.0.0.1@evil.example/",
+        "http://localhost@evil.example/",
+        "http://localhost:80@evil.example/",
+        "http://127.0.0.2/",
+        "https//id.example.test",
+        "not a url",
+    ] {
+        assert!(!super::secure_url(u), "{u}");
+    }
+    assert!(super::secure_url("http://localhost:5556/dex"));
+    assert!(super::secure_url("http://LOCALHOST/dex"));
+    assert!(super::secure_url("http://[::1]:5556/dex"));
+}
+
+type Route = (&'static str, u16, String, String);
+
+/// An HTTP server on 127.0.0.1 answering one request per connection from the routes (path,
+/// status, extra header lines, body) that `routes` builds from the server's base URL.
+fn local_server(routes: impl FnOnce(&str) -> Vec<Route>) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    let routes = routes(&base);
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut buf = [0u8; 4096];
+            let n = stream.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let path = req.split_whitespace().nth(1).unwrap_or("/").to_owned();
+            let (status, header, body) = routes
+                .iter()
+                .find(|(p, ..)| *p == path)
+                .map_or((404, String::new(), String::new()), |(_, s, h, b)| {
+                    (*s, h.clone(), b.clone())
+                });
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n{header}\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    base
+}
+
+fn discovery_doc(issuer: &str, jwks: &str) -> String {
+    json!({ "issuer": issuer, "authorization_endpoint": format!("{issuer}/auth"),
+            "token_endpoint": format!("{issuer}/token"), "jwks_uri": format!("{issuer}{jwks}") })
+    .to_string()
+}
+
+#[tokio::test]
+async fn discovery_and_key_sets_do_not_follow_redirects() {
+    let s = signer("k1");
+    let keys = serde_json::to_string(&s.jwks).expect("jwks");
+    // Without the redirects, the same provider is fine.
+    let k = keys.clone();
+    let plain = local_server(|base| {
+        vec![
+            (
+                "/.well-known/openid-configuration",
+                200,
+                String::new(),
+                discovery_doc(base, "/keys"),
+            ),
+            ("/keys", 200, String::new(), k),
+        ]
+    });
+    assert!(discover(&plain).await.is_ok());
+
+    // The discovery document redirects to a copy of itself: refused.
+    let k = keys.clone();
+    let issuer = local_server(|base| {
+        vec![
+            (
+                "/.well-known/openid-configuration",
+                302,
+                "location: /moved\r\n".to_owned(),
+                String::new(),
+            ),
+            ("/moved", 200, String::new(), discovery_doc(base, "/keys")),
+            ("/keys", 200, String::new(), k),
+        ]
+    });
+    let r = discover(&issuer).await;
+    assert!(
+        matches!(&r, Err(TokenError::KeysUnavailable(m)) if m.contains("discovery document")),
+        "{r:?}"
+    );
+
+    // The key set redirects: refused by discovery and by the token verifier.
+    let issuer = local_server(|base| {
+        vec![
+            (
+                "/.well-known/openid-configuration",
+                200,
+                String::new(),
+                discovery_doc(base, "/keys"),
+            ),
+            (
+                "/keys",
+                302,
+                "location: /real-keys\r\n".to_owned(),
+                String::new(),
+            ),
+            ("/real-keys", 200, String::new(), keys),
+        ]
+    });
+    let r = discover(&issuer).await;
+    assert!(
+        matches!(&r, Err(TokenError::KeysUnavailable(m)) if m.contains("key set")),
+        "{r:?}"
+    );
+    let v = Verifier::with_remote_keys(
+        OidcConfig::new(ISS, AUD),
+        &format!("{issuer}/keys"),
+        Duration::from_secs(30),
+    )
+    .expect("verifier");
+    let r = v.verify(&sign(&s, &claims()), NOW).await;
+    assert!(matches!(r, Err(TokenError::KeysUnavailable(_))), "{r:?}");
 }
 
 #[test]

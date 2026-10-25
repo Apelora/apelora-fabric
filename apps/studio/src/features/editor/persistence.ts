@@ -57,6 +57,20 @@ export function loadView(): Partial<ViewPrefs> {
 }
 export function saveView(p: ViewPrefs): void { try { localStorage.setItem(VIEW, JSON.stringify(p)); } catch { /* storage unavailable */ } }
 
+// Not "apelora.studio.catalog.v1": that key holds the custom module classes (features/catalog/customCatalog.ts).
+const CATALOG = "apelora.studio.catalog-menu.v1";
+/** Which catalog categories and subcategories are open, as the person left them (`category` or `category/subcategory` → open). */
+export function loadCatalogOpen(): Record<string, boolean> {
+  try {
+    const v = JSON.parse(localStorage.getItem(CATALOG) ?? "{}") as unknown;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, boolean> = {};
+    for (const [k, b] of Object.entries(v as Record<string, unknown>)) if (typeof b === "boolean" && k.length <= 120) out[k] = b;
+    return out;
+  } catch { return {}; }
+}
+export function saveCatalogOpen(open: Record<string, boolean>): void { try { localStorage.setItem(CATALOG, JSON.stringify(open)); } catch { /* storage unavailable */ } }
+
 const TOUR = "apelora.studio.tour.v1";
 export const tourSeen = (): boolean => { try { return localStorage.getItem(TOUR) === "1"; } catch { return true; } };
 export const markTourSeen = (): void => { try { localStorage.setItem(TOUR, "1"); } catch { /* storage unavailable */ } };

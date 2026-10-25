@@ -20,7 +20,7 @@ test("describeType is the protocol in capitals", () => {
 test("every layer-4 type, and only those names, may feed a tcp input", () => {
   const names = [
     "http", "tcp", "postgres", "mysql", "redis", "amqp", "s3", "metrics", "kafka", "pulsar", "mqtt",
-    "nats", "mongodb", "cassandra", "memcached", "grpc", "ldap", "smtp", "syslog", "nfs", "mssql", "smb", "rdp",
+    "nats", "mongodb", "cassandra", "memcached", "grpc", "ldap", "smtp", "syslog", "nfs", "mssql", "smb", "rdp", "dns", "bgp", "imap",
   ];
   expect([...LAYER4].sort()).toEqual([...names].sort());
   for (const t of LAYER4) {

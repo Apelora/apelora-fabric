@@ -1,8 +1,6 @@
 # A replica fails its health check
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members) — the end-to-end
-demonstration (`scripts/test-cluster/demo.sh`) closes the port of one NGINX replica while it keeps
-running and checks each step below.
+Use this page when a replica fails its health check and stays unhealthy.
 
 What Apelora checks: for modules with a service address, the OVN load balancer probes each
 replica's service port (a TCP connection, not an application request). Instances without a
@@ -34,4 +32,8 @@ What to do when a replica stays unhealthy after its restart:
 
 ## When the module has an application check
 
-A module can also declare a readiness command (Studio → Properties → Application check; [design](../design/application-readiness.md)). The health detail then says which check failed: *port check failing*, *readiness command failing*, or both. A replica whose port answers but whose command fails is a hung application: look inside the instance (`incus exec`, or the terminal in the Console) for what it logs. A command that Incus cannot run (the program is missing from the image) is logged by the worker (`health: the readiness command could not be run`) and decides nothing, so fix the command or the image; the replica is not restarted for it. NOT YET VERIFIED against a real instance.
+A module can also declare a readiness command (Studio → Properties → Application check; [design](../design/application-readiness.md)). The health detail then says which check failed: *port check failing*, *readiness command failing*, or both. A replica whose port answers but whose command fails is a hung application: look inside the instance (`incus exec`, or the terminal in the Console) for what it logs. A command that Incus cannot run (the program is missing from the image) is logged by the worker (`health: the readiness command could not be run`) and decides nothing, so fix the command or the image; the replica is not restarted for it.
+
+## Before you rely on it
+
+- How the supervisor acts on a failing readiness command has not yet been tried with a real failing application. Watch the first one closely.

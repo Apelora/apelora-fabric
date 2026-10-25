@@ -41,7 +41,7 @@ use super::authz::{
 };
 use super::deploy::store;
 use super::identity::{UserDto, user_dto};
-use super::sessions::Peer;
+use super::sessions::ClientAddress;
 use super::{ApiError, AppState, ErrorBody, Principal};
 
 /// A session ends after this long without a request.
@@ -108,16 +108,11 @@ pub async fn issue_session(
     tx: &mut apelora_persistence::PgConnection,
     user_id: Uuid,
     method: SessionMethod,
-    external_groups: &[String],
+    groups: user_sessions::SessionGroups<'_>,
 ) -> Result<IssuedSession, ApiError> {
-    let (token, rec) = user_sessions::create_session_in(
-        tx,
-        user_id,
-        method.as_str(),
-        external_groups,
-        ABSOLUTE_SECS,
-    )
-    .await?;
+    let (token, rec) =
+        user_sessions::create_session_in(tx, user_id, method.as_str(), groups, ABSOLUTE_SECS)
+            .await?;
     tracing::info!(user = %user_id, session = %rec.id, method = method.as_str(), "session issued");
     Ok(IssuedSession {
         token,
@@ -146,7 +141,14 @@ pub(super) async fn principal_for_session(
         ));
     }
     let user = idb::user(pool, s.user_id).await?.ok_or_else(ended)?;
-    let groups = idb::groups_of(pool, user.id, &s.external_groups.into_iter().collect()).await?;
+    // The directory's groups map only onto groups mapped to that directory (ADR 0016).
+    let groups = idb::groups_of(
+        pool,
+        user.id,
+        s.group_source.as_deref(),
+        &s.external_groups.into_iter().collect(),
+    )
+    .await?;
     let caller = super::caller_for(pool, CallerKind::User, user.id, groups, false).await?;
     Ok(Principal {
         name: user.username.or(user.email).unwrap_or(user.subject),
@@ -268,8 +270,9 @@ pub fn plan(login: Option<&LocalLogin>) -> Plan {
 
 // ---- attempts per client address ------------------------------------------------------------------
 
-/// Sign-in attempts per client address in the last minute (this process's memory). Behind a
-/// reverse proxy every client shares the proxy's address; forwarded headers are not trusted.
+/// Sign-in attempts per client address in the last minute (this process's memory). The client
+/// address is the one the rate limits use: behind a proxy listed in `APELORA_TRUSTED_PROXIES`,
+/// the address it forwarded for; IPv6 clients are counted per /64.
 pub struct Attempts {
     window: Duration,
     max: usize,
@@ -318,13 +321,16 @@ impl Attempts {
     }
 }
 
-fn address(peer: &Peer) -> IpAddr {
-    peer.0.map_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED), |a| a.ip())
+fn address(client: &ClientAddress) -> IpAddr {
+    client.0.unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED))
 }
 
 /// 429 `rate_limited` with `Retry-After` when the address has tried too often.
 fn limit(state: &AppState, ip: IpAddr) -> Option<Response> {
-    let wait = state.sign_in_attempts.check(ip, Instant::now()).err()?;
+    let wait = state
+        .sign_in_attempts
+        .check(super::rate_limit::bucket_key(ip), Instant::now())
+        .err()?;
     tracing::warn!(address = %ip, retry_after = wait, "sign-in attempts limited for this address");
     let mut res = ApiError::new(
         StatusCode::TOO_MANY_REQUESTS,
@@ -435,7 +441,17 @@ async fn directory_sign_in(
         super::directories::verify_directory_sign_in(state, directory, username, password).await?;
     let mut tx = begin(pool).await?;
     let user = super::directories::upsert_directory_user_in(&mut tx, state, &who).await?;
-    let session = issue_session(&mut tx, user.id, SessionMethod::Directory, &who.groups).await?;
+    let source = idb::directory_source(who.directory_id);
+    let session = issue_session(
+        &mut tx,
+        user.id,
+        SessionMethod::Directory,
+        user_sessions::SessionGroups {
+            names: &who.groups,
+            source: Some(&source),
+        },
+    )
+    .await?;
     commit(tx).await?;
     tracing::info!(username = %who.username, directory = %who.directory_name, "directory sign-in succeeded");
     Ok(PasswordSignInResult {
@@ -476,10 +492,10 @@ pub struct PasswordSignInResult {
         (status = 401, body = ErrorBody), (status = 429, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn sign_in_password(
     State(state): State<AppState>,
-    peer: Peer,
+    client: ClientAddress,
     body: Result<Json<PasswordSignInRequest>, JsonRejection>,
 ) -> Response {
-    let ip = address(&peer);
+    let ip = address(&client);
     if let Some(r) = limit(&state, ip) {
         return r;
     }
@@ -564,7 +580,13 @@ async fn password_sign_in(
     };
     let mut tx = begin(pool).await?;
     db::record_success_in(&mut tx, login.user_id).await?;
-    let session = issue_session(&mut tx, login.user_id, SessionMethod::Password, &[]).await?;
+    let session = issue_session(
+        &mut tx,
+        login.user_id,
+        SessionMethod::Password,
+        user_sessions::SessionGroups::default(),
+    )
+    .await?;
     audit_anonymous(
         &mut *tx,
         Some(login.user_id),
@@ -600,10 +622,10 @@ pub struct PasswordSetupRequest {
     responses((status = 204), (status = 400, body = ErrorBody), (status = 429, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn complete_setup(
     State(state): State<AppState>,
-    peer: Peer,
+    client: ClientAddress,
     body: Result<Json<PasswordSetupRequest>, JsonRejection>,
 ) -> Response {
-    let ip = address(&peer);
+    let ip = address(&client);
     if let Some(r) = limit(&state, ip) {
         return r;
     }
@@ -689,10 +711,10 @@ pub struct PasswordChangeRequest {
 pub(super) async fn change_password(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
-    peer: Peer,
+    client: ClientAddress,
     body: Result<Json<PasswordChangeRequest>, JsonRejection>,
 ) -> Response {
-    let ip = address(&peer);
+    let ip = address(&client);
     if let Some(r) = limit(&state, ip) {
         return r;
     }

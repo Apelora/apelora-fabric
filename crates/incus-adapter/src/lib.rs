@@ -526,7 +526,11 @@ impl Provider {
     /// Starts creating an instance (validated spec) and returns the Incus operation id.
     pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
         spec.validate().map_err(AdapterError::InvalidConfig)?;
-        let spec = mirrored(spec)?;
+        // What it is built from, as designed (before any image mirror): the planner compares it.
+        let built_from = apelora_domain::plan::spec_fingerprint(spec);
+        let mut spec = mirrored(spec)?.into_owned();
+        spec.config
+            .insert(apelora_domain::SPEC_KEY.into(), built_from);
         match self {
             Provider::Mock(m) => m.create(&spec),
             Provider::Incus(c) => c.create_instance(&spec).await,
@@ -1207,6 +1211,15 @@ impl Provider {
                     .load_balancers
                     .get(&key)
                     .is_none_or(|(_, old)| old != lb);
+                if changed && let Some(member) = &net.unreachable_member {
+                    return Err(AdapterError::Api {
+                        status: 500,
+                        message: format!(
+                            "PUT /1.0/networks/{network}/load-balancers/{}?project={project}: Failed updating load balancer: peer node {member} is down",
+                            lb.listen_address
+                        ),
+                    });
+                }
                 net.load_balancers
                     .insert(key, (application.to_owned(), lb.clone()));
                 Ok(changed)
@@ -2352,6 +2365,9 @@ pub struct MockNetwork {
     pub no_ipv6_yet: std::collections::BTreeSet<String>,
     /// Instances that will never get IPv6: the sync should stop waiting (tests).
     pub ipv6_wait_over: std::collections::BTreeSet<String>,
+    /// A member Incus cannot reach (`host:port`): every load balancer change is refused, as
+    /// Incus 7.0 refuses them while a member is down (tests).
+    pub unreachable_member: Option<String>,
 }
 
 impl MockNetwork {
@@ -2600,6 +2616,7 @@ impl MockIncus {
                     .iter()
                     .filter_map(|k| spec.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
                     .collect(),
+                built_from: spec.config.get(apelora_domain::SPEC_KEY).cloned(),
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
@@ -2928,6 +2945,7 @@ impl Default for MockIncus {
             owner: None,
             evacuate: None,
             unreachable: false,
+            built_from: None,
             limits: Default::default(),
         };
         Self {

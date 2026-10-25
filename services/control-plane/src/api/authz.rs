@@ -880,6 +880,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         &["group.manage"],
     ),
     (
+        "PUT",
+        "/api/v1/identity/groups/{group}/external",
+        &["group.manage"],
+    ),
+    (
         "DELETE",
         "/api/v1/identity/groups/{group}/members/{user}",
         &["group.manage"],

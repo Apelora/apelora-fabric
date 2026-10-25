@@ -145,6 +145,9 @@ pub struct EnvironmentChain {
     /// The limit keys Apelora last wrote to the environment's Incus project.
     pub incus_limits: BTreeMap<String, String>,
     pub incus_checked_at: Option<OffsetDateTime>,
+    /// A platform administrator named the Incus project when creating the environment, so an
+    /// existing project of that name may be adopted (migration 0032).
+    pub incus_project_chosen: bool,
 }
 
 fn chain_row(r: &sqlx::postgres::PgRow) -> EnvironmentChain {
@@ -168,12 +171,13 @@ fn chain_row(r: &sqlx::postgres::PgRow) -> EnvironmentChain {
         organization_slug: r.get("organization_slug"),
         incus_limits: serde_json::from_value(limits).unwrap_or_default(),
         incus_checked_at: r.get("incus_checked_at"),
+        incus_project_chosen: r.get("incus_project_chosen"),
     }
 }
 
 fn chain_query(filter: &str) -> String {
     format!(
-        "SELECT {ENV_COLS}, e.incus_limits, e.incus_checked_at, p.name AS project_name, p.slug AS project_slug,
+        "SELECT {ENV_COLS}, e.incus_limits, e.incus_checked_at, e.incus_project_chosen, p.name AS project_name, p.slug AS project_slug,
                 p.organization_id, o.name AS organization_name, o.slug AS organization_slug
          FROM environments e JOIN projects p ON p.id = e.project_id JOIN organizations o ON o.id = p.organization_id
          WHERE {filter} ORDER BY o.slug, p.slug, e.slug"
@@ -219,6 +223,19 @@ pub async fn environments_of_projects(
 }
 
 /// Records the Incus project's state after an attempt to prepare it.
+/// Records that a platform administrator named the environment's Incus project explicitly (in
+/// the creating transaction), which is what allows adopting an existing project of that name.
+pub async fn mark_incus_project_chosen(
+    db: impl sqlx::PgExecutor<'_>,
+    environment: Uuid,
+) -> Result<()> {
+    sqlx::query("UPDATE environments SET incus_project_chosen = true WHERE id = $1")
+        .bind(environment)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn set_incus_state(
     db: impl sqlx::PgExecutor<'_>,
     environment: Uuid,

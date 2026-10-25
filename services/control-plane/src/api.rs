@@ -579,6 +579,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::put(identity::add_member).delete(identity::remove_member),
         )
         .route(
+            "/api/v1/identity/groups/{group}/external",
+            axum::routing::put(identity::set_external),
+        )
+        .route(
             "/api/v1/identity/roles",
             get(identity::roles).post(identity::create_role),
         )
@@ -914,9 +918,15 @@ async fn resolve_principal(
                 "this account has been disabled",
             ));
         }
-        let groups = apelora_persistence::identity::groups_of(pool, user.id, &identity.groups)
-            .await
-            .map_err(|e| fail(e.into()))?;
+        // The token's groups map only onto groups mapped to this issuer (ADR 0016).
+        let groups = apelora_persistence::identity::groups_of(
+            pool,
+            user.id,
+            Some(&identity::oidc_source(&identity.issuer)),
+            &identity.groups,
+        )
+        .await
+        .map_err(|e| fail(e.into()))?;
         let caller = caller_for(pool, authz::CallerKind::User, user.id, groups, identity.mfa)
             .await
             .map_err(fail)?;
@@ -1636,7 +1646,7 @@ impl Modify for BearerAuth {
         identity::environments, identity::create_environment, identity::users, identity::lookup_user,
         tenancy::overview, tenancy::quota, tenancy::set_quota, tenancy::prepare_project,
         identity::disable_user, identity::enable_user, identity::groups, identity::create_group,
-        identity::group_members, identity::add_member, identity::remove_member, identity::roles,
+        identity::group_members, identity::add_member, identity::remove_member, identity::set_external, identity::roles,
         identity::create_role, identity::delete_role, identity::permissions, identity::assignments,
         identity::create_assignment, identity::preview_assignment, identity::revoke_assignment,
         identity::emergency_access, identity::service_identities, identity::create_service_identity,
@@ -1694,6 +1704,7 @@ mod fabric_health;
 pub mod headers;
 mod health_cache;
 mod identity;
+pub use identity::bind_unsourced_mappings;
 mod instance_detail;
 mod jobs;
 mod ldap;

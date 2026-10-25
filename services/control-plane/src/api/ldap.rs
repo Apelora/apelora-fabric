@@ -110,32 +110,61 @@ fn unescape_dn_value(value: &str) -> String {
     String::from_utf8_lossy(&out).trim().to_owned()
 }
 
-/// The attribute type and value of a DN's first RDN (`cn=dev-admins,ou=groups,…` →
-/// `("cn", "dev-admins")`). `None` when the text is not a DN.
-pub fn first_rdn(dn: &str) -> Option<(String, String)> {
+/// Splits at every `sep` that is not escaped with a backslash.
+fn split_unescaped(text: &str, sep: char) -> Vec<&str> {
+    let mut parts = Vec::new();
     let mut escaped = false;
-    let mut end = dn.len();
-    for (i, c) in dn.char_indices() {
+    let mut start = 0;
+    for (i, c) in text.char_indices() {
         match c {
             _ if escaped => escaped = false,
             '\\' => escaped = true,
-            ',' | '+' => {
-                end = i;
-                break;
+            c if c == sep => {
+                parts.push(&text[start..i]);
+                start = i + c.len_utf8();
             }
             _ => {}
         }
     }
-    let (attr, value) = dn[..end].split_once('=')?;
-    let attr = attr.trim();
-    if attr.is_empty()
-        || !attr
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
-    {
-        return None;
+    parts.push(&text[start..]);
+    parts
+}
+
+/// A distinguished name in one spelling, so that a directory group is always named the same
+/// way (ADR 0016: directory groups map by their full DN, never by their first RDN, which any
+/// branch of the directory can repeat). RDNs are split at unescaped commas (and multi-valued RDNs
+/// at `+`, sorted), attribute types and values are trimmed and lowercased (group naming
+/// attributes compare without regard to case), and values are unescaped and escaped again
+/// (RFC 4514), so `CN=Ops\2C Europe, OU=Groups` and `cn=ops\, europe,ou=groups` are one name.
+/// `None` when the text is not a DN.
+pub fn normalize_dn(dn: &str) -> Option<String> {
+    let mut rdns = Vec::new();
+    for rdn in split_unescaped(dn, ',') {
+        let mut parts = Vec::new();
+        for ava in split_unescaped(rdn, '+') {
+            let (attr, value) = ava.split_once('=')?;
+            let attr = attr.trim();
+            if attr.is_empty()
+                || !attr
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+            {
+                return None;
+            }
+            let value = unescape_dn_value(value);
+            if value.is_empty() {
+                return None;
+            }
+            parts.push(format!(
+                "{}={}",
+                attr.to_ascii_lowercase(),
+                escape_dn_value(&value.to_lowercase())
+            ));
+        }
+        parts.sort();
+        rdns.push(parts.join("+"));
     }
-    Some((attr.to_owned(), unescape_dn_value(value)))
+    Some(rdns.join(","))
 }
 
 // ---- settings ---------------------------------------------------------------------------------
@@ -456,8 +485,9 @@ pub struct Person {
     pub groups: Vec<String>,
 }
 
-/// Maps an entry onto a person, with group names from the group attribute (the first RDN's
-/// value of each DN, or the value itself) plus any found by the group search. Pure.
+/// Maps an entry onto a person, with groups from the group attribute (each DN in its normalized
+/// spelling, [`normalize_dn`]; a value that is not a DN as it is) plus the DNs of any found by
+/// the group search. Pure.
 pub fn person_from(
     f: &DirectoryFields,
     entry: &Entry,
@@ -472,8 +502,7 @@ pub fn person_from(
     let mut groups = BTreeSet::new();
     if let Some(attr) = &f.group_attribute {
         for v in entry.texts(attr) {
-            let name = first_rdn(&v).map_or_else(|| v.trim().to_owned(), |(_, value)| value);
-            groups.insert(name);
+            groups.insert(normalize_dn(&v).unwrap_or_else(|| v.trim().to_owned()));
         }
     }
     groups.extend(searched_groups.iter().map(|g| g.trim().to_owned()));
@@ -628,8 +657,10 @@ async fn session(
                 }
                 other => other,
             })?;
+        // A found group is named by its full DN: its name attribute alone can be repeated in
+        // any branch of the directory.
         for g in groups.into_iter().filter_map(entry_from) {
-            searched.extend(g.first_text(&f.group_name_attribute));
+            searched.push(normalize_dn(&g.dn).unwrap_or(g.dn));
         }
     }
     Ok(person_from(f, &entry, username, &searched))

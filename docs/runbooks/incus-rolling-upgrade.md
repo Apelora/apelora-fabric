@@ -1,11 +1,7 @@
 # Reading quorum, and a rolling Incus upgrade
 
-**Evidence:** the readings (Servers → Members and Upgrades, `GET /api/v1/cluster/members`) are
-REAL INCUS TESTED read-only, 2026-10-21 (Incus 7.0.1, four members: three voters and a stand-by).
-The package upgrade was run on the empty four-member lab on 2026-10-23 (7.0.1 → 7.0.2).
-The first member blocked the other three until they were upgraded; all four then reported
-Online. Evacuation was not exercised: the cluster held no instances. Apelora's Upgrades
-tab was not the tool that installed the packages.
+Use this page to read the cluster database's quorum, and to upgrade Incus one server at a time
+without stopping your applications.
 
 Apelora does not install or upgrade Incus. It shows where the cluster stands, previews each
 evacuation and audits it; the package upgrade happens on each server.
@@ -64,3 +60,8 @@ completing.
   [quorum-loss.md](quorum-loss.md).
 - **A member stays Blocked after all are upgraded:** compare the releases on Upgrades; a member
   that still runs the old release is the one to upgrade.
+
+## Before you rely on it
+
+- The package upgrade has been run on a cluster with no instances, so evacuating during an
+  upgrade has not been tried yet. Try it first on a cluster you can afford to disturb.

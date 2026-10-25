@@ -1,10 +1,8 @@
 # Install Incus and form the cluster
 
-Apelora Fabric runs your modules on [Incus](https://linuxcontainers.org/incus/), the open-source system that runs containers and virtual machines on a cluster of Linux servers. It does not install or upgrade Incus for you: you install it on each server, form the cluster, and give Apelora a project to deploy into and a certificate to reach it. This page shows how.
+Apelora Fabric runs your modules on [Incus](https://linuxcontainers.org/incus/), the open-source system that runs containers and virtual machines on a cluster of Linux servers. Apelora does not install or upgrade Incus for you. This page shows how to install Incus on each server, form the cluster, and give Apelora a project to deploy into and the certificates to reach it. Read [servers and network](servers-and-network.md) first.
 
-**Evidence:** these are the steps the four-server lab was built with (`scripts/test-cluster/`), written with variables where your values differ. REAL INCUS TESTED on that lab, on virtual machines with one network card each. Physical servers and a physical uplink have not been tried; those parts follow Incus's own documentation and say so. A highly available OVN database with TLS was applied on that lab (`ovn-ha.sh APPLY=1`, 2026-10-22); failover of the database leader is REAL INCUS TESTED (existing ACLs and a live ping to the OVN router). Read [servers and network](servers-and-network.md) first.
-
-Commands run as root (or with `sudo`) on the server named in each step. Values you choose are written as variables, for example `$SERVER_IP`; set them in your shell first.
+Run the commands as root (or with `sudo`) on the server named in each step. Values you choose are written as variables, for example `$SERVER_IP`; set them in your shell first.
 
 ## Where to get Incus
 
@@ -17,15 +15,19 @@ Commands run as root (or with `sudo`) on the server named in each step. Values y
 | **Setting up OVN** | <https://linuxcontainers.org/incus/docs/main/howto/network_ovn_setup/> |
 | **The series Apelora is tested with** | `series` and `pinned_tag` in [`upstream.lock.yaml`](../../upstream.lock.yaml) |
 
-Use the **LTS series that `upstream.lock.yaml` pins**, the same release on every server. Newer feature releases are watched but not tested; moving to another LTS series is a deliberate decision with its own record ([upstream Incus](../development/UPSTREAM-INCUS.md)).
+Use the long-term support (LTS) series that `upstream.lock.yaml` pins, and the same release on every server. Newer feature releases are watched but not tested. Moving to another LTS series is a deliberate decision with its own record ([upstream Incus](../development/UPSTREAM-INCUS.md)).
 
 ## 1. Install Incus on every server
 
-Two ways. Both end with `incus --version` printing the pinned series.
+There are two ways. Both end with `incus --version` printing the pinned series.
 
-### From the project's package repository (what the lab does)
+### From the project's package repository
 
-This is the route that gives the pinned LTS series on Debian and Ubuntu. Set the series from `upstream.lock.yaml`, fetch the repository's signing key, **compare its fingerprint with the one the publisher shows** (the lab script refuses a key that differs), then add the repository and install:
+This route gives the pinned LTS series on Debian and Ubuntu.
+
+1. Set the series from `upstream.lock.yaml`.
+2. Fetch the repository's signing key, and **compare its fingerprint with the one the publisher shows**. Stop if they differ.
+3. Add the repository and install.
 
 ```sh
 SERIES=7.0        # `series` in upstream.lock.yaml
@@ -49,25 +51,27 @@ apt-get update && apt-get install -y incus
 incus --version
 ```
 
-The `incus` package includes virtual machine support. Check `ls /dev/kvm` if you will run virtual machines. The lab's version of these steps, with the key check in code, is in `scripts/test-cluster/incus-vm.yaml`.
+The `incus` package includes virtual machine support. If you will run virtual machines, check that `ls /dev/kvm` finds the device.
 
 ### From your distribution
 
-Some distributions package Incus themselves. Use that only if `apt policy incus` (or your package manager's equivalent) offers the pinned series; distributions often carry an older LTS. The [installation guide](https://linuxcontainers.org/incus/docs/main/installing/) lists the commands for each distribution. Installing only the client on a workstation is fine for looking around; the daemon runs only on Linux.
+Some distributions package Incus themselves. Use that package only if `apt policy incus` (or your package manager's equivalent) offers the pinned series: distributions often carry an older LTS. The [installation guide](https://linuxcontainers.org/incus/docs/main/installing/) lists the commands for each distribution.
+
+You can install only the client on a workstation to look around. The Incus daemon runs only on Linux.
 
 ## 2. Prepare each server
 
-- A **static IP address** and a host name; clocks synchronised (`timedatectl` should say the clock is synchronised).
-- **Firewall:** between the servers, allow TCP 8443 (Incus), UDP 6081 (OVN tunnels) and, if OVN's databases are on them, TCP 6641 and 6642. From the machine that will run Apelora, allow TCP 8443 to the servers. See [servers and network](servers-and-network.md#network-layouts) for the full list.
-- A **disk or partition** for the storage pool, if you do not use a file-backed pool (the lab does, for convenience only).
+- **Address and clock:** a static IP address and a host name. Clocks must be synchronised: `timedatectl` should say the clock is synchronised.
+- **Firewall:** between the servers, allow TCP 8443 (Incus), UDP 6081 (OVN tunnels) and, if OVN's databases are on them, TCP 6641 and 6642. From the machine that will run Apelora, allow TCP 8443 to the servers. [Servers and network](servers-and-network.md#network-layouts) has the full list.
+- **Storage:** a disk or partition for the storage pool. A file-backed pool also works, for a trial only.
 
 ## 3. Form the cluster
 
-Do the first server, then add the others. Use a **specific** address for the cluster: a cluster does not accept the wildcard address as its own.
+Set up the first server, then add the others. Give the cluster a **specific** address: a cluster does not accept the wildcard address as its own.
 
 ### The first server
 
-Write a preseed file with your values (it is the lab's, with variables) and apply it:
+Write a preseed file with your values, then apply it:
 
 ```sh
 SERVER_IP=...           # this server's address, reachable by the other servers
@@ -91,9 +95,13 @@ incus admin init --preseed <preseed.yaml
 incus cluster list
 ```
 
-`local` is the pool name the examples and Apelora's settings use. Choose the storage driver your servers should have: Incus supports several, and Apelora asks Incus to create and grow volumes in the pools it is told to use without managing the driver ([storage](../architecture/STORAGE.md)). The interactive form of the same step is `incus admin init`: answer yes to clustering, give the address, and say you are not joining an existing cluster.
+`incus cluster list` shows this one server, online.
 
-Also shorten how long join tokens live (the default is three hours):
+`local` is the pool name that the examples and Apelora's settings use. Choose the storage driver your servers should have. Incus supports several; Apelora asks Incus to create and grow volumes in the pools it is told to use, and does not manage the driver ([storage](../architecture/STORAGE.md)).
+
+You can also run this step interactively with `incus admin init`: answer yes to clustering, give the address, and say you are not joining an existing cluster.
+
+Then shorten how long join tokens live (the default is three hours):
 
 ```sh
 incus config set cluster.join_token_expiry=30M
@@ -108,7 +116,7 @@ NEW_MEMBER=...          # the name the new server will have
 incus cluster add "$NEW_MEMBER"      # prints the token
 ```
 
-On the **new server** (install Incus first; it must be a fresh install, because joining deletes what is on it), join with the token:
+On the **new server**, install Incus first. It must be a fresh installation, because joining deletes what is on it. Then join with the token:
 
 ```sh
 NEW_MEMBER=...          # the same name the token was created for
@@ -145,13 +153,17 @@ The same loop-pool answers from the enrolment script, which also holds the membe
 printf '%s\n' "$TOKEN" | sudo bash enrol-member.sh --name "$NEW_MEMBER" --address "$SERVER_IP" --pool-size 20GiB
 ```
 
-`incus cluster list` on any member should now show every server online, and three of them with the database role. Servers added **later** are better enrolled through Apelora, which registers, approves and holds a new server until it passes its checks: [add a server to the cluster](../runbooks/member-join.md).
+`incus cluster list` on any member now shows every server online, and three of them with the database role.
+
+Servers you add **later** are better enrolled through Apelora. It registers and approves a new server, and holds it until it passes its checks: [add a server to the cluster](../runbooks/member-join.md).
 
 ## 4. Networking for applications (OVN)
 
-Apelora gives every application its own OVN network and turns the cables you draw into access rules on it. This needs OVN on the servers and an **uplink**. Without them Apelora still deploys, but it cannot enforce the connections you drew (the deploy dialog says so). Skip this step to try deployment first, and add it before you rely on the connections.
+OVN (Open Virtual Network) is the virtual network layer Incus uses. Apelora gives every application its own OVN network, and turns the cables you draw into access rules on it. This needs OVN on the servers and an **uplink**: the network that application routers attach to.
 
-Follow Incus's own guide for OVN ([setting up OVN](https://linuxcontainers.org/incus/docs/main/howto/network_ovn_setup/)): it covers a highly available set of OVN databases on three servers, which is what a real installation should use. Put **TLS on the database remotes** as well: Incus's outline uses plaintext `tcp:` listeners (`--db-nb-create-insecure-remote=yes`); a real installation should not. In outline:
+Without them, Apelora still deploys, but it cannot enforce the connections you draw, and the deploy dialog says so. You can skip this step to try deployment first. Add it before you rely on the connections.
+
+Follow Incus's own guide for OVN: [setting up OVN](https://linuxcontainers.org/incus/docs/main/howto/network_ovn_setup/). It covers a highly available set of OVN databases on three servers, which is what a real installation should use. Also put **TLS on the database connections**: Incus's outline uses plaintext `tcp:` listeners (`--db-nb-create-insecure-remote=yes`), and a real installation should not. In outline:
 
 ```sh
 # every server
@@ -178,9 +190,9 @@ incus config set network.ovn.northbound_connection=ssl:$DB1:6641,ssl:$DB2:6641,s
   network.ovn.client_key="$(cat incus.key)"
 ```
 
-The lab's `scripts/test-cluster/ovn.sh` still starts one database without TLS (a shortcut so application-network tests can run). `scripts/test-cluster/ovn-ha.sh` converts that layout to three clustered databases with TLS (`APPLY=1`). REAL INCUS TESTED on the four-member lab, 2026-10-22, OVN 25.03: three raft members, TLS client remotes (`pssl:6641` / `pssl:6642`), Incus `network.ovn.northbound_connection` on `ssl:` with a client certificate. Stopping the leader's database processes elected another member; existing OVN ACLs were unchanged; Incus still listed the project's leftover module ACLs; a container on `apelora-default` kept pinging the OVN router (0% loss). Debian's `ovn-central.service` is a dummy oneshot — stop `ovn-ovsdb-server-nb` and `ovn-ovsdb-server-sb`.
+On Debian, `ovn-central.service` does nothing by itself. To stop or restart the databases, use `ovn-ovsdb-server-nb` and `ovn-ovsdb-server-sb`.
 
-Then create the **uplink** network that application routers attach to. With a physical network, create it once per member with `--target`, then once for the cluster, as Incus's guide shows; the settings that matter to Apelora:
+Then create the **uplink** network that application routers attach to. With a physical network, create it once per member with `--target`, then once for the cluster, as Incus's guide shows. These are the settings that matter to Apelora:
 
 ```sh
 UPLINK=...                       # the uplink's name
@@ -194,7 +206,7 @@ incus network set "$UPLINK" ipv4.routes="$SERVICE_RANGE"
 # and the same range in the project's restricted.networks.subnets.
 ```
 
-What each range is, and how to choose it, is in [servers and network](servers-and-network.md#ip-addresses). The lab does this on a managed NAT bridge for convenience: `scripts/test-cluster/ovn.sh` is the worked example for a single database; `ovn-ha.sh` is the highly available TLS variant (`APPLY=1` on the four-member lab, 2026-10-22).
+[Servers and network](servers-and-network.md#ip-addresses) explains what each range is and how to choose it.
 
 ## 5. A project for Apelora, and two identities
 
@@ -212,14 +224,14 @@ incus project set "$PROJECT" restricted.networks.subnets="$UPLINK:$SERVICE_RANGE
 incus profile device add default root disk path=/ pool=local --project "$PROJECT"
 ```
 
-`restricted.cluster.target=allow` lets Apelora place and move instances on named servers; `restricted.snapshots=allow` allows volume snapshots. The reasons for each setting are in [tenancy isolation](../design/tenancy-isolation.md). Apelora can also prepare an environment's project itself, with the admin identity below.
+`restricted.cluster.target=allow` lets Apelora place and move instances on named servers. `restricted.snapshots=allow` allows volume snapshots. [Tenancy isolation](../design/tenancy-isolation.md) gives the reasons for each setting. Apelora can also prepare an environment's project itself, with the admin identity below.
 
-Create **two client certificates** and trust them. They are ordinary X.509 client certificates; the lab script `scripts/test-cluster/up.sh` makes both (an ECDSA P-384 key, client authentication only). Why two: [ADR 0003](../adr/0003-incus-identities-and-cluster-join.md).
+Next, create **two client certificates** and trust them. They are ordinary X.509 client certificates, each with an ECDSA P-384 key, for client authentication only. [ADR 0003](../adr/0003-incus-identities-and-cluster-join.md) explains why there are two.
 
 ```sh
 DIR=...                          # a directory outside any repository, mode 0700
 
-# make a key and certificate for each identity (the lab script has the exact openssl options)
+# make a key and certificate for each identity
 for NAME in deploy admin; do
   openssl ecparam -name secp384r1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out "$DIR/$NAME.key"
   openssl req -new -x509 -key "$DIR/$NAME.key" -subj "/CN=apelora-$NAME" -days 90 -out "$DIR/$NAME.crt" \
@@ -231,8 +243,19 @@ incus config trust add-certificate "$DIR/deploy.crt" --name apelora-deploy --res
 incus config trust add-certificate "$DIR/admin.crt"  --name apelora-admin
 ```
 
-The **deploy** identity is restricted to the project and is the one the control plane and the worker use. The **admin** identity is unrestricted and only the control plane gets it, for join tokens and cluster administration. Certificates here last 90 days; [rotation](../runbooks/certificates.md) is a runbook.
+- The **deploy** identity is restricted to the project. The control plane and the worker use it.
+- The **admin** identity is unrestricted. Only the control plane gets it, for join tokens and cluster administration.
 
-Finally, collect what Apelora needs to reach Incus: a server's address (`https://$SERVER_IP:8443`), the **cluster certificate** (`/var/lib/incus/cluster.crt` on a member), which Apelora pins, and the **name inside that certificate** to verify it against (`openssl x509 -in cluster.crt -noout -text | grep DNS:`). They become settings in the next page.
+These certificates last 90 days. Rotating them has its own runbook: [rotation](../runbooks/certificates.md).
+
+Finally, collect what Apelora needs to reach Incus. They become settings on the next page.
+
+1. A server's address: `https://$SERVER_IP:8443`.
+2. The **cluster certificate**, `/var/lib/incus/cluster.crt` on a member. Apelora pins it.
+3. The **name inside that certificate**, to verify it against: `openssl x509 -in cluster.crt -noout -text | grep DNS:`.
 
 Next: [install Apelora Fabric](installing-apelora.md).
+
+## Before you rely on it
+
+- These steps have been followed on virtual machines with one network card each. Physical servers and a physical uplink have not been tried yet; those parts follow Incus's own documentation. Plan a trial on your own servers before production.

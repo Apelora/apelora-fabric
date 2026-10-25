@@ -17,6 +17,8 @@ type LiveState = {
   byModule: Record<string, ModuleStatus[]>;
   /** Service address per module (stateless modules others connect to). */
   services: Record<string, string>;
+  /** Why traffic cannot move to replacement replicas right now (a cluster member is unreachable). */
+  trafficBlocked: string | null;
   error: string | null;
   watch: (application: string, project: string) => void;
   /** Reads the state now (e.g. right after jobs finish) instead of waiting for the next poll. */
@@ -56,6 +58,7 @@ export const useLive = create<LiveState>((set, get) => {
           .filter((i) => i.project === project)
           .reduce<Record<string, ModuleStatus[]>>((m, i) => ({ ...m, [i.module]: [...(m[i.module] ?? []), i] }), {}),
         services: Object.fromEntries(s.services.filter((x) => x.project === project).map((x) => [x.module, x.address])),
+        trafficBlocked: s.trafficBlocked ?? null,
         error: null,
       });
     } catch (e) {
@@ -69,10 +72,11 @@ export const useLive = create<LiveState>((set, get) => {
     observedAt: null,
     byModule: {},
     services: {},
+    trafficBlocked: null,
     error: null,
     watch: (application, project) => {
       if (timer) clearInterval(timer);
-      set({ application, project, byModule: {}, services: {}, error: null });
+      set({ application, project, byModule: {}, services: {}, trafficBlocked: null, error: null });
       void poll();
       timer = setInterval(() => void poll(), POLL_MS);
     },
@@ -80,7 +84,7 @@ export const useLive = create<LiveState>((set, get) => {
     stop: () => {
       if (timer) clearInterval(timer);
       timer = null;
-      set({ application: null, project: null, provider: null, observedAt: null, byModule: {}, services: {}, error: null });
+      set({ application: null, project: null, provider: null, observedAt: null, byModule: {}, services: {}, trafficBlocked: null, error: null });
     },
   };
 });

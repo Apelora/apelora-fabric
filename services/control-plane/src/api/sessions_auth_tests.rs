@@ -644,6 +644,98 @@ async fn ten_attempts_a_minute_per_address_then_429_with_retry_after(pool: Pool)
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
 }
 
+/// A password sign-in from `peer`, optionally through a proxy that forwarded it for `forwarded`.
+async fn sign_in_from(state: &AppState, peer: &str, forwarded: Option<&str>) -> StatusCode {
+    let mut req = Request::builder()
+        .method("POST")
+        .uri("/api/v1/sign-in/password")
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(f) = forwarded {
+        req = req.header("x-forwarded-for", f);
+    }
+    let mut req = req
+        .body(Body::from(
+            json!({ "username": "nobody", "password": "whatever it is" }).to_string(),
+        ))
+        .expect("request");
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::new(
+            peer.parse().expect("address"),
+            40_000,
+        )));
+    router(state.clone())
+        .oneshot(req)
+        .await
+        .expect("response")
+        .status()
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn behind_a_trusted_proxy_each_client_has_its_own_sign_in_allowance(pool: Pool) {
+    let (mut l, _) = setup_lab(pool.clone()).await;
+    l.state = l
+        .state
+        .clone()
+        .with_rate_limits(rate_limit::RateLimitConfig {
+            trusted_proxies: vec![rate_limit::Cidr::parse("10.0.0.0/24").expect("cidr")],
+            ..rate_limit::RateLimitConfig::default()
+        });
+    l.state.sign_in_attempts = std::sync::Arc::new(sessions_auth::Attempts::default());
+    let proxy = "10.0.0.2";
+    for _ in 0..10 {
+        assert_eq!(
+            sign_in_from(&l.state, proxy, Some("198.51.100.7")).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        sign_in_from(&l.state, proxy, Some("198.51.100.7")).await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the client that used its allowance is limited"
+    );
+    assert_eq!(
+        sign_in_from(&l.state, proxy, Some("198.51.100.8")).await,
+        StatusCode::UNAUTHORIZED,
+        "another client behind the same proxy is not"
+    );
+    // A forwarded address from an untrusted peer is not believed: that peer is the client.
+    assert_eq!(
+        sign_in_from(&l.state, "198.51.100.7", Some("203.0.113.1")).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // IPv6 clients share an allowance per /64.
+    for _ in 0..10 {
+        assert_eq!(
+            sign_in_from(&l.state, proxy, Some("2001:db8:1:2::1")).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        sign_in_from(&l.state, proxy, Some("2001:db8:1:2:ffff::9")).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        sign_in_from(&l.state, proxy, Some("2001:db8:1:3::1")).await,
+        StatusCode::UNAUTHORIZED
+    );
+    // The audit trail names the client, never the proxy.
+    let addresses: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT detail->>'address' FROM audit_events WHERE action = 'auth.password.failed' ORDER BY 1",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(
+        addresses,
+        [
+            "198.51.100.7",
+            "198.51.100.8",
+            "2001:db8:1:2::1",
+            "2001:db8:1:3::1"
+        ]
+    );
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn creating_accounts_is_checked_validated_and_unique(pool: Pool) {
     let (l, admin) = setup_lab(pool).await;

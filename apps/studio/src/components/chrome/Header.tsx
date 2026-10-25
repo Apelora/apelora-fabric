@@ -31,6 +31,7 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
   const liveApp = useLive((s) => s.application);
   const liveProvider = useLive((s) => s.provider);
   const running = useLive((s) => Object.values(s.byModule).flat().filter((a) => a.status === "Running").length);
+  const trafficBlocked = useLive((s) => s.trafficBlocked);
   const live = liveApp ? { application: liveApp, provider: liveProvider, count: running } : null;
 
   /** Publishing uses what is saved: wait until the draft on the server equals the screen. */
@@ -77,6 +78,9 @@ export function Header({ theme, onTheme, saved, designer }: { theme: string; onT
           </span>
         ) : (
           <span className="badge badge-ghost badge-sm" title="Nothing here is deployed to a real host." data-testid="mock-badge">Mock · Design only</span>
+        )}
+        {live && trafficBlocked && (
+          <span role="status" className="badge badge-warning badge-soft badge-sm" title={trafficBlocked} data-testid="traffic-blocked">Traffic stuck: a server is unreachable</span>
         )}
         {platform !== DEFAULT_PLATFORM && (
           <button type="button" className="badge badge-sm badge-warning badge-soft" data-testid="platform-badge" title={`Design target: ${PLATFORM_INFO[platform].name}. Click to change.`} onClick={() => api.getState().openProps({ kind: "assembly" })}>{PLATFORM_INFO[platform].name}{PLATFORM_INFO[platform].status === "planned" ? " (planned)" : ""}</button>

@@ -111,6 +111,13 @@ async fn unreachable_incus_is_a_502_with_a_stable_code() {
     let (status, body, _) = call(dev(provider.clone()), "/api/v1/instances", None).await;
     assert_eq!(status, 502);
     assert_eq!(body["error"]["code"], "incus_unreachable");
+    // The reason reaches the caller; Incus's address and port stay in the server's log.
+    let message = body["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("GET /1.0/instances"), "{message}");
+    assert!(
+        !message.contains(&addr.port().to_string()) && !message.contains("127.0.0.1"),
+        "{message}"
+    );
     let (status, body, _) = call(dev(provider), "/api/v1/health", None).await;
     assert_eq!(status, 200);
     assert_eq!(body["incus"]["connected"], false);
@@ -125,7 +132,7 @@ async fn audit_needs_a_database_in_development_mode() {
     )
     .await;
     assert_eq!(status, 503);
-    assert_eq!(body["error"]["code"], "store_unavailable");
+    assert_eq!(body["error"]["code"], "database_not_configured");
 }
 
 /// Sends a GET with an optional `x-request-id`; returns the status and the echoed id.
@@ -660,7 +667,10 @@ async fn deployments_need_a_database() {
     .await;
     assert_eq!(
         (s, b["error"]["code"].as_str()),
-        (StatusCode::SERVICE_UNAVAILABLE, Some("store_unavailable"))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("database_not_configured")
+        )
     );
 }
 
@@ -1058,6 +1068,72 @@ pub(super) async fn drain(pool: &Pool, provider: &Provider) {
         .await
         .expect("worker")
     {}
+}
+
+/// The owner labels and the network attachment are Apelora's: a caller who sets them (on a single
+/// instance, or on a module of an application) is refused before anything is queued, and the
+/// application path, where Apelora sets the owner itself, still deploys.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_caller_cannot_set_the_owner_or_network_apelora_gives_an_instance(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_deploy_projects(vec!["apelora".into()]);
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let owner = json!({ "application": "shop", "module": "web-01", "replica": 1 });
+    let network = json!({ "network": "apl-shop", "acl": "apl-shop-web-01", "uplink": "incusbr0" });
+    let post = |path: &'static str, body: Value| {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move { send(state, "POST", path, &operator, Some(body), None).await }
+    };
+    for (field, value) in [("owner", &owner), ("network", &network)] {
+        let mut spec = web_spec("apelora", "web-01");
+        spec[field] = value.clone();
+        let (s, b) = post("/api/v1/instances", spec).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{field}: {b}");
+        assert!(
+            b["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains(field)),
+            "{field}: {b}"
+        );
+        let mut design =
+            json!({ "project": "apelora", "document": {}, "modules": [module("web-01")] });
+        design["modules"][0]["spec"][field] = value.clone();
+        let (s, b) = post("/api/v1/applications/shop/deployments", design).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{field}: {b}");
+        assert!(
+            b["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("module web-01") && m.contains(field)),
+            "{field}: {b}"
+        );
+    }
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(queued, 0, "nothing was queued");
+    let (s, b) = post(
+        "/api/v1/applications/shop/deployments",
+        json!({ "project": "apelora", "document": {}, "modules": [module("web-01")] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{b}");
+    drain(&pool, &provider).await;
+    let Provider::Mock(m) = &provider else {
+        unreachable!()
+    };
+    let owned = m.instances.lock().expect("lock").iter().any(|i| {
+        i.instance.name == "shop-web-01"
+            && i.instance
+                .owner
+                .as_ref()
+                .is_some_and(|o| o.application == "shop")
+    });
+    assert!(owned, "Apelora's own owner labels are set");
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
@@ -1668,6 +1744,76 @@ async fn connected_stateless_modules_get_a_service_address_until_removed(pool: P
     )
     .await;
     assert_eq!(status["services"], json!([]));
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn the_status_says_when_traffic_cannot_move_because_a_member_is_down(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider, Auth::Tokens(pool.clone()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let app = apelora_persistence::ensure_application(&pool, "shop")
+        .await
+        .expect("app");
+    let blocked = || {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move {
+            let (_, s) = send(
+                state,
+                "GET",
+                "/api/v1/applications/shop/status",
+                &operator,
+                None,
+                None,
+            )
+            .await;
+            s["trafficBlocked"].clone()
+        }
+    };
+    let sync = |status: &'static str, error: Option<String>, secs: i32| {
+        let pool = pool.clone();
+        async move {
+            let id = apelora_persistence::enqueue_job(
+                &pool,
+                "network.sync",
+                Some(app.id),
+                &json!({}),
+                None,
+            )
+            .await
+            .expect("enqueue")
+            .id();
+            sqlx::query("UPDATE jobs SET status = $2, last_error = $3, updated_at = now() + make_interval(secs => $4) WHERE id = $1")
+                .bind(id)
+                .bind(status)
+                .bind(error)
+                .bind(secs)
+                .execute(&pool)
+                .await
+                .expect("job");
+        }
+    };
+    assert_eq!(blocked().await, Value::Null);
+    let reason = apelora_domain::network::traffic_blocked_reason("cluster member m2");
+    sync("failed", Some(reason.clone()), 1).await;
+    assert_eq!(blocked().await, json!(reason));
+    // The supervisor queues the sync again; until that one has tried, the notice stays.
+    sync("pending", None, 2).await;
+    assert_eq!(blocked().await, json!(reason));
+    sync("succeeded", None, 3).await;
+    assert_eq!(
+        blocked().await,
+        Value::Null,
+        "a sync that went through clears it"
+    );
+    sync("failed", Some("Incus API error 404: not found".into()), 4).await;
+    assert_eq!(
+        blocked().await,
+        Value::Null,
+        "other failures are not this notice"
+    );
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

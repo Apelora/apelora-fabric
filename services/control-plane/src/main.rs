@@ -243,6 +243,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");
     }
     tokio::spawn(api::auth_config::retry_unreachable(state.clone()));
+    // Once after migration 0033: group mappings made before sources were recorded (ADR 0016).
+    if let Err(e) = api::bind_unsourced_mappings(&state).await {
+        tracing::warn!(error = %e.message(), "group mappings without a source could not be checked; they match nobody until a source is set");
+    }
     // Optional: metrics without authentication on their own address (loopback or a management
     // network); GET /metrics on the API address always needs fabric.metrics.read.
     if let Some(at) = monitoring.listener {
@@ -292,10 +296,7 @@ fn sign_in_from_env(
         return Ok(None);
     };
     let issuer = get("APELORA_OIDC_ISSUER").unwrap_or_default();
-    if !issuer.starts_with("https://")
-        && !issuer.starts_with("http://127.0.0.1")
-        && !issuer.starts_with("http://localhost")
-    {
+    if !apelora_identity::secure_url(&issuer) {
         return Err("APELORA_OIDC_ISSUER must be an https:// URL for browser sign-in".into());
     }
     let scopes: Vec<String> = get("APELORA_OIDC_SCOPES")

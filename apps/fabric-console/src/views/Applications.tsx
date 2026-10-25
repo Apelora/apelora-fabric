@@ -7,6 +7,7 @@ import { TerminalDialog, type TerminalTarget } from "../components/TerminalDialo
 import { ErrorPanel, FormDialog, Section, SectionHeader, TableFrame, sentence } from "../components/ui";
 import { client, messageOf, useLoad } from "../lib/api";
 import { holds } from "../lib/identity";
+import { instanceHref } from "../lib/routes";
 
 type Statuses = Record<string, ApplicationStatus | { error: string }>;
 
@@ -25,9 +26,10 @@ export function summary(items: readonly ModuleStatus[]): { label: string; dot: s
 }
 
 /** An instance's health, in words. */
-const health = (i: ModuleStatus): string => {
+/** `checked`: the module has a service address, so the worker checks it (the first decision takes a moment). */
+const health = (i: ModuleStatus, checked: boolean): string => {
   if (i.status !== "Running") return "—";
-  if (!i.health) return "Not checked";
+  if (!i.health) return checked ? "Not checked yet" : "Not checked";
   const since = new Date(i.health.since).toLocaleTimeString();
   if (i.health.health === "unhealthy") return `Failing since ${since}${i.health.restartedAt ? `; restarted ${new Date(i.health.restartedAt).toLocaleTimeString()}` : ""}`;
   return i.health.health === "healthy" ? "Passing" : "Not decided yet";
@@ -299,10 +301,10 @@ function Instances({ application, status, onTerminal }: { application: string; s
         <tbody>
           {status.items.map((i) => (
             <tr key={`${i.project}/${i.instance}`} data-testid="application-instance">
-              <td className="font-medium break-words">{i.instance}<span className="block text-xs font-normal text-base-content/60">{i.module} · {i.project}</span></td>
+              <td className="font-medium break-words"><a href={instanceHref(i.project, i.instance)} className="link link-hover" data-testid="instance-link" title="Addresses, disks, snapshots and logs">{i.instance}</a><span className="block text-xs font-normal text-base-content/60">{i.module} · {i.project}</span></td>
               <td className="max-sm:hidden"><span className={`status mr-2 ${dot(i)}`} aria-hidden="true" />{i.status}</td>
               <td className="max-sm:hidden">{i.location}</td>
-              <td className="text-sm"><span className={`status mr-2 sm:hidden ${dot(i)}`} aria-hidden="true" /><span className="sm:hidden">{i.status === "Running" ? "" : `${i.status}. `}</span>{health(i)}</td>
+              <td className="text-sm"><span className={`status mr-2 sm:hidden ${dot(i)}`} aria-hidden="true" /><span className="sm:hidden">{i.status === "Running" ? "" : `${i.status}. `}</span>{health(i, status.services.some((x) => x.module === i.module && x.project === i.project))}</td>
               {onTerminal && (
                 <td className="text-right">
                   <button type="button" className="btn btn-xs btn-ghost" aria-label={`Terminal in ${i.instance}`} onClick={() => onTerminal({ application, instance: i.instance })} data-testid="terminal-open">Terminal…</button>
@@ -367,7 +369,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
                         <td data-testid="application-summary">
                           {!s ? <span className="text-base-content/60">Checking…</span>
                             : "error" in s ? <span className="text-error">{s.error}</span>
-                            : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span></>}
+                            : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span>{ok!.trafficBlocked && <span role="status" className="mt-1 block max-w-md text-xs text-warning-content bg-warning/15 rounded px-2 py-1" data-testid="traffic-blocked">{ok!.trafficBlocked}</span>}</>}
                         </td>
                         <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.module}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.module}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
                         <td className="text-right">{a.actions && <ApplicationActions name={a.name} actions={a.actions} control={operations} />}</td>

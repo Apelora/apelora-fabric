@@ -337,7 +337,8 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("pending-deploy")).toContainText("attempt 2");
     expect(body).toEqual({
       project: "apelora", name: "web-02", kind: "container", start: true, architectures: ["x86_64", "aarch64"],
-      config: { "limits.cpu": "1", "limits.memory": "512MiB" },
+      // NGINX's deploy-time fields with their defaults: a server name, and the certificate by reference only.
+      config: { "limits.cpu": "1", "limits.memory": "512MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" },
       source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724" },
     });
   });
@@ -583,7 +584,7 @@ test.describe("fabric console views", () => {
         inst("shop-client-01", "client-01", "Running", "node-1"),
         inst("shop-web-01", "web-01", "Running", "node-2", "healthy"),
         inst("shop-web-01-r2", "web-01", "Running", "node-3", "unhealthy"),
-      ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }] } }),
+      ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }], trafficBlocked: "Traffic cannot move to replacement replicas: Incus refuses load balancer changes while cluster member node-4 is unreachable. Bring it back, or remove it from the cluster (runbook: Member failure)." } }),
       "GET /api/v1/applications/blog/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("blog-web-01", "web-01", "Stopped", "node-1")], services: [] } }),
     });
     await page.goto("/#/applications");
@@ -593,6 +594,8 @@ test.describe("fabric console views", () => {
     await expect(shop.getByTestId("application-summary")).toContainText("1 failing its check");
     await expect(shop.getByTestId("application-summary")).toContainText("3 of 3 running");
     await expect(shop).toContainText("198.18.100.1");
+    await expect(shop.getByTestId("traffic-blocked")).toContainText("while cluster member node-4 is unreachable");
+    await expect(page.getByTestId("application-row").nth(1).getByTestId("traffic-blocked")).toHaveCount(0);
     await expect(page.getByTestId("application-row").nth(1).getByTestId("application-summary")).toContainText("1 not running");
     await shop.getByTestId("application-toggle").click();
     await expect(shop.getByTestId("application-toggle")).toHaveAttribute("aria-expanded", "true");
@@ -600,6 +603,8 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("application-instance").nth(0)).toContainText("Not checked");
     await expect(page.getByTestId("application-instance").nth(1)).toContainText("Passing");
     await expect(page.getByTestId("application-instance").nth(2)).toContainText("Failing since");
+    // Each instance leads to its own page (addresses, disks, logs).
+    await expect(page.getByTestId("application-instance").nth(1).getByTestId("instance-link")).toHaveAttribute("href", "#/instances/apelora/shop-web-01");
     await shop.getByTestId("application-toggle").click();
     await expect(page.getByTestId("application-instance")).toHaveCount(0);
   });

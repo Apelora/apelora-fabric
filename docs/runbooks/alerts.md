@@ -1,8 +1,8 @@
 # Alerts
 
-Status: **NOT YET VERIFIED on the test cluster** (MOCK VERIFIED: evaluator, API, webhook delivery to a local HTTPS receiver, Console) · Design: [alerts](../design/alerts.md) · Related: [monitoring](../architecture/MONITORING.md), [troubleshooting](troubleshooting.md)
+Apelora watches a fixed set of conditions about itself and its applications. It raises **alerts** in the Fabric Console (`#/alerts`) and, if you set them up, at **webhooks**. This page says how to set them up, how to respond, and what to check for each rule. Built-in alerts do not replace your metrics collector ([monitoring](../architecture/MONITORING.md)); they cover what Apelora itself knows.
 
-Apelora watches a fixed set of conditions about itself and its applications and raises **alerts** in the Fabric Console (`#/alerts`) and, if set up, at **webhooks**. This page says how to set them up, how to respond, and what to check for each rule. Built-in alerts do not replace your metrics collector ([MONITORING.md](../architecture/MONITORING.md)); they cover what Apelora itself knows.
+Related: [alerts design](../design/alerts.md), [troubleshooting](troubleshooting.md).
 
 ## Set up
 
@@ -31,10 +31,11 @@ Apelora watches a fixed set of conditions about itself and its applications and 
 | Reason shown | Do |
 |---|---|
 | `secret APELORA_ALERT_SECRET_… is not set on the worker` | Set the variable on every worker and restart them. The waiting messages are retried. |
-| `could not connect to the receiver` / `did not answer within 5 s` | Check the receiver is up and reachable from the workers (firewall, DNS, proxy). |
+| `could not connect to the receiver` / `did not answer within 5 s` / `could not resolve the receiver's name` | Check the receiver is up and reachable from the workers (firewall, DNS, proxy). The worker's log has the full error (`alert: webhook delivery failed`). |
+| `the receiver's address is not allowed…` | The receiver's name resolves to the worker's own computer (loopback), a link-local address (169.254.0.0/16, fe80::/10, where cloud metadata services answer), an unspecified, multicast or broadcast address. Point the channel at the receiver's real address; private addresses (10/8, 172.16/12, 192.168/16, fd00::/8) are fine. |
 | `the receiver answered 401/403` | The receiver refused the signature or token: compare secrets; check its clock (timestamps older than five minutes are refused). |
 | `the receiver answered 3xx (a redirect…)` | Use the final URL; Apelora does not follow redirects. |
-| TLS errors | The receiver's certificate must be valid for its name and trusted by the workers' system trust store. |
+| `TLS with the receiver failed…` | The receiver's certificate must be valid for its name and trusted by the workers' system trust store. The worker's log says what TLS refused. |
 
 Messages for a deleted or turned-off channel are dropped. Undelivered messages are never dropped otherwise; the `outbox-stuck` rule fires when they wait more than 10 minutes.
 
@@ -87,3 +88,7 @@ Messages for a deleted or turned-off channel are dropped. Undelivered messages a
 
 ### Apelora's database restore is not proven
 `restore-drill-age`. No restore drill has passed for the threshold in days. Run the drill: [database backup](apelora-database-backup.md).
+
+## Before you rely on it
+
+- Alerts have been tested with simulated data and a local test receiver. They have not yet run on a real cluster or delivered to a real receiver: send a test to your webhook and watch the first real alerts closely.

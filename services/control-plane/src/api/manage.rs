@@ -119,6 +119,7 @@ pub struct DeploymentInfo {
     pub source: ProviderMode,
     /// The published version the application was last deployed from.
     pub deployed_version: Option<i32>,
+    /// Modules in the deployed version; 0 until a version is deployed.
     pub modules: u32,
     pub replicas: ReplicaSummary,
     pub last_activity_at: Option<String>,
@@ -1394,12 +1395,18 @@ pub(super) async fn operate(
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
+            // Read by people in the Studio and Console as well as by API callers: it says what
+            // happens; the code (`confirmation_required`) is what callers act on.
+            let doing = match req.action {
+                OperationKind::Start => "Starting",
+                OperationKind::Stop => "Stopping",
+                OperationKind::Shutdown => "Shutting down",
+                OperationKind::Restart => "Restarting",
+                OperationKind::Migrate => "Migrating",
+            };
             return Err(conflict(
                 "confirmation_required",
-                format!(
-                    "{} will interrupt service for clients of {names}. Send confirmDisruption to proceed; data is kept.",
-                    req.action.as_str()
-                ),
+                format!("{doing} {name} interrupts service for clients of {names}. Data is kept."),
             ));
         }
     }
@@ -1429,7 +1436,7 @@ pub(super) async fn operate(
             return Err(conflict(
                 "confirmation_required",
                 format!(
-                    "migrating will stop {} while they move, so their clients lose service. Send confirmDisruption to proceed; data is kept.",
+                    "Migrating {name} stops {} while they move, so their clients lose service. Data is kept.",
                     stopping.join(", ")
                 ),
             ));

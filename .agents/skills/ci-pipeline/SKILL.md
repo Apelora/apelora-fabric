@@ -5,7 +5,7 @@ description: Change Apelora's GitHub Actions CI — the fast gate (ci.yml), the 
 
 # CI pipeline
 
-**Read first:** `docs/development/CI.md` (tiers, smoke set, Dependabot, code scanning).
+**Read first:** `docs/development/CI.md` (tiers, smoke set, Dependabot, code scanning). Releases: `release-management` and `docs/development/RELEASING.md`.
 
 ## Rules
 

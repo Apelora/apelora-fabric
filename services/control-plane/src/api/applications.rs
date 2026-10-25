@@ -124,11 +124,17 @@ pub struct ServiceStatus {
 }
 
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ApplicationStatus {
     pub source: Source,
     pub items: Vec<ModuleStatus>,
     /// Allocated service addresses (empty without a database or service range).
     pub services: Vec<ServiceStatus>,
+    /// Present while the application's service addresses cannot move traffic to replacement
+    /// replicas because Incus refuses load balancer changes (a cluster member is unreachable):
+    /// what happens, which member, and what to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traffic_blocked: Option<String>,
 }
 
 #[derive(Deserialize, IntoParams)]
@@ -305,9 +311,14 @@ fn check(name: &str, project: &str, modules: &[DesiredModule]) -> Result<(), Api
             return Err(bad_request(format!("module {} is listed twice", d.module)));
         }
         d.validate().map_err(bad_request)?;
-        owned_spec(name, project, d, d.replicas)
-            .validate_from_caller()
-            .map_err(|e| bad_request(format!("module {}: {e}", d.module)))?;
+        // The spec Apelora will create (its name, project and owner), checked with the caller's
+        // own `owner` put back: what only Apelora sets is refused as the caller sent it.
+        InstanceSpec {
+            owner: d.spec.owner.clone(),
+            ..owned_spec(name, project, d, d.replicas)
+        }
+        .validate_from_caller()
+        .map_err(|e| bad_request(format!("module {}: {e}", d.module)))?;
     }
     Ok(())
 }
@@ -915,9 +926,16 @@ pub(super) async fn status(
             .collect(),
         Auth::DisabledForDevelopment => Vec::new(),
     };
+    let traffic_blocked = match &state.auth {
+        Auth::Tokens(pool) => apelora_persistence::jobs::failing_network_sync(pool, &name)
+            .await?
+            .filter(|e| e.starts_with(apelora_domain::network::TRAFFIC_BLOCKED)),
+        Auth::DisabledForDevelopment => None,
+    };
     Ok(Json(ApplicationStatus {
         source: source(state.provider.mode()),
         items,
         services,
+        traffic_blocked,
     }))
 }

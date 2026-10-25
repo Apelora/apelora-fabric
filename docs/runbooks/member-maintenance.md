@@ -1,10 +1,8 @@
 # Maintenance on a server
 
-Evacuate the server, do the work, then restore it. Its instances move to other servers, or stop, until you restore it.
+Evacuate the server, do the work, then restore it. Its instances move to other servers, or stop, until you restore it. A container on local storage typically moves in about ten seconds and keeps its addresses.
 
-Run on 2026-10-20 on a two-member cluster, through the control plane and Fabric Console. Containers on local storage moved in about ten seconds and kept their addresses.
-
-The pictures are sample data from `tests/e2e/screenshots-console-docs.spec.ts`. The names are examples.
+The names in the pictures are examples.
 
 ## Evacuate
 
@@ -17,7 +15,7 @@ In Fabric Console, open **Servers → Members** and choose **Evacuate…** on an
 Read the dry run before you type the name.
 
 - **What Incus does** comes from the instance's `cluster.evacuate` mode. `auto` moves it while it is stopped. A volume that cannot move makes Incus stop the instance on this server until restore.
-- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops.
+- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops. For up to about ten seconds after a replica on this server stops, a share of the requests to its service address can still go to it and fail, until the load balancer's health check takes it out (two failed checks, five seconds apart). Apelora does not drain the server first yet (issue #50), so evacuate when that short dip is acceptable.
 - **Blocked.** No other member is Online, or none has the instance's architecture. Fix that first. Evacuation is refused while anything blocks it.
 - **Warnings.** Replicas will share the remaining servers until you restore this one.
 
@@ -60,10 +58,10 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 The member is Online. Each application's instances are on the servers you expect. Its service addresses answer.
 
-Both actions need `manage-infrastructure`. They are audited as `cluster.member.evacuate` and `cluster.member.restore`.
+Both actions need `cluster.evacuate` (the Fabric Administrator role; for an API token, `manage-infrastructure`). They are audited as `cluster.member.evacuate` and `cluster.member.restore`.
 
 ## Move one module first
 
 A virtual machine with **Keep running when moved** (Studio, Availability) moves to another server while it runs. In Fabric Console open **Instances → Move…**, or let evacuation move it. A container, or a virtual machine whose volumes are on its own server, stops for the move: **Move…** with **Allow a short stop** copies the volumes and starts it on the new server.
 
-Run on 2026-10-21. See [Moving modules and surviving failures](../design/mobility-and-ha.md).
+See [Moving modules and surviving failures](../design/mobility-and-ha.md).

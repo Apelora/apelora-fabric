@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import type { Source } from "@apelora/api-client";
 
-import type { Load } from "../lib/api";
+import { needsDatabase, type Load } from "../lib/api";
 
 /** The API's messages are clauses; shown on their own they start with a capital. */
 export const sentence = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -85,7 +85,13 @@ export function Section<T>({ title, level, state, testId, onRetry, children }: {
       {state.kind === "error" && (
         <>
           <Heading level={level}>{title}</Heading>
-          <ErrorPanel message={state.message} testId={`${testId}-error`} onRetry={onRetry} />
+          {needsDatabase(state) ? (
+            <Notice title="Needs a database" testId={`${testId}-needs-database`}>
+              This control plane runs without a database, for a quick look only. To use this page, start PostgreSQL and run the control plane with <code>DATABASE_URL</code> set (see the settings reference).
+            </Notice>
+          ) : (
+            <ErrorPanel message={state.message} testId={`${testId}-error`} onRetry={onRetry} />
+          )}
         </>
       )}
       {state.kind === "ok" && children(state.data)}

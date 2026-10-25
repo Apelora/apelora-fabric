@@ -1,6 +1,6 @@
 # Tenancy: environments' Incus projects and quotas
 
-**Evidence:** the Incus side (creating a restricted project, its profile, granting it to the deploy identity, limits that Incus enforces, deleting it) REAL INCUS TESTED on the four-member lab, 2026-10-21; the API and Console steps MOCK VERIFIED. Design: [tenancy isolation](../design/tenancy-isolation.md), [ADR 0012](../adr/0012-tenancy-on-incus-projects.md).
+Use this page to raise a quota, and to fix an environment whose Incus project is not prepared. Design: [tenancy isolation](../design/tenancy-isolation.md), [ADR 0012](../adr/0012-tenancy-on-incus-projects.md).
 
 Each environment deploys into its own restricted Incus project (`<organisation>-<project>-<environment>`). Apelora creates it when the environment is created, with the administrator identity (`APELORA_INCUS_ADMIN_CLIENT_CERT`), and adds it to the deploy identity's project list. Quotas cap organisations, projects and environments; a deployment over a quota is refused before anything is saved.
 
@@ -38,6 +38,7 @@ The Tenancy page says why. Common reasons:
 | No administrator identity is configured | Configure `APELORA_INCUS_ADMIN_CLIENT_CERT`/`KEY` on the control plane (never the worker), restart it, then *Prepare Incus project* |
 | `Incus: …` (unreachable, refused) | Fix Incus reachability ([api-outage](api-outage.md)), then *Prepare Incus project*; the first deployment also retries |
 | The project exists but is not restricted | Apelora adopts only restricted projects. On a member: `incus project set <name> restricted=true` (and review its `restricted.*` keys), then *Prepare Incus project* |
+| `incus_project_exists`: the project exists and Apelora did not create it for this environment | Apelora does not take over a project because its name matches. If the project is meant for this environment, a platform administrator creates the environment again naming that project (*Incus project*, `incusProject`); otherwise choose another environment identifier. A project that belongs to another Apelora environment is never taken over |
 | The deploy identity cannot use it | See [deploy-identity](deploy-identity.md); *Prepare Incus project* re-adds the grant |
 | A platform deploy project (`APELORA_DEPLOY_PROJECTS`) | Set up by the operator; *Prepare Incus project* checks it and adopts it as it is |
 
@@ -52,3 +53,9 @@ incus config trust show <deploy-fingerprint>                  # projects: includ
 ```
 
 Never make the deploy identity unrestricted to work around a missing grant (ADR 0003).
+
+## Before you rely on it
+
+- The Incus side of this page (the restricted project, its profile, the grant, the limits Incus
+  enforces) has run on a lab cluster. The Console and API steps have been tested with simulated
+  data only. Raise a quota on a test environment first.

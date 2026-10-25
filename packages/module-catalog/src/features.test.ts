@@ -113,7 +113,7 @@ describe("connection suggestions", () => {
   it("lists classes with a compatible terminal, exact protocol first, never the NIC", () => {
     let a = createEmptyAssembly("t");
     const k = addModule(a, lookupClass("kafka", "1.0.0")!, { x: 0, y: 0 }); a = k.assembly;
-    const s = suggestAttachments(a, { moduleId: k.id, portId: "out" }, allClasses());
+    const s = suggestAttachments(a, { moduleId: k.id, portId: "peer" }, allClasses());
     expect(s.length).toBeGreaterThan(0);
     expect(s[0]!.exact).toBe(true);
     expect(s.every((x) => x.port.direction === "input" && x.port.type !== "network")).toBe(true);

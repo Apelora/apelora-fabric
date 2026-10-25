@@ -3604,7 +3604,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once.",
+        "summary": "Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API\ntokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once.",
         "operationId": "approve_request",
         "parameters": [
           {
@@ -3740,7 +3740,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Rejects a request. Needs `approval.grant`.",
+        "summary": "Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused).",
         "operationId": "reject_request",
         "parameters": [
           {
@@ -5992,7 +5992,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates or adopts the environment's Incus project now (idempotent): the restricted project\nwith its default profile, granted to the deploy identity, then the quotas mirrored. Needs\n`environment.manage` on the environment's project; 503 without an admin identity.",
+        "summary": "Creates or adopts the environment's Incus project now (idempotent): the restricted project\nwith its default profile, granted to the deploy identity, then the quotas mirrored. An existing\nproject is adopted only when it carries this environment's marker or a platform administrator\nnamed it when creating the environment; otherwise 409 `incus_project_exists`. Needs\n`environment.manage` on the environment's project; 503 without an admin identity.",
         "operationId": "prepare_incus_project",
         "parameters": [
           {
@@ -6028,6 +6028,16 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -6084,7 +6094,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform\n`group.manage`). Mapping a group to an identity-provider group name is platform-only.",
+        "summary": "Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform\n`group.manage`). Mapping a group to a group of an identity provider or directory is\nplatform-only and needs the source (`externalSource`): only that source's credentials map\nonto it, and a directory group is named by its full DN.",
         "operationId": "create_group",
         "requestBody": {
           "content": {
@@ -6098,6 +6108,79 @@
         },
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/groups/{group}/external": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Maps a platform group onto a group of an identity provider or directory, or sets the source of a\nmapping made before sources were recorded (`needsSource`). Needs platform `group.manage`, and,\nsince the source's members then receive the group's roles, the right to grant each of them\n(the escalation guard; `membership_refused`). A directory group is named by its full DN.",
+        "operationId": "set_group_external",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupExternal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -6188,7 +6271,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Adds a person to a group. Needs `group.manage`.",
+        "summary": "Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles,\nthe right to grant each of them to that person (the same escalation guard as a direct\nassignment; refused with `membership_refused`).",
         "operationId": "add_group_member",
         "parameters": [
           {
@@ -6637,6 +6720,16 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -7017,7 +7110,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates an environment. The Incus project it maps to is derived from the names (tenants cannot\nchoose it); platform administrators may map an existing one. Needs `environment.manage`.",
+        "summary": "Creates an environment. The Incus project it maps to is derived from the names (tenants cannot\nchoose it); platform administrators (`cluster.manage`) may map an existing one. When the\nderived project already exists and Apelora did not create it for this environment, nothing\nis created: 409 `incus_project_exists`. Needs `environment.manage`.",
         "operationId": "create_environment",
         "parameters": [
           {
@@ -11981,6 +12074,16 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -13901,6 +14004,13 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
+          },
+          "trafficBlocked": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Present while the application's service addresses cannot move traffic to replacement\nreplicas because Incus refuses load balancer changes (a cluster member is unreachable):\nwhat happens, which member, and what to do."
           }
         }
       },
@@ -14608,14 +14718,14 @@
             "items": {
               "type": "string"
             },
-            "description": "Group names from the directory."
+            "description": "The person's groups: each group's full DN (normalized), or a value that is not a DN."
           },
           "mappedGroups": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Apelora groups whose external name matches one of `groups`."
+            "description": "Apelora groups mapped to this directory (`directory`) and to one of `groups`; empty for\nsettings not saved yet."
           },
           "subject": {
             "type": "string",
@@ -15608,6 +15718,7 @@
           "modules": {
             "type": "integer",
             "format": "int32",
+            "description": "Modules in the deployed version; 0 until a version is deployed.",
             "minimum": 0
           },
           "observedAt": {
@@ -15797,6 +15908,14 @@
           "password"
         ],
         "properties": {
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The saved directory these settings are for, if any: only its group mappings are shown."
+          },
           "password": {
             "type": "string",
             "format": "password"
@@ -16748,6 +16867,7 @@
         "required": [
           "id",
           "name",
+          "needsSource",
           "description"
         ],
         "properties": {
@@ -16759,7 +16879,14 @@
               "string",
               "null"
             ],
-            "description": "The group's name in the identity provider's tokens, when members come from there."
+            "description": "The group's name in its source's tokens (a directory group's full DN), when members come\nfrom there."
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who may assert membership: an identity provider's issuer, or `directory:<id>`."
           },
           "id": {
             "type": "string",
@@ -16767,6 +16894,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "needsSource": {
+            "type": "boolean",
+            "description": "Mapped before sources were recorded: it matches nobody until a platform administrator\nsets its source (`PUT /api/v1/identity/groups/{group}/external`)."
           },
           "organizationId": {
             "type": [
@@ -16778,10 +16909,29 @@
           }
         }
       },
+      "GroupExternal": {
+        "type": "object",
+        "description": "The group outside Apelora a group mirrors.",
+        "required": [
+          "source",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The group's name in the source's tokens; for a directory, the group's full DN."
+          },
+          "source": {
+            "type": "string",
+            "description": "One of the `sources` the group list names."
+          }
+        }
+      },
       "GroupList": {
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "sources"
         ],
         "properties": {
           "items": {
@@ -16789,8 +16939,44 @@
             "items": {
               "$ref": "#/components/schemas/GroupDto"
             }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupSource"
+            },
+            "description": "The sources a group can be mapped to."
           }
         }
+      },
+      "GroupSource": {
+        "type": "object",
+        "description": "A place whose group memberships Apelora accepts: an identity provider (its tokens' groups)\nor a directory (its groups' DNs).",
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "What a mapping records: the provider's issuer, or `directory:<id>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GroupSourceKind"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GroupSourceKind": {
+        "type": "string",
+        "description": "The kind of a source of external groups.",
+        "enum": [
+          "identity-provider",
+          "directory"
+        ]
       },
       "GrowVolume": {
         "type": "object",
@@ -20511,7 +20697,7 @@
               "string",
               "null"
             ],
-            "description": "Platform administrators only: map an existing Incus project instead of the derived name."
+            "description": "Platform administrators only: map an existing Incus project instead of the derived name.\nOnly a project named here can be adopted; one that carries another environment's marker\nnever is."
           },
           "kind": {
             "$ref": "#/components/schemas/EnvKind"
@@ -20537,7 +20723,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The group's name in the source's tokens; for a directory, the group's full DN."
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required with `externalName`: one of the `sources` the group list names."
           },
           "name": {
             "type": "string"
@@ -21383,6 +21577,13 @@
           "module": {
             "type": "string",
             "description": "The module in the design (for `remove`: the label of the instance being removed)."
+          },
+          "outdated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the running instance was built from that the design now asks differently:\n`image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running\nmodules is not built yet."
           },
           "reason": {
             "type": "string",

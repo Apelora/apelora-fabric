@@ -6,6 +6,12 @@
 //! the secret its reference names and POSTs it:
 //! - HTTPS only (checked again here, whatever the database says), TLS verified against the
 //!   system trust store, no redirects, 3 s to connect and 5 s in all;
+//! - never to this computer, link-local (where cloud metadata services live), unspecified or
+//!   multicast addresses: the receiver's name is resolved here, every address it gives is
+//!   checked ([`forbidden_address`]), and the request connects to exactly those addresses (no
+//!   second lookup). Private ranges (RFC 1918, IPv6 unique-local) stay allowed: on-premises chat
+//!   servers live there. Behind a proxy (`HTTPS_PROXY`) the proxy connects, after the same
+//!   check of the name;
 //! - `Apelora-Event-Id` (the outbox message id: receivers drop duplicates by it),
 //!   `Apelora-Timestamp` (Unix seconds) and `Apelora-Signature: v1=<hex>`, an HMAC-SHA256 with
 //!   the channel's secret over `<timestamp>.<body>`;
@@ -14,8 +20,11 @@
 //!
 //! A failure (receiver down, non-2xx, a missing secret) is returned to the relay, which retries
 //! with its backoff and keeps the reason on the message, where the channel's status reads it.
-//! Error texts never carry the URL (it may hold a token) or the response body.
+//! That reason is coarse (could not connect, TLS failed, the HTTP status), so a channel cannot be
+//! used to probe what answers where; the full error goes to the worker's log. Error texts never
+//! carry the URL (it may hold a token) or the response body.
 
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,6 +44,81 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Reads a secret by its reference (an environment variable name).
 pub type SecretSource = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
+/// Starts the HTTP client for one delivery (the system trust store; tests trust their own
+/// certificate). [`WebhookSink::settings`] and the checked addresses are added to it.
+pub type ClientSource = Arc<dyn Fn() -> reqwest::ClientBuilder + Send + Sync>;
+
+/// Addresses a webhook is never sent to: this computer (loopback, and `0.0.0.0/8`, which reaches
+/// it), link-local (`169.254.0.0/16`, `fe80::/10`: cloud metadata services), unspecified,
+/// multicast and broadcast; IPv4-mapped IPv6 addresses count as their IPv4 address. Private
+/// ranges stay allowed.
+pub fn forbidden_address(ip: IpAddr) -> bool {
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    };
+    match ip {
+        IpAddr::V4(a) => {
+            a.is_loopback()
+                || a.is_link_local()
+                || a.octets()[0] == 0
+                || a.is_multicast()
+                || a.is_broadcast()
+        }
+        IpAddr::V6(a) => {
+            a.is_loopback()
+                || a.is_unspecified()
+                || a.is_multicast()
+                || (a.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+/// The full cause chain of an error, for the log.
+fn chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cur = e.source();
+    while let Some(c) = cur {
+        out.push_str(": ");
+        out.push_str(&c.to_string());
+        cur = c.source();
+    }
+    out
+}
+
+/// Did a connection fail in TLS (an untrusted certificate, a failed handshake) rather than in
+/// reaching the receiver? The TLS stack reports its errors as `InvalidData` I/O errors.
+fn tls_failed(e: &(dyn std::error::Error + 'static)) -> bool {
+    let mut cur = Some(e);
+    while let Some(c) = cur {
+        if c.downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::InvalidData)
+        {
+            return true;
+        }
+        let text = c.to_string().to_lowercase();
+        if text.contains("certificate") || text.contains("tls") || text.contains("handshake") {
+            return true;
+        }
+        cur = c.source();
+    }
+    false
+}
+
+/// The reason the channel's status shows for a request that got no answer: coarse on purpose.
+fn coarse(e: &reqwest::Error) -> String {
+    if e.is_timeout() {
+        "the receiver did not answer within 5 s".into()
+    } else if e.is_connect() && tls_failed(e) {
+        "TLS with the receiver failed (its certificate was not accepted, or the handshake failed)"
+            .into()
+    } else if e.is_connect() {
+        "could not connect to the receiver".into()
+    } else {
+        "the request to the receiver failed".into()
+    }
+}
 
 /// `v1=<hex>`: HMAC-SHA256 with `secret` over `<timestamp>.<body>`.
 pub fn signature(secret: &[u8], timestamp: i64, body: &[u8]) -> String {
@@ -99,37 +183,97 @@ pub fn body_of(m: &Message) -> Value {
 /// Delivers `alert` messages to webhook channels.
 pub struct WebhookSink {
     pool: Pool,
-    client: reqwest::Client,
+    clients: ClientSource,
     secrets: SecretSource,
+    /// Tests only: their receiver listens on this computer.
+    allow_loopback: bool,
 }
 
+/// The reason given when a receiver's address is refused.
+const ADDRESS_REFUSED: &str = "the receiver's address is not allowed: webhooks are not sent to this computer, link-local, unspecified, multicast or broadcast addresses";
+
 impl WebhookSink {
-    /// With the system trust store and secrets from the process environment.
+    /// With the system trust store and secrets from the process environment. Builds a client
+    /// once, so a worker whose TLS set-up is broken says so when it starts.
     pub fn new(pool: Pool) -> Result<Self, String> {
-        let client = Self::client(reqwest::Client::builder())?;
+        Self::settings(reqwest::Client::builder())
+            .build()
+            .map_err(|e| format!("cannot build the webhook client: {e}"))?;
         Ok(Self::with(
             pool,
-            client,
+            Arc::new(reqwest::Client::builder),
             Arc::new(|k: &str| std::env::var(k).ok()),
         ))
     }
 
-    /// The client settings every webhook uses: timeouts and no redirects.
-    pub fn client(b: reqwest::ClientBuilder) -> Result<reqwest::Client, String> {
+    /// The settings every webhook request uses: timeouts and no redirects.
+    pub fn settings(b: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
         b.connect_timeout(CONNECT_TIMEOUT)
             .timeout(TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("apelora-alerts/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|e| format!("cannot build the webhook client: {e}"))
     }
 
-    pub fn with(pool: Pool, client: reqwest::Client, secrets: SecretSource) -> Self {
+    pub fn with(pool: Pool, clients: ClientSource, secrets: SecretSource) -> Self {
         WebhookSink {
             pool,
-            client,
+            clients,
             secrets,
+            allow_loopback: false,
         }
+    }
+
+    /// Lets deliveries reach this computer, where a test's receiver listens. Never in shipping
+    /// code.
+    #[cfg(test)]
+    pub(crate) fn allowing_loopback(mut self) -> Self {
+        self.allow_loopback = true;
+        self
+    }
+
+    fn allowed(&self, ip: IpAddr) -> bool {
+        !forbidden_address(ip) || (self.allow_loopback && ip.is_loopback())
+    }
+
+    /// The addresses the URL's host stands for, every one checked. `Some((host, addresses))` for
+    /// a name (the request then connects to exactly these), `None` for an address written in the
+    /// URL.
+    async fn checked_addresses(
+        &self,
+        url: &reqwest::Url,
+        channel: &str,
+    ) -> Result<Option<(String, Vec<SocketAddr>)>, String> {
+        let host = url.host_str().ok_or("the URL has no host")?;
+        let port = url.port_or_known_default().unwrap_or(443);
+        let literal = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>()
+            .ok();
+        let addrs: Vec<SocketAddr> = match literal {
+            Some(ip) => vec![SocketAddr::new(ip, port)],
+            None => {
+                let looked_up =
+                    tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
+                        .await
+                        .map_err(|_| "could not resolve the receiver's name in time".to_owned())?;
+                match looked_up {
+                    Ok(found) => found.collect(),
+                    Err(e) => {
+                        tracing::warn!(channel, error = %e, "alert: the webhook receiver's name did not resolve");
+                        return Err("could not resolve the receiver's name".into());
+                    }
+                }
+            }
+        };
+        if addrs.is_empty() {
+            return Err("could not resolve the receiver's name".into());
+        }
+        if let Some(a) = addrs.iter().find(|a| !self.allowed(a.ip())) {
+            tracing::warn!(channel, address = %a.ip(), "alert: webhook receiver address refused");
+            return Err(ADDRESS_REFUSED.into());
+        }
+        Ok(literal.is_none().then(|| (host.to_owned(), addrs)))
     }
 
     async fn send(&self, m: &Message) -> Result<(), String> {
@@ -160,12 +304,20 @@ impl WebhookSink {
         let secret = (self.secrets)(&channel.secret_ref)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| format!("secret {} is not set on the worker", channel.secret_ref))?;
+        let url = reqwest::Url::parse(&channel.url).map_err(|_| "the URL is not valid")?;
+        let mut builder = Self::settings((self.clients)());
+        if let Some((host, addrs)) = self.checked_addresses(&url, &channel.name).await? {
+            builder = builder.resolve_to_addrs(&host, &addrs);
+        }
+        let client = builder.build().map_err(|e| {
+            tracing::warn!(channel = %channel.name, error = %e, "alert: the webhook client could not be built");
+            "the webhook client could not be built".to_owned()
+        })?;
         let body = serde_json::to_vec(&body_of(m))
             .map_err(|e| format!("the message could not be encoded: {e}"))?;
         let timestamp = time::OffsetDateTime::now_utc().unix_timestamp();
-        let res = self
-            .client
-            .post(&channel.url)
+        let res = client
+            .post(url)
             .header("content-type", "application/json")
             .header("apelora-event-id", m.id.to_string())
             .header("apelora-timestamp", timestamp.to_string())
@@ -178,13 +330,8 @@ impl WebhookSink {
             .await
             .map_err(|e| {
                 let e = e.without_url();
-                if e.is_timeout() {
-                    "the receiver did not answer within 5 s".to_owned()
-                } else if e.is_connect() {
-                    format!("could not connect to the receiver: {e}")
-                } else {
-                    format!("the request failed: {e}")
-                }
+                tracing::warn!(id = m.id, channel = %channel.name, error = %chain(&e), "alert: webhook delivery failed");
+                coarse(&e)
             })?;
         let status = res.status();
         if status.is_success() {
