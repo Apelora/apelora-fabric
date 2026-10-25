@@ -6094,7 +6094,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform\n`group.manage`). Mapping a group to an identity-provider group name is platform-only.",
+        "summary": "Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform\n`group.manage`). Mapping a group to a group of an identity provider or directory is\nplatform-only and needs the source (`externalSource`): only that source's credentials map\nonto it, and a directory group is named by its full DN.",
         "operationId": "create_group",
         "requestBody": {
           "content": {
@@ -6108,6 +6108,79 @@
         },
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/identity/groups/{group}/external": {
+      "put": {
+        "tags": [
+          "identity"
+        ],
+        "summary": "Maps a platform group onto a group of an identity provider or directory, or sets the source of a\nmapping made before sources were recorded (`needsSource`). Needs platform `group.manage`, and,\nsince the source's members then receive the group's roles, the right to grant each of them\n(the escalation guard; `membership_refused`). A directory group is named by its full DN.",
+        "operationId": "set_group_external",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "Group id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GroupExternal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -14638,14 +14711,14 @@
             "items": {
               "type": "string"
             },
-            "description": "Group names from the directory."
+            "description": "The person's groups: each group's full DN (normalized), or a value that is not a DN."
           },
           "mappedGroups": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "Apelora groups whose external name matches one of `groups`."
+            "description": "Apelora groups mapped to this directory (`directory`) and to one of `groups`; empty for\nsettings not saved yet."
           },
           "subject": {
             "type": "string",
@@ -15828,6 +15901,14 @@
           "password"
         ],
         "properties": {
+          "directory": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The saved directory these settings are for, if any: only its group mappings are shown."
+          },
           "password": {
             "type": "string",
             "format": "password"
@@ -16779,6 +16860,7 @@
         "required": [
           "id",
           "name",
+          "needsSource",
           "description"
         ],
         "properties": {
@@ -16790,7 +16872,14 @@
               "string",
               "null"
             ],
-            "description": "The group's name in the identity provider's tokens, when members come from there."
+            "description": "The group's name in its source's tokens (a directory group's full DN), when members come\nfrom there."
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Who may assert membership: an identity provider's issuer, or `directory:<id>`."
           },
           "id": {
             "type": "string",
@@ -16798,6 +16887,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "needsSource": {
+            "type": "boolean",
+            "description": "Mapped before sources were recorded: it matches nobody until a platform administrator\nsets its source (`PUT /api/v1/identity/groups/{group}/external`)."
           },
           "organizationId": {
             "type": [
@@ -16809,10 +16902,29 @@
           }
         }
       },
+      "GroupExternal": {
+        "type": "object",
+        "description": "The group outside Apelora a group mirrors.",
+        "required": [
+          "source",
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "The group's name in the source's tokens; for a directory, the group's full DN."
+          },
+          "source": {
+            "type": "string",
+            "description": "One of the `sources` the group list names."
+          }
+        }
+      },
       "GroupList": {
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "sources"
         ],
         "properties": {
           "items": {
@@ -16820,8 +16932,44 @@
             "items": {
               "$ref": "#/components/schemas/GroupDto"
             }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GroupSource"
+            },
+            "description": "The sources a group can be mapped to."
           }
         }
+      },
+      "GroupSource": {
+        "type": "object",
+        "description": "A place whose group memberships Apelora accepts: an identity provider (its tokens' groups)\nor a directory (its groups' DNs).",
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "What a mapping records: the provider's issuer, or `directory:<id>`."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/GroupSourceKind"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "GroupSourceKind": {
+        "type": "string",
+        "description": "The kind of a source of external groups.",
+        "enum": [
+          "identity-provider",
+          "directory"
+        ]
       },
       "GrowVolume": {
         "type": "object",
@@ -20568,7 +20716,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The group's name in the source's tokens; for a directory, the group's full DN."
+          },
+          "externalSource": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required with `externalName`: one of the `sources` the group list names."
           },
           "name": {
             "type": "string"

@@ -556,7 +556,14 @@ async fn real_directory_correct_password_gives_the_person_with_groups(pool: Pool
         ),
         ("ada", Some("ada@apelora.test"), Some("Ada Admin"))
     );
-    assert_eq!(who.groups, vec!["dev-admins", "dev-operators"]);
+    // Groups are named by their full DN (ADR 0016).
+    assert_eq!(
+        who.groups,
+        vec![
+            "cn=dev-admins,ou=groups,dc=apelora,dc=test",
+            "cn=dev-operators,ou=groups,dc=apelora,dc=test"
+        ]
+    );
     assert_eq!(who.subject.len(), 36, "entryUUID: {}", who.subject);
     let user = upsert_directory_user(&state, &who)
         .await
@@ -583,7 +590,10 @@ async fn real_directory_correct_password_gives_the_person_with_groups(pool: Pool
         .unwrap_or_else(|e| panic!("{}", e.message));
     assert_eq!(
         (sam.username.as_str(), sam.groups.clone()),
-        ("sam+ops", vec!["dev-operators".to_owned()])
+        (
+            "sam+ops",
+            vec!["cn=dev-operators,ou=groups,dc=apelora,dc=test".to_owned()]
+        )
     );
     let vic = verify_directory_sign_in(&state, id, "vic", DEV_PASSWORD)
         .await
@@ -591,11 +601,15 @@ async fn real_directory_correct_password_gives_the_person_with_groups(pool: Pool
     assert!(vic.groups.is_empty());
 
     // Groups by search instead of memberOf, and the check shows the Apelora groups they map to.
+    let source = apelora_persistence::identity::directory_source(id);
     apelora_persistence::identity::create_group(
         &pool,
         None,
         "Platform operators",
-        Some("dev-operators"),
+        Some(apelora_persistence::identity::ExternalGroup {
+            source: &source,
+            name: "cn=dev-operators,ou=groups,dc=apelora,dc=test",
+        }),
         "",
     )
     .await
@@ -607,13 +621,16 @@ async fn real_directory_correct_password_gives_the_person_with_groups(pool: Pool
         "POST",
         "/api/v1/identity/sign-in/directories/check",
         &admin,
-        Some(json!({ "settings": search.clone(), "username": "oscar", "password": DEV_PASSWORD })),
+        Some(json!({ "settings": search.clone(), "directory": id, "username": "oscar", "password": DEV_PASSWORD })),
         None,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{c}");
     assert_eq!(c["ok"], true, "{c}");
-    assert_eq!(c["entry"]["groups"], json!(["dev-operators"]));
+    assert_eq!(
+        c["entry"]["groups"],
+        json!(["cn=dev-operators,ou=groups,dc=apelora,dc=test"])
+    );
     assert_eq!(c["entry"]["mappedGroups"], json!(["Platform operators"]));
     assert_eq!(c["entry"]["dn"], "uid=oscar,ou=people,dc=apelora,dc=test");
     // A user filter under a base DN finds the same person.

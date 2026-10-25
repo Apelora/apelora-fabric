@@ -263,22 +263,64 @@ pub struct GroupDto {
     /// `null` = a platform group.
     pub organization_id: Option<Uuid>,
     pub name: String,
-    /// The group's name in the identity provider's tokens, when members come from there.
+    /// The group's name in its source's tokens (a directory group's full DN), when members come
+    /// from there.
     pub external_name: Option<String>,
+    /// Who may assert membership: an identity provider's issuer, or `directory:<id>`.
+    pub external_source: Option<String>,
+    /// Mapped before sources were recorded: it matches nobody until a platform administrator
+    /// sets its source (`PUT /api/v1/identity/groups/{group}/external`).
+    pub needs_source: bool,
     pub description: String,
 }
+
+/// The kind of a source of external groups.
+#[derive(Serialize, ToSchema, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+pub enum GroupSourceKind {
+    IdentityProvider,
+    Directory,
+}
+
+/// A place whose group memberships Apelora accepts: an identity provider (its tokens' groups)
+/// or a directory (its groups' DNs).
+#[derive(Serialize, ToSchema, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSource {
+    /// What a mapping records: the provider's issuer, or `directory:<id>`.
+    pub id: String,
+    pub kind: GroupSourceKind,
+    pub name: String,
+}
+
 #[derive(Serialize, ToSchema)]
 pub struct GroupList {
     pub items: Vec<GroupDto>,
+    /// The sources a group can be mapped to.
+    pub sources: Vec<GroupSource>,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NewGroup {
     pub organization_id: Option<Uuid>,
     pub name: String,
+    /// The group's name in the source's tokens; for a directory, the group's full DN.
     pub external_name: Option<String>,
+    /// Required with `externalName`: one of the `sources` the group list names.
+    #[serde(default)]
+    pub external_source: Option<String>,
     #[serde(default)]
     pub description: String,
+}
+
+/// The group outside Apelora a group mirrors.
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupExternal {
+    /// One of the `sources` the group list names.
+    pub source: String,
+    /// The group's name in the source's tokens; for a directory, the group's full DN.
+    pub name: String,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1040,12 +1082,118 @@ pub(super) async fn enable_user(
 
 fn group_dto(g: db::GroupRow) -> GroupDto {
     GroupDto {
+        needs_source: g.external_name.is_some() && g.external_source.is_none(),
         id: g.id,
         organization_id: g.organization_id,
         name: g.name,
         external_name: g.external_name,
+        external_source: g.external_source,
         description: g.description,
     }
+}
+
+/// An OpenID Connect issuer as a group source: without a trailing slash, as tokens are matched.
+pub(super) fn oidc_source(issuer: &str) -> String {
+    issuer.trim_end_matches('/').to_owned()
+}
+
+/// Where group memberships may come from: the environment's identity provider, the providers
+/// saved in the Console (enabled or not) and the directories.
+pub(super) async fn group_sources(
+    state: &AppState,
+    pool: &apelora_persistence::Pool,
+) -> Res<Vec<GroupSource>> {
+    let mut out: Vec<GroupSource> = Vec::new();
+    if let Some(v) = &state.oidc {
+        out.push(GroupSource {
+            id: oidc_source(&v.config().issuer),
+            kind: GroupSourceKind::IdentityProvider,
+            name: state.sign_in.as_ref().map_or_else(
+                || "Identity provider (set by the environment)".to_owned(),
+                |s| s.label.clone(),
+            ),
+        });
+    }
+    for p in apelora_persistence::auth_settings::list_providers(pool).await? {
+        let id = oidc_source(&p.issuer);
+        if !out.iter().any(|s| s.id == id) {
+            out.push(GroupSource {
+                id,
+                kind: GroupSourceKind::IdentityProvider,
+                name: p.name,
+            });
+        }
+    }
+    for d in apelora_persistence::directories::list_directories(pool).await? {
+        out.push(GroupSource {
+            id: db::directory_source(d.id),
+            kind: GroupSourceKind::Directory,
+            name: d.name,
+        });
+    }
+    Ok(out)
+}
+
+/// At start-up, once after migration 0033: binds mappings made before sources were recorded to the
+/// only source, when exactly one is configured and it is an identity provider (a directory's
+/// groups must be entered again as full DNs). Otherwise they stay without a source, match nobody,
+/// and the Console asks for one. Logs what it did; the change is audited.
+pub async fn bind_unsourced_mappings(state: &AppState) -> Res<()> {
+    let pool = store(state)?;
+    let sources = group_sources(state, pool).await?;
+    let only = match sources.as_slice() {
+        [one] if one.kind == GroupSourceKind::IdentityProvider => Some(one.id.as_str()),
+        _ => None,
+    };
+    if let Some(bound) = db::backfill_group_sources(pool, only).await? {
+        match only {
+            Some(source) => {
+                tracing::info!(
+                    source,
+                    bound,
+                    "group mappings made before sources were recorded now take members only from the one identity provider"
+                );
+            }
+            None => {
+                tracing::warn!(
+                    sources = sources.len(),
+                    "group mappings made before sources were recorded were left without a source (not exactly one identity provider is configured); they match nobody until a source is set under Identity, Groups"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks a mapping against the configured sources and puts its name in the source's spelling
+/// (a directory group by its normalized full DN). Returns `(source, name)`.
+async fn external_group(
+    state: &AppState,
+    pool: &apelora_persistence::Pool,
+    source: &str,
+    name: &str,
+) -> Res<(String, String)> {
+    let sources = group_sources(state, pool).await?;
+    let wanted = source.trim();
+    let Some(found) = sources.iter().find(|s| {
+        s.id == wanted
+            || (s.kind == GroupSourceKind::IdentityProvider && s.id == oidc_source(wanted))
+    }) else {
+        return Err(bad(
+            "the source is not an identity provider or directory configured on this control plane; choose one of the sources the group list names",
+        ));
+    };
+    let name = name.trim();
+    let name = match found.kind {
+        GroupSourceKind::IdentityProvider => name.to_owned(),
+        GroupSourceKind::Directory => super::ldap::normalize_dn(name).ok_or_else(|| {
+            bad("a directory group is named by its full DN, for example cn=ops,ou=groups,dc=example,dc=org")
+        })?,
+    };
+    if name.is_empty() || name.chars().count() > 255 || name.chars().any(char::is_control) {
+        return Err(bad("an external group name is 1–255 characters"));
+    }
+    Ok((found.id.clone(), name))
 }
 
 fn group_resource(g: &db::GroupRow) -> Resource {
@@ -1063,17 +1211,21 @@ pub(super) async fn groups(
     Extension(p): Extension<Principal>,
 ) -> Res<Json<GroupList>> {
     let f = filter_for(&p, "user.view");
+    let pool = store(&state)?;
     Ok(Json(GroupList {
-        items: db::list_groups(store(&state)?, &f)
+        items: db::list_groups(pool, &f)
             .await?
             .into_iter()
             .map(group_dto)
             .collect(),
+        sources: group_sources(&state, pool).await?,
     }))
 }
 
 /// Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform
-/// `group.manage`). Mapping a group to an identity-provider group name is platform-only.
+/// `group.manage`). Mapping a group to a group of an identity provider or directory is
+/// platform-only and needs the source (`externalSource`): only that source's credentials map
+/// onto it, and a directory group is named by its full DN.
 #[utoipa::path(post, path = "/api/v1/identity/groups", tag = "identity", operation_id = "create_group", request_body = NewGroup,
     responses((status = 201, body = GroupDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub(super) async fn create_group(
@@ -1090,21 +1242,34 @@ pub(super) async fn create_group(
         None => Resource::platform(),
     };
     allow(&p, "group.manage", &res)?;
-    if req.external_name.is_some() {
+    let external_name = req
+        .external_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if external_name.is_some() {
         allow_platform(&p, "group.manage")?;
     }
     if req.description.chars().count() > 200 {
         return Err(bad("a description is at most 200 characters"));
     }
+    let external = match (external_name, req.external_source.as_deref()) {
+        (Some(name), Some(source)) => Some(external_group(&state, pool, source, name).await?),
+        (Some(_), None) => {
+            return Err(bad(
+                "say which identity provider or directory the group comes from (externalSource): only that source's members map onto it",
+            ));
+        }
+        (None, _) => None,
+    };
     let mut tx = begin(pool).await?;
     let g = db::create_group(
         &mut *tx,
         req.organization_id,
         valid_name(&req.name)?,
-        req.external_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
+        external
+            .as_ref()
+            .map(|(source, name)| db::ExternalGroup { source, name }),
         &req.description,
     )
     .await?;
@@ -1115,7 +1280,7 @@ pub(super) async fn create_group(
         &g.name,
         "success",
         Some(&res),
-        &json!({ "id": g.id, "externalName": g.external_name }),
+        &json!({ "id": g.id, "externalName": g.external_name, "externalSource": g.external_source }),
     )
     .await?;
     commit(tx).await?;
@@ -1159,6 +1324,29 @@ async fn check_joining(
     group_res: &Resource,
     user: Uuid,
 ) -> Res<()> {
+    check_group_roles(
+        pool,
+        p,
+        g,
+        group_res,
+        PrincipalRef::User { id: user },
+        "group.member.add",
+        json!({ "user": user }),
+    )
+    .await
+}
+
+/// The caller could grant each of the group's live assignments to `to`; otherwise the refusal is
+/// audited as `action` (denied) and answered 403 `membership_refused`.
+async fn check_group_roles(
+    pool: &apelora_persistence::Pool,
+    p: &Principal,
+    g: &db::GroupRow,
+    group_res: &Resource,
+    to: PrincipalRef,
+    action: &str,
+    detail: Value,
+) -> Res<()> {
     let held = db::load_engine(pool, &[PrincipalRef::Group { id: g.id }]).await?;
     let (engine, subject) = actor(p);
     for a in &held.assignments {
@@ -1175,7 +1363,7 @@ async fn check_joining(
                     role: &role,
                     scope: &a.scope,
                     resource: &scope_res,
-                    principal: PrincipalRef::User { id: user },
+                    principal: to,
                     emergency: a.kind == AssignmentKind::Emergency,
                     expires_at: a.expires_at,
                 },
@@ -1188,20 +1376,19 @@ async fn check_joining(
             )),
         };
         if let Err((role, why)) = verdict {
-            audit_alone(
-                pool,
-                p,
-                "group.member.add",
-                &g.name,
-                "denied",
-                Some(group_res),
-                &json!({ "user": user, "role": role, "scope": a.scope, "reason": why }),
-            )
-            .await?;
+            let mut detail = detail.clone();
+            if let Some(o) = detail.as_object_mut() {
+                o.insert("role".into(), json!(role));
+                o.insert("scope".into(), json!(a.scope));
+                o.insert("reason".into(), json!(why));
+            }
+            audit_alone(pool, p, action, &g.name, "denied", Some(group_res), &detail).await?;
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "membership_refused",
-                format!("this group holds {role}, which you could not grant to that person: {why}"),
+                format!(
+                    "this group holds {role}, which you could not grant to those members: {why}"
+                ),
             ));
         }
     }
@@ -1267,6 +1454,60 @@ async fn change_member(
     .await?;
     commit(tx).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Maps a platform group onto a group of an identity provider or directory, or sets the source of a
+/// mapping made before sources were recorded (`needsSource`). Needs platform `group.manage`, and,
+/// since the source's members then receive the group's roles, the right to grant each of them
+/// (the escalation guard; `membership_refused`). A directory group is named by its full DN.
+#[utoipa::path(put, path = "/api/v1/identity/groups/{group}/external", tag = "identity", operation_id = "set_group_external", request_body = GroupExternal,
+    params(("group" = Uuid, Path, description = "Group id")),
+    responses((status = 200, body = GroupDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
+pub(super) async fn set_external(
+    State(state): State<AppState>,
+    Extension(p): Extension<Principal>,
+    Path(group): Path<Uuid>,
+    body: Result<Json<GroupExternal>, JsonRejection>,
+) -> Res<Json<GroupDto>> {
+    let pool = store(&state)?;
+    let g = load_group(pool, group, "group.manage").await?;
+    let res = group_resource(&g);
+    allow(&p, "group.manage", &res)?;
+    allow_platform(&p, "group.manage")?;
+    let req = json_body(body)?;
+    let (source, name) = external_group(&state, pool, &req.source, &req.name).await?;
+    check_group_roles(
+        pool,
+        &p,
+        &g,
+        &res,
+        PrincipalRef::Group { id: g.id },
+        "group.external.set",
+        json!({ "source": source, "externalName": name }),
+    )
+    .await?;
+    let mut tx = begin(pool).await?;
+    let updated = db::set_group_external(
+        &mut *tx,
+        g.id,
+        db::ExternalGroup {
+            source: &source,
+            name: &name,
+        },
+    )
+    .await?;
+    audit_scoped(
+        &mut tx,
+        &p,
+        "group.external.set",
+        &g.name,
+        "success",
+        Some(&res),
+        &json!({ "id": g.id, "source": source, "externalName": name, "before": { "source": g.external_source, "externalName": g.external_name } }),
+    )
+    .await?;
+    commit(tx).await?;
+    Ok(Json(group_dto(updated)))
 }
 
 /// Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles,
@@ -1771,7 +2012,7 @@ pub(super) async fn preview_assignment(
     match req.principal {
         PrincipalRef::User { id } => {
             subject.user = Some(id);
-            let groups = db::groups_of(pool, id, &BTreeSet::new()).await?;
+            let groups = db::groups_of(pool, id, None, &BTreeSet::new()).await?;
             refs.extend(groups.iter().map(|g| PrincipalRef::Group { id: *g }));
             subject.groups = groups;
         }

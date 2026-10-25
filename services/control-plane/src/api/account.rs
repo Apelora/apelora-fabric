@@ -115,7 +115,7 @@ pub(super) async fn principal_for_personal_token(
     }
     // Groups recorded in Apelora only: an identity provider's group claims need its token.
     let groups =
-        apelora_persistence::identity::groups_of(pool, user.id, &Default::default()).await?;
+        apelora_persistence::identity::groups_of(pool, user.id, None, &Default::default()).await?;
     let caller = super::caller_for(pool, CallerKind::User, user.id, groups, false).await?;
     Ok(Principal {
         name: user.username.or(user.email).unwrap_or(user.subject),

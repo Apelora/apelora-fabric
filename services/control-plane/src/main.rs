@@ -243,6 +243,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(error = %e.message(), "saved sign-in settings could not be read; using the environment's");
     }
     tokio::spawn(api::auth_config::retry_unreachable(state.clone()));
+    // Once after migration 0033: group mappings made before sources were recorded (ADR 0016).
+    if let Err(e) = api::bind_unsourced_mappings(&state).await {
+        tracing::warn!(error = %e.message(), "group mappings without a source could not be checked; they match nobody until a source is set");
+    }
     // Optional: metrics without authentication on their own address (loopback or a management
     // network); GET /metrics on the API address always needs fabric.metrics.read.
     if let Some(at) = monitoring.listener {

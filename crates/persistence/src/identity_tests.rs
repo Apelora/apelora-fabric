@@ -329,23 +329,57 @@ async fn group_grants_reach_members_by_membership_and_by_token_group_name(pool: 
     let local = create_group(&pool, Some(t.acme.id), "Operators", None, "")
         .await
         .expect("group");
-    let idp = create_group(&pool, None, "Platform team", Some("platform"), "")
-        .await
-        .expect("group");
+    let idp_source = "https://id.example.test";
+    let idp = create_group(
+        &pool,
+        None,
+        "Platform team",
+        Some(ExternalGroup {
+            source: idp_source,
+            name: "platform",
+        }),
+        "",
+    )
+    .await
+    .expect("group");
     assert!(matches!(
         create_group(&pool, Some(t.acme.id), "Operators", None, "").await,
         Err(StoreError::Conflict(_))
     ));
     assert!(
         matches!(
-            create_group(&pool, None, "Another", Some("platform"), "").await,
+            create_group(
+                &pool,
+                None,
+                "Another",
+                Some(ExternalGroup {
+                    source: idp_source,
+                    name: "platform"
+                }),
+                ""
+            )
+            .await,
             Err(StoreError::Conflict(_))
         ),
-        "an identity-provider name maps to one group"
+        "a source's group maps to one group"
     );
+    // The same name from another source is another group.
+    let directory = directory_source(Uuid::new_v4());
+    let other = create_group(
+        &pool,
+        None,
+        "Directory platform",
+        Some(ExternalGroup {
+            source: &directory,
+            name: "platform",
+        }),
+        "",
+    )
+    .await
+    .expect("same name, other source");
 
     assert!(
-        groups_of(&pool, u.id, &BTreeSet::new())
+        groups_of(&pool, u.id, Some(idp_source), &BTreeSet::new())
             .await
             .expect("groups")
             .is_empty()
@@ -354,8 +388,24 @@ async fn group_grants_reach_members_by_membership_and_by_token_group_name(pool: 
         .await
         .expect("member");
     let token_groups: BTreeSet<String> = ["platform".to_string(), "unknown".to_string()].into();
-    let got = groups_of(&pool, u.id, &token_groups).await.expect("groups");
+    let got = groups_of(&pool, u.id, Some(idp_source), &token_groups)
+        .await
+        .expect("groups");
     assert_eq!(got, [local.id, idp.id].into_iter().collect());
+    assert_eq!(
+        groups_of(&pool, u.id, Some(&directory), &token_groups)
+            .await
+            .expect("groups"),
+        [local.id, other.id].into_iter().collect(),
+        "names match only the credential's own source"
+    );
+    assert_eq!(
+        groups_of(&pool, u.id, None, &token_groups)
+            .await
+            .expect("groups"),
+        [local.id].into_iter().collect(),
+        "without a source, names match nothing"
+    );
 
     insert_assignment(
         &pool,
@@ -382,7 +432,7 @@ async fn group_grants_reach_members_by_membership_and_by_token_group_name(pool: 
         .await
         .expect("remove");
     assert_eq!(
-        groups_of(&pool, u.id, &BTreeSet::new())
+        groups_of(&pool, u.id, None, &BTreeSet::new())
             .await
             .expect("groups")
             .len(),
@@ -1071,4 +1121,86 @@ async fn concurrent_changes_never_leave_no_super_admin(pool: PgPool) {
     }
     assert_eq!(done, 3, "all but one");
     assert_eq!(enabled_super_admins(&pool).await.expect("count"), 1);
+}
+
+/// A mapping made before sources were recorded, as migration 0033 leaves it.
+async fn legacy_mapping(pool: &PgPool, external: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO groups (id, name, external_name) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(format!("Legacy {external}"))
+        .bind(external)
+        .execute(pool)
+        .await
+        .expect("group");
+    id
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn mappings_without_a_source_match_nothing_until_bound_once(pool: PgPool) {
+    let u = upsert_user(
+        &pool,
+        "https://id.example.test",
+        "s-1",
+        Some("u"),
+        None,
+        None,
+    )
+    .await
+    .expect("user");
+    let legacy = legacy_mapping(&pool, "ops").await;
+    let names: BTreeSet<String> = ["ops".to_owned()].into();
+    for source in [Some("https://id.example.test"), None] {
+        assert!(
+            groups_of(&pool, u.id, source, &names)
+                .await
+                .expect("groups")
+                .is_empty(),
+            "{source:?}"
+        );
+    }
+    // With exactly one source, the first start binds it; later starts do nothing.
+    assert_eq!(
+        backfill_group_sources(&pool, Some("https://id.example.test"))
+            .await
+            .expect("backfill"),
+        Some(1)
+    );
+    assert_eq!(
+        groups_of(&pool, u.id, Some("https://id.example.test"), &names)
+            .await
+            .expect("groups"),
+        [legacy].into_iter().collect()
+    );
+    legacy_mapping(&pool, "later").await;
+    assert_eq!(
+        backfill_group_sources(&pool, Some("https://other.example.test"))
+            .await
+            .expect("backfill"),
+        None,
+        "it runs once"
+    );
+    let unbound: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM groups WHERE external_name IS NOT NULL AND external_source IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count");
+    assert_eq!(unbound, 1);
+}
+
+#[sqlx::test(migrator = "crate::MIGRATOR")]
+async fn without_a_single_source_old_mappings_stay_unbound(pool: PgPool) {
+    legacy_mapping(&pool, "ops").await;
+    assert_eq!(
+        backfill_group_sources(&pool, None).await.expect("backfill"),
+        Some(0)
+    );
+    let unbound: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM groups WHERE external_name IS NOT NULL AND external_source IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count");
+    assert_eq!(unbound, 1);
 }

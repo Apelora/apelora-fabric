@@ -157,12 +157,17 @@ pub async fn delete_directory(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result
         > 0)
 }
 
-/// The Apelora groups whose external name is one of `names` (a directory's group names), as
-/// `(external name, group name)`, sorted by external name.
-pub async fn mapped_groups(pool: &Pool, names: &[String]) -> Result<Vec<(String, String)>> {
+/// The Apelora groups mapped to one of `names` (a directory's group DNs) of `source` (that
+/// directory), as `(external name, group name)`, sorted by external name.
+pub async fn mapped_groups(
+    pool: &Pool,
+    source: &str,
+    names: &[String],
+) -> Result<Vec<(String, String)>> {
     Ok(sqlx::query_as::<_, (String, String)>(
-        "SELECT external_name, name FROM groups WHERE external_name = ANY($1) ORDER BY external_name, name",
+        "SELECT external_name, name FROM groups WHERE external_source = $1 AND external_name = ANY($2) ORDER BY external_name, name",
     )
+    .bind(source)
     .bind(names)
     .fetch_all(pool)
     .await?)

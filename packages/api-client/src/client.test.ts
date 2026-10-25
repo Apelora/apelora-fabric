@@ -319,6 +319,7 @@ describe("api client", () => {
       "PUT /api/v1/alerts/rules/{rule}",
       "PUT /api/v1/applications/{name}/draft",
       "PUT /api/v1/applications/{name}/volumes/{volume}/schedules",
+      "PUT /api/v1/identity/groups/{group}/external",
       "PUT /api/v1/identity/groups/{group}/members/{user}",
       "PUT /api/v1/identity/policies",
       "PUT /api/v1/identity/quotas/{scope}/{id}",

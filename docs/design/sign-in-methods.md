@@ -33,7 +33,7 @@ pub async fn issue_session(pool: &Pool, user_id: Uuid, method: SessionMethod, ex
 // IssuedSession { token: String, expires_at: OffsetDateTime }
 ```
 
-`resolve_principal` accepts `apu_` tokens: live (not revoked, `expires_at` in the future, `last_used_at` within the idle hour), person not disabled; groups are the person's Apelora groups plus groups whose external name is in `external_groups`; `mfa` is false.
+`resolve_principal` accepts `apu_` tokens: live (not revoked, `expires_at` in the future, `last_used_at` within the idle hour), person not disabled; groups are the person's Apelora groups plus groups mapped to the session's `group_source` whose external name is in `external_groups` (ADR 0016); `mfa` is false.
 
 ### API
 

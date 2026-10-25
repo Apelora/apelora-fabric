@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page } from "@playwright/test";
 
 import {
-  ACME, ALEX, BILLING, CUSTOM_ROLE, GLOBEX, GROUP_ACME, GROUP_PLATFORM, ME, NOW, OFF, PROD, ROLES, SAM, SHOP, SVC_AUTO, SVC_INCUS,
+  ACME, ALEX, BILLING, CUSTOM_ROLE, DIRECTORY_SOURCE, GLOBEX, GROUP_ACME, GROUP_PLATFORM, GROUP_SOURCES, ISSUER, ME, NOW, OFF, PROD, ROLES, SAM, SHOP, SVC_AUTO, SVC_INCUS,
   assignment, auditItem, base, error, items, previewOk, stub, uid, whoami, type Call,
 } from "./identity-fixtures";
 
@@ -312,11 +312,11 @@ test.describe("groups", () => {
     await page.goto("/#/identity/groups");
     const rows = page.getByTestId("group-row");
     await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toContainText("Identity provider");
+    await expect(rows.nth(0)).toContainText("Example ID");
     await expect(rows.nth(1)).toContainText("Acme Corp");
     await expect(rows.nth(1)).toContainText("Managed here");
     await page.getByRole("button", { name: "Members of Platform admins" }).click();
-    await expect(page.getByTestId("group-managed-note")).toContainText("come from the identity provider (group name apelora-admins)");
+    await expect(page.getByTestId("group-managed-note")).toContainText("come from Example ID (group apelora-admins)");
     await expect(page.getByTestId("group-member-row")).toHaveCount(1);
     await expect(page.getByTestId("group-add")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(0);
@@ -358,10 +358,12 @@ test.describe("groups", () => {
     await page.getByTestId("group-open").click();
     const dialog = page.getByRole("dialog", { name: "Create a group" });
     await dialog.getByTestId("group-name").fill("Ops on-call");
+    await expect(dialog.getByTestId("group-external")).toHaveCount(0);
+    await dialog.getByTestId("group-source").selectOption({ label: "Identity provider: Example ID" });
     await dialog.getByTestId("group-external").fill("ops-oncall");
     await dialog.getByTestId("group-submit").click();
     await expect(page.getByTestId("groups-notice")).toContainText("Group Ops on-call created");
-    expect(bodyOf(calls, "POST /api/v1/identity/groups")).toEqual([{ name: "Ops on-call", description: "", organizationId: null, externalName: "ops-oncall" }]);
+    expect(bodyOf(calls, "POST /api/v1/identity/groups")).toEqual([{ name: "Ops on-call", description: "", organizationId: null, externalName: "ops-oncall", externalSource: ISSUER }]);
 
     // A caller who manages groups only inside organizations.
     await page.unrouteAll({ behavior: "ignoreErrors" });
@@ -373,13 +375,49 @@ test.describe("groups", () => {
     await page.reload();
     await page.getByTestId("group-open").click();
     await expect(dialog.getByTestId("group-external")).toHaveCount(0);
+    await expect(dialog.getByTestId("group-source")).toHaveCount(0);
     await expect(dialog.getByTestId("group-submit")).toBeDisabled();
     await dialog.getByTestId("group-name").fill("Team");
     await expect(dialog.getByTestId("group-submit")).toBeDisabled();
     await dialog.getByTestId("group-org").selectOption({ label: "Globex" });
     await dialog.getByTestId("group-submit").click();
     await expect(dialog.getByTestId("group-error")).toHaveText("Not allowed: you may not do this (group.manage)");
-    expect(bodyOf(calls2, "POST /api/v1/identity/groups")).toEqual([{ name: "Team", description: "", organizationId: GLOBEX.id, externalName: null }]);
+    expect(bodyOf(calls2, "POST /api/v1/identity/groups")).toEqual([{ name: "Team", description: "", organizationId: GLOBEX.id, externalName: null, externalSource: null }]);
+  });
+
+  test("a mapping made before sources were recorded says so, and a platform administrator sets its source", async ({ page }) => {
+    const OLD = { id: uid(46), organizationId: null, name: "Old auditors", externalName: "auditors", externalSource: null, needsSource: true, description: "" };
+    let list = [GROUP_PLATFORM, OLD];
+    const calls = await stub(page, {
+      ...base(),
+      "GET /api/v1/identity/groups": () => ({ json: { items: list, sources: GROUP_SOURCES } }),
+      [`GET /api/v1/identity/groups/${OLD.id}/members`]: items([]),
+      [`PUT /api/v1/identity/groups/${OLD.id}/external`]: (c) => {
+        const b = c.body as { source: string; name: string };
+        const saved = { ...OLD, externalSource: b.source, externalName: b.name, needsSource: false };
+        list = [GROUP_PLATFORM, saved];
+        return { json: saved };
+      },
+    });
+    await page.goto("/#/identity/groups");
+    const old = page.getByTestId("group-row").filter({ hasText: "Old auditors" });
+    await expect(old.getByTestId("group-needs-source")).toHaveText("Needs a source");
+    await page.getByRole("button", { name: "Members of Old auditors" }).click();
+    await expect(page.getByTestId("group-managed-note")).toContainText("nobody is a member through it");
+    await old.getByRole("button", { name: "Set the source of Old auditors" }).click();
+    const dialog = page.getByRole("dialog", { name: "Where do members of Old auditors come from?" });
+    await dialog.getByTestId("group-source").selectOption({ label: "Directory: Corp directory" });
+    await expect(dialog.getByTestId("group-external")).toHaveValue("auditors");
+    await page.addStyleTag({ content: "*, *::before, *::after { transition: none !important; animation: none !important; }" });
+    const violations = (await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations
+      .filter((v) => v.impact === "serious" || v.impact === "critical")
+      .map((v) => v.id);
+    expect(violations, "the set-source dialog").toEqual([]);
+    await dialog.getByTestId("group-external").fill("cn=auditors,ou=groups,dc=example,dc=test");
+    await dialog.getByTestId("group-source-submit").click();
+    await expect(page.getByTestId("groups-notice")).toContainText("Members of Old auditors now come from Corp directory");
+    await expect(old).toContainText("Corp directory");
+    expect(bodyOf(calls, `PUT /api/v1/identity/groups/${OLD.id}/external`)).toEqual([{ source: DIRECTORY_SOURCE, name: "cn=auditors,ou=groups,dc=example,dc=test" }]);
   });
 
   test("empty and error states", async ({ page }) => {

@@ -108,16 +108,11 @@ pub async fn issue_session(
     tx: &mut apelora_persistence::PgConnection,
     user_id: Uuid,
     method: SessionMethod,
-    external_groups: &[String],
+    groups: user_sessions::SessionGroups<'_>,
 ) -> Result<IssuedSession, ApiError> {
-    let (token, rec) = user_sessions::create_session_in(
-        tx,
-        user_id,
-        method.as_str(),
-        external_groups,
-        ABSOLUTE_SECS,
-    )
-    .await?;
+    let (token, rec) =
+        user_sessions::create_session_in(tx, user_id, method.as_str(), groups, ABSOLUTE_SECS)
+            .await?;
     tracing::info!(user = %user_id, session = %rec.id, method = method.as_str(), "session issued");
     Ok(IssuedSession {
         token,
@@ -146,7 +141,14 @@ pub(super) async fn principal_for_session(
         ));
     }
     let user = idb::user(pool, s.user_id).await?.ok_or_else(ended)?;
-    let groups = idb::groups_of(pool, user.id, &s.external_groups.into_iter().collect()).await?;
+    // The directory's groups map only onto groups mapped to that directory (ADR 0016).
+    let groups = idb::groups_of(
+        pool,
+        user.id,
+        s.group_source.as_deref(),
+        &s.external_groups.into_iter().collect(),
+    )
+    .await?;
     let caller = super::caller_for(pool, CallerKind::User, user.id, groups, false).await?;
     Ok(Principal {
         name: user.username.or(user.email).unwrap_or(user.subject),
@@ -439,7 +441,17 @@ async fn directory_sign_in(
         super::directories::verify_directory_sign_in(state, directory, username, password).await?;
     let mut tx = begin(pool).await?;
     let user = super::directories::upsert_directory_user_in(&mut tx, state, &who).await?;
-    let session = issue_session(&mut tx, user.id, SessionMethod::Directory, &who.groups).await?;
+    let source = idb::directory_source(who.directory_id);
+    let session = issue_session(
+        &mut tx,
+        user.id,
+        SessionMethod::Directory,
+        user_sessions::SessionGroups {
+            names: &who.groups,
+            source: Some(&source),
+        },
+    )
+    .await?;
     commit(tx).await?;
     tracing::info!(username = %who.username, directory = %who.directory_name, "directory sign-in succeeded");
     Ok(PasswordSignInResult {
@@ -568,7 +580,13 @@ async fn password_sign_in(
     };
     let mut tx = begin(pool).await?;
     db::record_success_in(&mut tx, login.user_id).await?;
-    let session = issue_session(&mut tx, login.user_id, SessionMethod::Password, &[]).await?;
+    let session = issue_session(
+        &mut tx,
+        login.user_id,
+        SessionMethod::Password,
+        user_sessions::SessionGroups::default(),
+    )
+    .await?;
     audit_anonymous(
         &mut *tx,
         Some(login.user_id),

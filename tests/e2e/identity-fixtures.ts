@@ -21,8 +21,14 @@ export const PROD = {
   incusProjectConfig: { restricted: "true", "restricted.containers.privilege": "unprivileged", "restricted.devices.disk": "managed" },
 };
 
-export const GROUP_PLATFORM = { id: uid(40), organizationId: null, name: "Platform admins", externalName: "apelora-admins", description: "From the identity provider" };
-export const GROUP_ACME = { id: uid(41), organizationId: ACME.id, name: "Acme developers", externalName: null, description: "Acme's developers" };
+export const ISSUER = "https://id.example.test/realms/apelora";
+export const DIRECTORY_SOURCE = `directory:${uid(60)}`;
+export const GROUP_SOURCES = [
+  { id: ISSUER, kind: "identity-provider", name: "Example ID" },
+  { id: DIRECTORY_SOURCE, kind: "directory", name: "Corp directory" },
+];
+export const GROUP_PLATFORM = { id: uid(40), organizationId: null, name: "Platform admins", externalName: "apelora-admins", externalSource: ISSUER, needsSource: false, description: "From the identity provider" };
+export const GROUP_ACME = { id: uid(41), organizationId: ACME.id, name: "Acme developers", externalName: null, externalSource: null, needsSource: false, description: "Acme's developers" };
 export const SVC_AUTO = { id: uid(50), name: "ci-pipeline", kind: "automation", backend: "apelora", operations: [], credentialRef: null, restrictions: {}, createdBy: `user:${ME}`, createdAt: NOW, expiresAt: "2027-01-18T09:00:00Z", disabled: false, lastUsedAt: null, apiAccess: true };
 export const SVC_INCUS = { id: uid(51), name: "tenant-deployer", kind: "workload", backend: "incus", operations: ["instance.create", "instance.state", "instance.delete", "instance.read"], credentialRef: "incus/deploy-client", restrictions: {}, createdBy: `user:${ME}`, createdAt: NOW, expiresAt: null, disabled: false, lastUsedAt: NOW, apiAccess: false };
 
@@ -142,7 +148,7 @@ export function base(me: unknown = SUPER): Record<string, Handler | Result> {
     "GET /api/v1/identity/roles": items([...ROLES, CUSTOM_ROLE]),
     "GET /api/v1/identity/organizations": items([ACME, GLOBEX]),
     "GET /api/v1/identity/projects": items([SHOP, BILLING]),
-    "GET /api/v1/identity/groups": items([GROUP_PLATFORM, GROUP_ACME]),
+    "GET /api/v1/identity/groups": { json: { items: [GROUP_PLATFORM, GROUP_ACME], sources: GROUP_SOURCES } },
     "GET /api/v1/identity/users": items([ALEX, SAM, OFF]),
     "GET /api/v1/identity/service-identities": items([SVC_AUTO, SVC_INCUS]),
     "GET /api/v1/identity/sign-in": { json: { providers: [{ id: uid(70), source: "console", name: "Globex staff", issuer: "https://id.globex.example/oidc", audiences: ["apelora-api"], clientId: "apelora-console", scopes: ["openid", "profile", "email"], groupsClaim: "groups", usernameClaim: "preferred_username", mfaAmr: ["mfa"], mfaAcr: [], authorizedParties: [], enabled: true, reachable: true, error: null, updatedBy: null }], apiTokens: { enabled: true, lockedByEnvironment: false }, localAccounts: LOCAL_OFF } },

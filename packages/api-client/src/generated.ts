@@ -527,9 +527,9 @@ export type CheckedEntry = {
   displayName?: string | null;
   dn: string;
   email?: string | null;
-  /** Group names from the directory. */
+  /** The person's groups: each group's full DN (normalized), or a value that is not a DN. */
   groups: string[];
-  /** Apelora groups whose external name matches one of `groups`. */
+  /** Apelora groups mapped to this directory (`directory`) and to one of `groups`; empty for settings not saved yet. */
   mappedGroups: string[];
   /** The stable id Apelora would identify the person by. */
   subject: string;
@@ -883,6 +883,8 @@ export type DirectoryCheck = {
 
 /** Settings to check (saved or not) and a test username and password, which are used for one bind and never stored or logged. */
 export type DirectoryCheckRequest = {
+  /** The saved directory these settings are for, if any: only its group mappings are shown. */
+  directory?: string | null;
   password: string;
   settings: DirectoryInput;
   username: string;
@@ -1159,17 +1161,42 @@ export type Grant = {
 
 export type GroupDto = {
   description: string;
-  /** The group's name in the identity provider's tokens, when members come from there. */
+  /** The group's name in its source's tokens (a directory group's full DN), when members come from there. */
   externalName?: string | null;
+  /** Who may assert membership: an identity provider's issuer, or `directory:<id>`. */
+  externalSource?: string | null;
   id: string;
   name: string;
+  /** Mapped before sources were recorded: it matches nobody until a platform administrator sets its source (`PUT /api/v1/identity/groups/{group}/external`). */
+  needsSource: boolean;
   /** `null` = a platform group. */
   organizationId?: string | null;
 };
 
+/** The group outside Apelora a group mirrors. */
+export type GroupExternal = {
+  /** The group's name in the source's tokens; for a directory, the group's full DN. */
+  name: string;
+  /** One of the `sources` the group list names. */
+  source: string;
+};
+
 export type GroupList = {
   items: GroupDto[];
+  /** The sources a group can be mapped to. */
+  sources: GroupSource[];
 };
+
+/** A place whose group memberships Apelora accepts: an identity provider (its tokens' groups) or a directory (its groups' DNs). */
+export type GroupSource = {
+  /** What a mapping records: the provider's issuer, or `directory:<id>`. */
+  id: string;
+  kind: GroupSourceKind;
+  name: string;
+};
+
+/** The kind of a source of external groups. */
+export type GroupSourceKind = "identity-provider" | "directory";
 
 export type GrowVolume = {
   /** The new size in MiB; at least the current one (volumes only grow). */
@@ -2282,7 +2309,10 @@ export type NewEnvironment = {
 
 export type NewGroup = {
   description?: string;
+  /** The group's name in the source's tokens; for a directory, the group's full DN. */
   externalName?: string | null;
+  /** Required with `externalName`: one of the `sources` the group list names. */
+  externalSource?: string | null;
   name: string;
   organizationId?: string | null;
 };
@@ -3643,6 +3673,7 @@ export const operations = {
   prepare_incus_project: { method: "POST", path: "/api/v1/identity/environments/{id}/incus-project", params: ["id"], public: false },
   groups: { method: "GET", path: "/api/v1/identity/groups", params: [], public: false },
   create_group: { method: "POST", path: "/api/v1/identity/groups", params: [], public: false },
+  set_group_external: { method: "PUT", path: "/api/v1/identity/groups/{group}/external", params: ["group"], public: false },
   group_members: { method: "GET", path: "/api/v1/identity/groups/{group}/members", params: ["group"], public: false },
   add_group_member: { method: "PUT", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
   remove_group_member: { method: "DELETE", path: "/api/v1/identity/groups/{group}/members/{user}", params: ["group","user"], public: false },
@@ -3915,8 +3946,10 @@ export type Responses = {
   prepare_incus_project: IncusProjectPrepared;
   /** Groups the caller may see. Needs `user.view`. */
   groups: GroupList;
-  /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to an identity-provider group name is platform-only. */
+  /** Creates a group: an organisation's (needs `group.manage` there) or a platform group (platform `group.manage`). Mapping a group to a group of an identity provider or directory is platform-only and needs the source (`externalSource`): only that source's credentials map onto it, and a directory group is named by its full DN. */
   create_group: GroupDto;
+  /** Maps a platform group onto a group of an identity provider or directory, or sets the source of a mapping made before sources were recorded (`needsSource`). Needs platform `group.manage`, and, since the source's members then receive the group's roles, the right to grant each of them (the escalation guard; `membership_refused`). A directory group is named by its full DN. */
+  set_group_external: GroupDto;
   /** Members of a group. Needs `user.view` or `group.manage` on the group's organisation. */
   group_members: UserList;
   /** Adds a person to a group. Needs `group.manage`, and, since a member receives the group's roles, the right to grant each of them to that person (the same escalation guard as a direct assignment; refused with `membership_refused`). */
@@ -4212,6 +4245,7 @@ export type Bodies = {
   prepare_incus_project: never;
   groups: never;
   create_group: NewGroup;
+  set_group_external: GroupExternal;
   group_members: never;
   add_group_member: never;
   remove_group_member: never;

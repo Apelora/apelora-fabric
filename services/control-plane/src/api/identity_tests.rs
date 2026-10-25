@@ -1546,7 +1546,7 @@ async fn revoking_an_assignment_or_leaving_a_group_ends_access_on_the_next_reque
             "POST",
             "/api/v1/identity/groups",
             &w.admin,
-            Some(json!({ "name": "Platform team", "externalName": "platform-team" })),
+            Some(json!({ "name": "Platform team", "externalName": "platform-team", "externalSource": ISS })),
         )
         .await;
     assert_eq!(s, StatusCode::CREATED);
@@ -2889,4 +2889,231 @@ async fn identity_providers_are_configured_in_the_console_applied_at_once_and_no
         .await
         .expect("audit");
     assert_eq!(audited, 3);
+}
+
+/// A group mapped to an identity-provider group is tied to that provider: a directory (or
+/// another provider) whose people carry a group of the same name does not reach it.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_mapped_group_takes_members_only_from_its_own_source(pool: Pool) {
+    let l = lab(pool.clone());
+    let w = world(&l).await;
+    let (s, g) = l
+        .req(
+            "POST",
+            "/api/v1/identity/groups",
+            &w.admin,
+            Some(json!({ "name": "Platform team", "externalName": "platform-team", "externalSource": ISS })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{g}");
+    let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "group", "id": g["id"] }, "role": { "type": "builtin", "key": "auditor" }, "scope": { "type": "platform" } }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    // From its own provider: mapped.
+    let via_idp = l.sign(
+        &l.claims("sub-eve", "eve", &["/platform-team"], false),
+        Some("k1"),
+    );
+    assert_eq!(
+        l.req("GET", "/api/v1/audit", &via_idp, None).await.0,
+        StatusCode::OK
+    );
+    // A person from a directory whose groups include a group of the same name: not mapped.
+    let mallory = db::upsert_user(
+        &pool,
+        "ldaps://dir.example.test",
+        "uid=mallory",
+        Some("mallory"),
+        None,
+        None,
+    )
+    .await
+    .expect("user");
+    let (token, _) = apelora_persistence::user_sessions::create_session(
+        &pool,
+        mallory.id,
+        "directory",
+        apelora_persistence::user_sessions::SessionGroups {
+            names: &["platform-team".to_owned()],
+            source: Some(&db::directory_source(Uuid::new_v4())),
+        },
+        3600,
+    )
+    .await
+    .expect("session");
+    assert_eq!(
+        l.req("GET", "/api/v1/audit", &token, None).await.0,
+        StatusCode::FORBIDDEN,
+        "another source's group of the same name grants nothing"
+    );
+}
+
+/// A mapping names a configured source; a directory group is named by its full DN; an old mapping
+/// without a source says so and matches nobody until it is given one, by someone who could grant
+/// the group's roles.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_mapping_needs_a_known_source_and_old_ones_say_so(pool: Pool) {
+    let l = lab(pool.clone());
+    let w = world(&l).await;
+    let create = |body: serde_json::Value| {
+        let admin = w.admin.clone();
+        let l = &l;
+        async move {
+            l.req("POST", "/api/v1/identity/groups", &admin, Some(body))
+                .await
+        }
+    };
+    let (s, b) = create(json!({ "name": "No source", "externalName": "ops" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    let (s, b) = create(json!({ "name": "Unknown", "externalName": "ops", "externalSource": "https://elsewhere.example.test" })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    // A directory: its groups are full DNs, stored in one spelling.
+    let (s, d) = l.req("POST", "/api/v1/identity/sign-in/directories", &w.admin, Some(json!({ "name": "Corp", "url": "ldaps://ldap.example.test", "bindTemplate": "uid={username},ou=people,dc=example,dc=test" }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{d}");
+    let dir = format!("directory:{}", d["id"].as_str().expect("id"));
+    let (s, b) =
+        create(json!({ "name": "Short", "externalName": "admins", "externalSource": dir })).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "a first RDN is not enough: {b}");
+    let (s, g) = create(json!({ "name": "Corp admins", "externalName": "CN=Admins, OU=Groups,DC=example,DC=test", "externalSource": dir })).await;
+    assert_eq!(s, StatusCode::CREATED, "{g}");
+    assert_eq!(g["externalName"], "cn=admins,ou=groups,dc=example,dc=test");
+    assert_eq!(g["externalSource"], json!(dir));
+    let (_, list) = l
+        .req("GET", "/api/v1/identity/groups", &w.admin, None)
+        .await;
+    let sources: Vec<&str> = list["sources"]
+        .as_array()
+        .expect("sources")
+        .iter()
+        .filter_map(|s| s["id"].as_str())
+        .collect();
+    assert_eq!(sources, [ISS, dir.as_str()]);
+
+    // A mapping made before sources were recorded.
+    let old = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO groups (id, name, external_name) VALUES ($1, 'Old auditors', 'auditors')",
+    )
+    .bind(old)
+    .execute(&pool)
+    .await
+    .expect("group");
+    let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "group", "id": old }, "role": { "type": "builtin", "key": "auditor" }, "scope": { "type": "platform" } }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let (_, list) = l
+        .req("GET", "/api/v1/identity/groups", &w.admin, None)
+        .await;
+    let shown = list["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|g| g["id"] == json!(old))
+        .expect("old")
+        .clone();
+    assert_eq!(
+        (
+            shown["needsSource"].as_bool(),
+            shown["externalSource"].is_null()
+        ),
+        (Some(true), true),
+        "{shown}"
+    );
+    let token = l.sign(
+        &l.claims("sub-ann", "ann", &["auditors"], false),
+        Some("k1"),
+    );
+    assert_eq!(
+        l.req("GET", "/api/v1/audit", &token, None).await.0,
+        StatusCode::FORBIDDEN,
+        "an unbound mapping matches nobody"
+    );
+    // Someone who manages groups but could not grant the group's roles may not bind it.
+    let clerk = l.user("sub-clerk", "clerk").await;
+    let (s, role) = l
+        .req(
+            "POST",
+            "/api/v1/identity/roles",
+            &w.admin,
+            Some(json!({ "name": "Group clerk", "permissions": ["group.manage", "user.view"] })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::CREATED, "{role}");
+    let (s, b) = l.req("POST", "/api/v1/identity/assignments", &w.admin, Some(json!({ "principal": { "type": "user", "id": clerk }, "role": { "type": "custom", "id": role["reference"]["id"] }, "scope": { "type": "platform" } }))).await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    let path = format!("/api/v1/identity/groups/{old}/external");
+    let (s, b) = l
+        .req(
+            "PUT",
+            &path,
+            &l.token("sub-clerk", "clerk"),
+            Some(json!({ "source": ISS, "name": "auditors" })),
+        )
+        .await;
+    assert_eq!(
+        (s, code(&b)),
+        (StatusCode::FORBIDDEN, Some("membership_refused")),
+        "{b}"
+    );
+    // An administrator binds it to the provider; then the provider's group maps onto it.
+    let (s, b) = l
+        .req(
+            "PUT",
+            &path,
+            &w.admin,
+            Some(json!({ "source": format!("{ISS}/"), "name": "auditors" })),
+        )
+        .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(
+        (b["externalSource"].as_str(), b["needsSource"].as_bool()),
+        (Some(ISS), Some(false))
+    );
+    assert_eq!(
+        l.req("GET", "/api/v1/audit", &token, None).await.0,
+        StatusCode::OK
+    );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn at_start_old_mappings_go_to_the_only_identity_provider_and_not_to_a_directory(pool: Pool) {
+    let old = |name: &'static str| {
+        let pool = pool.clone();
+        async move {
+            let id = Uuid::new_v4();
+            sqlx::query("INSERT INTO groups (id, name, external_name) VALUES ($1, $2, $3)")
+                .bind(id)
+                .bind(name)
+                .bind(name)
+                .execute(&pool)
+                .await
+                .expect("group");
+            id
+        }
+    };
+    let source = |id: Uuid| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<String>>(
+                "SELECT external_source FROM groups WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("source")
+        }
+    };
+    // One identity provider (the lab's), nothing else: bound to it, once, audited.
+    let l = lab(pool.clone());
+    let first = old("ops").await;
+    bind_unsourced_mappings(&l.state).await.expect("bind");
+    assert_eq!(source(first).await.as_deref(), Some(ISS));
+    let later = old("later").await;
+    bind_unsourced_mappings(&l.state).await.expect("bind");
+    assert_eq!(source(later).await, None, "it runs once");
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE action = 'group.sources.backfill' AND actor = 'control-plane'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(rows, 1);
 }

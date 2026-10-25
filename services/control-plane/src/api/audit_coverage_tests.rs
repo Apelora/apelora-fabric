@@ -403,6 +403,26 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         "group.member.remove",
     )
     .await;
+    let platform_group = id(
+        &s.setup(
+            "POST",
+            "/api/v1/identity/groups",
+            r,
+            json!({ "name": "Platform operators" }),
+        )
+        .await,
+        "id",
+    );
+    s.step(
+        Atomic,
+        "PUT",
+        "/api/v1/identity/groups/{group}/external",
+        &format!("/api/v1/identity/groups/{platform_group}/external"),
+        r,
+        json!({ "source": "https://id.example.test/realms/apelora", "name": "platform-operators" }),
+        "group.external.set",
+    )
+    .await;
     let role = s
         .step(
             Atomic,

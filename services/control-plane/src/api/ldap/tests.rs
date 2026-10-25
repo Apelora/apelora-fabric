@@ -51,8 +51,9 @@ fn injection_attempts_stay_inside_the_value() {
     let name = bind_name(&f.bind_template, "ada,ou=admins");
     assert_eq!(name, "uid=ada\\,ou\\=admins,ou=people,dc=example,dc=test");
     assert_eq!(
-        first_rdn(&name),
-        Some(("uid".into(), "ada,ou=admins".into()))
+        normalize_dn(&name).as_deref(),
+        Some("uid=ada\\,ou\\=admins,ou=people,dc=example,dc=test"),
+        "one RDN with the comma inside its value"
     );
     // A filter wildcard cannot match everyone.
     let filter = "(&(objectClass=person)(uid={username}))"
@@ -99,20 +100,49 @@ async fn plain_ldap_is_refused_without_connecting() {
 }
 
 #[test]
-fn rdns_are_read_and_unescaped() {
+fn dns_have_one_spelling() {
+    let ops = "cn=ops\\, europe,ou=groups,dc=example,dc=test";
+    for spelling in [
+        "cn=ops\\, europe,ou=groups,dc=example,dc=test",
+        "CN=Ops\\, Europe,OU=Groups,DC=example,DC=test",
+        "cn=Ops\\2C Europe, ou=groups , dc=example,dc=test",
+        " cn = ops\\, europe ,ou=groups,dc=example,dc=test",
+    ] {
+        assert_eq!(normalize_dn(spelling).as_deref(), Some(ops), "{spelling}");
+    }
     assert_eq!(
-        first_rdn("cn=dev-admins,ou=groups,dc=example,dc=test"),
-        Some(("cn".into(), "dev-admins".into()))
+        normalize_dn("cn=a\\2cb,dc=x").as_deref(),
+        Some("cn=a\\,b,dc=x")
     );
+    // Multi-valued RDNs in any order.
     assert_eq!(
-        first_rdn("CN=Ops\\, Europe,OU=Groups,DC=example,DC=test"),
-        Some(("CN".into(), "Ops, Europe".into()))
+        normalize_dn("uid=x+cn=y,dc=t"),
+        normalize_dn("CN=y+UID=x,dc=t")
     );
+    for not_a_dn in ["plain-group-name", "cn=,dc=x", "=x", "c n=x"] {
+        assert_eq!(normalize_dn(not_a_dn), None, "{not_a_dn}");
+    }
+}
+
+#[test]
+fn a_group_is_its_full_dn_not_its_first_rdn() {
+    let mut e = entry();
+    e.text.insert(
+        "memberOf".into(),
+        vec![
+            "cn=platform-admins,ou=self-service,dc=example,dc=test".into(),
+            "CN=Platform-Admins,OU=Groups,DC=example,DC=test".into(),
+        ],
+    );
+    let p = person_from(&fields(), &e, "ada", &[]);
     assert_eq!(
-        first_rdn("cn=a\\2cb,dc=x"),
-        Some(("cn".into(), "a,b".into()))
+        p.groups,
+        vec![
+            "cn=platform-admins,ou=groups,dc=example,dc=test",
+            "cn=platform-admins,ou=self-service,dc=example,dc=test"
+        ],
+        "two groups of one name in two branches stay two groups"
     );
-    assert_eq!(first_rdn("plain-group-name"), None);
 }
 
 fn entry() -> Entry {
@@ -145,7 +175,10 @@ fn attributes_and_groups_are_mapped_without_regard_to_case() {
         &fields(),
         &entry(),
         "ADA",
-        &["dev-operators".into(), "searched".into()],
+        &[
+            "cn=dev-operators,ou=groups,dc=example,dc=test".into(),
+            "cn=searched,ou=groups,dc=example,dc=test".into(),
+        ],
     );
     assert_eq!(p.subject, "0b6a7c1e-1111-4c1a-9f00-000000000001");
     assert_eq!(
@@ -156,7 +189,12 @@ fn attributes_and_groups_are_mapped_without_regard_to_case() {
     assert_eq!(p.display_name.as_deref(), Some("Ada Admin"));
     assert_eq!(
         p.groups,
-        vec!["dev-admins", "dev-operators", "plain", "searched"]
+        vec![
+            "cn=dev-admins,ou=groups,dc=example,dc=test",
+            "cn=dev-operators,ou=groups,dc=example,dc=test",
+            "cn=searched,ou=groups,dc=example,dc=test",
+            "plain"
+        ]
     );
 }
 
