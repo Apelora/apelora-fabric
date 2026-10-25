@@ -305,9 +305,14 @@ fn check(name: &str, project: &str, modules: &[DesiredModule]) -> Result<(), Api
             return Err(bad_request(format!("module {} is listed twice", d.module)));
         }
         d.validate().map_err(bad_request)?;
-        owned_spec(name, project, d, d.replicas)
-            .validate_from_caller()
-            .map_err(|e| bad_request(format!("module {}: {e}", d.module)))?;
+        // The spec Apelora will create (its name, project and owner), checked with the caller's
+        // own `owner` put back: what only Apelora sets is refused as the caller sent it.
+        InstanceSpec {
+            owner: d.spec.owner.clone(),
+            ..owned_spec(name, project, d, d.replicas)
+        }
+        .validate_from_caller()
+        .map_err(|e| bad_request(format!("module {}: {e}", d.module)))?;
     }
     Ok(())
 }

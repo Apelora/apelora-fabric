@@ -1063,6 +1063,72 @@ pub(super) async fn drain(pool: &Pool, provider: &Provider) {
     {}
 }
 
+/// The owner labels and the network attachment are Apelora's: a caller who sets them (on a single
+/// instance, or on a module of an application) is refused before anything is queued, and the
+/// application path, where Apelora sets the owner itself, still deploys.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_caller_cannot_set_the_owner_or_network_apelora_gives_an_instance(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider.clone(), Auth::Tokens(pool.clone()))
+        .with_deploy_projects(vec!["apelora".into()]);
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let owner = json!({ "application": "shop", "module": "web-01", "replica": 1 });
+    let network = json!({ "network": "apl-shop", "acl": "apl-shop-web-01", "uplink": "incusbr0" });
+    let post = |path: &'static str, body: Value| {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move { send(state, "POST", path, &operator, Some(body), None).await }
+    };
+    for (field, value) in [("owner", &owner), ("network", &network)] {
+        let mut spec = web_spec("apelora", "web-01");
+        spec[field] = value.clone();
+        let (s, b) = post("/api/v1/instances", spec).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{field}: {b}");
+        assert!(
+            b["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains(field)),
+            "{field}: {b}"
+        );
+        let mut design =
+            json!({ "project": "apelora", "document": {}, "modules": [module("web-01")] });
+        design["modules"][0]["spec"][field] = value.clone();
+        let (s, b) = post("/api/v1/applications/shop/deployments", design).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{field}: {b}");
+        assert!(
+            b["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("module web-01") && m.contains(field)),
+            "{field}: {b}"
+        );
+    }
+    let queued: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(queued, 0, "nothing was queued");
+    let (s, b) = post(
+        "/api/v1/applications/shop/deployments",
+        json!({ "project": "apelora", "document": {}, "modules": [module("web-01")] }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::ACCEPTED, "{b}");
+    drain(&pool, &provider).await;
+    let Provider::Mock(m) = &provider else {
+        unreachable!()
+    };
+    let owned = m.instances.lock().expect("lock").iter().any(|i| {
+        i.instance.name == "shop-web-01"
+            && i.instance
+                .owner
+                .as_ref()
+                .is_some_and(|o| o.application == "shop")
+    });
+    assert!(owned, "Apelora's own owner labels are set");
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn applications_are_planned_deployed_revised_and_reported_by_module(pool: Pool) {
     let provider = Provider::Mock(MockIncus::default());

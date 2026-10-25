@@ -419,9 +419,23 @@ impl InstanceSpec {
     }
 
     /// [`validate`](Self::validate), plus what only Apelora may set: a caller's spec must not
-    /// carry Apelora's discovery variables (`environment.APELORA_*`, ADR 0004).
+    /// carry Apelora's discovery variables (`environment.APELORA_*`, ADR 0004), the owner labels,
+    /// the network attachment, a root disk pool or volume pools. The application path checks the
+    /// spec Apelora will create with the caller's own `owner` put back (see `applications::check`).
     pub fn validate_from_caller(&self) -> Result<(), String> {
         self.validate()?;
+        if self.owner.is_some() {
+            return Err(
+                "the owner labels (owner) are set by Apelora when an application is deployed"
+                    .into(),
+            );
+        }
+        if self.network.is_some() {
+            return Err(
+                "the network attachment (network) is set by Apelora from the application's connections"
+                    .into(),
+            );
+        }
         if let Some(k) = self
             .config
             .keys()
@@ -805,6 +819,51 @@ mod tests {
                 .validate_from_caller()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn a_caller_cannot_set_what_only_apelora_sets() {
+        let owner = InstanceSpec {
+            owner: Some(Owner {
+                application: "shop".into(),
+                module: "web-01".into(),
+                replica: 1,
+            }),
+            ..spec()
+        };
+        assert_eq!(
+            owner.validate(),
+            Ok(()),
+            "Apelora's own specs carry an owner"
+        );
+        assert!(
+            owner
+                .validate_from_caller()
+                .is_err_and(|e| e.contains("owner"))
+        );
+        let network = InstanceSpec {
+            network: Some(network::NetworkAttachment {
+                network: "apl-shop".into(),
+                acl: "apl-shop-web-01".into(),
+                uplink: "incusbr0".into(),
+            }),
+            ..spec()
+        };
+        assert_eq!(network.validate(), Ok(()));
+        assert!(
+            network
+                .validate_from_caller()
+                .is_err_and(|e| e.contains("network"))
+        );
+        let root = InstanceSpec {
+            root_pool: Some("shared".into()),
+            ..spec()
+        };
+        assert!(
+            root.validate_from_caller()
+                .is_err_and(|e| e.contains("rootPool"))
+        );
+        assert_eq!(spec().validate_from_caller(), Ok(()));
     }
 
     #[test]
