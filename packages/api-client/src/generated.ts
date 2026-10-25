@@ -327,6 +327,8 @@ export type ApplicationStatus = {
   /** Allocated service addresses (empty without a database or service range). */
   services: ServiceStatus[];
   source: Source;
+  /** Present while the application's service addresses cannot move traffic to replacement replicas because Incus refuses load balancer changes (a cluster member is unreachable): what happens, which member, and what to do. */
+  trafficBlocked?: string | null;
 };
 
 export type ApplicationVolumes = {

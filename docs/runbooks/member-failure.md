@@ -17,7 +17,10 @@ Use this page when a cluster member goes Offline: what Apelora does on its own, 
    With Incus 7.0, the load balancer cannot change while the member is offline: Incus refuses
    every load balancer update in the cluster (`peer node … is down`). The substitute then runs but
    gets no traffic, and the service address can keep sending a share of requests to the dead
-   replica until the member returns or you remove it (what to do, step 2).
+   replica until the member returns or you remove it (what to do, step 2). Apelora says so, naming
+   the member: on the application's row in the Console (Workloads → Applications), as *Traffic
+   stuck* in the Studio's header, in the failed `network.sync` job, and in the *Jobs are failing*
+   alert. The notice clears after the first network sync that goes through.
 4. Singletons and stateful modules whose disks are all on the shared pool (volume class
    `data-replicated`) restart on another member once the failed one is **fenced** (next section).
    Everything else on a member-local pool is **not** recovered automatically: it waits for its

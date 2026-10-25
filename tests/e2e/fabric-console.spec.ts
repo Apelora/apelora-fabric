@@ -584,7 +584,7 @@ test.describe("fabric console views", () => {
         inst("shop-client-01", "client-01", "Running", "node-1"),
         inst("shop-web-01", "web-01", "Running", "node-2", "healthy"),
         inst("shop-web-01-r2", "web-01", "Running", "node-3", "unhealthy"),
-      ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }] } }),
+      ], services: [{ module: "web-01", project: "apelora", address: "198.18.100.1" }], trafficBlocked: "Traffic cannot move to replacement replicas: Incus refuses load balancer changes while cluster member node-4 is unreachable. Bring it back, or remove it from the cluster (runbook: Member failure)." } }),
       "GET /api/v1/applications/blog/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [inst("blog-web-01", "web-01", "Stopped", "node-1")], services: [] } }),
     });
     await page.goto("/#/applications");
@@ -594,6 +594,8 @@ test.describe("fabric console views", () => {
     await expect(shop.getByTestId("application-summary")).toContainText("1 failing its check");
     await expect(shop.getByTestId("application-summary")).toContainText("3 of 3 running");
     await expect(shop).toContainText("198.18.100.1");
+    await expect(shop.getByTestId("traffic-blocked")).toContainText("while cluster member node-4 is unreachable");
+    await expect(page.getByTestId("application-row").nth(1).getByTestId("traffic-blocked")).toHaveCount(0);
     await expect(page.getByTestId("application-row").nth(1).getByTestId("application-summary")).toContainText("1 not running");
     await shop.getByTestId("application-toggle").click();
     await expect(shop.getByTestId("application-toggle")).toHaveAttribute("aria-expanded", "true");

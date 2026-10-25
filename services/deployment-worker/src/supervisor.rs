@@ -1653,6 +1653,60 @@ mod tests {
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_sync_refused_while_a_member_is_down_says_which_member_and_why(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("198.18.100.0/28".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+            resolvers: Vec::new(),
+        };
+        mock.net().unreachable_member = Some("mock-member-02.invalid:8443".into());
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => {
+                assert!(
+                    m.starts_with("Traffic cannot move to replacement replicas"),
+                    "{m}"
+                );
+                assert!(
+                    m.contains("while cluster member mock-member-02 is unreachable"),
+                    "{m}"
+                );
+            }
+            other => panic!("{other:?}"),
+        }
+        // A member Incus no longer lists is named by its address.
+        mock.net().unreachable_member = Some("192.0.2.9:8443".into());
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => {
+                assert!(m.contains("the cluster member at 192.0.2.9:8443"), "{m}")
+            }
+            other => panic!("{other:?}"),
+        }
+        mock.net().unreachable_member = None;
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
     async fn a_sync_puts_ipv6_backends_behind_an_ipv6_service_address(pool: Pool) {
         use apelora_domain::network::{Connection, SyncRequest, network_name};
         use apelora_persistence::Outcome;

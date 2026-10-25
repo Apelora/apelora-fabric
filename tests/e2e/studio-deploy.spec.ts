@@ -142,7 +142,7 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/applications/shop/status": () => { polled += 1; return { json: { source: { provider: "incus", observedAt: now }, items: [
         { module: "nginx-01", instance: "shop-nginx-01", project: "apelora", status: "Running", location: "node-1" },
         { module: "nginx-01", instance: "shop-nginx-01-r2", project: "apelora", status: "Running", location: "node-2" },
-      ], services: [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }] } }; },
+      ], services: [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }], trafficBlocked: "Traffic cannot move to replacement replicas: Incus refuses load balancer changes while cluster member node-3 is unreachable." } }; },
     });
     await page.goto("/studio/applications/shop/designer");
     await page.waitForSelector("[data-testid=module-node]");
@@ -150,6 +150,7 @@ test.describe("deploying from the Studio", () => {
     await expect(live).toHaveAttribute("data-state", "Running");
     await expect(live).toHaveAttribute("title", /shop-nginx-01-r2: Running on node-2[\s\S]*Service address 198\.18\.100\.1/);
     await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running");
+    await expect(page.getByTestId("traffic-blocked")).toHaveAttribute("title", /while cluster member node-3 is unreachable/);
     // Leaving the canvas stops asking for the state.
     await page.goto("/studio/applications");
     const after = polled;

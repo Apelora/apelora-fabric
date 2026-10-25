@@ -369,7 +369,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
                         <td data-testid="application-summary">
                           {!s ? <span className="text-base-content/60">Checking…</span>
                             : "error" in s ? <span className="text-error">{s.error}</span>
-                            : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span></>}
+                            : <><span className={`status mr-2 ${sum!.dot}`} aria-hidden="true" />{sum!.label}<span className="block text-xs text-base-content/60">{ok!.items.filter((i) => i.status === "Running").length} of {ok!.items.length} running</span>{ok!.trafficBlocked && <span role="status" className="mt-1 block max-w-md text-xs text-warning-content bg-warning/15 rounded px-2 py-1" data-testid="traffic-blocked">{ok!.trafficBlocked}</span>}</>}
                         </td>
                         <td className="font-mono text-xs max-sm:hidden">{ok?.services.map((v) => <span key={`${v.project}/${v.module}`} className="block">{v.address} <span className="font-sans text-base-content/60">{v.module}</span></span>) ?? null}{ok && !ok.services.length && <span className="font-sans text-base-content/60">None</span>}</td>
                         <td className="text-right">{a.actions && <ApplicationActions name={a.name} actions={a.actions} control={operations} />}</td>

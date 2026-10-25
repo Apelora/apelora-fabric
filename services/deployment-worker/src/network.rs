@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 
 use apelora_domain::Instance;
 use apelora_domain::network::{
-    Backend, LoadBalancer, SyncRequest, acl_name, network_name, service_addresses,
+    Backend, LoadBalancer, SyncRequest, acl_name, member_at, network_name, offline_member_blocking,
+    service_addresses, traffic_blocked_reason,
 };
 use apelora_domain::plan::{replica_name, slot_instances};
 use apelora_incus_adapter::{AdapterError, NetworkObject, ObservedAcl, Provider};
@@ -43,7 +44,22 @@ pub async fn sync(pool: &Pool, provider: &Provider, s: &NetworkSync) -> Outcome 
             tracing::info!(application = %s.application, %waiting, "network: not everything has an address yet; the sync is retried");
             Outcome::Failed(format!("waiting for {waiting}"))
         }
-        Err(SyncError::Incus(e)) => Outcome::Failed(e.to_string()),
+        Err(SyncError::Incus(e)) => {
+            let error = e.to_string();
+            match offline_member_blocking(&error) {
+                // Retrying cannot get through while the member is down: say why, by its name.
+                Some(address) => {
+                    let members = provider.cluster_members().await.unwrap_or_default();
+                    let member = member_at(&members, address).map_or_else(
+                        || format!("the cluster member at {address}"),
+                        |m| format!("cluster member {}", m.name),
+                    );
+                    tracing::warn!(application = %s.application, %address, %error, "network: Incus refuses load balancer changes while a member is unreachable");
+                    Outcome::Failed(traffic_blocked_reason(&member))
+                }
+                None => Outcome::Failed(error),
+            }
+        }
         Err(SyncError::Store(e)) => Outcome::Failed(format!("database: {e}")),
     }
 }

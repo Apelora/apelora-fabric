@@ -1207,6 +1207,15 @@ impl Provider {
                     .load_balancers
                     .get(&key)
                     .is_none_or(|(_, old)| old != lb);
+                if changed && let Some(member) = &net.unreachable_member {
+                    return Err(AdapterError::Api {
+                        status: 500,
+                        message: format!(
+                            "PUT /1.0/networks/{network}/load-balancers/{}?project={project}: Failed updating load balancer: peer node {member} is down",
+                            lb.listen_address
+                        ),
+                    });
+                }
                 net.load_balancers
                     .insert(key, (application.to_owned(), lb.clone()));
                 Ok(changed)
@@ -2352,6 +2361,9 @@ pub struct MockNetwork {
     pub no_ipv6_yet: std::collections::BTreeSet<String>,
     /// Instances that will never get IPv6: the sync should stop waiting (tests).
     pub ipv6_wait_over: std::collections::BTreeSet<String>,
+    /// A member Incus cannot reach (`host:port`): every load balancer change is refused, as
+    /// Incus 7.0 refuses them while a member is down (tests).
+    pub unreachable_member: Option<String>,
 }
 
 impl MockNetwork {

@@ -1747,6 +1747,76 @@ async fn connected_stateless_modules_get_a_service_address_until_removed(pool: P
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn the_status_says_when_traffic_cannot_move_because_a_member_is_down(pool: Pool) {
+    let provider = Provider::Mock(MockIncus::default());
+    let state = AppState::new(provider, Auth::Tokens(pool.clone()));
+    let operator = apelora_persistence::create_token(&pool, "op", "operator", None)
+        .await
+        .expect("token")
+        .0;
+    let app = apelora_persistence::ensure_application(&pool, "shop")
+        .await
+        .expect("app");
+    let blocked = || {
+        let (state, operator) = (state.clone(), operator.clone());
+        async move {
+            let (_, s) = send(
+                state,
+                "GET",
+                "/api/v1/applications/shop/status",
+                &operator,
+                None,
+                None,
+            )
+            .await;
+            s["trafficBlocked"].clone()
+        }
+    };
+    let sync = |status: &'static str, error: Option<String>, secs: i32| {
+        let pool = pool.clone();
+        async move {
+            let id = apelora_persistence::enqueue_job(
+                &pool,
+                "network.sync",
+                Some(app.id),
+                &json!({}),
+                None,
+            )
+            .await
+            .expect("enqueue")
+            .id();
+            sqlx::query("UPDATE jobs SET status = $2, last_error = $3, updated_at = now() + make_interval(secs => $4) WHERE id = $1")
+                .bind(id)
+                .bind(status)
+                .bind(error)
+                .bind(secs)
+                .execute(&pool)
+                .await
+                .expect("job");
+        }
+    };
+    assert_eq!(blocked().await, Value::Null);
+    let reason = apelora_domain::network::traffic_blocked_reason("cluster member m2");
+    sync("failed", Some(reason.clone()), 1).await;
+    assert_eq!(blocked().await, json!(reason));
+    // The supervisor queues the sync again; until that one has tried, the notice stays.
+    sync("pending", None, 2).await;
+    assert_eq!(blocked().await, json!(reason));
+    sync("succeeded", None, 3).await;
+    assert_eq!(
+        blocked().await,
+        Value::Null,
+        "a sync that went through clears it"
+    );
+    sync("failed", Some("Incus API error 404: not found".into()), 4).await;
+    assert_eq!(
+        blocked().await,
+        Value::Null,
+        "other failures are not this notice"
+    );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn evacuation_is_previewed_then_confirmed_audited_and_restored(pool: Pool) {
     let mock = Provider::Mock(MockIncus::default());
     let state =
