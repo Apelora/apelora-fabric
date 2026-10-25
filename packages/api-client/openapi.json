@@ -15628,6 +15628,7 @@
           "modules": {
             "type": "integer",
             "format": "int32",
+            "description": "Modules in the deployed version; 0 until a version is deployed.",
             "minimum": 0
           },
           "observedAt": {

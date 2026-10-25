@@ -601,6 +601,8 @@ test.describe("fabric console views", () => {
     await expect(page.getByTestId("application-instance").nth(0)).toContainText("Not checked");
     await expect(page.getByTestId("application-instance").nth(1)).toContainText("Passing");
     await expect(page.getByTestId("application-instance").nth(2)).toContainText("Failing since");
+    // Each instance leads to its own page (addresses, disks, logs).
+    await expect(page.getByTestId("application-instance").nth(1).getByTestId("instance-link")).toHaveAttribute("href", "#/instances/apelora/shop-web-01");
     await shop.getByTestId("application-toggle").click();
     await expect(page.getByTestId("application-instance")).toHaveCount(0);
   });

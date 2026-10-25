@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { expect, open, openDeploy, openProps } from "./helpers";
+import { assemblyState, expect, open, openDeploy, openProps } from "./helpers";
 
 // Deploying from the Studio, against a stubbed control plane: the Studio must only deploy
 // modules that have a runtime, show the server's plan before changing anything, follow the
@@ -117,6 +117,44 @@ test.describe("deploying from the Studio", () => {
     await expect(page.getByTestId("mock-badge")).not.toContainText("Incus");
     await page.waitForTimeout(1500);
     expect(drafts, "the overlay never changes the design: no draft was saved").toBe(0);
+  });
+
+  test("a deployed application's canvas shows live state when opened later, not only after deploying", async ({ page }) => {
+    let polled = 0;
+    const ok = { allowed: true, reason: null };
+    const info = {
+      name: "shop", description: "", icon: "generic-box", archived: false, createdAt: now, updatedAt: now, latestRevision: 1,
+      project: { id: "p1", name: "Shop", organizationId: "o1", organizationSlug: "acme", slug: "shop" },
+      environment: { id: "e1", name: "production", slug: "production", kind: "production", incusProject: "apelora" },
+      actions: { start: ok, restart: ok, stop: ok },
+      design: { status: "published", draftVersion: 1, publishedVersion: 1, hasUnpublishedChanges: false, validationErrors: 0, updatedAt: now },
+      deployment: { status: "running", modules: 1, replicas: { desired: 2, healthy: 2, running: 2, unhealthy: 0 }, observedAt: now, stale: false, source: "incus", lastActivityAt: now, deployedVersion: 1, operation: null },
+    };
+    await page.addInitScript(() => { localStorage.setItem("apelora.studio.tour.v1", "1"); sessionStorage.setItem("apelora.apiToken", "apl_test_token_for_stub"); });
+    await page.goto("/");
+    await page.waitForSelector("[data-testid=module-node]");
+    const doc = await assemblyState(page);
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "GET /api/v1/applications/shop": () => ({ json: { application: info, modules: [], operations: [], versions: [{ revision: 1, published: true, label: null, draftVersion: 1, createdBy: "alex", createdAt: now }] } }),
+      "GET /api/v1/applications/shop/draft": () => ({ json: { document: doc, version: 1, updatedAt: now, updatedBy: "alex", validationErrors: [] } }),
+      "GET /api/v1/applications/shop/status": () => { polled += 1; return { json: { source: { provider: "incus", observedAt: now }, items: [
+        { module: "nginx-01", instance: "shop-nginx-01", project: "apelora", status: "Running", location: "node-1" },
+        { module: "nginx-01", instance: "shop-nginx-01-r2", project: "apelora", status: "Running", location: "node-2" },
+      ], services: [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }] } }; },
+    });
+    await page.goto("/studio/applications/shop/designer");
+    await page.waitForSelector("[data-testid=module-node]");
+    const live = page.locator(`[data-node-id="nginx-01"] [data-testid=live-status]`);
+    await expect(live).toHaveAttribute("data-state", "Running");
+    await expect(live).toHaveAttribute("title", /shop-nginx-01-r2: Running on node-2[\s\S]*Service address 198\.18\.100\.1/);
+    await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running");
+    // Leaving the canvas stops asking for the state.
+    await page.goto("/studio/applications");
+    const after = polled;
+    await page.waitForTimeout(6000);
+    expect(polled).toBe(after);
   });
 
   test("a conflict blocks deploying and nothing is sent", async ({ page }) => {

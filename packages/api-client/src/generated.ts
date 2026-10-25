@@ -830,6 +830,7 @@ export type DeploymentInfo = {
   /** The published version the application was last deployed from. */
   deployedVersion?: number | null;
   lastActivityAt?: string | null;
+  /** Modules in the deployed version; 0 until a version is deployed. */
   modules: number;
   /** When the control plane last observed Incus for this answer (RFC 3339). */
   observedAt: string;
