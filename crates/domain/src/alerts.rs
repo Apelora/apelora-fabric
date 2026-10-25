@@ -77,7 +77,8 @@ pub struct AlertRule {
     pub severity: AlertSeverity,
     /// Where the rule's facts come from (shown in the Console).
     pub source: &'static str,
-    /// The runbook section, relative to `docs/runbooks/`.
+    /// Where the operator runbooks explain this alert: a page and section, e.g.
+    /// `alerts.md#jobs-are-failing`.
     pub runbook: &'static str,
 }
 

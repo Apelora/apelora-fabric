@@ -36,7 +36,7 @@ use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 const VERSION_BUDGET: Duration = Duration::from_secs(5);
 
 /// The site this process is connected to, and whether a second site could hold another
-/// deployment (ADR 0008). One connected site is not a plan.
+/// deployment. One connected site is not a plan.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteReport {
@@ -76,7 +76,8 @@ pub struct ClusterMembersReport {
     pub upgrade: Option<UpgradeView>,
 }
 
-/// One recorded power-off of a failed server (ADR 0014). No BMC address.
+/// One recorded power-off of a failed server through its baseboard management controller (BMC).
+/// The BMC's address is not included.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PowerOff {

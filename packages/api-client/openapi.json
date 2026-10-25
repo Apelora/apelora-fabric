@@ -17488,7 +17488,7 @@
           },
           "runbook": {
             "type": "string",
-            "description": "The runbook section, relative to `docs/runbooks/`."
+            "description": "Where the operator runbooks explain this alert: a page and section, e.g.\n`alerts.md#jobs-are-failing`."
           },
           "severity": {
             "$ref": "#/components/schemas/AlertSeverity"
@@ -19818,7 +19818,7 @@
           },
           "dnsResolver": {
             "type": "boolean",
-            "description": "This module answers service names for the application (ADR 0004 step 4). Absent\nmeans it does not: a resolver is never added unless the design asks for one."
+            "description": "This module answers service names for the application. Absent\nmeans it does not: a resolver is never added unless the design asks for one."
           },
           "guestOs": {
             "$ref": "#/components/schemas/GuestOs",
@@ -20449,7 +20449,7 @@
           },
           "incusProjectConfig": {
             "type": "object",
-            "description": "The restrictions and features of a project Apelora creates (ADR 0012); an adopted\nproject keeps its own (see the Tenancy page for what Incus has).",
+            "description": "The restrictions and features of a project Apelora creates; an adopted\nproject keeps its own (see the Tenancy page for what Incus has).",
             "additionalProperties": {
               "type": "string"
             },
@@ -20530,6 +20530,14 @@
           "error"
         ],
         "properties": {
+          "currentVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "With `draft_conflict` only: the version someone else saved, to start again from."
+          },
           "error": {
             "$ref": "#/components/schemas/ErrorDetail"
           }
@@ -22042,7 +22050,7 @@
           },
           "limits": {
             "type": "object",
-            "description": "The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,\n`limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].",
+            "description": "The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,\n`limits.memory`), as Incus reports them; no other keys.",
             "additionalProperties": {
               "type": "string"
             },
@@ -22331,7 +22339,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any.\nChecked against the cluster before creating and against the instance Incus created."
+            "description": "Architectures the image is known to run on, as Incus names them (`x86_64`, `aarch64`, …);\nempty allows any.\nChecked against the cluster before creating and against the instance Incus created."
           },
           "config": {
             "type": "object",
@@ -22387,7 +22395,7 @@
               "string",
               "null"
             ],
-            "description": "The pool of the root disk when it is not the one the project's profile gives: the shared\npool for a module that restarts on another member after a failure (ADR 0013). Set by the\ncontrol plane from the module's volume classes, never by a caller."
+            "description": "The pool of the root disk when it is not the one the project's profile gives: the shared\npool for a module that restarts on another member after a failure. Set by the\ncontrol plane from the module's volume classes, never by a caller."
           },
           "source": {
             "$ref": "#/components/schemas/ImageSource"
@@ -25563,7 +25571,7 @@
               },
               {
                 "$ref": "#/components/schemas/QuotaCheck",
-                "description": "The deployment against the quotas above its environment (ADR 0012); absent when no\nquota applies. `allowed: false` means applying is refused."
+                "description": "The deployment against the quotas above its environment; absent when no\nquota applies. `allowed: false` means applying is refused."
               }
             ]
           },
@@ -25721,7 +25729,7 @@
       },
       "PowerOff": {
         "type": "object",
-        "description": "One recorded power-off of a failed server (ADR 0014). No BMC address.",
+        "description": "One recorded power-off of a failed server through its baseboard management controller (BMC).\nThe BMC's address is not included.",
         "required": [
           "at",
           "member",
@@ -27810,7 +27818,7 @@
       },
       "SiteReport": {
         "type": "object",
-        "description": "The site this process is connected to, and whether a second site could hold another\ndeployment (ADR 0008). One connected site is not a plan.",
+        "description": "The site this process is connected to, and whether a second site could hold another\ndeployment. One connected site is not a plan.",
         "required": [
           "region",
           "site",

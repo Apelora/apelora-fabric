@@ -132,7 +132,7 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unreachable: bool,
     /// The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,
-    /// `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].
+    /// `limits.memory`), as Incus reports them; no other keys.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub limits: std::collections::BTreeMap<String, String>,
     /// What the instance was built from ([`SPEC_KEY`], [`plan::spec_fingerprint`]); `None` for an
@@ -336,7 +336,8 @@ pub struct InstanceSpec {
     /// Start the instance once created.
     #[serde(default)]
     pub start: bool,
-    /// Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any.
+    /// Architectures the image is known to run on, as Incus names them (`x86_64`, `aarch64`, …);
+    /// empty allows any.
     /// Checked against the cluster before creating and against the instance Incus created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub architectures: Vec<String>,
@@ -351,7 +352,7 @@ pub struct InstanceSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes: Vec<storage::VolumeMount>,
     /// The pool of the root disk when it is not the one the project's profile gives: the shared
-    /// pool for a module that restarts on another member after a failure (ADR 0013). Set by the
+    /// pool for a module that restarts on another member after a failure. Set by the
     /// control plane from the module's volume classes, never by a caller.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_pool: Option<String>,

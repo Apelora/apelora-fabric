@@ -183,7 +183,7 @@ export type AlertItem = {
   lastSeenAt: string;
   resolvedAt?: string | null;
   rule: string;
-  /** The runbook section, relative to `docs/runbooks/`. */
+  /** Where the operator runbooks explain this alert: a page and section, e.g. `alerts.md#jobs-are-failing`. */
   runbook: string;
   severity: AlertSeverity;
   silencedBy?: null | AlertSilencedBy;
@@ -861,7 +861,7 @@ export type DesignStatus = "draft" | "validated" | "published";
 /** One module of the design, turned into the instances it should run as. */
 export type DesiredModule = {
   availability?: Availability;
-  /** This module answers service names for the application (ADR 0004 step 4). Absent means it does not: a resolver is never added unless the design asks for one. */
+  /** This module answers service names for the application. Absent means it does not: a resolver is never added unless the design asks for one. */
   dnsResolver?: boolean;
   /** The operating system inside (from the class): decides which sessions it offers. */
   guestOs?: GuestOs;
@@ -1042,7 +1042,7 @@ export type EnvironmentDto = {
   incusDetail: string;
   /** The restricted Incus project this environment deploys into. */
   incusProject?: string | null;
-  /** The restrictions and features of a project Apelora creates (ADR 0012); an adopted project keeps its own (see the Tenancy page for what Incus has). */
+  /** The restrictions and features of a project Apelora creates; an adopted project keeps its own (see the Tenancy page for what Incus has). */
   incusProjectConfig: Record<string, unknown>;
   /** Apelora created or adopted the Incus project (`incusState` is not `pending`). */
   incusProvisioned: boolean;
@@ -1067,6 +1067,8 @@ export type EnvironmentRef = {
 
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
+  /** With `draft_conflict` only: the version someone else saved, to start again from. */
+  currentVersion?: number | null;
   error: ErrorDetail;
 };
 
@@ -1504,7 +1506,7 @@ export type Instance = {
   /** What Incus does with it when its member is evacuated (`cluster.evacuate`, with profiles applied); `None`: Incus's default, `auto`. */
   evacuate?: string | null;
   kind: InstanceKind;
-  /** The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`, `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`]. */
+  /** The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`, `limits.memory`), as Incus reports them; no other keys. */
   limits?: Record<string, unknown>;
   location: string;
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
@@ -1593,7 +1595,7 @@ export type InstancePageActions = {
 
 /** An instance Apelora should create. Apelora's ownership marker is added on creation. */
 export type InstanceSpec = {
-  /** Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
+  /** Architectures the image is known to run on, as Incus names them (`x86_64`, `aarch64`, …); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
   architectures?: string[];
   /** Extra instance config; keys under `user.apelora.` are reserved. */
   config?: Record<string, unknown>;
@@ -1605,7 +1607,7 @@ export type InstanceSpec = {
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
-  /** The pool of the root disk when it is not the one the project's profile gives: the shared pool for a module that restarts on another member after a failure (ADR 0013). Set by the control plane from the module's volume classes, never by a caller. */
+  /** The pool of the root disk when it is not the one the project's profile gives: the shared pool for a module that restarts on another member after a failure. Set by the control plane from the module's volume classes, never by a caller. */
   rootPool?: string | null;
   source: ImageSource;
   /** Start the instance once created. */
@@ -2597,7 +2599,7 @@ export type PolicyList = {
   items: PolicyDto[];
 };
 
-/** One recorded power-off of a failed server (ADR 0014). No BMC address. */
+/** One recorded power-off of a failed server through its baseboard management controller (BMC). The BMC's address is not included. */
 export type PowerOff = {
   at: string;
   member: string;
@@ -3178,7 +3180,7 @@ export type SignInSettings = {
   providers: ProviderView[];
 };
 
-/** The site this process is connected to, and whether a second site could hold another deployment (ADR 0008). One connected site is not a plan. */
+/** The site this process is connected to, and whether a second site could hold another deployment. One connected site is not a plan. */
 export type SiteReport = {
   connectedSites: number;
   members: number;

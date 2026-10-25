@@ -111,7 +111,7 @@ pub struct DesiredModule {
     /// (from the class); the port check alone cannot tell a hung application from a ready one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<crate::readiness::Readiness>,
-    /// This module answers service names for the application (ADR 0004 step 4). Absent
+    /// This module answers service names for the application. Absent
     /// means it does not: a resolver is never added unless the design asks for one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dns_resolver: bool,
@@ -279,7 +279,7 @@ pub struct Plan {
     pub items: Vec<PlanItem>,
     /// Facts the designer should know before applying, e.g. single points of failure.
     pub warnings: Vec<String>,
-    /// The deployment against the quotas above its environment (ADR 0012); absent when no
+    /// The deployment against the quotas above its environment; absent when no
     /// quota applies. `allowed: false` means applying is refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota: Option<crate::tenancy::QuotaCheck>,

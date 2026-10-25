@@ -344,6 +344,31 @@ fn every_timestamp_in_the_openapi_document_says_it_is_a_date_time() {
 }
 
 #[test]
+fn api_descriptions_do_not_point_into_the_repository() {
+    fn walk(v: &serde_json::Value, found: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(d) = m.get("description").and_then(|d| d.as_str())
+                    && ["ADR ", "docs/", "crates/", "[`"]
+                        .iter()
+                        .any(|internal| d.contains(internal))
+                {
+                    found.push(d.to_owned());
+                }
+                m.values().for_each(|x| walk(x, found));
+            }
+            serde_json::Value::Array(xs) => xs.iter().for_each(|x| walk(x, found)),
+            _ => {}
+        }
+    }
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut found = Vec::new();
+    walk(&doc, &mut found);
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
 fn every_operation_lists_the_refusals_any_request_can_get_and_every_error_says_what_it_means() {
     let doc: serde_json::Value =
         serde_json::from_str(&super::openapi_json()).expect("the document is JSON");

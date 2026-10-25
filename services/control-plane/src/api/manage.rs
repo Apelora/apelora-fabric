@@ -923,7 +923,10 @@ pub(super) async fn put_draft(
             commit(tx).await?;
             Ok(Json(draft_dto(d)).into_response())
         }
-        Err(current) => Ok((StatusCode::CONFLICT, Json(json!({ "error": { "code": "draft_conflict", "message": format!("someone saved version {current} since you started from {}; nothing was overwritten", req.base_version.map_or("the beginning".to_owned(), |v| v.to_string())) }, "currentVersion": current }))).into_response()),
+        Err(current) => Ok((StatusCode::CONFLICT, Json(super::ErrorBody {
+            error: super::ErrorDetail { code: "draft_conflict".into(), message: format!("someone saved version {current} since you started from {}; nothing was overwritten", req.base_version.map_or("the beginning".to_owned(), |v| v.to_string())) },
+            current_version: Some(current),
+        })).into_response()),
     }
 }
 

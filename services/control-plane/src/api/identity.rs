@@ -202,7 +202,7 @@ pub struct EnvironmentDto {
     pub kind: EnvKind,
     /// The restricted Incus project this environment deploys into.
     pub incus_project: Option<String>,
-    /// The restrictions and features of a project Apelora creates (ADR 0012); an adopted
+    /// The restrictions and features of a project Apelora creates; an adopted
     /// project keeps its own (see the Tenancy page for what Incus has).
     pub incus_project_config: BTreeMap<String, String>,
     /// Apelora created or adopted the Incus project (`incusState` is not `pending`).

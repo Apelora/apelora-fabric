@@ -755,6 +755,7 @@ impl IntoResponse for ApiError {
                     code: self.code.into(),
                     message: self.message.clone(),
                 },
+                current_version: None,
             }),
         )
             .into_response();
@@ -1132,8 +1133,12 @@ fn source(mode: ProviderMode) -> Source {
 
 /// Error body for every non-2xx response.
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorBody {
     pub error: ErrorDetail,
+    /// With `draft_conflict` only: the version someone else saved, to start again from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_version: Option<i32>,
 }
 
 #[derive(Serialize, ToSchema)]
