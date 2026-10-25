@@ -222,6 +222,8 @@ pub struct NewEnvironment {
     pub name: String,
     pub kind: EnvKind,
     /// Platform administrators only: map an existing Incus project instead of the derived name.
+    /// Only a project named here can be adopted; one that carries another environment's marker
+    /// never is.
     pub incus_project: Option<String>,
 }
 
@@ -789,7 +791,9 @@ fn forbidden_view(perm: &str) -> ApiError {
 }
 
 /// Creates an environment. The Incus project it maps to is derived from the names (tenants cannot
-/// choose it); platform administrators may map an existing one. Needs `environment.manage`.
+/// choose it); platform administrators (`cluster.manage`) may map an existing one. When the
+/// derived project already exists and Apelora did not create it for this environment, nothing
+/// is created: 409 `incus_project_exists`. Needs `environment.manage`.
 #[utoipa::path(post, path = "/api/v1/identity/projects/{project}/environments", tag = "identity", operation_id = "create_environment", request_body = NewEnvironment,
     params(("project" = Uuid, Path, description = "Project id")),
     responses((status = 201, body = EnvironmentDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
@@ -830,6 +834,20 @@ pub(super) async fn create_environment(
             derived
         }
     };
+    let chosen = req.incus_project.is_some();
+    if let Err(e) = super::tenancy::check_existing_project(&state, &incus, chosen).await {
+        audit_alone(
+            pool,
+            &p,
+            "environment.create",
+            &req.slug,
+            "denied",
+            Some(&res),
+            &json!({ "incusProject": incus, "reason": e.message, "chosenByPlatformAdmin": chosen }),
+        )
+        .await?;
+        return Err(e);
+    }
     let mut tx = begin(pool).await?;
     let env = db::create_environment(
         &mut *tx,
@@ -840,6 +858,9 @@ pub(super) async fn create_environment(
         Some(&incus),
     )
     .await?;
+    if chosen {
+        apelora_persistence::tenancy::mark_incus_project_chosen(&mut *tx, env.id).await?;
+    }
     audit_scoped(&mut tx, &p, "environment.create", &env.slug, "success", Some(&res), &json!({ "id": env.id, "kind": req.kind.as_str(), "incusProject": incus, "chosenByPlatformAdmin": req.incus_project.is_some() })).await?;
     commit(tx).await?;
     // With the admin identity, the environment's Incus project is created (or adopted) now; a

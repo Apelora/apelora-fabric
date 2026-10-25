@@ -279,6 +279,172 @@ async fn existing_projects_are_adopted_only_when_restricted(pool: Pool) {
     assert_eq!(closed["findings"][0]["severity"], "warning");
 }
 
+/// An existing Incus project is used only when it is this environment's own (it carries the
+/// environment's marker), or when a platform administrator named it when creating the
+/// environment; a matching derived name is never enough, and another environment's project never.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn an_existing_project_is_adopted_only_when_it_is_ours_or_was_named_by_the_platform(
+    pool: Pool,
+) {
+    let l = lab(pool);
+    let w = world(&l).await;
+    let m = mock(&l);
+    let other_env = Uuid::new_v4().to_string();
+    {
+        let mut t = m.tenancy();
+        for (name, config) in [
+            ("acme-prod-qa", json!({ "restricted": "true" })),
+            (
+                "other-shop",
+                json!({ "restricted": "true", ENVIRONMENT_KEY: other_env }),
+            ),
+        ] {
+            t.projects.insert(
+                name.into(),
+                apelora_domain::tenancy::TenancyIncusProject {
+                    name: name.into(),
+                    description: "someone else's".into(),
+                    config: serde_json::from_value(config).expect("config"),
+                },
+            );
+        }
+    }
+    let owner = person(
+        &l,
+        &w,
+        "sub-oo",
+        "organization-owner",
+        json!({ "type": "organization", "id": w.acme }),
+    )
+    .await;
+    let create = |token: String, body: Value| {
+        let (l, project) = (&l, w.acme_prod);
+        async move {
+            l.req(
+                "POST",
+                &format!("/api/v1/identity/projects/{project}/environments"),
+                &token,
+                Some(body),
+            )
+            .await
+        }
+    };
+    // A tenant whose identifiers derive the name of a project that exists: refused, nothing made.
+    for token in [owner.clone(), w.admin.clone()] {
+        let (s, b) = create(
+            token,
+            json!({ "slug": "qa", "name": "QA", "kind": "development" }),
+        )
+        .await;
+        assert_eq!(
+            (s, b["error"]["code"].as_str()),
+            (StatusCode::CONFLICT, Some("incus_project_exists")),
+            "{b}"
+        );
+    }
+    let (_, envs) = l
+        .req(
+            "GET",
+            &format!("/api/v1/identity/projects/{}/environments", w.acme_prod),
+            &w.admin,
+            None,
+        )
+        .await;
+    assert!(
+        envs["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .all(|e| e["slug"] != "qa"),
+        "{envs}"
+    );
+    assert_eq!(
+        m.tenancy().projects["acme-prod-qa"]
+            .config
+            .get(ENVIRONMENT_KEY),
+        None,
+        "the project was left alone"
+    );
+    // Another environment's project is never adopted, even when a platform administrator names it.
+    let (s, b) = create(
+        w.admin.clone(),
+        json!({ "slug": "shop", "name": "Shop", "kind": "development", "incusProject": "other-shop" }),
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("incus_project_exists")),
+        "{b}"
+    );
+    // A platform administrator who names the project explicitly adopts it.
+    let (s, b) = create(
+        w.admin.clone(),
+        json!({ "slug": "qa", "name": "QA", "kind": "development", "incusProject": "acme-prod-qa" }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{b}");
+    assert_eq!(b["incusState"], "adopted", "{b}");
+
+    // An environment waiting to be prepared whose derived project was made by someone else in the
+    // meantime: preparing it (by hand, or before a deployment) is refused, and it stays pending.
+    let (s, late) = create(
+        owner.clone(),
+        json!({ "slug": "late", "name": "Late", "kind": "development" }),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "{late}");
+    let late_id: Uuid = late["id"].as_str().expect("id").parse().expect("uuid");
+    m.tenancy()
+        .projects
+        .get_mut("acme-prod-late")
+        .expect("created")
+        .config
+        .remove(ENVIRONMENT_KEY);
+    apelora_persistence::tenancy::set_incus_state(
+        &l.pool,
+        late_id,
+        apelora_domain::tenancy::TenancyIncusState::Pending,
+        "",
+    )
+    .await
+    .expect("state");
+    let (s, b) = l
+        .req(
+            "POST",
+            &format!("/api/v1/identity/environments/{late_id}/incus-project"),
+            &owner,
+            None,
+        )
+        .await;
+    assert_eq!(
+        (s, b["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("incus_project_exists")),
+        "{b}"
+    );
+    let (_, envs) = l
+        .req(
+            "GET",
+            &format!("/api/v1/identity/projects/{}/environments", w.acme_prod),
+            &w.admin,
+            None,
+        )
+        .await;
+    let late = envs["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|e| e["slug"] == "late")
+        .expect("late")
+        .clone();
+    assert_eq!(late["incusState"], "pending", "{late}");
+    assert!(
+        late["incusDetail"]
+            .as_str()
+            .is_some_and(|d| d.contains("platform administrator")),
+        "{late}"
+    );
+}
+
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn quotas_are_set_by_who_may_and_mirrored_as_the_tightest_limit(pool: Pool) {
     let l = lab(pool);

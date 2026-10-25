@@ -2273,7 +2273,7 @@ export type NewAssignment = {
 };
 
 export type NewEnvironment = {
-  /** Platform administrators only: map an existing Incus project instead of the derived name. */
+  /** Platform administrators only: map an existing Incus project instead of the derived name. Only a project named here can be adopted; one that carries another environment's marker never is. */
   incusProject?: string | null;
   kind: EnvKind;
   name: string;
@@ -3911,7 +3911,7 @@ export type Responses = {
   identity_audit: AuditList;
   /** Grants a person a platform role for a short time, with a recorded reason (break-glass). You cannot grant it to yourself; every request made with it is audited. Needs `platform.emergency_access`. */
   grant_emergency_access: AssignmentDto;
-  /** Creates or adopts the environment's Incus project now (idempotent): the restricted project with its default profile, granted to the deploy identity, then the quotas mirrored. Needs `environment.manage` on the environment's project; 503 without an admin identity. */
+  /** Creates or adopts the environment's Incus project now (idempotent): the restricted project with its default profile, granted to the deploy identity, then the quotas mirrored. An existing project is adopted only when it carries this environment's marker or a platform administrator named it when creating the environment; otherwise 409 `incus_project_exists`. Needs `environment.manage` on the environment's project; 503 without an admin identity. */
   prepare_incus_project: IncusProjectPrepared;
   /** Groups the caller may see. Needs `user.view`. */
   groups: GroupList;
@@ -3949,7 +3949,7 @@ export type Responses = {
   projects_list: IdentityProjectList;
   /** Environments of a project. Needs `project.view` on it. */
   environments: EnvironmentList;
-  /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators may map an existing one. Needs `environment.manage`. */
+  /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators (`cluster.manage`) may map an existing one. When the derived project already exists and Apelora did not create it for this environment, nothing is created: 409 `incus_project_exists`. Needs `environment.manage`. */
   create_environment: EnvironmentDto;
   /** A scope's quota and use. Needs `organization.view` (organisation) or `project.view` (project, environment) on it, or `quota.manage`. */
   quota: QuotaView;

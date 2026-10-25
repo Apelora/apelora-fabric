@@ -5992,7 +5992,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates or adopts the environment's Incus project now (idempotent): the restricted project\nwith its default profile, granted to the deploy identity, then the quotas mirrored. Needs\n`environment.manage` on the environment's project; 503 without an admin identity.",
+        "summary": "Creates or adopts the environment's Incus project now (idempotent): the restricted project\nwith its default profile, granted to the deploy identity, then the quotas mirrored. An existing\nproject is adopted only when it carries this environment's marker or a platform administrator\nnamed it when creating the environment; otherwise 409 `incus_project_exists`. Needs\n`environment.manage` on the environment's project; 503 without an admin identity.",
         "operationId": "prepare_incus_project",
         "parameters": [
           {
@@ -6028,6 +6028,16 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -7027,7 +7037,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Creates an environment. The Incus project it maps to is derived from the names (tenants cannot\nchoose it); platform administrators may map an existing one. Needs `environment.manage`.",
+        "summary": "Creates an environment. The Incus project it maps to is derived from the names (tenants cannot\nchoose it); platform administrators (`cluster.manage`) may map an existing one. When the\nderived project already exists and Apelora did not create it for this environment, nothing\nis created: 409 `incus_project_exists`. Needs `environment.manage`.",
         "operationId": "create_environment",
         "parameters": [
           {
@@ -20532,7 +20542,7 @@
               "string",
               "null"
             ],
-            "description": "Platform administrators only: map an existing Incus project instead of the derived name."
+            "description": "Platform administrators only: map an existing Incus project instead of the derived name.\nOnly a project named here can be adopted; one that carries another environment's marker\nnever is."
           },
           "kind": {
             "$ref": "#/components/schemas/EnvKind"
