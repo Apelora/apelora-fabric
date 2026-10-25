@@ -1349,7 +1349,7 @@ pub(super) async fn delete_role(
 
 /// Every permission, its class and the narrowest scope at which a grant takes effect.
 #[utoipa::path(get, path = "/api/v1/identity/permissions", tag = "identity", operation_id = "permissions",
-    responses((status = 200, body = PermissionList)))]
+    responses((status = 200, body = PermissionList), (status = 401, body = ErrorBody)))]
 pub(super) async fn permissions() -> Json<PermissionList> {
     Json(PermissionList {
         items: PERMISSIONS

@@ -809,7 +809,7 @@ pub(super) async fn open(
 
 /// Open sessions the caller started, and those on applications they may operate.
 #[utoipa::path(get, path = "/api/v1/sessions", tag = "sessions", operation_id = "sessions",
-    responses((status = 200, body = SessionList)))]
+    responses((status = 200, body = SessionList), (status = 401, body = ErrorBody)))]
 pub(super) async fn list(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,

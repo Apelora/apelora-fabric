@@ -66,7 +66,7 @@ pub(super) fn audit_store(state: &AppState) -> Result<&apelora_persistence::Pool
         Auth::Tokens(pool) => Ok(pool),
         Auth::DisabledForDevelopment => Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
+            "database_not_configured",
             "cluster administration is audited and needs a database (DATABASE_URL)",
         )),
     }

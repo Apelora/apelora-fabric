@@ -155,7 +155,7 @@ fn store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiError> {
         Auth::Tokens(pool) => Ok(pool),
         Auth::DisabledForDevelopment => Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
+            "database_not_configured",
             "API tokens need a database (DATABASE_URL)",
         )),
     }

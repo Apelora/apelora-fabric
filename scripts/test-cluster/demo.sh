@@ -17,7 +17,9 @@ repo=$(cd "$here/../.." && pwd)
 run=$(mktemp -d -t apelora-demo)
 log="$run/demo.log"
 APP=demo
-API=http://127.0.0.1:8080/api/v1
+# Where this run's control plane listens: set APELORA_API_ADDR when 127.0.0.1:8080 is taken.
+export APELORA_API_ADDR=${APELORA_API_ADDR:-127.0.0.1:8080}
+API=http://$APELORA_API_ADDR/api/v1
 export DATABASE_URL=${DATABASE_URL:-postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora}
 # shellcheck disable=SC1091
 source "$HOME/.config/apelora/test-cluster/env"
@@ -71,6 +73,7 @@ SQL
 trap cleanup EXIT
 
 say "Apelora end-to-end demonstration — run directory $run"
+curl -s -m 2 -o /dev/null "http://$APELORA_API_ADDR/" && fail "something already listens on $APELORA_API_ADDR (set APELORA_API_ADDR to a free address)"
 members=$(incus_ cluster list --format csv -c ns)
 say "members: $(echo "$members" | tr '\n' ' ')"
 [ "$(echo "$members" | grep -c ONLINE)" -ge 3 ] || fail "three online members are needed"

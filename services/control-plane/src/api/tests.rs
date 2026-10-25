@@ -125,7 +125,7 @@ async fn audit_needs_a_database_in_development_mode() {
     )
     .await;
     assert_eq!(status, 503);
-    assert_eq!(body["error"]["code"], "store_unavailable");
+    assert_eq!(body["error"]["code"], "database_not_configured");
 }
 
 /// Sends a GET with an optional `x-request-id`; returns the status and the echoed id.
@@ -660,7 +660,10 @@ async fn deployments_need_a_database() {
     .await;
     assert_eq!(
         (s, b["error"]["code"].as_str()),
-        (StatusCode::SERVICE_UNAVAILABLE, Some("store_unavailable"))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("database_not_configured")
+        )
     );
 }
 

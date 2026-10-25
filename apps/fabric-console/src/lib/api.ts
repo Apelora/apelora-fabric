@@ -11,7 +11,12 @@ export const writeToken = (t: string | null) => { try { if (t) sessionStorage.se
 
 export const client = createClient({ token: readToken });
 
-export type Load<T> = { kind: "loading" } | { kind: "ok"; data: T } | { kind: "error"; message: string };
+/** `code` is the API's stable error code, when the failure came from the API. */
+export type Load<T> = { kind: "loading" } | { kind: "ok"; data: T } | { kind: "error"; message: string; code?: string };
+
+/** The control plane runs without a database (development): the feature cannot work, and retrying does not help.
+ * (`store_unavailable` is different: a database that is set but not reachable, where retrying is right.) */
+export const needsDatabase = (state: Load<unknown>): boolean => state.kind === "error" && state.code === "database_not_configured";
 
 export const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -29,9 +34,10 @@ export function useLoad<T>(fetcher: () => Promise<T>, onAuth: (message: string) 
       .then((data) => { if (current) setState({ kind: "ok", data }); })
       .catch((e: unknown) => {
         if (!current) return;
+        const code = e instanceof ApiRequestError ? e.code : undefined;
         if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message);
-        else log("error", "request failed", { message: messageOf(e) });
-        setState({ kind: "error", message: messageOf(e) });
+        else if (code !== "database_not_configured") log("error", "request failed", { message: messageOf(e) });
+        setState({ kind: "error", message: messageOf(e), code });
       });
     return () => { current = false; };
   }, [onAuth]);

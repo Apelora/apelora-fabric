@@ -157,7 +157,7 @@ fn reader(
     let Auth::Tokens(pool) = &state.auth else {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
+            "database_not_configured",
             "the audit log needs a database (DATABASE_URL)",
         ));
     };

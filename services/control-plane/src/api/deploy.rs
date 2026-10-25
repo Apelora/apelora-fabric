@@ -120,7 +120,7 @@ pub(super) fn store(state: &AppState) -> Result<&apelora_persistence::Pool, ApiE
         Auth::Tokens(pool) => Ok(pool),
         Auth::DisabledForDevelopment => Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "store_unavailable",
+            "database_not_configured",
             "deployments need a database (DATABASE_URL)",
         )),
     }
