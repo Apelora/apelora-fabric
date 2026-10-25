@@ -205,9 +205,12 @@ enum Format {
 }
 
 /// Spreadsheet programs run a cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage
-/// return as a formula: such a value is prefixed with `'` so it stays text.
+/// return as a formula, and some skip leading white space first: a value that starts with a tab
+/// or carriage return, or whose first character after white space is one of those signs, is
+/// prefixed with `'` so it stays text.
 fn csv_field(v: &str) -> String {
-    let v = if v.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+    let formula = v.starts_with(['\t', '\r']) || v.trim_start().starts_with(['=', '+', '-', '@']);
+    let v = if formula {
         format!("'{v}")
     } else {
         v.to_owned()
@@ -382,6 +385,18 @@ mod tests {
         assert_eq!(csv_field("-1+1"), "'-1+1");
         assert_eq!(csv_field("@x"), "'@x");
         assert_eq!(csv_field("=a,b"), "\"'=a,b\"");
+        // Leading white space does not hide a formula from a spreadsheet.
+        assert_eq!(csv_field(" =cmd()"), "' =cmd()");
+        assert_eq!(csv_field("  +1"), "'  +1");
+        assert_eq!(csv_field("\u{a0}@x"), "'\u{a0}@x");
+        assert_eq!(csv_field("\t-1"), "'\t-1");
+        assert_eq!(csv_field("\n=cmd()"), "\"'\n=cmd()\"");
+        assert_eq!(csv_field("\r\n=x"), "\"'\r\n=x\"");
+        assert_eq!(csv_field("\tplain"), "'\tplain");
+        // A sign or @ later in the value is just text.
+        assert_eq!(csv_field("a=b"), "a=b");
+        assert_eq!(csv_field(" plain"), " plain");
+        assert_eq!(csv_field(""), "");
     }
 
     #[test]
