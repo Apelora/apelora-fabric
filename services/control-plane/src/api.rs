@@ -1667,6 +1667,99 @@ impl Modify for Timestamps {
     }
 }
 
+/// Error statuses every operation shares, and what each error status means.
+///
+/// The middleware can refuse any request with `429 rate_limited` (`rate_limit`), and any request
+/// to a route outside [`rate_limit::PUBLIC_PATHS`] with `401`; both are added to every operation
+/// that does not list them. Error responses without a description get the meaning of their status.
+struct ErrorResponses;
+
+impl ErrorResponses {
+    fn meaning(status: &str) -> Option<&'static str> {
+        Some(match status {
+            "400" => "The request is not valid; the error says which part.",
+            "401" => "Not signed in: no token, or one that is unknown, expired or revoked.",
+            "403" => "The caller may not do this.",
+            "404" => "Not found, or not visible to the caller.",
+            "409" => "Conflicts with the current state; the error code says how.",
+            "410" => "No longer possible: it expired.",
+            "422" => "The request is well formed but cannot be carried out; the error says why.",
+            "429" => {
+                "Too many requests from this address or caller; retry after `Retry-After` seconds."
+            }
+            "500" => "Apelora failed; the response's `x-request-id` finds it in the server log.",
+            "502" => {
+                "A service Apelora relies on (Incus, an identity provider, a provisioner) refused or did not answer."
+            }
+            "503" => {
+                "Something this needs is not configured or not reachable yet; the error code says what."
+            }
+            _ => return None,
+        })
+    }
+
+    fn error(status: &str) -> utoipa::openapi::RefOr<utoipa::openapi::Response> {
+        let mut r = utoipa::openapi::ResponseBuilder::new()
+            .description(Self::meaning(status).unwrap_or_default())
+            .content(
+                "application/json",
+                utoipa::openapi::ContentBuilder::new()
+                    .schema(Some(utoipa::openapi::Ref::from_schema_name("ErrorBody")))
+                    .build(),
+            )
+            .build();
+        if status == "429" {
+            r.headers.insert(
+                "Retry-After".into(),
+                utoipa::openapi::HeaderBuilder::new()
+                    .schema(
+                        utoipa::openapi::ObjectBuilder::new()
+                            .schema_type(utoipa::openapi::schema::Type::Integer),
+                    )
+                    .description(Some("Seconds to wait before trying again."))
+                    .build(),
+            );
+        }
+        r.into()
+    }
+}
+
+impl Modify for ErrorResponses {
+    fn modify(&self, api: &mut utoipa::openapi::OpenApi) {
+        for (path, item) in api.paths.paths.iter_mut() {
+            for op in [
+                &mut item.get,
+                &mut item.put,
+                &mut item.post,
+                &mut item.delete,
+                &mut item.patch,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let responses = &mut op.responses.responses;
+                let mut shared = vec!["429"];
+                if !rate_limit::is_public_path(path) {
+                    shared.push("401");
+                }
+                for status in shared {
+                    responses
+                        .entry(status.into())
+                        .or_insert_with(|| Self::error(status));
+                }
+                for (status, r) in responses.iter_mut() {
+                    if let (utoipa::openapi::RefOr::T(r), Some(meaning)) =
+                        (r, Self::meaning(status))
+                        && r.description.is_empty()
+                    {
+                        r.description = meaning.into();
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The `/api/v1` contract. `packages/api-client/openapi.json` is generated from this and the
 /// TypeScript client from that file; a test fails when either is stale.
 #[derive(OpenApi)]
@@ -1710,7 +1803,7 @@ impl Modify for Timestamps {
         networks::settings, networks::applications,
         storage::pool_usage, storage::volumes, storage::orphans, storage::backups, storage::back_up,
         storage::delete_backup, storage::set_schedules, storage::preview_restore, storage::restore),
-    modifiers(&BearerAuth, &Timestamps),
+    modifiers(&BearerAuth, &Timestamps, &ErrorResponses),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"), (name = "alerts"))
 )]

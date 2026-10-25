@@ -343,6 +343,41 @@ fn every_timestamp_in_the_openapi_document_says_it_is_a_date_time() {
     );
 }
 
+#[test]
+fn every_operation_lists_the_refusals_any_request_can_get_and_every_error_says_what_it_means() {
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut problems = Vec::new();
+    for (path, item) in doc["paths"].as_object().expect("paths") {
+        for (method, op) in item.as_object().expect("path item") {
+            let r = &op["responses"];
+            let id = format!("{method} {path}");
+            if !r["429"].is_object() {
+                problems.push(format!("{id}: no 429"));
+            }
+            if !rate_limit::is_public_path(path) && !r["401"].is_object() {
+                problems.push(format!("{id}: no 401"));
+            }
+            for (status, resp) in r.as_object().expect("responses") {
+                if !status.starts_with('2')
+                    && resp["description"].as_str().is_none_or(str::is_empty)
+                {
+                    problems.push(format!("{id}: {status} has no description"));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    assert!(
+        doc["paths"]["/api/v1/health"]["get"]["responses"]["401"].is_null(),
+        "a public route cannot answer 401"
+    );
+    assert!(
+        doc["paths"]["/api/v1/jobs"]["get"]["responses"]["429"]["headers"]["Retry-After"]
+            .is_object()
+    );
+}
+
 #[tokio::test]
 async fn openapi_document_is_public_and_lists_every_route() {
     let (status, doc, _) = call(
