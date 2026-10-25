@@ -230,6 +230,24 @@ test.describe("a web tier: a client and two NGINX replicas", () => {
     await expect(studio.getByTestId("mock-badge")).toHaveText("Live · 3 running");
   });
 
+  test("a new version with another image shows the running replicas as outdated, and nothing is deployed", async () => {
+    await studio.goto(`/studio/applications/${app}/designer`);
+    await properties("nginx-01");
+    await studio.getByTestId("props-tab-config").click();
+    await studio.locator("[data-testid=cfg-field][data-prop-id=channel] select").selectOption("mainline");
+    await studio.keyboard.press("Escape");
+    await publish(app, "lab mainline");
+    await studio.goto("/studio/applications");
+    await studio.locator(`[data-testid=app-card][data-app="${app}"]`).getByTestId("action-deploy").click();
+    await studio.getByTestId("deploy-version-continue").click();
+    const dialog = studio.getByTestId("deploy-dialog");
+    await dialog.getByTestId("deploy-preview").click();
+    // What the cluster runs was recorded when each replica was created; the design now asks for another image.
+    await expect(dialog.locator("[data-testid=plan-row][data-outdated=image]")).toHaveCount(2);
+    await expect(dialog).toContainText("deploying does not update running modules yet");
+    await studio.goto("/studio/applications"); // leave without deploying
+  });
+
   test("has addresses, answers on its service address from both replicas, and opens only the drawn connection", async () => {
     const client = `${app}-debian-01`;
     const [r1, r2] = [`${app}-nginx-01`, `${app}-nginx-01-r2`];

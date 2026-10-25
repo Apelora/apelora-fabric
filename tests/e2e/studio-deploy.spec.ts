@@ -181,8 +181,8 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/whoami": () => ({ json: operator }),
       "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [
         { ...item("nginx-01", "resize", "limits.cpu 1 → 2, limits.memory 512MiB → 1GiB"), changes: [{ key: "limits.cpu", from: "1", to: "2" }, { key: "limits.memory", from: "512MiB", to: "1GiB" }] },
-        item("nginx-02", "keep", "already running"),
-      ], warnings: [] } }),
+        { ...item("nginx-02", "keep", "already deployed (Running); keeps its previous image (updating running modules is not built yet)"), outdated: ["image"] },
+      ], warnings: ["commerce-stack-nginx-02 keeps the image or settings it was created with: deploying does not update running modules yet; remove the module and deploy it again to apply the design"] } }),
     });
     await open(page);
     await openDeploy(page);
@@ -193,6 +193,11 @@ test.describe("deploying from the Studio", () => {
     await expect(rows.first()).toContainText("Resize");
     await expect(rows.first()).toContainText("limits.cpu 1 → 2");
     await expect(page.getByTestId("deploy-apply")).toHaveText("Deploy 1 change");
+    // A running instance built from another image is kept and says so; it is not counted as a change.
+    await expect(rows.nth(1)).toHaveAttribute("data-outdated", "image");
+    await expect(rows.nth(1)).toContainText("Keep · outdated");
+    await expect(rows.nth(1)).toContainText("keeps its previous image");
+    await expect(page.getByTestId("deploy-dialog")).toContainText("deploying does not update running modules yet");
   });
 
   test("the review shows quota use, and a deployment over quota cannot be applied", async ({ page }) => {

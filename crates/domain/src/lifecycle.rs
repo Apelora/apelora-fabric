@@ -352,6 +352,7 @@ mod tests {
             }),
             evacuate: None,
             unreachable: false,
+            built_from: None,
             limits: Default::default(),
         }
     }

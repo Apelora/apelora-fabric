@@ -21578,6 +21578,13 @@
             "type": "string",
             "description": "The module in the design (for `remove`: the label of the instance being removed)."
           },
+          "outdated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What the running instance was built from that the design now asks differently:\n`image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running\nmodules is not built yet."
+          },
           "reason": {
             "type": "string",
             "description": "Why, in a sentence (e.g. what the conflicting instance is)."

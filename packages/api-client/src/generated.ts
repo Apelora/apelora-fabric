@@ -2565,6 +2565,8 @@ export type PlanItem = {
   instance: string;
   /** The module in the design (for `remove`: the label of the instance being removed). */
   module: string;
+  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running modules is not built yet. */
+  outdated?: string[];
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;
   /** 1-based replica number. */

@@ -135,7 +135,15 @@ pub struct Instance {
     /// `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub limits: std::collections::BTreeMap<String, String>,
+    /// What the instance was built from ([`SPEC_KEY`], [`plan::spec_fingerprint`]); `None` for an
+    /// instance created before Apelora recorded it. Read by the planner, not part of the API.
+    #[serde(skip)]
+    pub built_from: Option<String>,
 }
+
+/// Instance config key with what an instance was built from ([`plan::spec_fingerprint`]),
+/// written when it is created.
+pub const SPEC_KEY: &str = "user.apelora.spec";
 
 /// Instance config keys Apelora writes so an instance can be traced back to the application
 /// and the module (a node in the Studio design) it was deployed for.

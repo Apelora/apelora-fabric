@@ -2444,6 +2444,7 @@ impl IncusClient {
                 let expanded = i.expanded_config.unwrap_or_default();
                 Instance {
                     unreachable,
+                    built_from: config.get(apelora_domain::SPEC_KEY).cloned(),
                     kind: match i.kind.as_str() {
                         "container" => InstanceKind::Container,
                         "virtual-machine" => InstanceKind::VirtualMachine,

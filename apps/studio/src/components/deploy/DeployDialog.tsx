@@ -343,10 +343,10 @@ function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean
         <thead><tr><th>Module</th><th>Instance</th><th>Change</th><th>Why</th></tr></thead>
         <tbody>
           {plan.items.map((i) => (
-            <tr key={i.instance} data-testid="plan-row" data-action={i.action}>
+            <tr key={i.instance} data-testid="plan-row" data-action={i.action} data-outdated={i.outdated?.join(" ") || undefined}>
               <td>{i.module}</td>
               <td className="font-mono text-xs">{i.instance}</td>
-              <td className="whitespace-nowrap"><span className={`status ${ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}</td>
+              <td className="whitespace-nowrap"><span className={`status ${i.outdated?.length ? "status-warning" : ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}{i.outdated?.length ? " · outdated" : ""}</td>
               <td className="text-base-content/70">{i.reason}</td>
             </tr>
           ))}

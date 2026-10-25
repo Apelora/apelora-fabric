@@ -178,6 +178,11 @@ pub struct PlanItem {
     /// For `resize`: each limit that changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<LimitChange>,
+    /// What the running instance was built from that the design now asks differently:
+    /// `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running
+    /// modules is not built yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outdated: Vec<String>,
 }
 
 /// The instance config keys a resize may change: the resource limits Apelora writes from a
@@ -290,6 +295,71 @@ impl Plan {
     }
 }
 
+/// What an instance is built from, recorded at creation as [`crate::SPEC_KEY`]: one short hash per
+/// part a change would need a new instance for. `image`: kind, image and architectures.
+/// `settings`: instance config and profiles, without resource limits (resized in place),
+/// Apelora's discovery variables (`environment.APELORA_*`, re-synced by the network sync) and its
+/// labels. `storage`: the root disk pool and each volume's name, class, content and path, without
+/// sizes (grown in place) and pools (resolved from the class).
+pub fn spec_fingerprint(spec: &InstanceSpec) -> String {
+    use sha2::{Digest, Sha256};
+    let hash = |v: serde_json::Value| {
+        let digest = Sha256::digest(v.to_string().as_bytes());
+        digest
+            .iter()
+            .take(6)
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let image = serde_json::json!([
+        spec.kind,
+        spec.source.protocol,
+        spec.source.server,
+        spec.source.alias,
+        spec.source.fingerprint,
+        spec.architectures
+    ]);
+    let config: std::collections::BTreeMap<&String, &String> = spec
+        .config
+        .iter()
+        .filter(|(k, _)| {
+            !RESIZABLE_KEYS.contains(&k.as_str())
+                && !k.starts_with("environment.APELORA_")
+                && !k.starts_with("user.apelora.")
+        })
+        .collect();
+    let settings = serde_json::json!([config, spec.profiles]);
+    let volumes: Vec<_> = spec
+        .volumes
+        .iter()
+        .map(|v| serde_json::json!([v.name, v.class, v.content, v.path]))
+        .collect();
+    let storage = serde_json::json!([spec.root_pool, volumes]);
+    format!(
+        "image={},settings={},storage={}",
+        hash(image),
+        hash(settings),
+        hash(storage)
+    )
+}
+
+/// The parts of `recorded` (an instance's [`spec_fingerprint`]) that differ from `wanted`, in
+/// order: `image`, `settings`, `storage`. A part missing from either side is not compared.
+pub fn outdated_parts(recorded: &str, wanted: &str) -> Vec<String> {
+    let parts = |f: &str| -> std::collections::BTreeMap<String, String> {
+        f.split(',')
+            .filter_map(|p| p.split_once('='))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect()
+    };
+    let (have, want) = (parts(recorded), parts(wanted));
+    ["image", "settings", "storage"]
+        .into_iter()
+        .filter(|k| matches!((have.get(*k), want.get(*k)), (Some(h), Some(w)) if h != w))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// The spec replica `replica` of a module is created with: its name, project and
 /// ownership labels are set here, never taken from the caller.
 pub fn owned_spec(
@@ -359,6 +429,7 @@ pub fn plan(
                 action,
                 reason,
                 changes: Vec::new(),
+                outdated: Vec::new(),
             };
             if !is_valid_name(&name) {
                 items.push(item(
@@ -387,17 +458,29 @@ pub fn plan(
                 ),
                 Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.module == d.module && o.replica == replica) => {
                     let changes = limit_changes(&d.spec.config, &i.limits);
-                    if changes.is_empty() {
-                        item(PlanAction::Keep, format!("already deployed ({})", i.status))
+                    let outdated = i
+                        .built_from
+                        .as_deref()
+                        .map(|b| outdated_parts(b, &spec_fingerprint(&d.spec)))
+                        .unwrap_or_default();
+                    let kept = if outdated.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; keeps its previous {} (updating running modules is not built yet)", outdated.join(" and "))
+                    };
+                    let mut it = if changes.is_empty() {
+                        item(PlanAction::Keep, format!("already deployed ({}){kept}", i.status))
                     } else {
                         PlanItem {
                             changes: changes.clone(),
                             ..item(
                                 PlanAction::Resize,
-                                format!("resources change: {} ({})", describe(&changes), i.status),
+                                format!("resources change: {} ({}){kept}", describe(&changes), i.status),
                             )
                         }
-                    }
+                    };
+                    it.outdated = outdated;
+                    it
                 }
                 Some(i) if !i.managed => item(
                     PlanAction::Conflict,
@@ -426,6 +509,7 @@ pub fn plan(
             action: PlanAction::Remove,
             reason: "no longer in the design".into(),
             changes: Vec::new(),
+            outdated: Vec::new(),
         });
     }
 
@@ -441,6 +525,19 @@ pub fn plan(
             "single points of failure: {} run{} as one instance",
             single.join(", "),
             if single.len() == 1 { "s" } else { "" }
+        ));
+    }
+    let outdated: Vec<&str> = items
+        .iter()
+        .filter(|i| !i.outdated.is_empty())
+        .map(|i| i.instance.as_str())
+        .collect();
+    if !outdated.is_empty() {
+        warnings.push(format!(
+            "{} keep{} the image or settings {} was created with: deploying does not update running modules yet; remove the module and deploy it again to apply the design",
+            outdated.join(", "),
+            if outdated.len() == 1 { "s" } else { "" },
+            if outdated.len() == 1 { "it" } else { "they were each" },
         ));
     }
     Plan {
@@ -486,6 +583,136 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_running_instance_built_from_another_image_or_settings_is_named_and_kept() {
+        use crate::storage::{VolumeClass, VolumeContent, VolumeMount};
+        let mut web = stateless("web-01", 1);
+        web.spec
+            .config
+            .insert("environment.MODE".into(), "blue".into());
+        web.spec
+            .config
+            .insert("limits.memory".into(), "512MiB".into());
+        let built = |d: &DesiredModule| {
+            let mut i = observed("shop-web-01", "apelora", true, Some(("shop", "web-01", 1)));
+            i.limits = [("limits.memory".to_owned(), "512MiB".to_owned())].into();
+            // What creation records is the spec deploy_spec builds: its name, owner and network
+            // do not change the fingerprint.
+            i.built_from = Some(spec_fingerprint(&deploy_spec(
+                "shop",
+                "apelora",
+                d,
+                1,
+                Some("incusbr0"),
+            )));
+            i
+        };
+        let first = built(&web);
+        let item = |d: &DesiredModule, i: &Instance| {
+            plan(
+                "shop",
+                "apelora",
+                std::slice::from_ref(d),
+                std::slice::from_ref(i),
+            )
+        };
+
+        // Same design: kept, nothing outdated, no warning beyond the single instance.
+        let p = item(&web, &first);
+        assert_eq!(
+            (p.items[0].action, p.items[0].outdated.clone()),
+            (PlanAction::Keep, vec![])
+        );
+        assert_eq!(p.warnings.len(), 1, "{:?}", p.warnings);
+
+        // Created before Apelora recorded it: nothing to compare, kept as before.
+        let mut old = first.clone();
+        old.built_from = None;
+        assert!(item(&web, &old).items[0].outdated.is_empty());
+
+        // Limits are resized in place and Apelora's discovery variables are re-synced: neither
+        // makes an instance outdated.
+        let mut resized = web.clone();
+        resized
+            .spec
+            .config
+            .insert("limits.memory".into(), "1GiB".into());
+        resized.spec.config.insert(
+            "environment.APELORA_SERVICE_DB_01".into(),
+            "198.18.100.2".into(),
+        );
+        let p = item(&resized, &first);
+        assert_eq!(
+            (p.items[0].action, p.items[0].outdated.len()),
+            (PlanAction::Resize, 0)
+        );
+
+        // Another image and another setting: named, kept with the reason, and warned about.
+        let mut changed = web.clone();
+        changed.spec.source.alias = "debian/14".into();
+        changed
+            .spec
+            .config
+            .insert("environment.MODE".into(), "green".into());
+        let p = item(&changed, &first);
+        assert_eq!(p.items[0].action, PlanAction::Keep);
+        assert_eq!(p.items[0].outdated, ["image", "settings"]);
+        assert!(
+            p.items[0].reason.contains(
+                "keeps its previous image and settings (updating running modules is not built yet)"
+            ),
+            "{}",
+            p.items[0].reason
+        );
+        assert!(
+            p.warnings
+                .iter()
+                .any(|w| w
+                    .starts_with("shop-web-01 keeps the image or settings it was created with")),
+            "{:?}",
+            p.warnings
+        );
+
+        // A volume's path is storage; its size grows in place and does not count.
+        let volume = |path: &str, size_mib: u32| VolumeMount {
+            name: "data".into(),
+            size_mib,
+            content: VolumeContent::Filesystem,
+            class: VolumeClass::DataLocal,
+            path: Some(path.into()),
+            pool: None,
+        };
+        let mut stateful = desired("db-01");
+        stateful.spec.volumes = vec![volume("/srv/data", 1024)];
+        let mut db = observed("shop-db-01", "apelora", true, Some(("shop", "db-01", 1)));
+        db.built_from = Some(spec_fingerprint(&stateful.spec));
+        let mut grown = stateful.clone();
+        grown.spec.volumes = vec![volume("/srv/data", 4096)];
+        assert!(
+            item(&grown, &db).items[0].outdated.is_empty(),
+            "size is grown in place"
+        );
+        let mut moved = stateful.clone();
+        moved.spec.volumes = vec![volume("/var/lib/db", 1024)];
+        assert_eq!(item(&moved, &db).items[0].outdated, ["storage"]);
+    }
+
+    #[test]
+    fn outdated_parts_compare_only_what_both_recorded() {
+        assert_eq!(
+            outdated_parts(
+                "image=a,settings=b,storage=c",
+                "image=a,settings=x,storage=c"
+            ),
+            ["settings"]
+        );
+        assert!(
+            outdated_parts("image=a", "image=a,settings=x").is_empty(),
+            "an older label without settings"
+        );
+        assert!(outdated_parts("garbage", "image=a").is_empty());
+    }
+
     fn stateless(module: &str, replicas: u8) -> DesiredModule {
         DesiredModule {
             replicas,
@@ -516,6 +743,7 @@ mod tests {
             }),
             evacuate: None,
             unreachable: false,
+            built_from: None,
             limits: Default::default(),
         }
     }
@@ -611,7 +839,8 @@ mod tests {
                 instance: "shop-web-01-r3".into(),
                 action: Remove,
                 reason: "no longer in the design".into(),
-                changes: vec![]
+                changes: vec![],
+                outdated: vec![],
             }
         );
         // A replica label that does not match the name is somebody else's instance.

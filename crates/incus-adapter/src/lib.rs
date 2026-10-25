@@ -526,7 +526,11 @@ impl Provider {
     /// Starts creating an instance (validated spec) and returns the Incus operation id.
     pub async fn create_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
         spec.validate().map_err(AdapterError::InvalidConfig)?;
-        let spec = mirrored(spec)?;
+        // What it is built from, as designed (before any image mirror): the planner compares it.
+        let built_from = apelora_domain::plan::spec_fingerprint(spec);
+        let mut spec = mirrored(spec)?.into_owned();
+        spec.config
+            .insert(apelora_domain::SPEC_KEY.into(), built_from);
         match self {
             Provider::Mock(m) => m.create(&spec),
             Provider::Incus(c) => c.create_instance(&spec).await,
@@ -2612,6 +2616,7 @@ impl MockIncus {
                     .iter()
                     .filter_map(|k| spec.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
                     .collect(),
+                built_from: spec.config.get(apelora_domain::SPEC_KEY).cloned(),
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
@@ -2940,6 +2945,7 @@ impl Default for MockIncus {
             owner: None,
             evacuate: None,
             unreachable: false,
+            built_from: None,
             limits: Default::default(),
         };
         Self {
