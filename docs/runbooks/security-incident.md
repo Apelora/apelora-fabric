@@ -1,9 +1,7 @@
 # A security incident: a stolen credential, a misused account or a session you did not expect
 
-**Evidence:** written from the controls Apelora has. Each control is tested (API and browser
-tests, MOCK VERIFIED; the certificate rotation is REAL INCUS TESTED). The procedure as a whole has
-**not been drilled** and no identity provider, directory or MAAS was involved: NOT YET VERIFIED.
-Record the result here after a drill.
+Use this page when a credential may be stolen, an account or session is misused, or a session
+appears that you did not expect.
 
 Order of work: **contain, keep the evidence, find out what was done, recover, learn.** Contain
 first and quickly: everything below that contains is reversible, and everything is audited.
@@ -95,5 +93,10 @@ it: redeploy, and restore its volumes from a backup taken before the incident
 - Close the gap: a shorter session limit (`APELORA_CONSOLE_IDLE_SECS`, `APELORA_CONSOLE_MAX_SECS`),
   an approval rule or MFA requirement under *Access policies*, a narrower role, fewer legacy
   tokens.
-- Add an entry to [LESSONS-LEARNED.md](../development/LESSONS-LEARNED.md) if something
-  non-obvious went wrong, and correct this runbook with what you verified.
+- If this runbook missed a step or got one wrong, correct it.
+
+## Before you rely on it
+
+- Each control on this page is tested on its own, but the procedure as a whole has not been
+  rehearsed, and not with an identity provider, a directory or MAAS involved. Rehearse it once with
+  your team before you need it.

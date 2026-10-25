@@ -1,15 +1,11 @@
 # Reading the Health page
 
-**Evidence:** the page and its API are MOCK VERIFIED (Rust API tests, Playwright with stubbed
-data). The server figures (CPU threads, load, memory, storage pool space, members by status,
-networks and pools) were read from the four-member test cluster with Apelora's restricted Incus
-identity and compared with direct Incus reads: REAL INCUS TESTED, read-only, 2026-10-21. Worker
-heartbeats and job counts are tested against PostgreSQL, not yet in a real incident.
+Use the Health page to see what is wrong and where to look first. Open Fabric Console → **Health**
+(needs `cluster.view`, held by Fabric administrators, Viewers and Auditors at platform level).
 
-Fabric Console → **Health** (needs `cluster.view`, held by Fabric administrators, Viewers and
-Auditors at platform level). The page reads again every 20 seconds while it is visible and
-says when it last read. If a read fails, the last figures stay on screen with a notice that
-says how old they are; nothing is filled in.
+The page reads again every 20 seconds while it is visible, and says when it last read. If a read
+fails, the last figures stay on screen with a notice that says how old they are; nothing is
+filled in.
 
 <p align="center">
   <img src="../screenshots/28-console-health-degraded-1440x900.png" alt="The Health page with an overall state of Down: deployment workers down, job queue down, Incus degraded with node-3 offline, identity provider unreachable, and three server cards with CPU, memory and storage bars and warnings" width="720">

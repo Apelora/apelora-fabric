@@ -1,8 +1,8 @@
 # Signing in to the Fabric Console and the Studio
 
-How people sign in to Apelora, how an administrator sets up sign-in with the organisation's identity provider, and what the messages on the sign-in page mean. Design and security details are in [Identity and authorization, section 3](../architecture/IDENTITY-AND-AUTHORIZATION.md#3-sign-in).
+This page shows how people sign in to Apelora and what the messages on the sign-in page mean. It also shows administrators how to set up sign-in with the organisation's identity provider, local accounts or a directory. Design and security details are in [Identity and authorization, section 3](../architecture/IDENTITY-AND-AUTHORIZATION.md#3-sign-in).
 
-The screenshots on this page were taken against a stubbed control plane (`tests/e2e/screenshots.spec.ts`); the providers and addresses in them are examples.
+The providers and addresses in the screenshots are examples.
 
 ## Which way applies to you
 
@@ -59,7 +59,7 @@ Once an administrator has added your organisation's identity provider (section 4
   <img src="../screenshots/26-console-sign-in-phone-390x844.png" alt="The same sign-in page on a phone, after Use an API token instead: the provider button above an API token field" width="260">
 </p>
 
-- The browser uses the authorization code flow with PKCE, `state` and `nonce`; Apelora never sees your password.
+- The browser uses the OpenID Connect authorization code flow with PKCE (Proof Key for Code Exchange), `state` and `nonce`. Apelora never sees your password.
 - The access token is kept only for this browser tab, like an API token.
 - Your account is created at your first sign-in, **without any role**. An administrator then gives you a role (Identity & Access → Users → *Assign role…*, or Project memberships). Until then you see little or nothing.
 
@@ -217,9 +217,9 @@ Refusals are not written to the audit history (anyone could fill it with bad req
 
 ## 7. Directories (LDAP over TLS)
 
-People can also sign in with the username and password of an existing directory that speaks LDAP. Apelora connects over TLS, signs in to the directory **as that person** (it binds with their name and password), reads their entry and groups with that same sign-in, and forgets the password. No directory service account or password is stored. Design: [ADR 0007](../adr/0007-sign-in-methods.md), [design note](../design/sign-in-methods.md).
+People can also sign in with the username and password of an existing directory that speaks LDAP (Lightweight Directory Access Protocol). Apelora connects over TLS and signs in to the directory **as that person**: it binds with their name and password. It reads their entry and groups with that same sign-in, then forgets the password. No directory service account or password is stored. Design: [ADR 0007](../adr/0007-sign-in-methods.md), [design note](../design/sign-in-methods.md).
 
-> **State:** directories are configured and checked in the Console, and the directory bind is REAL DIRECTORY TESTED against the development directory. The Fabric Console and the Studio offer each enabled directory on the sign-in form (the same username and password fields as a local account; the form itself is checked against a stubbed control plane). The same per-address limit as a local password applies.
+The Fabric Console and the Studio offer each enabled directory on the sign-in form, with the same username and password fields as a local account. The same per-address limit as a local password applies.
 
 ### Adding a directory
 
@@ -272,8 +272,6 @@ People sign in as `name@example.org`; entries carry `objectGUID` and `memberOf`:
 | Display name attribute | `displayName` |
 | Group attribute of the person | `memberOf` |
 
-(Written from documentation; not tested against such a directory.)
-
 ### Trying it locally
 
 ```sh
@@ -299,3 +297,8 @@ Then add a directory with address `ldaps://localhost:1636`, the CA from `infra/d
 | *A search in the directory failed* | Often: the person may not read the groups. Check the directory's access rules |
 
 People signing in see *The username or password is incorrect.* for a refused bind (the same for every way it can be wrong) and *The directory … cannot be reached right now* (`503 directory_unreachable`) when the directory cannot be used; other ways in keep working. Each failed directory sign-in is audited as `auth.directory.failed` with the username and a reason (`wrong`, `unreachable`, `entry_unreadable`, `disabled`), never the password; a directory that cannot be used is also logged at `warn` with the precise reason.
+
+## Before you rely on it
+
+- Sign-in with an identity provider and with a directory has been tried with the development ones in this repository. It has not yet been tried with a production provider or directory: try yours with a test account first.
+- The example for a directory with user principal names is written from documentation and has not been tried against such a directory.

@@ -1,6 +1,6 @@
 # Tenancy: environments' Incus projects and quotas
 
-**Evidence:** the Incus side (creating a restricted project, its profile, granting it to the deploy identity, limits that Incus enforces, deleting it) REAL INCUS TESTED on the four-member lab, 2026-10-21; the API and Console steps MOCK VERIFIED. Design: [tenancy isolation](../design/tenancy-isolation.md), [ADR 0012](../adr/0012-tenancy-on-incus-projects.md).
+Use this page to raise a quota, and to fix an environment whose Incus project is not prepared. Design: [tenancy isolation](../design/tenancy-isolation.md), [ADR 0012](../adr/0012-tenancy-on-incus-projects.md).
 
 Each environment deploys into its own restricted Incus project (`<organisation>-<project>-<environment>`). Apelora creates it when the environment is created, with the administrator identity (`APELORA_INCUS_ADMIN_CLIENT_CERT`), and adds it to the deploy identity's project list. Quotas cap organisations, projects and environments; a deployment over a quota is refused before anything is saved.
 
@@ -52,3 +52,9 @@ incus config trust show <deploy-fingerprint>                  # projects: includ
 ```
 
 Never make the deploy identity unrestricted to work around a missing grant (ADR 0003).
+
+## Before you rely on it
+
+- The Incus side of this page (the restricted project, its profile, the grant, the limits Incus
+  enforces) has run on a lab cluster. The Console and API steps have been tested with simulated
+  data only. Raise a quota on a test environment first.

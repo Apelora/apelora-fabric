@@ -1,8 +1,8 @@
 # Alerts
 
-Status: **NOT YET VERIFIED on the test cluster** (MOCK VERIFIED: evaluator, API, webhook delivery to a local HTTPS receiver, Console) · Design: [alerts](../design/alerts.md) · Related: [monitoring](../architecture/MONITORING.md), [troubleshooting](troubleshooting.md)
+Apelora watches a fixed set of conditions about itself and its applications. It raises **alerts** in the Fabric Console (`#/alerts`) and, if you set them up, at **webhooks**. This page says how to set them up, how to respond, and what to check for each rule. Built-in alerts do not replace your metrics collector ([monitoring](../architecture/MONITORING.md)); they cover what Apelora itself knows.
 
-Apelora watches a fixed set of conditions about itself and its applications and raises **alerts** in the Fabric Console (`#/alerts`) and, if set up, at **webhooks**. This page says how to set them up, how to respond, and what to check for each rule. Built-in alerts do not replace your metrics collector ([MONITORING.md](../architecture/MONITORING.md)); they cover what Apelora itself knows.
+Related: [alerts design](../design/alerts.md), [troubleshooting](troubleshooting.md).
 
 ## Set up
 
@@ -87,3 +87,7 @@ Messages for a deleted or turned-off channel are dropped. Undelivered messages a
 
 ### Apelora's database restore is not proven
 `restore-drill-age`. No restore drill has passed for the threshold in days. Run the drill: [database backup](apelora-database-backup.md).
+
+## Before you rely on it
+
+- Alerts have been tested with simulated data and a local test receiver. They have not yet run on a real cluster or delivered to a real receiver: send a test to your webhook and watch the first real alerts closely.

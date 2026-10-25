@@ -1,10 +1,8 @@
 # Maintenance on a server
 
-Evacuate the server, do the work, then restore it. Its instances move to other servers, or stop, until you restore it.
+Evacuate the server, do the work, then restore it. Its instances move to other servers, or stop, until you restore it. A container on local storage typically moves in about ten seconds and keeps its addresses.
 
-Run on 2026-10-20 on a two-member cluster, through the control plane and Fabric Console. Containers on local storage moved in about ten seconds and kept their addresses.
-
-The pictures are sample data from `tests/e2e/screenshots-console-docs.spec.ts`. The names are examples.
+The names in the pictures are examples.
 
 ## Evacuate
 
@@ -60,10 +58,10 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 The member is Online. Each application's instances are on the servers you expect. Its service addresses answer.
 
-Both actions need `manage-infrastructure`. They are audited as `cluster.member.evacuate` and `cluster.member.restore`.
+Both actions need `cluster.evacuate` (the Fabric Administrator role; for an API token, `manage-infrastructure`). They are audited as `cluster.member.evacuate` and `cluster.member.restore`.
 
 ## Move one module first
 
 A virtual machine with **Keep running when moved** (Studio, Availability) moves to another server while it runs. In Fabric Console open **Instances → Move…**, or let evacuation move it. A container, or a virtual machine whose volumes are on its own server, stops for the move: **Move…** with **Allow a short stop** copies the volumes and starts it on the new server.
 
-Run on 2026-10-21. See [Moving modules and surviving failures](../design/mobility-and-ha.md).
+See [Moving modules and surviving failures](../design/mobility-and-ha.md).

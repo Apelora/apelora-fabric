@@ -1,10 +1,7 @@
 # A storage problem: a pool filling up, a pool that is down, or backups that stop
 
-**Evidence:** written from the features Apelora has and from the Incus documentation. The
-individual operations it points to (grow, snapshot, backup, restore, delete) are REAL INCUS TESTED
-and say so in [volumes.md](volumes.md). The incident procedure itself has **not been drilled**:
-every section below is NOT YET VERIFIED as a whole. Follow it with care and record the result here
-when it has been done.
+Use this page when a storage pool fills up or becomes unavailable, when the shared pool
+misbehaves, or when backups stop.
 
 Apelora does not manage Incus's storage drivers. It asks Incus to create, grow, snapshot and
 delete volumes in the pools it is told to use (`APELORA_VOLUME_POOL`, `APELORA_SHARED_POOL`, the
@@ -95,4 +92,10 @@ probe cannot be read, nothing restarts, by design.
   caught it earlier (Alerts → rules have editable thresholds).
 - Run a restore drill for the affected volume class; the *old restore drill* alert exists so this
   does not go stale.
-- If the procedure above was wrong or missing a step, correct it here and mark what was verified.
+- If the procedure above was wrong or missing a step, correct it here.
+
+## Before you rely on it
+
+- The operations this page points to (grow, snapshot, backup, restore, delete) work on their own,
+  as [volumes.md](volumes.md) describes. The incident procedure as a whole has not been rehearsed
+  yet; it follows Apelora's features and the Incus documentation. Follow it with care.

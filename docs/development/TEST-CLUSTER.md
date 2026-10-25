@@ -135,7 +135,7 @@ bash scripts/test-cluster/ha-drill.sh plan              # read-only: checks the 
 bash scripts/test-cluster/ha-drill.sh run <planfile>    # refuses without a fresh plan for the same member list
 ```
 
-It never stops `apelora-san`, `apelora-test-1` (the API address and the OVN database) or the database leader, and only a member whose loss keeps the quorum; it runs its own database, control plane (:8095) and worker (:9495) and removes everything on exit. `HA_DRILL_VM=1` (set for both `plan` and `run`) deploys a virtual machine with `migration.stateful=true` instead of a container, and waits for the guest agent before it reads the marker back. Timings: [member failure](../runbooks/member-failure.md#modules-on-shared-storage).
+It never stops `apelora-san`, `apelora-test-1` (the API address and the OVN database) or the database leader, and only a member whose loss keeps the quorum; it runs its own database, control plane (:8095) and worker (:9495) and removes everything on exit. `HA_DRILL_VM=1` (set for both `plan` and `run`) deploys a virtual machine with `migration.stateful=true` instead of a container, and waits for the guest agent before it reads the marker back. Timings: [member failure](../runbooks/member-failure.md#modules-on-shared-storage) (typical) and [current state](../architecture/current-state.md#evidence-behind-the-guides) (per run).
 
 Blocked egress (ADR 0010: an installation without internet access). Outbound traffic from the members, and from the instances they run, is dropped except to the lab's own networks (the members' directly connected subnets, which include the host and `incusbr0`), the members' DNS resolvers, and the mirror you declare:
 
@@ -157,6 +157,16 @@ Remove everything (the VMs and the credentials):
 ```sh
 bash scripts/test-cluster/down.sh
 ```
+
+## Lab equivalents of guide and runbook steps
+
+The guides and runbooks describe real servers and no longer name the lab's scripts; these are the lab's versions of their steps (what each one proved is in [current state](../architecture/current-state.md#evidence-behind-the-guides)).
+
+- **Install Incus:** `incus-vm.yaml` holds the package-repository steps, with the signing-key check in code (it refuses a key whose fingerprint differs). The lab uses a file-backed pool and the managed NAT bridge `incusbr0` as the uplink, for convenience only. `up.sh` makes both client certificates (ECDSA P-384, client authentication only) with the exact `openssl` options. `ovn.sh` is the worked example for one OVN database without TLS; `ovn-ha.sh` (`APPLY=1`) the three-member TLS variant.
+- **Install Apelora Fabric:** `install-units.sh` (above) runs the page's units and NGINX example on one member.
+- **Rotate certificates:** `rotate-identity.sh client|admin` does steps 1–5 of the [certificates runbook](../runbooks/certificates.md), stopping before step 5 (removing the old certificate) if the check in step 3 fails.
+- **A server fails, fence probe:** when Servers → Members says no healthy server answered the probe, run `fence-probe.sh status`. A member VM restarted since the probe was set up has new SSH host keys: run `fence-probe.sh apply` again. `HA_DRILL_BMC=1 ha-drill.sh` uses the `lima` provider in place of a BMC mapping (`APELORA_BMC_MAP`).
+- **Add a server, OVN check (step 5):** `incus launch … --target <name>` on the application network, then `ping` an instance on another member and resolve `<instance>.incus`.
 
 ## Things the real cluster taught us
 

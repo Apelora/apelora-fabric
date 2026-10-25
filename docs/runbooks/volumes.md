@@ -1,10 +1,7 @@
 # An application's volumes: kept, missing or to be deleted
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members, btrfs pool `local`):
-an application with two volumes deployed through the control plane and worker; one module
-removed from the design (its volume kept, shown *Kept, not in use*); that volume deleted from the
-Fabric Console with its name typed; the remaining volume deleted after the application was
-removed. The *Missing* case and a member outage with a volume on it are NOT YET VERIFIED.
+Use this page to delete, grow, snapshot, back up and restore an application's volumes, and to
+deal with volumes that are kept or missing.
 
 What Apelora does on its own:
 
@@ -29,8 +26,7 @@ Grow a volume that is filling up (it can stay in use):
 
 1. Fabric Console → Applications → Show details → *Grow…*, enter the new size in GiB. Or:
    `PATCH /api/v1/applications/<name>/volumes/<volume>` with `{"sizeMib": <size>}`. Needs
-   `application.deploy`; audited as `application.volume.grow`. REAL INCUS TESTED on a running
-   container (filesystem volume, btrfs).
+   `application.deploy`; audited as `application.volume.grow`.
 2. Volumes never shrink through Apelora: Incus would accept it and could destroy data. To make
    one smaller, copy the data to a new, smaller volume and delete the old one.
 
@@ -43,8 +39,7 @@ Snapshots (protection against mistakes, not against losing the server: they live
 2. To go back: stop the module (Instances → Stop), *Restore…*, type the snapshot's name. Every
    change since the snapshot is lost. Start the module again. Audited as
    `application.volume.restore`; needs `application.operate`.
-3. Delete snapshots you no longer need; they use space in the pool. REAL INCUS TESTED
-   (2026-10-21, through the console against the cluster).
+3. Delete snapshots you no longer need; they use space in the pool.
 
 ## Back up a volume and set its schedules
 
@@ -61,15 +56,9 @@ Snapshots (protection against mistakes, not against losing the server: they live
    the only way back to the data from before that restore; the dialog says so. A copy Incus
    no longer has can still be deleted, which clears Apelora's record of it. Needs
    `application.delete` (and an approval where a policy asks). Audited as
-   `application.volume.backup.delete`. MOCK VERIFIED (API against PostgreSQL and the mock,
-   and the dialog in a browser); not run on the lab.
+   `application.volume.backup.delete`.
 
 ## Restore a volume from a backup
-
-**Evidence:** MOCK VERIFIED (worker and API against a real PostgreSQL, browser with a stubbed
-control plane), 2026-10-21. The restore job is REAL INCUS TESTED on the lab (the backup's data
-was read back from inside the instance; the dry run, the typed name and the Console dialog were
-not part of that run).
 
 1. **Stop the module** that uses the volume (Applications or Instances → Stop). Apelora never
    overwrites a volume under a running instance.
@@ -122,3 +111,9 @@ A volume shows *Not found in Incus*:
 A stateful module on a member under maintenance: evacuating the member **stops** the instance
 in place (Incus does not move a member-local volume) and restoring the member starts it again.
 Plan the downtime; see [member-maintenance.md](member-maintenance.md).
+
+## Before you rely on it
+
+- A volume shown *Missing*, and a server outage with a volume on it, have not been tried yet.
+- Deleting a backup copy, and the restore's dry run and dialog, have been tested with simulated
+  data only; the restore itself has run on a lab cluster. Try a restore on a test volume first.

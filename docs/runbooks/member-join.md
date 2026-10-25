@@ -1,15 +1,17 @@
 # Add a server to the cluster
 
-**Evidence:** REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1) — the fourth test member was
-registered, approved, enrolled with `scripts/enrol/enrol-member.sh`, held, checked and admitted
-this way; the second and third joined with a bare join token (steps 2–3 without the machine
-record).
+Use this page to add a server to a running cluster through Apelora: register it, approve it,
+enrol it, then admit it once its checks pass.
 
-Prerequisites: the new server runs the same Incus release as the cluster (see
-`upstream.lock.yaml`), reaches the members' cluster addresses on port 8443, and has not been
-initialised. You need an API token with the `fabric-admin` role, and the control plane needs the
-unrestricted admin identity (`APELORA_INCUS_ADMIN_CLIENT_CERT/KEY`, ADR 0003). Design:
-[node enrolment](../design/node-enrolment.md).
+Before you start:
+
+- The new server runs the same Incus release as the cluster (see `upstream.lock.yaml`), reaches
+  the members' cluster addresses on port 8443, and has not been initialised.
+- You have an API token with the `fabric-admin` role.
+- The control plane has the unrestricted admin identity (`APELORA_INCUS_ADMIN_CLIENT_CERT/KEY`,
+  ADR 0003).
+
+Design: [node enrolment](../design/node-enrolment.md).
 
 1. **Add the machine:** Fabric Console → Servers → *Machines and join tokens* → name (the member name it will
    have) and an optional note, or `POST /api/v1/machines {"name": "<name>"}`. State: *Not
@@ -29,9 +31,9 @@ unrestricted admin identity (`APELORA_INCUS_ADMIN_CLIENT_CERT/KEY`, ADR 0003). D
    architecture, storage pools and networks created on it; OVN and clock reported as not
    checked). Fix any failed check on the server and *Check again*; *Admit server* then lets Incus
    place instances on it. State: *In service*.
-5. **With OVN**, confirm an instance on the new member reaches one on another member (the lab
-   check: `incus launch … --target <name>` on the application network, then `ping` the other
-   instance and resolve `<instance>.incus`).
+5. **With OVN**, confirm that an instance on the new member reaches one on another member. For
+   example: `incus launch … --target <name>` on the application network, then `ping` the other
+   instance and resolve `<instance>.incus`.
 
 If the server never joins, *Withdraw approval* (the token stops working) or *Remove…* the
 machine. Every step is audited (`machine.register`, `machine.approve`,

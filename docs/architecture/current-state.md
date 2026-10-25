@@ -127,6 +127,126 @@ An earlier hypervisor-based design (a Rust node agent and a VM per module) was n
 - **Releases:** `v0.1.0-alpha.2` is the published release (24 October 2026, cut from main: control plane, worker, Studio and Console, both architectures). It has the sign-in page and `GET /api/v1/sign-in`. Leave draft `v0.1.0-alpha.1` unpublished; that package has neither. The staged file upgrade and its file rollback are tested (`scripts/ops/upgrade.sh`); stopping the units and restoring the database are NOT YET VERIFIED. Example systemd units and the NGINX configuration (`infra/systemd/`, `infra/serve/`) are parsed in CI and were started on one lab member from the October draft (`install-units.sh`, 2026-10-23: both units active under `apelora`, health connected to Incus 7.0.1, Studio and Console 200). That start is not a run of `v0.1.0-alpha.2`. Issue #17 stays open until a published release on a production host.
 - **Several sites:** one site and one sector, named on Servers → Members. A second deployment in another site is refused until another site is connected. No second Incus cluster, no network between sites, no move between sites.
 
+## Evidence behind the guides
+
+The installation guides (`docs/guides/`) and the runbooks (`docs/runbooks/`) are written for the people who install and operate Apelora: steps, expected results, and at most one plain *Before you rely on it* list per page. What was checked behind them, how and when, is kept here, grouped by page (moved from those pages on 2026-10-25). Labels as at the top of this file; lab procedures are in [TEST-CLUSTER.md](../development/TEST-CLUSTER.md). Runbook evidence levels: **REAL INCUS TESTED** means carried out on the disposable test cluster (Lima VMs standing in for physical servers), with the date and cluster size; **NOT YET VERIFIED** means written from the Incus documentation and our design.
+
+### Guides
+
+**Servers and network** (`guides/servers-and-network.md`)
+
+- The layouts are what the four-server lab runs: virtual machines with one network card each, a private network between them, and a NAT bridge that Incus manages as the application uplink. Physical servers, separate management and storage networks, physical uplinks, and a bridge on a single physical card that carries the server's own address have **not** been tried. The two-card layout is recommended without having been proven. Statements that rest on Incus's documentation or on our recommendation say so.
+- IPv4 is what has been tried for the servers' own addresses; IPv6 and DNS names for servers are Incus features Apelora has not been tried with. IPv6 has been tried inside application networks and for service addresses (`ipv6.routes`).
+- The lab runs Debian 13 and is ARM64 only: nothing is proven for a cluster that mixes architectures.
+- Sizing (Lima VMs, idle Debian system containers, 2026-10-22): about 40 MiB RAM and 15 MiB disk per container as the kernel counts it, plus the OS and Incus. Not hardware, not busy modules, not VMs ([lab sizing](../design/capacity-lab-sizing.md)).
+- Shared storage: tried with an iSCSI target in the lab. BMC fencing with Redfish: tried against a test server only.
+- OVN databases: the default lab (`ovn.sh`) uses one database without TLS; `ovn-ha.sh APPLY=1` is the three-member TLS cluster, REAL INCUS TESTED 2026-10-22 including leader failover.
+- Service addresses: the lab takes its IPv4 range from the range reserved for network testing (198.18.100.0/28) and an IPv6 ULA `/112` (`ovn.sh`; `APELORA_TEST_SERVICES_V6=` skips IPv6). IPv4 and IPv6 listen addresses REAL INCUS TESTED. Service names (`APELORA_SERVICE_NAME_*`, `dns.domain`, `user.apelora.dns`) REAL INCUS TESTED (`dns.sh`, 2026-10-23); the resolver module answering them REAL INCUS TESTED 2026-10-23 (`dns.sh`: the client resolved the service name and the instance name still resolved).
+- Application networks: connections enforced over IPv4 and IPv6, REAL INCUS TESTED (`scripts/test-cluster/ipv6.sh`, 2026-10-22: a connected module reached its provider over both, an unconnected one was refused over both).
+
+**Install Incus** (`guides/install-incus.md`)
+
+- The steps are those the four-server lab was built with (`scripts/test-cluster/`), written with variables. REAL INCUS TESTED on that lab, virtual machines with one network card each. Physical servers and a physical uplink have not been tried; those parts follow Incus's own documentation.
+- The package-repository route is what the lab does; its version, with the key check in code, is `scripts/test-cluster/incus-vm.yaml`, which refuses a key whose fingerprint differs. The lab uses a file-backed pool, for convenience only. The preseed shown is the lab's, with variables. `scripts/test-cluster/up.sh` makes both client certificates (ECDSA P-384, client authentication only) with the exact `openssl` options.
+- OVN: `scripts/test-cluster/ovn.sh` starts one database without TLS (a shortcut so application-network tests can run) on a managed NAT bridge uplink; it is the worked example for a single database. `scripts/test-cluster/ovn-ha.sh` (`APPLY=1`) converts that layout to three clustered databases with TLS. REAL INCUS TESTED on the four-member lab, 2026-10-22, OVN 25.03: three raft members, TLS client remotes (`pssl:6641` / `pssl:6642`), Incus `network.ovn.northbound_connection` on `ssl:` with a client certificate. Stopping the leader's database processes elected another member; existing OVN ACLs were unchanged; Incus still listed the project's leftover module ACLs; a container on `apelora-default` kept pinging the OVN router (0% loss). Debian's `ovn-central.service` is a dummy oneshot (kept on the page as a tip).
+
+**Install Apelora Fabric** (`guides/installing-apelora.md`)
+
+- The services have run together against the four-server lab (REAL INCUS TESTED).
+- The example systemd units and NGINX configuration are parsed in CI on ubuntu-24.04 (`scripts/ci/verify-install-examples.sh`: `systemd-analyze verify` for the units, `nginx -t` with dummy certificates for the proxy). The page's content security policy is checked by a browser test.
+- They were **started** on one lab member from the draft release `v0.1.0-alpha.1` (`scripts/test-cluster/install-units.sh`, 2026-10-23): `User=apelora`, `ProtectHome=true`, both units active, `/api/v1/health` connected to the cluster, Studio and Console 200 over TLS through the example proxy, `/api/v1/health` through the proxy. That is not a published release and not a production host (issue #17); they have not been run as a production proxy or on a production host from a published release. `install-units.sh` now installs `v0.1.0-alpha.2`.
+- Releases: every version tag (`v*`) triggers the release workflow, which builds each service for x86-64 and ARM64 and each screen as its own archive, with SHA-256 checksums, and attaches them to a draft GitHub release that a maintainer reviews and publishes.
+- The step 4 and step 5 commands added to the page (account, `/usr/local/bin`, `/srv/apelora/*`, `/etc/apelora/serve/`) follow `infra/systemd/*.service`, `infra/serve/apelora.conf` and `install-units.sh`.
+
+**Signing in** (`guides/signing-in.md`)
+
+- The screenshots were taken against a stubbed control plane (`tests/e2e/screenshots.spec.ts`).
+- Directories are configured and checked in the Console, and the directory bind is REAL DIRECTORY TESTED against the development directory. The sign-in form that offers each enabled directory is checked against a stubbed control plane.
+- The user-principal-name directory example is written from documentation; not tested against such a directory.
+- Identity-provider sign-in with PKCE was tested in a real browser against the local development provider only; a live production provider is NOT VERIFIED (see the identity row above).
+
+**Terminal sessions** (`guides/terminal-sessions.md`)
+
+- MOCK VERIFIED and CONTRACT VERIFIED. No session has been opened into a real Incus instance yet (nor a Windows guest, nor with a live identity provider).
+- `tests/e2e/web-serving.spec.ts` opens a terminal in each production build under exactly the content security policy of `infra/serve/apelora.conf`.
+- The agents' rules for this area are the `secure-remote-access` skill.
+
+**Testing without hardware** (`guides/testing-without-hardware.md`)
+
+- Level 1 (mock provider) is MOCK VERIFIED: it proves the logic, the permissions and the screens, and nothing about how Incus, storage or the network behave. Level 2 (Lima lab) is REAL INCUS TESTED.
+- BMC: the lab drives fencing with a provider that force-stops the VM (`HA_DRILL_BMC=1 bash scripts/test-cluster/ha-drill.sh plan`), REAL INCUS TESTED: a server cut off but still running was fenced at 61 s. The Redfish and IPMI providers are CONTRACT VERIFIED (Redfish against a Redfish-shaped test server; IPMI against a test BMC on loopback UDP and an independent IPMI implementation acting as one) until a real BMC runs them.
+- MAAS: listing and reading machines was run against MAAS 3.7.4 in the lab; those records use manual power and do not boot. Commission, install, release, and a test that boots a machine were checked against a server that answers in MAAS's shape, not against hardware.
+- Shared storage: the failover drills used the lab SAN's iSCSI LUN.
+- Until real servers arrive, statements about the BMC fence provider, the uplink and VLANs, storage speed and hardware faults stay CONTRACT VERIFIED or NOT YET VERIFIED.
+
+### Runbooks
+
+**Revoke access** (`runbooks/access-revocation.md`): revoking an API token REAL INCUS TESTED (control plane against the test cluster), 2026-10-20; revoking an unused join token REAL INCUS TESTED, 2026-10-20; rotating Apelora's Incus identities REAL INCUS TESTED, 2026-10-20; a server that left the cluster NOT YET VERIFIED.
+
+**Alerts** (`runbooks/alerts.md`): NOT YET VERIFIED on the test cluster. MOCK VERIFIED: evaluator, API, webhook delivery to a local HTTPS receiver, Console.
+
+**The control plane or the worker is down** (`runbooks/api-outage.md`): the job queue's lease and fencing behaviour is covered by tests (MOCK VERIFIED). REAL INCUS TESTED, 2026-10-20, four members, `scripts/test-cluster/drill-worker-restart.sh`: a worker killed (`kill -9`) while Incus was creating an instance; a second worker took the jobs over when the 30 s lease expired, waited on the operation the first had started, and finished with exactly the three instances asked for; the same deployment request sent twice queued its jobs once. A longer outage under load NOT YET VERIFIED.
+
+**Rotate Apelora's Incus certificates** (`runbooks/certificates.md`): REAL INCUS TESTED, 2026-10-20: both identities rotated on the three-member test cluster with `rotate-identity.sh`; the old certificates were gone from the trust store, the deploy identity kept its project restriction, and the real Incus tests passed with the new ones. The test cluster issues the certificates for 90 days.
+
+**The deploy identity cannot see its project** (`runbooks/deploy-identity.md`): REAL INCUS TESTED, 2026-10-20. The cause was seen on the test cluster (the project deleted and recreated; access disappeared when a member went offline).
+
+**Back up and restore Apelora's own database** (`runbooks/apelora-database-backup.md`), 2026-10-23, PostgreSQL 18.6. Self-tests: `scripts/ops/test-db-backup.sh`, `test-db-archive.sh`, `test-db-restore-host.sh`, `test-db-units.sh`.
+
+- Logical backup, scratch restore, retention, a damaged file refused, `openssl cms`, and `age` 1.3.2: the dev database on a workstation, client tools from `postgres:18-alpine`. The `age` drill decrypted, restored and verified. CI runs the same self-test and requires `age` to be installed.
+- Continuous archiving, on a throwaway PostgreSQL 18.6 removed afterwards: `archive_command` stored a completed segment, `pg_stat_archiver.failed_count` stayed 0, a base backup used `--wal-method=none`, and recovery into a new data directory returned a row written only after that backup. The source server was stopped before the new data directory started.
+- Logical restore onto another PostgreSQL (a second server on `127.0.0.1:15442`, not the dev database's port): 29 migrations and 196 audit rows came back, and the dev database still had 196 audit rows. Restoring into the live server, or into a database that already has tables, was refused.
+- The example backup and drill units are started by `test-db-units.sh` where systemd runs; it is part of CI (ubuntu-24.04), parses every example unit, starts both services and enables both timers. It was not run on the workstation (no systemd), and it does not wait for 02:15 or Sunday 04:00.
+- The Console's backup view is MOCK VERIFIED (records written in a temporary directory); not checked against a real scheduled run.
+- Not done: a production host, a second physical machine (the new-host proof was a second PostgreSQL on the same workstation), leaving the timers to fire on their own calendars, and starting the control plane and worker on the restored database plus reconciling what the backup missed as one drill. Issue #17 (the install page's units from a published release) is a separate gap.
+
+**Reading the Health page** (`runbooks/health-page.md`): the page and its API are MOCK VERIFIED (Rust API tests, Playwright with stubbed data). The server figures (CPU threads, load, memory, storage pool space, members by status, networks and pools) were read from the four-member test cluster with Apelora's restricted Incus identity and compared with direct Incus reads: REAL INCUS TESTED, read-only, 2026-10-21. Worker heartbeats and job counts are tested against PostgreSQL, not yet in a real incident.
+
+**Reading quorum, and a rolling Incus upgrade** (`runbooks/incus-rolling-upgrade.md`): the readings (Servers → Members and Upgrades, `GET /api/v1/cluster/members`) are REAL INCUS TESTED read-only, 2026-10-21 (Incus 7.0.1, four members: three voters and a stand-by). The package upgrade was run on the empty four-member lab on 2026-10-23 (7.0.1 → 7.0.2): the first member blocked the other three until they were upgraded; all four then reported Online. Evacuation was not exercised (no instances), and Apelora's Upgrades tab was not the tool that installed the packages.
+
+**A server fails** (`runbooks/member-failure.md`)
+
+- Stateless replicas: REAL INCUS TESTED, 2026-10-20: a member's VM force-stopped three times with two members and three times with three members (`demo.sh`, recovery delay 30 s); replicas were substituted and later retired automatically; the service was whole again 84–206 s after the failure. In the one run where Incus refused every load balancer update for the whole outage, the service still became whole after about 3.5 minutes.
+- Shared storage: REAL INCUS TESTED, 2026-10-21 (four members, Incus 7.0.1, clustered LVM pool `shared` on the lab SAN, `scripts/test-cluster/ha-drill.sh`, a container module with a 256 MiB volume): restarted on another member 144–155 s after its member's VM was force-stopped (three runs), only once that member's storage lease was dead, with its data intact. Per run (t = force-stop): Offline t+22/23/23 s; failure opened t+29/30/30 s; lease FAIL t+85/92/74 s; DEAD, fenced and recover job queued t+139/148/144 s; relinked at the same times; lock wait 7 s with 3 attempts / 5 s / none; running t+146/155/144 s. Run 1 was before the job waited for the lock; a fourth attempt was stopped before the failure because of a stale SSH host key. After run 3 the VM was started again: Online after 15 s, its lease LIVE with the next generation after 29 s, learned by the worker after 76 s, failure closed. In run 1 Incus also reported the three members that were not stopped as Offline for about 10 s (the heartbeat round was held up by the dead member); Apelora opened failures for them, saw their leases LIVE, fenced nothing and closed them.
+- Virtual machine on shared storage: `HA_DRILL_VM=1`, 2026-10-23, Incus 7.0.2, a debian/13 VM with `migration.stateful=true`, root disk and a 256 MiB volume on `shared`, three runs each force-stopping `apelora-test-2`. Running on `apelora-test-1` at t+144/141/144 s; the file written beforehand read back at t+163/158/164 s; the stopped member Online again within 19 s, and the worker learned its new lease (generations 7, 8, 9) within 83 s. A cold start, on nested virtual machines, not a physical server.
+- BMC fencing: `HA_DRILL_BMC=1 ha-drill.sh`, 2026-10-21, REAL INCUS TESTED with the lab's `lima` provider standing in for a BMC: the member's Incus port was cut with nftables and its VM kept running; timeline as on the page; the restart job used 5 attempts and 26 Incus operations. The Redfish provider is CONTRACT VERIFIED only; the IPMI provider is CONTRACT VERIFIED only, and `real_ipmi` would be its first run on a real BMC.
+- Removing a member that never returns: NOT YET VERIFIED.
+
+**Add a server to the cluster** (`runbooks/member-join.md`): REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1): the fourth test member was registered, approved, enrolled with `scripts/enrol/enrol-member.sh`, held, checked and admitted this way; the second and third joined with a bare join token (steps 2–3 without the machine record). The OVN check in step 5 is the lab's check.
+
+**Maintenance on a server** (`runbooks/member-maintenance.md`): run on 2026-10-20 on a two-member cluster, through the control plane and the Fabric Console; containers on local storage moved in about ten seconds and kept their addresses. Moving one module first: run on 2026-10-21. The pictures are sample data from `tests/e2e/screenshots-console-docs.spec.ts`.
+
+**Remove a server** (`runbooks/member-removal.md`): run on 2026-10-20, Incus 7.0.1, four members: member 4 was evacuated, checked and removed through the API; the cluster kept three database members; the machine was approved again, joined with the enrolment script and admitted; every step was audited. Removing a database voter from the Console, on a real cluster, has not been run. The picture is sample data from `tests/e2e/screenshots-console-docs.spec.ts`.
+
+**Network incidents** (`runbooks/network-incident.md`): the OVN central database outage is REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, OVN 25.03, four members; the test cluster runs one central database on member 1, a documented shortcut, `scripts/test-cluster/ovn.sh`): `ovn-central` stopped on that member with an application of a client and two web replicas behind a service address; traffic and names kept working; a deployment that added a replica stalled; after the database started again, the queued jobs finished within 10 s. A member's OVN controller or tunnel down, and the uplink unreachable: NOT YET VERIFIED.
+
+**Update without internet access** (`runbooks/offline-update.md`): the bundle part is tested locally (2026-10-21, macOS): `scripts/release/bundle.sh` built and signed a bundle with a throwaway key, and `scripts/release/verify.sh` accepted it offline and refused it after a file was changed, a file was added, the signature was removed, `SHA256SUMS` was edited, the signer was not allowed, or the archive held a link. `scripts/ops/upgrade.sh` prints the staged order (worker stopped before the control plane) and, with `APPLY=1`, copies `bin/` and `web/` into a prefix while keeping the previous copies for `ROLLBACK=1`; that copy and the file rollback are tested by `scripts/ops/test-upgrade.sh`. Stopping the units, starting them, and restoring PostgreSQL are NOT YET VERIFIED on an installation.
+
+**The cluster loses quorum** (`runbooks/quorum-loss.md`): temporary loss REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members: three database voters and a standby): two voters force-stopped at once and started again; the test cluster's probe instance answered throughout; the API answered again and all members were Online within 10 s of the two members booting, with the same roles. Permanent loss (recovering from the surviving members) NOT YET VERIFIED: it rewrites the cluster's database membership and was not run on the test cluster.
+
+**A replica fails its health check** (`runbooks/replica-unhealthy.md`): REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members): the end-to-end demonstration (`scripts/test-cluster/demo.sh`) closes the port of one NGINX replica while it keeps running and checks each step on the page. The application check (readiness command) is NOT YET VERIFIED against a real failing application.
+
+**A security incident** (`runbooks/security-incident.md`): written from the controls Apelora has. Each control is tested (API and browser tests, MOCK VERIFIED; the certificate rotation REAL INCUS TESTED). The procedure as a whole has not been drilled, and no identity provider, directory or MAAS was involved: NOT YET VERIFIED. After a drill, record the result here and add an entry to [LESSONS-LEARNED.md](../development/LESSONS-LEARNED.md) if something non-obvious went wrong.
+
+**A storage problem** (`runbooks/storage-incident.md`): written from Apelora's features and the Incus documentation. The operations it points to (grow, snapshot, backup, restore, delete) are REAL INCUS TESTED as listed for volumes below; the incident procedure as a whole has not been drilled (NOT YET VERIFIED).
+
+**Tenancy and quotas** (`runbooks/tenancy-quotas.md`): the Incus side (creating a restricted project, its profile, granting it to the deploy identity, limits that Incus enforces, deleting it) REAL INCUS TESTED on the four-member lab, 2026-10-21; the API and Console steps MOCK VERIFIED.
+
+**An application's volumes** (`runbooks/volumes.md`)
+
+- REAL INCUS TESTED, 2026-10-20 (Incus 7.0.1, four members, btrfs pool `local`): an application with two volumes deployed through the control plane and worker; one module removed from the design (its volume kept, shown *Kept, not in use*); that volume deleted from the Fabric Console with its name typed; the remaining volume deleted after the application was removed. The *Missing* case and a member outage with a volume on it NOT YET VERIFIED.
+- Grow: REAL INCUS TESTED on a running container (filesystem volume, btrfs). Snapshot delete: REAL INCUS TESTED (2026-10-21, through the Console against the cluster). Deleting a backup copy: MOCK VERIFIED (API against PostgreSQL and the mock, and the dialog in a browser); not run on the lab.
+- Restore from a backup: MOCK VERIFIED (worker and API against a real PostgreSQL, browser with a stubbed control plane), 2026-10-21. The restore job is REAL INCUS TESTED on the lab (the backup's data was read back from inside the instance; the dry run, the typed name and the Console dialog were not part of that run).
+
+**Troubleshooting** (`runbooks/troubleshooting.md`)
+
+- The log lines and request ids were produced by the control plane with the mock provider (2026-10-21); the worker and Incus lines are covered by unit and contract tests (MOCK VERIFIED / CONTRACT VERIFIED). They have not yet been read off a real cluster incident.
+- From a request id to the job and the Incus operation: CONTRACT VERIFIED with the mock provider and a real PostgreSQL (2026-10-21, `one_request_id_links_the_request_its_audit_row_the_job_and_the_incus_operation`); not yet followed on a real cluster incident.
+- Retrying and cancelling a job: MOCK VERIFIED with a real PostgreSQL (API, worker and persistence tests, 2026-10-21); not yet used on a real cluster incident.
+- Reading an instance's logs: CONTRACT VERIFIED (adapter against spec-shaped replies) and MOCK VERIFIED (API and Console). REAL INCUS TESTED 2026-10-23 on a running Debian container on the four-member lab (`a_real_instance_has_a_detail_log_files_and_a_bounded_console_log`: `lxc.log` listed and tailed, console log 612 bytes, a path outside the listed files refused).
+- The audit table's append-only triggers come from migration 0022; retention through monthly partitions is EVERY-SIZE.md §5 item 9.
+- The support bundle's scrubber is `settings::scrub`; `account_tests::the_support_bundle_holds_the_parts_and_never_a_planted_secret` plants secrets in every source.
+
 ## Deviations from the incoming specification (deliberate)
 
 - **npm workspaces kept** instead of pnpm (owner decision): no tooling churn; Fabric Console is another workspace.

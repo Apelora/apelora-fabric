@@ -2,11 +2,9 @@
 
 Use this when a server is retired, replaced, or reinstalled, and it can still be reached. Empty it, remove what is left on it, then remove the member.
 
-Run on 2026-10-20, Incus 7.0.1, four members. Member 4 was evacuated, checked, and removed through the API. The cluster kept three database members. The machine was approved again, joined with the enrolment script, and admitted. Every step was audited. Removing a database voter from the console, on a real cluster, has not been run.
-
 A server that is down and will not come back is a different case. Apelora does not remove an unreachable member, because Incus can only force that. See [A server fails](member-failure.md).
 
-The picture is sample data from `tests/e2e/screenshots-console-docs.spec.ts`. The names are examples.
+The names in the picture are examples.
 
 ## Empty it
 
@@ -52,3 +50,7 @@ This needs `cluster.manage` and the admin identity. It is audited as `cluster.me
 ## Afterwards
 
 The machine record shows left. Incus resets the removed server to a standalone server. To use it again, approve the machine and enrol it. See [Add a server to the cluster](member-join.md). Reinstall it first when the hardware was replaced or repaired.
+
+## Before you rely on it
+
+- Removing a server that holds a database role (a voter) from the Console has not been tried yet. Check the warnings, and keep at least three database members.
