@@ -1029,10 +1029,12 @@ async fn send_close(socket: &mut WebSocket, reason: &'static str) {
     .await;
 }
 
-/// Does the person still hold the permission, and is the account still enabled? Re-reads the
-/// account, their group memberships recorded in Apelora, and their assignments. Groups that
-/// mirror an identity-provider group keep the value from sign-in: the provider cannot be asked
-/// again without a token.
+/// Does the person still hold the permission, is the account still enabled, and, when the
+/// session was opened with an Apelora sign-in (`apu_`, carried in the ticket's principal), is
+/// that sign-in still live (not signed out, revoked, reset or past its absolute expiry)?
+/// Re-reads the sign-in, the account, their group memberships recorded in Apelora, and their
+/// assignments. Groups that mirror an identity-provider group keep the value from sign-in: the
+/// provider cannot be asked again without a token.
 async fn still_allowed(state: &AppState, t: &Ticket) -> Option<bool> {
     let Auth::Tokens(pool) = &state.auth else {
         return Some(false);
@@ -1042,6 +1044,16 @@ async fn still_allowed(state: &AppState, t: &Ticket) -> Option<bool> {
     let unverifiable = |what: &str, e: &dyn std::fmt::Display| {
         tracing::warn!(session = %t.id, error = %e, "session: cannot re-check access ({what})");
     };
+    if let Some(sign_in) = &t.principal.session {
+        match apelora_persistence::user_sessions::session_is_live(pool, sign_in.id).await {
+            Ok(true) => {}
+            Ok(false) => return Some(false),
+            Err(e) => {
+                unverifiable("sign-in", &e);
+                return None;
+            }
+        }
+    }
     match apelora_persistence::identity::user(pool, c.id).await {
         Ok(Some(u)) if u.disabled_at.is_none() => {}
         Ok(_) => return Some(false),

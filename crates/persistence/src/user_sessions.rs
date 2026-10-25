@@ -102,6 +102,20 @@ pub async fn authenticate_session(
     .await?)
 }
 
+/// Is the session still live: not revoked (sign-out, an administrator, a password reset or
+/// change, the person disabled) and before its absolute expiry? Unlike
+/// [`authenticate_session`] it neither records a use nor applies the idle limit: it answers for
+/// something the session opened, such as a terminal, that is itself in use.
+pub async fn session_is_live(pool: &Pool, id: Uuid) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM user_sessions s JOIN users u ON u.id = s.user_id
+           WHERE s.id = $1 AND s.revoked_at IS NULL AND s.expires_at > now() AND u.disabled_at IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(pool)
+    .await?)
+}
+
 /// Revokes one session; false when it was already revoked or unknown.
 pub async fn revoke_session(db: impl sqlx::PgExecutor<'_>, id: Uuid) -> Result<bool> {
     Ok(sqlx::query(
