@@ -12,9 +12,12 @@ Use this page when a cluster member goes Offline: what Apelora does on its own, 
 3. After `APELORA_RECOVER_AFTER_SECS` (default 120 s), the replica supervisor creates a substitute
    (`<replica>-s<n>`) on another member for every stateless replica stranded there. The next
    network sync replaces the dead backend in the load balancer. This is audited as
-   `application.replica.substitute`. Incus sometimes refuses load balancer updates for the
-   whole outage (`peer node … is down`); the sync is retried, and the service can then take a few
-   minutes longer to be whole again.
+   `application.replica.substitute`.
+
+   With Incus 7.0, the load balancer cannot change while the member is offline: Incus refuses
+   every load balancer update in the cluster (`peer node … is down`). The substitute then runs but
+   gets no traffic, and the service address can keep sending a share of requests to the dead
+   replica until the member returns or you remove it (what to do, step 2).
 4. Singletons and stateful modules whose disks are all on the shared pool (volume class
    `data-replicated`) restart on another member once the failed one is **fenced** (next section).
    Everything else on a member-local pool is **not** recovered automatically: it waits for its
@@ -25,13 +28,19 @@ Use this page when a cluster member goes Offline: what Apelora does on its own, 
 
 1. Confirm the failure: Servers → Members shows the member Offline. Check the server's power,
    network and Incus service.
-2. For single-instance and stateful modules on the member: wait for the member if it will be
+2. Decide whether the member will be back soon. If it will not, and service addresses must
+   stop sending requests to its replicas, remove it from the cluster with Incus on a remaining
+   member: `incus cluster remove --force <member>`. Apelora does not force a removal for you.
+   A forced removal deletes the member and the records of every instance on it, so do it only
+   after step 3 for anything stateful. Afterwards load balancer updates go through again and the
+   substitutes receive the traffic.
+3. For single-instance and stateful modules on the member: wait for the member if it will be
    back soon. Otherwise restore them elsewhere from your backups (Apelora never recreates
    stateful data from scratch).
-3. When the member returns, Incus starts its instances again. Each replica slot then holds two
+4. When the member returns, Incus starts its instances again. Each replica slot then holds two
    instances; the supervisor keeps the one that puts replicas back on different members and
    deletes the other (`application.replica.retire`).
-4. If a load balancer still shows backends as `unknown` in
+5. If a load balancer still shows backends as `unknown` in
    `GET /1.0/networks/<network>/load-balancers/<address>/state`, the next network sync re-applies
    its health check; a failed sync is retried after a minute.
 
@@ -139,4 +148,4 @@ Apelora does not remove an unreachable member (for an evacuated, reachable one, 
 - The times on this page come from a lab of virtual machines with clustered LVM on a test SAN.
   Your servers and storage will differ; measure them once on your own hardware.
 - The Redfish and IPMI providers have been checked against test servers only, not real BMCs.
-- Removing a member that will not return has not been tried yet.
+- Removing a member that will not return, including to unblock its service addresses, has not been tried on a cluster yet.
