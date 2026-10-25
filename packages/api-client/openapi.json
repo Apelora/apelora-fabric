@@ -3604,7 +3604,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once.",
+        "summary": "Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API\ntokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once.",
         "operationId": "approve_request",
         "parameters": [
           {
@@ -3740,7 +3740,7 @@
         "tags": [
           "identity"
         ],
-        "summary": "Rejects a request. Needs `approval.grant`.",
+        "summary": "Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused).",
         "operationId": "reject_request",
         "parameters": [
           {

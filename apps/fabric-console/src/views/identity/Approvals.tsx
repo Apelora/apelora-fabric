@@ -77,7 +77,9 @@ export function ApprovalsPanel({ me, catalogue, policies, onAuth }: { me: WhoAmI
   const [notice, setNotice] = useState<string | null>(null);
   const { busy, error, run } = useRun(onAuth);
   const canRequest = holdsPlatform(me, "approval.request");
-  const canDecide = holdsPlatform(me, "approval.grant");
+  const seesAll = holdsPlatform(me, "approval.grant");
+  // Only a signed-in person decides; an API token that holds approval.grant still sees the list.
+  const canDecide = seesAll && me?.kind === "user";
   const mine = me ? actorRef(me) : "";
   const actions = [...new Set([
     ...catalogue.filter((p) => p.needsApproval).map((p) => p.id),
@@ -101,7 +103,7 @@ export function ApprovalsPanel({ me, catalogue, policies, onAuth }: { me: WhoAmI
             <button type="button" className="btn btn-sm btn-ghost" onClick={reload}>Refresh</button>
             {canRequest && <button type="button" className="btn btn-sm btn-primary" onClick={() => setRequesting(true)} data-testid="approval-open">Request approval</button>}
           </SectionHeader>
-          <p className="text-sm text-base-content/70">Some actions are carried out only after a second person approves them. An approval is good once, for 30 minutes, for exactly the action and target requested. You see your own requests{canDecide ? " and every open one" : ""}.</p>
+          <p className="text-sm text-base-content/70">Some actions are carried out only after a second person approves them. An approval is good once, for 30 minutes, for exactly the action and target requested. You see your own requests{seesAll ? " and every open one" : ""}.</p>
           {notice && <Notice tone="ok" testId="approvals-notice">{notice}</Notice>}
           {error && <ErrorPanel message={error} testId="approvals-error" />}
           {items.length === 0 ? <p className="text-sm text-base-content/70" data-testid="approvals-empty">No approval requests.</p> : (

@@ -3847,11 +3847,11 @@ export type Responses = {
   approvals: ApprovalList;
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
   request_approval: ApprovalDto;
-  /** Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once. */
+  /** Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API tokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once. */
   approve_request: ApprovalDto;
   /** Withdraws your own pending request. Needs `approval.request`. */
   cancel_request: ApprovalDto;
-  /** Rejects a request. Needs `approval.grant`. */
+  /** Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused). */
   reject_request: ApprovalDto;
   /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;

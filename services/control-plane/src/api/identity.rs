@@ -28,7 +28,8 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::authz::{
-    allow, allow_any, allow_platform, audit_alone, audit_scoped, begin, commit, filter_for, now,
+    CallerKind, allow, allow_any, allow_platform, audit_alone, audit_scoped, begin, commit,
+    filter_for, now,
 };
 use super::deploy::store;
 use super::{ApiError, AppState, AuditList, ErrorBody, Principal};
@@ -2373,6 +2374,34 @@ async fn decide(
         Some(res) => allow(p, "approval.grant", res)?,
         None => allow_platform(p, "approval.grant")?,
     }
+    // Only a person decides. A legacy token (or any other non-person caller) is recorded as a
+    // principal of its own, so its holder could otherwise approve the request they made as
+    // themselves; service identities never hold `approval.grant` in the first place.
+    if !p
+        .caller
+        .as_ref()
+        .is_some_and(|c| c.kind == CallerKind::User)
+    {
+        audit_alone(
+            pool,
+            p,
+            if approve {
+                "approval.grant"
+            } else {
+                "approval.reject"
+            },
+            &id.to_string(),
+            "denied",
+            None,
+            &json!({ "reason": "approvals are decided by people, not tokens" }),
+        )
+        .await?;
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "approval_needs_a_person",
+            "approvals are decided by a signed-in person, not by an API token",
+        ));
+    }
     let mut tx = begin(pool).await?;
     let outcome = db::decide_approval_in(&mut tx, id, &p.actor_ref(), true, approve).await?;
     match outcome {
@@ -2415,7 +2444,8 @@ async fn decide(
     }
 }
 
-/// Approves a request made by someone else. Needs `approval.grant`. The approval is good for 30 minutes, once.
+/// Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API
+/// tokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once.
 #[utoipa::path(post, path = "/api/v1/approvals/{id}/approve", tag = "identity", operation_id = "approve_request",
     params(("id" = Uuid, Path, description = "Approval id")),
     responses((status = 200, body = ApprovalDto), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody), (status = 410, body = ErrorBody)))]
@@ -2427,7 +2457,7 @@ pub(super) async fn approve_request(
     decide(&state, &p, id, true).await
 }
 
-/// Rejects a request. Needs `approval.grant`.
+/// Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused).
 #[utoipa::path(post, path = "/api/v1/approvals/{id}/reject", tag = "identity", operation_id = "reject_request",
     params(("id" = Uuid, Path, description = "Approval id")),
     responses((status = 200, body = ApprovalDto), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]

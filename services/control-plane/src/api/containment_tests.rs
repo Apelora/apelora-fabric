@@ -701,3 +701,47 @@ async fn joining_a_group_never_gives_more_than_the_caller_could_grant(pool: Pool
         "{rows:?}"
     );
 }
+
+/// An approval is another person's judgement: a legacy token is not a person (it is recorded as a
+/// different principal from whoever holds it), so it may neither approve nor reject.
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn only_a_person_decides_an_approval(pool: Pool) {
+    let l = lab(pool.clone());
+    let w = world(&l).await;
+    let (legacy, _) = apelora_persistence::create_token(&pool, "ops", "fabric-admin", None)
+        .await
+        .expect("token");
+    let ask = json!({ "action": "token.create_admin", "target": "token:fabric-admin", "reason": "break-glass token for the runbook" });
+    for verb in ["approve", "reject"] {
+        let (s, ap) = l
+            .req("POST", "/api/v1/approvals", &w.admin, Some(ask.clone()))
+            .await;
+        assert_eq!(s, StatusCode::CREATED, "{ap}");
+        let id = ap["id"].as_str().expect("id").to_owned();
+        let (s, b) = l
+            .req(
+                "POST",
+                &format!("/api/v1/approvals/{id}/{verb}"),
+                &legacy,
+                None,
+            )
+            .await;
+        assert_eq!(
+            (s, code(&b)),
+            (StatusCode::FORBIDDEN, Some("approval_needs_a_person")),
+            "{verb}: {b}"
+        );
+    }
+    let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM approvals WHERE state = 'pending'")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(pending, 2, "both requests are still waiting for a person");
+    let denied: Vec<String> = sqlx::query_scalar(
+        "SELECT action FROM audit_events WHERE outcome = 'denied' AND actor = 'token:ops' AND action IN ('approval.grant', 'approval.reject') ORDER BY id",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(denied, ["approval.grant", "approval.reject"]);
+}
