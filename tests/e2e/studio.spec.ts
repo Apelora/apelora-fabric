@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { MODULE_CLASSES } from "../../packages/module-catalog/src/classes";
+import { CATEGORIES, SUBCATEGORIES } from "../../packages/assembly-model/src/constants";
 import { test } from "@playwright/test";
-import { openProps, addPorts, assemblyState, cablePoint, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
+import { openProps, addPorts, assemblyState, cablePoint, catalogTile, center, dragHandle, edgeCount, expect, expectEdgesAnchored, flowSize, handle, node, open, resolvedColor, viewport } from "./helpers";
 
 const rgb = (page: import("@playwright/test").Page, sel: string, prop = "backgroundColor") => (prop === "backgroundColor" ? resolvedColor(page, sel) : page.locator(sel).first().evaluate((el, p) => getComputedStyle(el)[p as "color"], prop));
 
@@ -173,6 +174,10 @@ test.describe("context menus", () => {
     await expect(menu(page)).toContainText("Canvas");
     await expect(item(page, "paste")).toBeDisabled();
     await item(page, "add").click();
+    // Add module › category › module, the same grouping as the catalog panel
+    await expect(page.getByTestId("menu-add-cat-networking")).toBeVisible();
+    await page.getByTestId("menu-add-cat-data").click();
+    await expect(page.getByTestId("context-submenu").last()).toContainText("Key-value & cache");
     await page.getByTestId("menu-add-redis").click();
     const st = await assemblyState(page);
     const redis = st.spec.modules.find((a) => a.id.startsWith("redis"))!;
@@ -339,7 +344,7 @@ test.describe("configuration forms", () => {
 
   test("save as custom module carries the configured values as new defaults", async ({ page }) => {
     await open(page);
-    await page.locator("[data-testid=catalog-tile][data-class-id=redis]").click();
+    await (await catalogTile(page, "redis")).click();
     const id = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("redis"))!.id;
     await openProps(page, id, "config");
     await page.getByTestId("cfg-maxmemory").fill("2048");
@@ -368,7 +373,7 @@ test.describe("category colours and cable routing", () => {
     expect(await tint("nginx-01")).not.toBe(await tint("postgresql-01")); // web vs database accent
     expect(await tint("nginx-01")).toBe(await tint("nginx-02"));
     await expect(node(page, "nginx-01").getByTestId("node-class")).toHaveText("NGINX");
-    await expect(page.locator("[data-testid=catalog-tile][data-class-id=nginx]")).toBeVisible();
+    await expect((await catalogTile(page, "nginx"))).toBeVisible();
     // toggle off via the canvas menu; survives reload
     const canvas = (await page.getByTestId("canvas").boundingBox())!;
     await page.mouse.click(canvas.x + 80, canvas.y + 80, { button: "right" });
@@ -405,7 +410,7 @@ test.describe("network interface and link tags", () => {
   const dropAt = async (page: import("@playwright/test").Page, cls: string, fx: number, fy: number) => {
     const before = (await assemblyState(page)).spec.modules.map((a) => a.id);
     const box = (await page.getByTestId("canvas").boundingBox())!;
-    await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
+    await (await catalogTile(page, cls)).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
     return (await assemblyState(page)).spec.modules.map((a) => a.id).find((id) => !before.includes(id))!;
   };
 
@@ -787,7 +792,7 @@ test.describe("properties window", () => {
 
     // an unverified description is visibly marked; a port the class picks says so
     await page.getByTestId("catalog-search").fill("neo4j");
-    await page.locator("[data-testid=catalog-tile][data-class-id=neo4j]").click();
+    await (await catalogTile(page, "neo4j")).click();
     const neo = (await assemblyState(page)).spec.modules.find((a) => a.id.startsWith("neo4j"))!.id;
     await openProps(page, neo);
     await expect(m.getByTestId("metrics-confidence")).toHaveText("Unverified");
@@ -1113,7 +1118,7 @@ test.describe("responsive and themes", () => {
   test("dark theme: logos get a light chip so dark brand marks stay visible", async ({ page }) => {
     await open(page);
     await page.locator("select[aria-label=Theme]").selectOption("night");
-    const bg = await page.locator("[data-testid=catalog-tile] .apl-logo").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const bg = await (await catalogTile(page, "nginx")).locator(".apl-logo").evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
     const nodeLogo = await node(page, "nginx-01").getByTestId("node-logo").evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(nodeLogo).not.toBe("rgba(0, 0, 0, 0)");
@@ -1206,7 +1211,7 @@ test.describe("cables and plugs", () => {
     const before = (await assemblyState(page)).spec.connections.find((c) => c.id === "conn-03")!; // haproxy -> nginx-02
     expect(before.target.moduleId).toBe("nginx-02");
     // add a third web server to re-plug into
-    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+    await (await catalogTile(page, "nginx")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
     const newId = (await assemblyState(page)).spec.modules.map((a) => a.id).find((id) => !["gateway-01", "haproxy-01", "nginx-01", "nginx-02", "postgresql-01", "grafana-01"].includes(id))!;
     // grab the cable end near nginx-02's "in" jack and drop it on the new node's "in" jack
     const jack = await center(handle(page, "nginx-02", "http"));
@@ -1292,25 +1297,80 @@ test.describe("custom modules", () => {
 });
 
 test.describe("catalog", () => {
-  test("sections collapse, search filters, click adds exactly one instance", async ({ page }) => {
-    await open(page);
-    const section = page.locator("[data-testid=catalog-section][data-category='Databases & Cache']");
-    const dbCount = MODULE_CLASSES.filter((c) => c.category === "Databases & Cache").length;
-    expect(dbCount).toBeGreaterThanOrEqual(12);
-    await expect(section.getByTestId("catalog-tile")).toHaveCount(dbCount);
-    await section.getByRole("button").first().click();
-    await expect(section.getByTestId("catalog-tile")).toHaveCount(0);
-    await section.getByRole("button").first().click();
-    await expect(section.getByTestId("catalog-tile")).toHaveCount(dbCount);
+  const category = (page: import("@playwright/test").Page, cat: string) => page.locator(`[data-testid=catalog-section][data-category='${cat}']`);
+  const sub = (page: import("@playwright/test").Page, cat: string, name: string) => category(page, cat).locator(`[data-testid=catalog-subsection][data-subcategory='${name}']`);
+  const inCategory = (cat: string) => MODULE_CLASSES.filter((c) => c.category === cat);
 
-    await page.getByTestId("catalog-search").fill("redi");
+  test("two-level menu: only the first category starts open; both levels collapse, show counts and are remembered", { tag: "@smoke" }, async ({ page }) => {
+    await open(page);
+    const sections = page.getByTestId("catalog-section");
+    await expect(sections.first()).toHaveAttribute("data-category", "Custom");
+    await expect(sections.first().getByTestId("catalog-category")).toHaveAttribute("aria-expanded", "true");
+    for (const head of await page.getByTestId("catalog-category").all()) {
+      if ((await head.locator("xpath=ancestor::section").getAttribute("data-category")) !== "Custom") await expect(head).toHaveAttribute("aria-expanded", "false");
+    }
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(0); // Custom is empty; every other category is closed
+
+    // Opening a category shows its subcategories with counts; the first one is open.
+    const net = category(page, "Networking");
+    await expect(net.getByTestId("catalog-category")).toContainText(String(inCategory("Networking").length));
+    await net.getByTestId("catalog-category").click();
+    await expect(net.getByTestId("catalog-category")).toHaveAttribute("aria-expanded", "true");
+    await expect(net.getByTestId("catalog-subsection")).toHaveCount(7);
+    await expect(sub(page, "Networking", "Application network").getByTestId("catalog-tile")).toHaveCount(3);
+    const routing = sub(page, "Networking", "Routing");
+    await expect(routing.getByTestId("catalog-subcategory")).toHaveAttribute("aria-expanded", "false");
+    await expect(routing.getByTestId("catalog-subcategory")).toContainText("3");
+    await routing.getByTestId("catalog-subcategory").click();
+    await expect(routing.locator("[data-testid=catalog-tile]")).toHaveCount(3);
+    await expect(routing.locator("[data-class-id=frr]")).toBeVisible();
+    // the header controls the group it opens
+    const controls = await routing.getByTestId("catalog-subcategory").getAttribute("aria-controls");
+    await expect(page.locator(`[id="${controls}"]`)).toBeVisible();
+    await sub(page, "Networking", "Application network").getByTestId("catalog-subcategory").click();
+    await expect(sub(page, "Networking", "Application network").getByTestId("catalog-tile")).toHaveCount(0);
+
+    // Keyboard: the headers are buttons; Enter and Space toggle them.
+    const data = category(page, "Data").getByTestId("catalog-category");
+    await data.focus();
+    await page.keyboard.press("Enter");
+    await expect(data).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press(" ");
+    await expect(data).toHaveAttribute("aria-expanded", "false");
+
+    // The choices survive a reload (this browser only).
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("apelora.studio.catalog-menu.v1") ?? "")).toContain('"Networking/Routing":true');
+    await page.reload();
+    await page.waitForSelector("[data-testid=module-node]");
+    await expect(category(page, "Networking").getByTestId("catalog-category")).toHaveAttribute("aria-expanded", "true");
+    await expect(sub(page, "Networking", "Routing").getByTestId("catalog-tile")).toHaveCount(3);
+    await expect(sub(page, "Networking", "Application network").getByTestId("catalog-tile")).toHaveCount(0);
+    await expect(category(page, "Data").getByTestId("catalog-category")).toHaveAttribute("aria-expanded", "false");
+    // the custom modules saved in this browser are untouched by the menu state
+    expect(await page.evaluate(() => localStorage.getItem("apelora.studio.catalog.v1") ?? "")).not.toContain("Networking");
+  });
+
+  test("search finds a module in any group, shows its category path, and a click adds exactly one instance", async ({ page }) => {
+    await open(page);
+    await page.getByTestId("catalog-search").fill("frr");
     await expect(page.getByTestId("catalog-tile")).toHaveCount(1);
-    await expect(page.getByTestId("catalog-section")).toHaveCount(1);
+    await expect(page.getByTestId("catalog-result-group")).toHaveCount(1);
+    await expect(page.getByTestId("catalog-result-group")).toHaveAttribute("data-path", "Networking › Routing");
+    await expect(page.getByTestId("catalog-result-group")).toContainText("Networking › Routing");
+    await expect(page.getByTestId("catalog-count")).toHaveText(`1 of ${MODULE_CLASSES.length}`);
+    await expect(page.getByTestId("catalog-expand-all")).toBeDisabled();
     const before = (await assemblyState(page)).spec.modules.length;
     await page.getByTestId("catalog-tile").click();
     expect((await assemblyState(page)).spec.modules.length).toBe(before + 1);
+    // a subcategory name finds its modules; matches in several groups keep their own paths
+    await page.getByTestId("catalog-search").fill("dns");
+    const paths = await page.getByTestId("catalog-result-group").evaluateAll((els) => els.map((e) => e.getAttribute("data-path")));
+    expect(paths).toEqual(expect.arrayContaining(["Networking › DNS & discovery", "Networking › DHCP & IPAM"]));
     await page.getByTestId("catalog-search").fill("zzzz");
     await expect(page.getByText("No modules match")).toBeVisible();
+    await page.getByTestId("catalog-no-match").getByRole("button", { name: "Clear search" }).click();
+    await expect(page.getByTestId("catalog-search")).toHaveValue("");
+    await expect(page.getByTestId("catalog-section").first()).toHaveAttribute("data-category", "Custom");
   });
 
   test("Custom section is always visible (with an empty state) and fills when you create one; identity and Microsoft Windows sections exist", async ({ page }) => {
@@ -1333,12 +1393,15 @@ test.describe("catalog", () => {
     await expect(custom.getByTestId("catalog-tile")).toHaveCount(1);
     await expect(page.getByTestId("custom-empty")).toHaveCount(0);
     await expect(custom.getByTestId("new-module")).toBeVisible(); // still there once the section has modules
-    // identity providers
-    const ident = page.locator("[data-testid=catalog-section][data-category='Security & Identity']");
+    // identity providers: the first subcategory of Security & identity, open as soon as the category opens
+    await category(page, "Security & identity").getByTestId("catalog-category").click();
+    const ident = sub(page, "Security & identity", "Identity providers");
     for (const id of ["keycloak", "authelia", "authentik", "pocketid"]) await expect(ident.locator(`[data-class-id=${id}]`)).toBeVisible();
-    // Microsoft Windows
-    const win = page.locator("[data-testid=catalog-section][data-category='Microsoft Windows']");
-    await expect(win.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.filter((c) => c.category === "Microsoft Windows").length);
+    // Microsoft Windows, across its subcategories
+    const win = category(page, "Microsoft Windows");
+    await win.getByTestId("catalog-category").click();
+    for (const s of await win.getByTestId("catalog-subcategory").all()) if ((await s.getAttribute("aria-expanded")) === "false") await s.click();
+    await expect(win.getByTestId("catalog-tile")).toHaveCount(inCategory("Microsoft Windows").length);
     for (const id of ["windows-server", "windows-11", "active-directory", "iis", "sql-server", "dotnet"]) await expect(win.locator(`[data-class-id=${id}]`)).toBeVisible();
     // a Windows module has the usual net terminal, ports and configuration
     await win.locator("[data-class-id=sql-server]").click();
@@ -1376,15 +1439,70 @@ test.describe("catalog", () => {
     await page.getByTestId("designer-delete").click();
   });
 
-  test("tiles show every built-in module, grouped, with collapse all / expand all", async ({ page }) => {
+  test("expand all and collapse all work on both levels; every built-in module is in the menu once", async ({ page }) => {
     await open(page);
-    await expect(page.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.length);
-    await expect(page.getByTestId("catalog-count")).toHaveText(`${MODULE_CLASSES.length} modules`);
-    await page.getByTestId("catalog-collapse-all").click();
     await expect(page.getByTestId("catalog-tile")).toHaveCount(0);
+    await expect(page.getByTestId("catalog-count")).toHaveText(`${MODULE_CLASSES.length} modules`);
     await page.getByTestId("catalog-expand-all").click();
     await expect(page.getByTestId("catalog-tile")).toHaveCount(MODULE_CLASSES.length);
-    expect(await page.getByTestId("catalog-section").count()).toBeGreaterThanOrEqual(6);
+    const ids = await page.getByTestId("catalog-tile").evaluateAll((els) => els.map((e) => e.getAttribute("data-class-id")));
+    expect(new Set(ids).size).toBe(MODULE_CLASSES.length);
+    await expect(page.getByTestId("catalog-section")).toHaveCount(CATEGORIES.length);
+    await expect(page.getByTestId("catalog-subsection")).toHaveCount(Object.values(SUBCATEGORIES).flat().length);
+    for (const c of CATEGORIES.filter((x) => x !== "Custom")) await expect(category(page, c).getByTestId("catalog-category"), c).toContainText(String(inCategory(c).length));
+    await page.getByTestId("catalog-collapse-all").click();
+    await expect(page.getByTestId("catalog-tile")).toHaveCount(0);
+    for (const h of await page.getByTestId("catalog-category").all()) await expect(h).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("a custom module can be filed under a category and subcategory, and appears there", async ({ page }) => {
+    await open(page);
+    await category(page, "Custom").getByTestId("new-module").click();
+    await page.getByTestId("designer-name").fill("Ledger store");
+    await page.getByTestId("designer-category").selectOption("Data");
+    await page.getByTestId("designer-subcategory").selectOption("Relational");
+    await page.getByTestId("designer-save").click();
+    await expect(page.getByText("under Data › Relational")).toBeVisible();
+    await category(page, "Data").getByTestId("catalog-category").click();
+    await expect(sub(page, "Data", "Relational").locator("[data-class-id=custom-ledger-store]")).toBeVisible();
+    await expect(category(page, "Custom").locator("[data-class-id=custom-ledger-store]")).toHaveCount(0);
+  });
+
+  test("every catalog module drops onto the canvas as a compact node with its logo, ports in placement order and a properties form", async ({ page }) => {
+    test.setTimeout(240_000);
+    type Api = { getState: () => { assembly: { spec: { modules: { id: string }[] } }; addFromCatalog: (c: string, p: { x: number; y: number }) => string | null; openProps: (t: { kind: "module"; id: string; tab: "config" }) => void; closeProps: () => void; deleteElements: (n: string[], e: string[]) => void } };
+    await open(page);
+    await page.getByTestId("new-menu").click();
+    await page.getByTestId("new-empty").click();
+    // A real drag from the panel for the first module of every subcategory.
+    const groups = [...new Set(MODULE_CLASSES.map((c) => `${c.category}/${c.subcategory}`))];
+    const firstOfEach = groups.map((k) => MODULE_CLASSES.find((c) => `${c.category}/${c.subcategory}` === k)!.id);
+    expect(firstOfEach.length).toBe(Object.values(SUBCATEGORIES).flat().length);
+    await page.getByTestId("catalog-expand-all").click();
+    const box = (await page.getByTestId("canvas").boundingBox())!;
+    for (const [i, id] of firstOfEach.entries()) {
+      const before = (await assemblyState(page)).spec.modules.length;
+      await (await catalogTile(page, id)).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 90 + (i % 6) * ((box.width - 180) / 5), y: 80 + Math.floor(i / 6) * 70 } });
+      const after = (await assemblyState(page)).spec.modules;
+      expect(after.length, `dropping ${id}`).toBe(before + 1);
+      expect(after.at(-1)!.classRef.name, `dropping ${id}`).toBe(id);
+    }
+    await page.evaluate(() => { const s = (window as unknown as { __studio: Api }).__studio.getState(); s.deleteElements(s.assembly.spec.modules.map((m) => m.id), []); });
+    // Every class renders as a node: logo loaded, one handle per port in the class's order (inputs left with net last, outputs right with mon last), and its properties open.
+    for (const c of MODULE_CLASSES) {
+      const id = await page.evaluate((cid) => (window as unknown as { __studio: Api }).__studio.getState().addFromCatalog(cid, { x: 200, y: 200 }), c.id);
+      expect(id, c.id).toBeTruthy();
+      const n = node(page, id!);
+      await expect(n, c.id).toBeVisible();
+      expect(await n.getByTestId("node-logo").evaluate((img: HTMLImageElement) => img.decode().then(() => true, () => false)), `${c.id} logo`).toBe(true);
+      const side = (s: string) => page.locator(`.react-flow__node[data-id="${id}"] .react-flow__handle[data-side=${s}]`).evaluateAll((els) => els.map((e) => e.getAttribute("data-port-id")));
+      expect(await side("input"), `${c.id} inputs`).toEqual(c.ports.filter((p) => p.direction === "input").map((p) => p.id));
+      expect(await side("output"), `${c.id} outputs`).toEqual(c.ports.filter((p) => p.direction === "output").map((p) => p.id));
+      await page.evaluate((nid) => (window as unknown as { __studio: Api }).__studio.getState().openProps({ kind: "module", id: nid, tab: "config" }), id!);
+      await expect(page.getByTestId(c.properties?.length ? "config-form" : "no-config"), `${c.id} properties`).toBeVisible();
+      await page.evaluate((nid) => { const s = (window as unknown as { __studio: Api }).__studio.getState(); s.closeProps(); s.deleteElements([nid], []); }, id!);
+    }
+    expect((await assemblyState(page)).spec.modules).toHaveLength(0);
   });
 });
 
@@ -1394,7 +1512,7 @@ test.describe("drag and drop placement", () => {
       await open(page);
       const buttons = zoomClicks < 0 ? "Zoom out" : "Zoom in";
       for (let i = 0; i < Math.abs(zoomClicks); i++) { await page.getByRole("button", { name: buttons }).click(); await page.waitForTimeout(220); }
-      const tile = page.locator("[data-testid=catalog-tile][data-class-id=redis]");
+      const tile = (await catalogTile(page, "redis"));
       const canvas = (await page.getByTestId("canvas").boundingBox())!;
       const target = { x: canvas.x + canvas.width * 0.3, y: canvas.y + canvas.height * 0.82 };
       const drop = async () => {
@@ -1499,8 +1617,8 @@ test.describe("editing", () => {
   test("connections: valid accepted; wrong direction, type mismatch and duplicates rejected with a reason", async ({ page }) => {
     await open(page);
     // add Apache (mysql out) + MariaDB (mysql in) and connect them
-    await page.locator("[data-testid=catalog-tile][data-class-id=apache]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 120, y: 560 } });
-    await page.locator("[data-testid=catalog-tile][data-class-id=mariadb]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 480, y: 560 } });
+    await (await catalogTile(page, "apache")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 120, y: 560 } });
+    await (await catalogTile(page, "mariadb")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 480, y: 560 } });
     const st = await assemblyState(page);
     const apache = st.spec.modules.find((a) => a.id.startsWith("apache"))!.id;
     const maria = st.spec.modules.find((a) => a.id.startsWith("mariadb"))!.id;
@@ -1626,7 +1744,7 @@ test.describe("validation and quality", () => {
   test("validation panel lists issues with correction hints and focuses the module", async ({ page }) => {
     await open(page);
     await expect(page.getByTestId("validation-panel")).toContainText("No issues");
-    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
+    await (await catalogTile(page, "nginx")).click();
     await expect(page.getByTestId("error-count")).toBeVisible();
     await page.getByTestId("validation-toggle").click();
     await expect(page.getByTestId("diagnostics")).toContainText("required input");

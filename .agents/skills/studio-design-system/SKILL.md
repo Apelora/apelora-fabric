@@ -12,7 +12,7 @@ description: Apply the Apelora Studio visual design contract with Tailwind CSS 4
 | Area | Rule |
 |---|---|
 | Shell | White (`base-100`), near-black text; slim 48px header; small neutral buttons (`btn btn-sm`); exactly one `btn-primary` per toolbar (Export) |
-| Catalog (left) | 160–200px, scrolls independently, collapsible categories, 2-column compact tiles with logos |
+| Catalog (left) | 160–200px, scrolls independently, two-level collapsible menu (category → subcategory, counts, first category open, state remembered), 2-column compact tiles with logos; sentence-case headers (category semibold with its colour dot, subcategory indented and lighter), no spaced capitals |
 | Canvas | Separate framed workspace: `--apl-canvas` `#F7F7F8`, 1px border, 12px radius, at most one soft frame shadow, title strip with three neutral dots, name, zoom. Dotted grid optional and faint |
 | Inspector (right) | 210–270px, white, labelled fields |
 | Colors | daisyUI semantic tokens only (`base-*`, `neutral`, `error`…). No `dark:` with daisyUI colors. Product logos keep vendor colors. No hard-coded grays for text |

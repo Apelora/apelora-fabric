@@ -52,7 +52,9 @@ describe("metrics descriptions", () => {
   });
 
   it("operating-system classes rely on Incus and offer an optional agent, without a mon output", () => {
-    for (const c of MODULE_CLASSES.filter((x) => x.category === "Operating Systems" || ["windows-server", "windows-11", "windows-10"].includes(x.id))) {
+    const systems = MODULE_CLASSES.filter((x) => x.subcategory === "Linux systems" || x.subcategory === "Windows systems");
+    expect(systems.map((c) => c.id)).toEqual(expect.arrayContaining(["linux-base", "debian", "opensuse", "windows-server", "windows-11", "windows-10"]));
+    for (const c of systems) {
       expect(c.metrics?.source, c.id).toBe("agent");
       expect(c.metrics?.onByDefault, c.id).toBe(false);
       expect(c.metrics?.note, c.id).toMatch(/Incus/);

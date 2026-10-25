@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { GENERIC_ICONS, logoUrl } from "@apelora/module-catalog";
-import { CATEGORIES, NODE, PORT_TYPES, minModuleHeight, portCenterY, type Category } from "@apelora/assembly-model";
+import { CATEGORIES, NODE, PORT_TYPES, SUBCATEGORIES, minModuleHeight, portCenterY, type Category } from "@apelora/assembly-model";
 import { classFromDraft, emptyProp, newPortKey, useCustomCatalog, type Draft, type DraftPort, type DraftProp } from "../../features/catalog/customCatalog";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { Jack } from "../canvas/Jack";
@@ -64,7 +64,7 @@ export function ModuleDesigner() {
     if (!r.ok) { setErrors(r.errors); return; }
     store.getState().save(r.cls);
     store.getState().closeDesigner();
-    api.getState().toast("success", `${existing ? "Updated" : "Created"} module “${r.cls.displayName}”. It is in the catalog under ${r.cls.category}.`);
+    api.getState().toast("success", `${existing ? "Updated" : "Created"} module “${r.cls.displayName}”. It is in the catalog under ${r.cls.category}${r.cls.subcategory ? ` › ${r.cls.subcategory}` : ""}.`);
   };
   const del = () => {
     if (!d.editingId) return;
@@ -144,7 +144,14 @@ export function ModuleDesigner() {
           <div className="flex flex-col gap-3">
             <label className="fieldset"><span className="fieldset-legend text-[11px]">Name</span><input className="input input-sm w-full" data-testid="designer-name" maxLength={48} value={d.name} placeholder="e.g. Session cache" onChange={(e) => patch({ name: e.target.value })} /></label>
             <label className="fieldset"><span className="fieldset-legend text-[11px]">Category</span>
-              <select className="select select-sm w-full" value={d.category} onChange={(e) => patch({ category: e.target.value as Category })}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
+              <select className="select select-sm w-full" data-testid="designer-category" value={d.category} onChange={(e) => { const category = e.target.value as Category; patch({ category, subcategory: SUBCATEGORIES[category].includes(d.subcategory ?? "") ? d.subcategory : undefined }); }}>{CATEGORIES.map((c) => <option key={c}>{c}</option>)}</select></label>
+            {SUBCATEGORIES[d.category].length > 0 && (
+              <label className="fieldset"><span className="fieldset-legend text-[11px]">Subcategory</span>
+                <select className="select select-sm w-full" data-testid="designer-subcategory" value={d.subcategory ?? ""} onChange={(e) => patch({ subcategory: e.target.value || undefined })}>
+                  <option value="">Other</option>
+                  {SUBCATEGORIES[d.category].map((s) => <option key={s}>{s}</option>)}
+                </select></label>
+            )}
             <label className="fieldset"><span className="fieldset-legend text-[11px]">Summary</span><input className="input input-sm w-full" maxLength={200} value={d.summary} onChange={(e) => patch({ summary: e.target.value })} /></label>
             <div className="flex gap-2">
               <label className="fieldset min-w-0 flex-1"><span className="fieldset-legend text-[11px]">vCPU</span><input type="number" min={1} className="input input-sm w-full" value={d.cpu} onChange={(e) => patch({ cpu: Number(e.target.value) })} /></label>

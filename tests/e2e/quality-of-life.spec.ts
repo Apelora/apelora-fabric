@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import { test, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { assemblyState, center, expect, handle, node, open } from "./helpers";
+import { assemblyState, catalogTile, center, expect, handle, node, open } from "./helpers";
 
 const menuItem = (page: Page, id: string) => page.getByTestId(`menu-${id}`);
 const studio = (page: Page) => page.evaluate(() => (window as unknown as { __studio: { getState: () => { assembly: { spec: { target?: { platform: string } } } } } }).__studio.getState().assembly.spec.target?.platform ?? "incus");
 
 async function dropFirst(page: Page, cls: string, fx = 0.3, fy = 0.4) {
   const box = (await page.getByTestId("canvas").boundingBox())!;
-  await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
+  await (await catalogTile(page, cls)).dragTo(page.getByTestId("canvas"), { targetPosition: { x: box.width * fx, y: box.height * fy } });
 }
 
 test.describe("templates and imports", () => {
@@ -99,7 +99,7 @@ test.describe("connecting faster", () => {
     await dropFirst(page, "kafka");
     await expect(node(page, "kafka-01")).toBeVisible();
     await page.waitForTimeout(400);
-    const h = await center(handle(page, "kafka-01", "out"));
+    const h = await center(handle(page, "kafka-01", "peer"));
     await page.mouse.click(h.x, h.y, { button: "right" });
     await menuItem(page, "add-connected").hover();
     await expect(menuItem(page, "connect-kafka")).toBeVisible();

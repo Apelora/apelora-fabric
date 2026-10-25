@@ -1,6 +1,7 @@
 import { allClasses, lookupClass } from "@apelora/module-catalog";
-import { CATEGORIES, DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, linkCount, shapeContents, suggestAttachments, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
+import { DENSITY_SIZE, PORT_TYPES, SHAPE_PALETTE, cableColorOf, STROKE_STYLES, linkCount, shapeContents, suggestAttachments, tagNames, tagNet, tagOf, type AlignMode, type ShapeKind } from "@apelora/assembly-model";
 import { draftFromClass, draftFromPorts, useCustomCatalog } from "../catalog/customCatalog";
+import { catalogTree } from "../catalog/groups";
 import type { MenuTarget, StudioStore } from "./store";
 import { ms } from "./motion";
 import { sessionMenuItems } from "../sessions/menu";
@@ -227,11 +228,11 @@ export function buildMenu(api: StudioStore, target: MenuTarget, rf: RfActions): 
   // pane
   const flow = target.flow;
   const size = DENSITY_SIZE[a.editor.density];
-  const classes = allClasses();
-  const add: MenuItem[] = CATEGORIES.flatMap((cat) => {
-    const inCat = classes.filter((c) => c.category === cat);
-    return inCat.length ? [{ type: "header" as const, label: cat }, ...inCat.map((c) => item(`add-${c.id}`, c.displayName, () => void s().addFromCatalog(c.id, { x: flow.x - size.width / 2, y: flow.y - size.height / 2 })))] : [];
-  });
+  // Add module › category › (subcategory headings) modules: the same grouping as the catalog panel.
+  const addItem = (c: { id: string; displayName: string }) => item(`add-${c.id}`, c.displayName, () => void s().addFromCatalog(c.id, { x: flow.x - size.width / 2, y: flow.y - size.height / 2 }));
+  const add: MenuItem[] = catalogTree(allClasses()).filter((g) => g.count > 0).map((g) => item(`add-cat-${g.cat.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`, g.cat, () => undefined, {
+    children: [...g.loose.map(addItem), ...g.subs.flatMap((sub) => [{ type: "header" as const, label: sub.name }, ...sub.items.map(addItem)])],
+  }));
   return {
     title: "Canvas",
     items: [

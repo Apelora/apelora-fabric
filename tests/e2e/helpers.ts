@@ -7,6 +7,17 @@ export async function open(page: Page, opts: { fresh?: boolean } = { fresh: true
   await page.waitForTimeout(350);
 }
 
+/**
+ * A built-in module's catalog tile. Categories start collapsed (only the first is open), so this
+ * expands the whole menu first when the tile is not shown.
+ */
+export async function catalogTile(page: Page, id: string): Promise<Locator> {
+  const tile = page.locator(`[data-testid=catalog-tile][data-class-id="${id}"]`);
+  if (!(await tile.isVisible())) await page.getByTestId("catalog-expand-all").click();
+  await expect(tile).toBeVisible();
+  return tile;
+}
+
 export const node = (page: Page, id: string): Locator => page.locator(`[data-testid=module-node][data-node-id="${id}"]`);
 export const handle = (page: Page, id: string, portId: string): Locator => page.locator(`.react-flow__node[data-id="${id}"] .react-flow__handle[data-port-id="${portId}"]`);
 

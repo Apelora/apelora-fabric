@@ -2,18 +2,15 @@ import type { Category } from "@apelora/assembly-model";
 
 /** Muted accent per category (oklch), used on node headers, tiles and section headings. */
 const HUES: Record<Category, string> = {
-  "Network & Security": "oklch(62% 0.13 25)",
-  "Security & Identity": "oklch(58% 0.11 330)",
-  "Load Balancing": "oklch(74% 0.13 90)",
-  "Messaging & Streaming": "oklch(62% 0.13 40)",
-  "Search & Analytics": "oklch(60% 0.11 190)",
-  "Web & Application": "oklch(60% 0.13 250)",
-  "Databases & Cache": "oklch(60% 0.14 355)",
-  Storage: "oklch(68% 0.13 60)",
-  Monitoring: "oklch(66% 0.10 205)",
-  "Operating Systems": "oklch(62% 0.11 150)",
+  Networking: "oklch(62% 0.13 25)",
+  "Runtimes & OS": "oklch(62% 0.11 150)",
+  Data: "oklch(60% 0.14 355)",
+  Messaging: "oklch(62% 0.13 40)",
+  Observability: "oklch(66% 0.10 205)",
+  "Security & identity": "oklch(58% 0.11 330)",
+  "Developer tools": "oklch(60% 0.12 300)",
+  Applications: "oklch(60% 0.13 250)",
   "Microsoft Windows": "oklch(60% 0.14 232)",
-  Utilities: "oklch(60% 0.12 300)",
   Custom: "oklch(60% 0.03 260)",
 };
-export const categoryColor = (c: Category): string => HUES[c];
+export const categoryColor = (c: Category): string => HUES[c] ?? HUES.Custom;

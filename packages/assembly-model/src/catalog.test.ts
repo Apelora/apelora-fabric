@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { CATEGORIES, LEGACY_CATEGORIES, SUBCATEGORIES } from "./constants";
 import { parseCatalog, serializeCatalog, unboundCatalogRefs } from "./serialize";
-import type { ModuleClass } from "./schema";
+import { ModuleClassSchema, type ModuleClass } from "./schema";
 
 const box = (id: string, version = "1.0.0"): ModuleClass => ({
   id,
@@ -45,5 +46,35 @@ describe("module catalog file", () => {
     };
     expect(unboundCatalogRefs([inner], () => false)).toEqual(["custom-pack uses missing, which is not in this catalog."]);
     expect(unboundCatalogRefs([inner], (name) => name === "missing")).toEqual([]);
+  });
+});
+
+describe("taxonomy", () => {
+  it("every category except Custom has a few subcategories, unique within it", () => {
+    for (const cat of CATEGORIES) {
+      const subs = SUBCATEGORIES[cat];
+      expect(new Set(subs).size, cat).toBe(subs.length);
+      if (cat === "Custom") expect(subs).toEqual([]);
+      else expect(subs.length, cat).toBeGreaterThanOrEqual(2);
+      for (const s of subs) expect(s.length, `${cat} › ${s}`).toBeLessThanOrEqual(24);
+    }
+  });
+
+  it("a file saved with a category name from before the taxonomy still imports, into the category that replaced it", () => {
+    for (const [old, now] of Object.entries(LEGACY_CATEGORIES)) {
+      expect(CATEGORIES).toContain(now);
+      const parsed = parseCatalog(serializeCatalog([{ ...box("custom-old"), category: old as ModuleClass["category"] }]));
+      expect(parsed.ok && parsed.classes[0]!.category, old).toBe(now);
+    }
+    // inherited object keys are not category names
+    expect(ModuleClassSchema.safeParse({ ...box("custom-x"), category: "toString" }).success).toBe(false);
+    expect(ModuleClassSchema.safeParse({ ...box("custom-x"), category: "Nonsense" }).success).toBe(false);
+  });
+
+  it("keeps a subcategory and bounds its length", () => {
+    const parsed = parseCatalog(serializeCatalog([{ ...box("custom-sub"), category: "Data", subcategory: "Relational" }]));
+    expect(parsed.ok && parsed.classes[0]!.subcategory).toBe("Relational");
+    expect(ModuleClassSchema.safeParse({ ...box("custom-x"), subcategory: "x".repeat(41) }).success).toBe(false);
+    expect(ModuleClassSchema.safeParse({ ...box("custom-x"), subcategory: "" }).success).toBe(false);
   });
 });

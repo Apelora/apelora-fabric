@@ -1,5 +1,5 @@
 import { test, type Page, type Request } from "@playwright/test";
-import { backToLibrary, expect, open, openDeploy, openProps } from "./helpers";
+import { backToLibrary, catalogTile, expect, open, openDeploy, openProps } from "./helpers";
 
 // Volumes in the Studio: a singleton module keeps data in volumes set in its Properties
 // window; every change is checked before it is kept, the deploy review lists them and the plan
@@ -29,7 +29,7 @@ test("a singleton module keeps volumes that are checked, reviewed and sent with 
   await expect(page.getByTestId("volumes-stateless")).toContainText("keep no data");
   await page.keyboard.press("Escape");
 
-  await page.locator("[data-testid=catalog-tile][data-class-id=debian]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+  await (await catalogTile(page, "debian")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
   const debian = page.locator("[data-testid=module-node][data-node-id^=debian]");
   await expect(debian).toHaveCount(1);
   const id = (await debian.getAttribute("data-node-id"))!;
@@ -80,7 +80,7 @@ test("a VM module can keep running when moved; the plan asks Incus for it", asyn
     "POST /api/v1/applications/commerce-stack/plan": (req) => { planBody = req.postDataJSON(); return { json: { items: [], warnings: [] } }; },
   });
   await open(page);
-  await page.locator("[data-testid=catalog-tile][data-class-id=linux-base]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+  await (await catalogTile(page, "linux-base")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
   const vm = page.locator("[data-testid=module-node][data-node-id^=linux-base]");
   const id = (await vm.getAttribute("data-node-id"))!;
   await openProps(page, id);
@@ -105,7 +105,7 @@ test("a module's volumes can live on the shared pool, all of them or none, and t
     "POST /api/v1/applications/commerce-stack/plan": (req) => { planBody = req.postDataJSON(); return { json: { items: [], warnings: [] } }; },
   });
   await open(page);
-  await page.locator("[data-testid=catalog-tile][data-class-id=debian]").dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
+  await (await catalogTile(page, "debian")).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 300, y: 560 } });
   const debian = page.locator("[data-testid=module-node][data-node-id^=debian]");
   await expect(debian).toHaveCount(1);
   const id = (await debian.getAttribute("data-node-id"))!;

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { addPorts, node, open, openProps } from "./helpers";
+import { addPorts, catalogTile, node, open, openProps } from "./helpers";
 import { ME, base, health, stub, uid } from "./identity-fixtures";
 import { capacity, degraded, healthy, server as healthServer, servers, troubledServers } from "./health-fixtures";
 import { atRiskQuorum, groups as serverGroups, members as serverMembers, mixedBlocked, settings as serverSettings } from "./servers-fixtures";
@@ -16,9 +16,10 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     const out = (n: string) => `docs/screenshots/${n}-${w}x${h}.png`;
     await page.screenshot({ path: out("01-commerce-stack") });
 
-    // catalog: Custom (empty state), Security & Identity and Microsoft Windows sections
+    // catalog: Custom (empty state), Security & identity and Microsoft Windows open; their first subcategories show tiles
     await page.getByTestId("catalog-collapse-all").click();
-    for (const cat of ["Custom", "Security & Identity", "Microsoft Windows"]) await page.locator(`[data-testid=catalog-section][data-category='${cat}'] button`).first().click();
+    for (const cat of ["Custom", "Security & identity", "Microsoft Windows"]) await page.locator(`[data-testid=catalog-section][data-category='${cat}'] [data-testid=catalog-category]`).click();
+    for (const cat of ["Security & identity", "Microsoft Windows"]) await page.locator(`[data-testid=catalog-section][data-category='${cat}'] [data-testid=catalog-subcategory]`).first().click();
     await page.screenshot({ path: out("21-catalog-custom-identity-windows"), clip: { x: 0, y: 0, width: 720, height: h } });
     await page.getByTestId("catalog-expand-all").click();
 
@@ -50,7 +51,7 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     await page.waitForTimeout(200);
     await page.screenshot({ path: out("03-ports-grow-node") });
 
-    await page.locator("[data-testid=catalog-tile][data-class-id=nginx]").click();
+    await (await catalogTile(page, "nginx")).click();
     await page.getByTestId("validation-toggle").click();
     await page.screenshot({ path: out("04-validation") });
 
@@ -72,7 +73,7 @@ for (const [w, h] of [[1440, 900], [1280, 800]] as const) {
     const showcase = ["kafka", "haproxy", "apache", "couchdb", "redis", "mongodb", "mysql", "cassandra", "traefik", "elasticsearch", "keycloak", "mosquitto"];
     for (const [idx, cls] of showcase.entries()) {
       await page.locator(`[data-testid=catalog-search]`).fill(cls === "apache" ? "httpd" : cls);
-      await page.locator(`[data-testid=catalog-tile][data-class-id=${cls}]`).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 90 + (idx % 4) * 215, y: 80 + Math.floor(idx / 4) * 205 } });
+      await (await catalogTile(page, cls)).dragTo(page.getByTestId("canvas"), { targetPosition: { x: 90 + (idx % 4) * 215, y: 80 + Math.floor(idx / 4) * 205 } });
     }
     await page.getByTestId("catalog-search").fill("");
     await page.getByRole("button", { name: "Fit to view" }).click();

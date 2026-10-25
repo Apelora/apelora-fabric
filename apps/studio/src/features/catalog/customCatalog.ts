@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { allClasses, lookupClass, setCustomClasses } from "@apelora/module-catalog";
-import { ModuleClassSchema, effectiveValue, migrateLegacyKeys, slug, validateProperty, type ModuleClass, type ConfigValue, type Port, type Property } from "@apelora/assembly-model";
+import { ModuleClassSchema, SUBCATEGORIES, effectiveValue, migrateLegacyKeys, slug, validateProperty, type ModuleClass, type ConfigValue, type Port, type Property } from "@apelora/assembly-model";
 
 const KEY = "apelora.studio.catalog.v1";
 
@@ -12,6 +12,8 @@ export interface Draft {
   editingId?: string;
   name: string;
   category: ModuleClass["category"];
+  /** Where it sits inside its category in the catalog menu; none for Custom. */
+  subcategory?: string;
   summary: string;
   icon: string;
   cpu: number;
@@ -100,6 +102,7 @@ export function draftFromClass(c: ModuleClass, editing: boolean): Draft {
     ...(editing ? { editingId: c.id } : {}),
     name: editing ? c.displayName : `${c.displayName} (custom)`,
     category: editing ? c.category : "Custom",
+    ...(editing && c.subcategory ? { subcategory: c.subcategory } : {}),
     summary: c.summary,
     icon: c.iconAssetPath,
     cpu: c.resources.cpu,
@@ -167,7 +170,7 @@ export function classFromDraft(d: Draft): { ok: true; cls: ModuleClass } | { ok:
   let id = d.editingId ?? `custom-${slug(name)}`;
   if (!d.editingId) { let i = 2; const base = id; while (allClasses().some((c) => c.id === id)) id = `${base}-${i++}`; }
   const r = ModuleClassSchema.safeParse({
-    id, version: "1.0.0", displayName: name.slice(0, 48), category: d.category, summary: d.summary.trim().slice(0, 200), iconAssetPath: d.icon,
+    id, version: "1.0.0", displayName: name.slice(0, 48), category: d.category, ...(d.subcategory && SUBCATEGORIES[d.category].includes(d.subcategory) ? { subcategory: d.subcategory } : {}), summary: d.summary.trim().slice(0, 200), iconAssetPath: d.icon,
     runtimeImage: { ref: null }, architectures: ["x86_64", "aarch64"], ports, resources: { cpu: d.cpu, memoryMiB: d.memoryMiB }, ...(properties.length ? { properties } : {}), custom: true,
   });
   return r.success ? { ok: true, cls: r.data } : { ok: false, errors: r.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`) };

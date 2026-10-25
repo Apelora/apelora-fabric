@@ -78,6 +78,24 @@ A newly added machine can start commissioning on its own. Release sends disk era
 
 Running a module image does not link its code into ours; record the licence in the manifest's provenance anyway.
 
+### Catalog additions (checked 2026-10-25, design-only)
+
+Licences from each project's own repository or documentation, for the 59 classes added with the two-level taxonomy. All are open-source licences unless the caution says otherwise.
+
+| Area | Modules and licences |
+|---|---|
+| Routing, DNS, DHCP | FRRouting GPL-2.0-or-later; BIRD GPL-2.0-or-later; Keepalived GPL-2.0-or-later; CoreDNS Apache-2.0; PowerDNS Authoritative GPL-2.0-only; Unbound BSD-3-Clause; BIND 9 MPL-2.0; Kea MPL-2.0; NetBox Apache-2.0 |
+| VPN, firewall | strongSwan GPL-2.0-or-later; Headscale BSD-3-Clause; OpenWrt GPL-2.0-only (its metrics package Apache-2.0) |
+| Runtimes, systems | Go BSD-3-Clause; openSUSE (distribution, mixed open licences) |
+| Data | YugabyteDB Apache-2.0 (the database only; its management product is not open source); PgBouncer ISC; Valkey BSD-3-Clause; FerretDB Apache-2.0; Meilisearch MIT for the Community Edition (enterprise parts BUSL-1.1); Trino Apache-2.0; Superset Apache-2.0; Garage AGPL-3.0; SeaweedFS Apache-2.0; Samba GPL-3.0-or-later |
+| Messaging | Debezium Apache-2.0; Flink Apache-2.0 |
+| Observability | VictoriaMetrics Apache-2.0; node and blackbox exporters Apache-2.0; Zabbix AGPL-3.0-only (7.0 and later); Loki AGPL-3.0-only (some folders Apache-2.0); Vector MPL-2.0; Fluent Bit Apache-2.0; Tempo AGPL-3.0; OpenSearch Dashboards Apache-2.0; Alertmanager Apache-2.0; Uptime Kuma MIT |
+| Security | FreeIPA GPL-3.0-or-later; OpenBao MPL-2.0; step-ca Apache-2.0; Vaultwarden AGPL-3.0-only; CrowdSec MIT; Suricata GPL-2.0-only; Wazuh mostly GPL-2.0-only, newer engine code AGPL-3.0-or-later (differs by version) |
+| Developer tools | Forgejo GPL-3.0-or-later from v9 (MIT before); Woodpecker Apache-2.0; Harbor Apache-2.0; Distribution (registry) Apache-2.0 |
+| Applications | Mattermost source AGPL-3.0 with Apache-2.0 parts, binaries MIT; Synapse AGPL-3.0-or-later (or a commercial licence); Jitsi Meet Apache-2.0; Ghost MIT; Drupal GPL-2.0-or-later; MediaWiki GPL-2.0-or-later; Postfix EPL-2.0 or IPL-1.0; Dovecot MIT and LGPL-2.1; Roundcube GPL-3.0-or-later; Odoo Community LGPL-3.0-only; Matomo GPL-3.0-or-later |
+
+Facts that shaped these manifests: Mattermost's metrics endpoint needs a commercial licence (the free edition has no `mon` output); Meilisearch's metrics are experimental; Kea has no built-in metrics text (its project's monitoring agent exports them); BIND's statistics channel answers JSON/XML, not metrics text; Uptime Kuma's metrics depend on the version (newer ones add an off switch); step-ca's metrics listener is in the source but not in its documentation. Already in the catalog with a source-available licence: Vault and Consul (BUSL-1.1) and recent ScyllaDB releases; CockroachDB, ArangoDB and MongoDB are believed to be source-available too (not rechecked on this date). OpenBao (MPL-2.0) and Valkey (BSD-3-Clause) are the open alternatives to Vault and Redis; FerretDB the open MongoDB-protocol one.
+
 ### Metrics facts that shaped the catalog (researched 2026-10)
 
 Full per-class data: `packages/module-catalog/src/metrics.ts` (with confidence). Separate exporters and agents are described generically, never by project name.

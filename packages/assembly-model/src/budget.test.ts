@@ -10,7 +10,7 @@ const stateless = (): ModuleClass => ({
   id: "web",
   version: "1.0.0",
   displayName: "Web",
-  category: "Web & Application",
+  category: "Applications",
   summary: "",
   iconAssetPath: "nginx",
   runtimeImage: { ref: null },

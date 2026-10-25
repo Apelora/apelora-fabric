@@ -53,7 +53,7 @@ export const TEMPLATES: readonly Template[] = [
       [["gw", "lan", "lb", "frontend"], ["lb", "backend", "app1", "http"], ["lb", "backend", "app2", "http"], ["lb", "backend", "app3", "http"],
         ["app1", "db", "db", "postgres"], ["app2", "db", "db", "postgres"], ["app3", "db", "db", "postgres"],
         ["app1", "cache", "cache", "redis"], ["app2", "cache", "cache", "redis"], ["app3", "cache", "cache", "redis"],
-        ["db", "metrics", "prom", "scrape"], ["prom", "query", "graf", "ui"], ["graf", "source", "db", "postgres"]]),
+        ["db", "metrics", "prom", "scrape"], ["graf", "query", "prom", "api"], ["graf", "source", "db", "postgres"]]),
   },
   {
     id: "event-pipeline",
@@ -81,7 +81,7 @@ export const TEMPLATES: readonly Template[] = [
     tags: ["MongoDB", "Replication", "Monitoring"],
     build: () => blueprint("mongo-replica-set",
       [["m1", "mongodb", "member-1"], ["m2", "mongodb", "member-2"], ["m3", "mongodb", "member-3"], ["prom", "prometheus", "metrics"], ["graf", "grafana", "dashboards"]],
-      [["m1", "repl", "m2", "mongo"], ["m2", "repl", "m3", "mongo"], ["m3", "repl", "m1", "mongo"], ["m1", "mon", "prom", "scrape"], ["m2", "mon", "prom", "scrape"], ["m3", "mon", "prom", "scrape"], ["prom", "query", "graf", "ui"]]),
+      [["m1", "repl", "m2", "mongo"], ["m2", "repl", "m3", "mongo"], ["m3", "repl", "m1", "mongo"], ["m1", "mon", "prom", "scrape"], ["m2", "mon", "prom", "scrape"], ["m3", "mon", "prom", "scrape"], ["graf", "query", "prom", "api"]]),
   },
   {
     id: "sso-keycloak",
@@ -130,6 +130,6 @@ export const TEMPLATES: readonly Template[] = [
     tags: ["Metrics", "Dashboards"],
     build: () => blueprint("monitoring-stack",
       [["gw", "gateway", "edge"], ["px", "traefik", "proxy"], ["app", "nodejs", "app"], ["pg", "postgresql", "database"], ["prom", "prometheus", "metrics"], ["graf", "grafana", "dashboards"]],
-      [["gw", "lan", "px", "in"], ["px", "out", "app", "http"], ["app", "db", "pg", "postgres"], ["px", "mon", "prom", "scrape"], ["pg", "metrics", "prom", "scrape"], ["prom", "query", "graf", "ui"], ["graf", "source", "pg", "postgres"]]),
+      [["gw", "lan", "px", "in"], ["px", "out", "app", "http"], ["app", "db", "pg", "postgres"], ["px", "mon", "prom", "scrape"], ["pg", "metrics", "prom", "scrape"], ["graf", "query", "prom", "api"], ["graf", "source", "pg", "postgres"]]),
   },
 ];

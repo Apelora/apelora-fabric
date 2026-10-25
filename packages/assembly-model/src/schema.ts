@@ -6,6 +6,7 @@ import {
   CATALOG_KIND,
   CATEGORIES,
   DENSITIES,
+  LEGACY_CATEGORIES,
   LAYOUT_VERSION,
   PLATFORMS,
   PORT_TYPES,
@@ -321,7 +322,10 @@ export const ModuleClassSchema = z.object({
   id: entityId,
   version: z.string().min(1),
   displayName: z.string().min(1).max(48),
-  category: z.enum(CATEGORIES),
+  /** A category renamed by the two-level taxonomy reads as the one that replaced it. */
+  category: z.preprocess((v) => (typeof v === "string" && Object.hasOwn(LEGACY_CATEGORIES, v) ? LEGACY_CATEGORIES[v] : v), z.enum(CATEGORIES)),
+  /** Where the class sits inside its category (`SUBCATEGORIES`). A display hint: a name the Studio does not know groups under "Other". */
+  subcategory: z.string().min(1).max(40).optional(),
   summary: z.string().max(200),
   iconAssetPath: z.string(),
   /** Superseded by `runtime`; kept so documents exported earlier still import. */

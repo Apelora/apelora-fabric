@@ -24,6 +24,9 @@ const COLORS: Record<string, string> = {
   mssql: "oklch(52% 0.13 25)",
   smb: "oklch(60% 0.09 250)",
   rdp: "oklch(58% 0.12 225)",
+  dns: "oklch(60% 0.12 280)",
+  bgp: "oklch(56% 0.13 50)",
+  imap: "oklch(62% 0.11 105)",
 };
 export const cableColor = (type: string): string => COLORS[type] ?? COLORS.tcp!;
 /** Darker edge for a cable of the given colour. */

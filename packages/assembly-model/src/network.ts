@@ -39,6 +39,10 @@ export const DEFAULT_PORTS: Readonly<Partial<Record<PortType, { transport: "tcp"
   nfs: { transport: "tcp", port: 2049 },
   smb: { transport: "tcp", port: 445 },
   rdp: { transport: "tcp", port: 3389 },
+  // DNS also uses TCP 53 for large answers and zone transfers; the intent opens the common UDP port.
+  dns: { transport: "udp", port: 53 },
+  bgp: { transport: "tcp", port: 179 },
+  imap: { transport: "tcp", port: 143 },
 };
 
 export interface ServiceEndpoint {

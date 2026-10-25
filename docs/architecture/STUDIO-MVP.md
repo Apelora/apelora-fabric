@@ -23,7 +23,7 @@ tests/e2e/              Playwright specs (+ on-demand screenshots)
 
 | Layer | Type | Contains |
 |---|---|---|
-| Catalog | `ModuleClass` | id, version, category, ports (stable ids), resources, icon, optional `runtime` (instance kind, image, availability, volumes; absent: design-only) |
+| Catalog | `ModuleClass` | id, version, category and subcategory (`SUBCATEGORIES`; built-in classes are placed in `packages/module-catalog/src/taxonomy.ts`), ports (stable ids), resources, icon, optional `runtime` (instance kind, image, availability, volumes; absent: design-only) |
 | Module on the canvas | `ModuleInstance` | id, name, `classRef`, resources, own copy of ports (editable), replicas, volumes, internet access, live migration |
 | Assembly | `ApplicationAssembly` | `spec` (modules, connections) + `editor` (layout, density) |
 
@@ -49,7 +49,7 @@ One zustand store holds the whole assembly (immutable). History is a snapshot st
 - **Single vs multiple cables.** Each port has a multiplicity. `multi` (the default for new ports) accepts several cables into the same socket, shown as one plug with a `×N` count; `single` accepts one and rejects another with a reason. Toggle it per port in the inspector or the Module Designer.
 - **Re-plugging.** Drag a cable's plug end to another compatible socket to move it (validated; one undo step).
 - Every port shows a short text label inside the node next to its jack (truncated to the free space beside the logo, never over it); the full name, type and description appear in a tooltip. Links show the carried protocol as a small label. The `Aa` toggle in the canvas strip hides both.
-- **Module Designer** (Create module… in the Custom section, or the pencil on a tile, or "Save as custom module…" in the inspector): name, category, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
+- **Module Designer** (Create module… in the Custom section, or the pencil on a tile, or "Save as custom module…" in the inspector): name, category and subcategory, summary, generic icon, resources and typed ports with a live preview. Custom classes persist in `localStorage` (`apelora.studio.catalog.v1`), appear in the catalog, and are embedded in exported assemblies (`catalog.classes`); importing an assembly registers any missing ones.
 - Editing a custom class does not change existing instances (they hold their own port copies); deleting is blocked while the current assembly uses it.
 
 ## Tools, properties window, zones
