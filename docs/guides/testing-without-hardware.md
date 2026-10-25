@@ -11,7 +11,7 @@ npm run dev:console                                  # Fabric Console on :5174
 npm run dev                                          # Studio on :5173
 ```
 
-Open the Console at <http://127.0.0.1:5174> and the Studio at <http://127.0.0.1:5173>. A simulated Incus (the mock provider) stands in for a real one, and every page labels what it shows with "Mock · …".
+Open the Console at `http://127.0.0.1:5174` and the Studio at `http://127.0.0.1:5173`. A simulated Incus (the mock provider) stands in for a real one, and every page labels what it shows with "Mock · …".
 
 This level is enough to try the screens, the permissions and the deployment logic. It tells you nothing about how Incus, storage or the network behave.
 
