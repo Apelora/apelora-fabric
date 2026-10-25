@@ -38,7 +38,7 @@ export const EXTRA_CLASSES: readonly ClassDef[] = [
     [num("port", "Port", 1194, 1, 65535, "Server"), prop("proto", "Protocol", "enum", { options: ["udp", "tcp"], default: "udp", group: "Server" }), sec("ca-secret", "CA key secret reference", "vpn-ca")]),
 
   // ---- Security & identity ----
-  a("keycloak", "Keycloak", "Identity and access management: single sign-on (OIDC, SAML), user federation, MFA and fine-grained authorization.", "keycloak",
+  a("keycloak", "Keycloak", "Identity and access management: single sign-on (OIDC, SAML), user federation, MFA and fine-grained authorization.", "generic-passkey",
     [i("http", "http", "Login and admin requests")], [o("db", "postgres", "Realm database", "o1"), o("ldap", "ldap", "User federation: an existing LDAP or directory server", "o1"), mon()], 2, 2048,
     [txt("realm", "Default realm", "master", "Realm"), num("sso-idle-min", "SSO session idle (min)", 30, 1, 10080, "Realm"), flag("brute-force", "Brute-force detection", true, "Realm"),
       sec("admin-secret", "Admin password secret reference", "keycloak-admin"),
@@ -211,7 +211,7 @@ export const EXTRA_CLASSES: readonly ClassDef[] = [
   a("alpine", "Alpine Linux", "Minimal Alpine Linux base image.", "alpinelinux", [], [], 1, 256, [ver(["3.19", "3.20", "3.21"], "3.21"), txt("hostname", "Hostname", "node", "System"), txt("packages", "Extra packages", "", "System")]),
   a("rocky", "Rocky Linux", "Rocky Linux base image (RHEL-compatible).", "rockylinux", [], [], 1, 512, [ver(["8", "9"], "9"), txt("hostname", "Hostname", "node", "System")]),
   a("almalinux", "AlmaLinux", "AlmaLinux base image (RHEL-compatible).", "almalinux", [], [], 1, 512, [ver(["8", "9"], "9"), txt("hostname", "Hostname", "node", "System")]),
-  a("fedora", "Fedora", "Fedora Linux base image.", "fedora", [], [], 1, 512, [ver(["40", "41", "42"], "42"), txt("hostname", "Hostname", "node", "System")]),
+  a("fedora", "Fedora", "Fedora Linux base image.", "generic-server", [], [], 1, 512, [ver(["40", "41", "42"], "42"), txt("hostname", "Hostname", "node", "System")]),
 
   // ---- Microsoft Windows (no Microsoft artwork is bundled; a valid Microsoft licence is required to run these) ----
   a("windows-server", "Windows Server", "Windows Server base image. A valid Microsoft licence is required; no image is bundled.", "generic-window", [], [], 2, 4096,

@@ -4,7 +4,7 @@ Brand marks are the SVG paths from the [Simple Icons](https://simpleicons.org) p
 
 The licence covers the icon artwork as distributed. **The marks themselves remain trademarks of their owners.** They are used here only to identify the corresponding open-source software (nominative use). Their presence does not imply endorsement by, or affiliation with, any vendor, and they must not be used as Apelora branding.
 
-Marks under another licence keep it: the Apache-2.0 and BSD-3-Clause marks keep their notices through this file; the CC-BY and CC-BY-SA marks (Debian, Jenkins, OpenTelemetry, PHP, Rocky Linux) are attributed here to their projects through the Simple Icons sources and stay under their licence (any change to those files must be shared under the same licence); Fedora and Keycloak follow their projects' trademark terms (the URLs in the table). New modules use a mark only when Simple Icons gives it as CC0-1.0 or a permissive licence such as Apache-2.0; otherwise they use an original `generic-*` icon (for example OpenBao, Forgejo and Harbor, whose marks are CC-BY-SA-4.0 or under custom terms).
+Marks under another licence keep it: the Apache-2.0 and BSD-3-Clause marks keep their notices through this file; the CC-BY and CC-BY-SA marks (Debian, Jenkins, OpenTelemetry, PHP, Rocky Linux) are attributed here to their projects through the Simple Icons sources and stay under their licence (any change to those files must be shared under the same licence); Fedora and Keycloak, whose marks come with custom trademark terms, use generic icons. New modules use a mark only when Simple Icons gives it as CC0-1.0 or a permissive licence such as Apache-2.0; otherwise they use an original `generic-*` icon (for example OpenBao, Forgejo and Harbor, whose marks are CC-BY-SA-4.0 or under custom terms).
 
 | File | Product | Source | Licence |
 |---|---|---|---|
@@ -44,7 +44,6 @@ Marks under another licence keep it: the Apache-2.0 and BSD-3-Clause marks keep 
 | logstash.svg | Logstash | Simple Icons `logstash` | CC0-1.0 |
 | jaeger.svg | Jaeger | Simple Icons `jaeger` | CC0-1.0 |
 | opentelemetry.svg | OpenTelemetry | Simple Icons `opentelemetry` | CC-BY-4.0 |
-| keycloak.svg | Keycloak | Simple Icons `keycloak` | Custom terms (https://www.linuxfoundation.org/legal/trademark-usage) |
 | vault.svg | Vault | Simple Icons `vault` | CC0-1.0 |
 | wireguard.svg | WireGuard | Simple Icons `wireguard` | CC0-1.0 |
 | openvpn.svg | OpenVPN | Simple Icons `openvpn` | CC0-1.0 |
@@ -54,7 +53,6 @@ Marks under another licence keep it: the Apache-2.0 and BSD-3-Clause marks keep 
 | alpinelinux.svg | Alpine Linux | Simple Icons `alpinelinux` | CC0-1.0 |
 | rockylinux.svg | Rocky Linux | Simple Icons `rockylinux` | CC-BY-SA-4.0 |
 | almalinux.svg | AlmaLinux | Simple Icons `almalinux` | CC0-1.0 |
-| fedora.svg | Fedora | Simple Icons `fedora` | Custom terms (https://docs.fedoraproject.org/en-US/project/brand/) |
 | wordpress.svg | WordPress | Simple Icons `wordpress` | CC0-1.0 |
 | nextcloud.svg | Nextcloud | Simple Icons `nextcloud` | CC0-1.0 |
 | gitea.svg | Gitea | Simple Icons `gitea` | CC0-1.0 |
