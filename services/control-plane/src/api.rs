@@ -1618,6 +1618,55 @@ impl Modify for BearerAuth {
     }
 }
 
+/// Every string property named `…At` is an RFC 3339 timestamp; says so (`format: date-time`) so
+/// clients can parse it as one. A test checks the whole document.
+struct Timestamps;
+
+impl Timestamps {
+    fn mark(schema: &mut utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>) {
+        use utoipa::openapi::schema::{
+            ArrayItems, KnownFormat, Schema, SchemaFormat, SchemaType, Type,
+        };
+        let utoipa::openapi::RefOr::T(schema) = schema else {
+            return;
+        };
+        match schema {
+            Schema::Object(o) => {
+                for (name, p) in o.properties.iter_mut() {
+                    if let utoipa::openapi::RefOr::T(Schema::Object(field)) = p {
+                        let string = match &field.schema_type {
+                            SchemaType::Type(t) => *t == Type::String,
+                            SchemaType::Array(ts) => ts.contains(&Type::String),
+                            SchemaType::AnyValue => false,
+                        };
+                        if name.ends_with("At") && string {
+                            field.format = Some(SchemaFormat::KnownFormat(KnownFormat::DateTime));
+                        }
+                    }
+                    Self::mark(p);
+                }
+            }
+            Schema::Array(a) => {
+                if let ArrayItems::RefOrSchema(items) = &mut a.items {
+                    Self::mark(items);
+                }
+            }
+            Schema::OneOf(c) => c.items.iter_mut().for_each(Self::mark),
+            Schema::AllOf(c) => c.items.iter_mut().for_each(Self::mark),
+            Schema::AnyOf(c) => c.items.iter_mut().for_each(Self::mark),
+            _ => {}
+        }
+    }
+}
+
+impl Modify for Timestamps {
+    fn modify(&self, api: &mut utoipa::openapi::OpenApi) {
+        if let Some(c) = api.components.as_mut() {
+            c.schemas.values_mut().for_each(Self::mark);
+        }
+    }
+}
+
 /// The `/api/v1` contract. `packages/api-client/openapi.json` is generated from this and the
 /// TypeScript client from that file; a test fails when either is stale.
 #[derive(OpenApi)]
@@ -1661,7 +1710,7 @@ impl Modify for BearerAuth {
         networks::settings, networks::applications,
         storage::pool_usage, storage::volumes, storage::orphans, storage::backups, storage::back_up,
         storage::delete_backup, storage::set_schedules, storage::preview_restore, storage::restore),
-    modifiers(&BearerAuth),
+    modifiers(&BearerAuth, &Timestamps),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"), (name = "alerts"))
 )]

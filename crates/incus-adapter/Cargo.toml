@@ -19,6 +19,9 @@ apelora-domain = { version = "0.0.0", path = "../domain" }
 apelora-metrics = { version = "0.0.0", path = "../metrics" }
 # Join tokens are base64-encoded JSON (Incus's format); already in the tree via reqwest/rustls.
 base64 = "0.22.1"
+# Mock timestamps (snapshots, join token expiry) as RFC 3339, like Incus's; the version the
+# control plane uses (MIT OR Unlicense).
+jiff = "0.2.38"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 # The websocket channel to an exec session (Incus returns its address from the exec call): TLS is
 # done by hand so it uses exactly the pinned-certificate rules of the HTTP client.

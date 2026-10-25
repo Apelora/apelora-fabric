@@ -84,7 +84,7 @@ pub(super) fn member_name(name: &str) -> Result<(), ApiError> {
     }
 }
 
-/// Warnings about a token's lifetime; none when the expiry cannot be read (e.g. mock data).
+/// Warnings about a token's lifetime; none when the expiry cannot be read.
 pub(super) fn lifetime_warnings(expires_at: &str, now: time::OffsetDateTime) -> Vec<String> {
     let rfc3339 = &time::format_description::well_known::Rfc3339;
     match time::OffsetDateTime::parse(expires_at, rfc3339) {

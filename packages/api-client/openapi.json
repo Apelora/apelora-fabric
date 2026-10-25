@@ -13025,6 +13025,7 @@
         "properties": {
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "current": {
@@ -13033,10 +13034,12 @@
           },
           "endsAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When it ends unless it is used again (an hour without use, or the absolute limit)."
           },
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "The absolute limit (eight hours after sign-in)."
           },
           "id": {
@@ -13045,7 +13048,8 @@
             "description": "The session id (never its token)."
           },
           "lastUsedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "method": {
             "type": "string",
@@ -13197,7 +13201,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "createdBy": {
             "type": "string"
@@ -13231,7 +13236,8 @@
             "description": "The name of the environment variable on the worker that holds the signing secret."
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "url": {
             "type": [
@@ -13259,6 +13265,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "lastError": {
@@ -13416,6 +13423,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339; `None` when no worker has evaluated alerts yet."
           },
           "message": {
@@ -13493,20 +13501,23 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "integer",
             "format": "int64"
           },
           "lastSeenAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "resolvedAt": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "rule": {
             "type": "string"
@@ -13530,6 +13541,7 @@
           },
           "startedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339: when the condition was first seen, when it fired, last seen holding, resolved."
           },
           "state": {
@@ -13667,6 +13679,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339 and who, when an operator changed it."
           },
           "updatedBy": {
@@ -13754,7 +13767,8 @@
             ]
           },
           "endsAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -13771,6 +13785,7 @@
           },
           "startsAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "subject": {
@@ -13915,6 +13930,7 @@
           },
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "deployment": {
@@ -13954,7 +13970,8 @@
             "$ref": "#/components/schemas/ProjectRef"
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -13974,6 +13991,7 @@
           },
           "observedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When Incus was observed for these statuses (RFC 3339), and whether that failed."
           },
           "stale": {
@@ -14055,10 +14073,12 @@
             ]
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "expiresAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -14111,7 +14131,8 @@
             "$ref": "#/components/schemas/Conditions"
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "createdBy": {
             "type": "string"
@@ -14120,7 +14141,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -14142,7 +14164,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "role": {
             "$ref": "#/components/schemas/RoleRef"
@@ -14383,7 +14406,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "durationSeconds": {
             "type": "integer",
@@ -14610,6 +14634,7 @@
           },
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "state": {
@@ -15713,7 +15738,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "modules": {
             "type": "integer",
@@ -15723,6 +15749,7 @@
           },
           "observedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When the control plane last observed Incus for this answer (RFC 3339)."
           },
           "operation": {
@@ -15797,7 +15824,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "validationErrors": {
             "type": "integer",
@@ -16210,7 +16238,8 @@
             "type": "object"
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "updatedBy": {
             "type": "string"
@@ -16243,7 +16272,8 @@
             "description": "The backup file the drill restored."
           },
           "drilledAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "durationSeconds": {
             "type": "integer",
@@ -16367,6 +16397,7 @@
           },
           "readAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339: when this control plane read its environment."
           },
           "saved": {
@@ -17022,6 +17053,7 @@
           },
           "checkedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When Incus was last asked (RFC 3339, UTC); answers are reused for up to 15 s."
           },
           "incus": {
@@ -17090,6 +17122,7 @@
           },
           "startedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "state": {
@@ -17473,6 +17506,7 @@
         "properties": {
           "checkedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339: when this report was made."
           },
           "controlPlane": {
@@ -17741,6 +17775,7 @@
           },
           "startedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "state": {
@@ -18166,6 +18201,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339: when the worker last restarted it for failing its check."
           },
           "since": {
@@ -18439,6 +18475,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339, as Incus reports them."
           },
           "description": {
@@ -18460,7 +18497,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "limits": {
             "$ref": "#/components/schemas/InstanceViewLimits"
@@ -18507,6 +18545,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "When the running instance started (`instance_state_started_at`)."
           },
           "status": {
@@ -18662,13 +18701,15 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "expiresAt": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "name": {
             "type": "string"
@@ -18767,6 +18808,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339; set once someone asked to cancel it."
           },
           "cancelRequestedBy": {
@@ -18777,6 +18819,7 @@
           },
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "id": {
@@ -18850,6 +18893,7 @@
           },
           "updatedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           }
         }
@@ -18905,7 +18949,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "error": {
             "type": [
@@ -18929,6 +18974,7 @@
           },
           "startedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "worker": {
@@ -18982,7 +19028,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "job": {
             "$ref": "#/components/schemas/Job"
@@ -19002,6 +19049,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339: when the first attempt started, and when it reached a final status."
           },
           "target": {
@@ -19042,6 +19090,7 @@
         "properties": {
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339, as Incus reports it."
           },
           "memberName": {
@@ -19157,6 +19206,7 @@
         "properties": {
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "id": {
@@ -19189,6 +19239,7 @@
         "properties": {
           "setupExpiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "setupToken": {
@@ -19257,6 +19308,7 @@
         "properties": {
           "setupExpiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "setupToken": {
@@ -19519,7 +19571,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "admittedBy": {
             "type": [
@@ -19532,13 +19585,15 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "When the approval's join token stops working, as Incus reported it."
           },
           "approvedAt": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "approvedBy": {
             "type": [
@@ -19584,7 +19639,8 @@
             "description": "The provisioner's own identifier (a MAAS system id); absent for manual machines."
           },
           "registeredAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "registeredBy": {
             "type": "string"
@@ -19616,6 +19672,7 @@
           },
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339, as Incus reports it."
           },
           "name": {
@@ -19812,6 +19869,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339: when the probe ran (results are reused for a minute)."
           },
           "mirror": {
@@ -20665,6 +20723,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339. Assignments may expire; emergency grants must."
           },
           "principal": {
@@ -20931,7 +20990,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "error": {
             "type": [
@@ -20943,7 +21003,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -20965,7 +21026,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "state": {
             "$ref": "#/components/schemas/OperationState"
@@ -21026,7 +21088,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "error": {
             "type": [
@@ -21057,7 +21120,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "disabled": {
             "type": "boolean"
@@ -21145,7 +21209,8 @@
             "type": "string"
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "member": {
             "type": "string",
@@ -21266,6 +21331,7 @@
         "properties": {
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339; the session also ends after an hour without use."
           },
           "name": {
@@ -21288,6 +21354,7 @@
         "properties": {
           "expiresAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339, as Incus reports it."
           },
           "memberName": {
@@ -21363,6 +21430,7 @@
         "properties": {
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "current": {
@@ -21370,7 +21438,8 @@
             "description": "The request was made with this token."
           },
           "expiresAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -21380,7 +21449,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "name": {
             "type": "string"
@@ -21392,7 +21462,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "revokedBy": {
             "type": [
@@ -21662,7 +21733,8 @@
             "type": "object"
           },
           "updatedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "updatedBy": {
             "type": "string"
@@ -21851,7 +21923,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -22429,7 +22502,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "updatedBy": {
             "type": [
@@ -22593,6 +22667,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "When the recovery decision was recorded (once per failure)."
           },
           "detectedAt": {
@@ -22600,6 +22675,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "When Apelora noticed (RFC 3339)."
           },
           "evidence": {
@@ -22623,7 +22699,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "fencing": {
             "$ref": "#/components/schemas/FenceView"
@@ -22826,6 +22903,7 @@
           },
           "backupTakenAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When the backup was taken (RFC 3339): everything written after it is replaced."
           },
           "blocked": {
@@ -22989,6 +23067,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "role": {
@@ -23169,6 +23248,7 @@
               "string",
               "null"
             ],
+            "format": "date-time",
             "description": "When it last ran successfully (RFC 3339)."
           }
         }
@@ -23359,7 +23439,8 @@
             "description": "The system it authenticates to."
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "createdBy": {
             "type": "string"
@@ -23378,7 +23459,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -23391,7 +23473,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "name": {
             "type": "string"
@@ -23480,6 +23563,7 @@
           },
           "idleEndsAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When the session ends unless the person types before then."
           },
           "instance": {
@@ -23490,6 +23574,7 @@
           },
           "lastActivityAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When the person last typed (the start until they do)."
           },
           "mine": {
@@ -23500,7 +23585,8 @@
             "type": "string"
           },
           "startedAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -23547,7 +23633,8 @@
             "description": "Path of the websocket, relative to the API."
           },
           "expiresAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -23813,6 +23900,7 @@
         "properties": {
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When Incus took it (RFC 3339)."
           },
           "name": {
@@ -23865,6 +23953,7 @@
         "properties": {
           "observedAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339 timestamp (UTC)."
           },
           "provider": {
@@ -24112,7 +24201,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "member": {
             "type": "string"
@@ -24266,7 +24356,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "effective": {
             "$ref": "#/components/schemas/QuotaLimits",
@@ -24669,13 +24760,15 @@
         "properties": {
           "createdAt": {
             "type": "string",
+            "format": "date-time",
             "description": "RFC 3339."
           },
           "expiresAt": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "id": {
             "type": "string",
@@ -24685,7 +24778,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "name": {
             "type": "string"
@@ -24694,7 +24788,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "role": {
             "$ref": "#/components/schemas/Role"
@@ -24799,7 +24894,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "disabled": {
             "type": "boolean"
@@ -24827,7 +24923,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "format": "date-time"
           },
           "username": {
             "type": [
@@ -24876,7 +24973,8 @@
         ],
         "properties": {
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "createdBy": {
             "type": "string"
@@ -24963,6 +25061,7 @@
           },
           "takenAt": {
             "type": "string",
+            "format": "date-time",
             "description": "When it was taken (RFC 3339): a restore brings back the data as it was then."
           }
         }
@@ -25036,7 +25135,8 @@
             "type": "string"
           },
           "createdAt": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "incusName": {
             "type": "string",

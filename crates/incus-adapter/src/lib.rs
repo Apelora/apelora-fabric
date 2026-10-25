@@ -1620,7 +1620,7 @@ impl Provider {
                 }
                 list.push(SnapshotInfo {
                     name: snapshot.to_owned(),
-                    created_at: format!("mock: snapshot {}", list.len() + 1),
+                    created_at: jiff::Timestamp::now().to_string(),
                 });
                 None
             }
@@ -2841,7 +2841,8 @@ impl MockIncus {
         }
         let pending = PendingJoin {
             member_name: member.to_owned(),
-            expires_at: "mock: never used".into(),
+            // The lifetime Apelora recommends for `cluster.join_token_expiry`.
+            expires_at: (jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1)).to_string(),
         };
         let mut all = self.join_tokens.lock().unwrap_or_else(|e| e.into_inner());
         all.retain(|t| t.member_name != member);

@@ -308,6 +308,41 @@ fn committed_openapi_document_is_current() {
     );
 }
 
+#[test]
+fn every_timestamp_in_the_openapi_document_says_it_is_a_date_time() {
+    fn walk(v: &serde_json::Value, at: &str, missing: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(serde_json::Value::Object(props)) = m.get("properties") {
+                    for (name, p) in props {
+                        let string = p["type"] == "string"
+                            || p["type"]
+                                .as_array()
+                                .is_some_and(|t| t.contains(&"string".into()));
+                        if name.ends_with("At") && string && p["format"] != "date-time" {
+                            missing.push(format!("{at}.{name}"));
+                        }
+                    }
+                }
+                for (k, x) in m {
+                    walk(x, &format!("{at}/{k}"), missing);
+                }
+            }
+            serde_json::Value::Array(xs) => xs.iter().for_each(|x| walk(x, at, missing)),
+            _ => {}
+        }
+    }
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut missing = Vec::new();
+    walk(&doc, "", &mut missing);
+    assert!(missing.is_empty(), "without format date-time: {missing:?}");
+    assert_eq!(
+        doc["components"]["schemas"]["Job"]["properties"]["createdAt"]["format"],
+        "date-time"
+    );
+}
+
 #[tokio::test]
 async fn openapi_document_is_public_and_lists_every_route() {
     let (status, doc, _) = call(
@@ -905,7 +940,7 @@ fn long_lived_join_tokens_get_a_warning() {
     assert!(cluster_admin::lifetime_warnings("2026-10-20T00:30:00Z", now).is_empty());
     let w = cluster_admin::lifetime_warnings("2026-10-20T03:00:00.123456789+00:00", now);
     assert!(w[0].contains("cluster.join_token_expiry"), "{w:?}");
-    assert!(cluster_admin::lifetime_warnings("mock: never used", now).is_empty());
+    assert!(cluster_admin::lifetime_warnings("not a time", now).is_empty());
 }
 
 // ---- Administration ------------------------------------------------------------------------
