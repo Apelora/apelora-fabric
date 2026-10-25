@@ -15,7 +15,7 @@ In Fabric Console, open **Servers → Members** and choose **Evacuate…** on an
 Read the dry run before you type the name.
 
 - **What Incus does** comes from the instance's `cluster.evacuate` mode. `auto` moves it while it is stopped. A volume that cannot move makes Incus stop the instance on this server until restore.
-- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops.
+- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops. For up to about ten seconds after a replica on this server stops, a share of the requests to its service address can still go to it and fail, until the load balancer's health check takes it out (two failed checks, five seconds apart). Apelora does not drain the server first yet (issue #50), so evacuate when that short dip is acceptable.
 - **Blocked.** No other member is Online, or none has the instance's architecture. Fix that first. Evacuation is refused while anything blocks it.
 - **Warnings.** Replicas will share the remaining servers until you restore this one.
 
