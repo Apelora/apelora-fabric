@@ -52,6 +52,7 @@ git tag -a v0.1.0-alpha.N -m "Apelora v0.1.0-alpha.N" && git push origin v0.1.0-
 bash scripts/upstream/status.sh   # pinned Incus vs upstream (see docs/development/UPSTREAM-INCUS.md)
 bash scripts/test-cluster/up.sh && source ~/.config/apelora/test-cluster/env   # disposable Incus in a Lima VM (docs/development/TEST-CLUSTER.md)
 DATABASE_URL=… cargo test -p apelora-deployment-worker --test real_incus -- --ignored --test-threads 1   # REAL INCUS TESTED lifecycle
+bash scripts/test-cluster/ui-e2e.sh   # sign-in to deploy to traffic, through the Console and Studio on the test cluster (tests/lab)
 ```
 
 ## How to change things

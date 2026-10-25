@@ -80,15 +80,9 @@ trap cleanup EXIT
 
 say "Service names — run directory $run"
 if curl -s -m 2 -o /dev/null "http://$addr/"; then fail "something already listens on $addr"; fi
-target=aarch64-unknown-linux-musl
-if ! rustup target list --installed | grep -qx "$target"; then rustup target add "$target"; fi
-host=$(rustc -vV | awk '/^host:/{print $2}')
-linker=$(rustc --print sysroot)/lib/rustlib/$host/bin/rust-lld
-[ -x "$linker" ] || linker=$(rustc --print sysroot)/lib/rustlib/$host/bin/gcc-ld/ld.lld
-(cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker && \
-  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$linker" cargo build -q --release -p apelora-dns-resolver --target "$target")
-export APELORA_DNS_BINARY="$repo/target/$target/release/apelora-dns"
-[ -x "$APELORA_DNS_BINARY" ] || fail "no Linux resolver at $APELORA_DNS_BINARY"
+(cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker)
+APELORA_DNS_BINARY=$(bash "$here/build-dns.sh") || fail "could not build the Linux resolver"
+export APELORA_DNS_BINARY
 umask 077
 out=$("$repo/target/debug/apelora-control-plane" token create --name dnscheck --role fabric-admin 2>&1)
 echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
