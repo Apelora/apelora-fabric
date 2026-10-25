@@ -383,6 +383,13 @@ async fn unreachable_server_is_a_connectivity_error() {
         .server_info()
         .await;
     assert!(matches!(res, Err(AdapterError::Connectivity(_))), "{res:?}");
+    // The message says what failed, without Incus's address or port.
+    let message = res.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(
+        message.contains("Connection refused") || message.contains("connect"),
+        "{message}"
+    );
+    assert!(!message.contains(&addr.port().to_string()), "{message}");
 }
 
 #[test]

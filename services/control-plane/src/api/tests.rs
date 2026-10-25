@@ -111,6 +111,13 @@ async fn unreachable_incus_is_a_502_with_a_stable_code() {
     let (status, body, _) = call(dev(provider.clone()), "/api/v1/instances", None).await;
     assert_eq!(status, 502);
     assert_eq!(body["error"]["code"], "incus_unreachable");
+    // The reason reaches the caller; Incus's address and port stay in the server's log.
+    let message = body["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("GET /1.0/instances"), "{message}");
+    assert!(
+        !message.contains(&addr.port().to_string()) && !message.contains("127.0.0.1"),
+        "{message}"
+    );
     let (status, body, _) = call(dev(provider), "/api/v1/health", None).await;
     assert_eq!(status, 200);
     assert_eq!(body["incus"]["connected"], false);
