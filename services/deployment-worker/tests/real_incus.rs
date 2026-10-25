@@ -268,21 +268,60 @@ async fn catalog_runtimes_run(pool: Pool) {
     assert!(!entries.is_empty(), "the catalog has no runtimes");
     let provider = real_incus();
     let project = project();
+    let volume_pool = std::env::var("APELORA_TEST_VOLUME_POOL").unwrap_or_else(|_| "local".into());
+    let app = "apl-catalog-test";
     for entry in entries {
         let name = unique("apl-cat");
         let mut spec = entry["request"].clone();
         spec["project"] = json!(project);
         spec["name"] = json!(name);
+        spec["owner"] = json!({ "application": app, "module": entry["class"], "replica": 1 });
+        // The control plane picks the pool from the volume class; here it is the test pool.
+        for v in spec
+            .get_mut("volumes")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            v["pool"] = json!(volume_pool);
+        }
         converge(&pool, &provider, "instance.create", &spec).await;
         let s = status(&provider, &project, &name).await.expect("created");
         assert_eq!((s.status.as_str(), s.managed), ("Running", true), "{entry}");
+        if let Some(check) = entry["check"].as_str() {
+            // The software takes a while to start; its settings must be the ones asked for.
+            let command = ["sh".to_owned(), "-c".to_owned(), check.to_owned()];
+            let mut passed = false;
+            for _ in 0..30 {
+                let run = provider
+                    .run_probe(&project, &name, &command, 0, 10)
+                    .await
+                    .expect("run the check");
+                if run.exit == Some(0) {
+                    passed = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
+            assert!(
+                passed,
+                "{}: the check never passed: {check}",
+                entry["class"]
+            );
+        }
         eprintln!(
-            "{} {}: running on {} from image {}",
+            "{} {}: running on {} from image {}{}",
             entry["class"],
             entry["config"],
             s.architecture,
-            s.base_image.as_deref().unwrap_or("?")
+            s.base_image.as_deref().unwrap_or("?"),
+            if entry["check"].is_string() {
+                ", its check passed inside"
+            } else {
+                ""
+            }
         );
+        let member = Some(s.location.clone()).filter(|m| !m.is_empty() && m != "none");
         converge(
             &pool,
             &provider,
@@ -290,6 +329,13 @@ async fn catalog_runtimes_run(pool: Pool) {
             &json!({ "project": project, "name": name }),
         )
         .await;
+        for v in spec["volumes"].as_array().into_iter().flatten() {
+            let volume = format!("{name}-{}", v["name"].as_str().expect("volume name"));
+            provider
+                .delete_volume(&project, &volume_pool, member.as_deref(), &volume, app)
+                .await
+                .expect("delete the test volume");
+        }
     }
 }
 

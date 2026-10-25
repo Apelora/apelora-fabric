@@ -494,7 +494,7 @@ export const METRICS: Readonly<Record<string, Metrics>> = {
   valkey: M("exporter", "text", "partly-checked", ["Memory used versus maxmemory", "Evictions", "Hit ratio", "Connected and blocked clients", "Replication offset lag"], {
     port: 9121, path: "/metrics", auth: "configurable", separateListener: true,
     enable: "Run a separate exporter process with a user limited to the commands it needs; it serves on 9121. The INFO command is the source and is always available.",
-    note: "The default configuration binds to localhost with protected mode on: set the bind address and a password before other modules can connect.",
+    note: "Its own default binds to localhost with protected mode on. The catalog's image listens on every address with protected mode off and no password, so only the modules drawn to it can reach it.",
   }),
   ferretdb: M("native", "text", "checked", ["Commands by name and result", "Command latency", "Open client connections", "PostgreSQL pool use"], {
     port: 8088, path: "/debug/metrics", onByDefault: true, localOnly: true, separateListener: true, health: { port: 8088, path: "/debug/readyz" },

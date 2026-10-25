@@ -372,7 +372,7 @@ Windows systems (3) · Directory & access (2) · Servers & apps (5)
 
 ## Deployable modules
 
-4 of 143 classes have an Incus runtime; the others are design-only. A runtime is added only after its images have run on the disposable test cluster. The runtime decides the instance kind: a system container unless the class needs an OCI application container or a virtual machine ([how a module becomes instances](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances)).
+7 of 143 classes have an Incus runtime; the others are design-only. A runtime is added only after its images have run on the disposable test cluster. The runtime decides the instance kind: a system container unless the class needs an OCI application container or a virtual machine ([how a module becomes instances](PLATFORM-ARCHITECTURE.md#41-from-an-application-to-running-instances)).
 
 | Module | Runtime | Image by setting |
 |---|---|---|
@@ -380,4 +380,7 @@ Windows systems (3) · Directory & access (2) · Servers & apps (5)
 | **NGINX** (`nginx`) | OCI application container (`incus-oci-container`) | channel = stable: `library/nginx@sha256:eb1c896deef8…` (1.30.6)<br>channel = mainline: `library/nginx@sha256:bc4cad49969a…` (1.31.7) |
 | **Linux base** (`linux-base`) | virtual machine (`incus-vm`) | `debian/13` |
 | **Debian** (`debian`) | system container (`incus-system-container`) | version = 12: `debian/12`<br>version = 13: `debian/13` |
+| **Valkey** (`valkey`) | OCI application container (`incus-oci-container`) | `valkey/valkey@sha256:418652cfb58e…` (9.1.2) |
+| **Blackbox exporter** (`blackbox-exporter`) | OCI application container (`incus-oci-container`) | `prom/blackbox-exporter@sha256:ea1c7aa3ef3f…` (0.29.1) |
+| **Uptime Kuma** (`uptime-kuma`) | OCI application container (`incus-oci-container`) | `louislam/uptime-kuma@sha256:4b95dbe7ac53…` (2.5.7) |
 

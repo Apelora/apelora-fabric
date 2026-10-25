@@ -452,6 +452,12 @@ impl InstanceSpec {
         {
             return Err(format!("config key {k} is reserved for Apelora"));
         }
+        if self.config.contains_key("oci.entrypoint") && self.source.protocol != ImageProtocol::Oci
+        {
+            return Err(
+                "config key oci.entrypoint is only for an image from an OCI registry".into(),
+            );
+        }
         if let Some((k, v)) = self
             .config
             .iter()
@@ -460,7 +466,7 @@ impl InstanceSpec {
             return Err(format!(
                 "config key {k} (value {v:?}) is not one Apelora passes to Incus; a caller may set \
                  limits.cpu, limits.cpu.allowance, limits.memory, migration.stateful, \
-                 cluster.evacuate, environment.<NAME> and user.<key>"
+                 cluster.evacuate, oci.entrypoint, environment.<NAME> and user.<key>"
             ));
         }
         if let Some(v) = self.volumes.iter().find(|v| v.pool.is_some()) {
@@ -492,6 +498,9 @@ fn caller_config_allowed(key: &str, value: &str) -> bool {
         "limits.cpu" | "limits.cpu.allowance" | "limits.memory" => plain && value.len() <= 32,
         "migration.stateful" => matches!(value, "true" | "false"),
         "cluster.evacuate" => matches!(value, "auto" | "live-migrate" | "migrate" | "stop"),
+        // The command an OCI image starts with: it runs inside the container, as the image's own
+        // command would, so it reaches nothing the image could not.
+        "oci.entrypoint" => plain && !value.trim().is_empty(),
         _ => {
             if let Some(name) = key.strip_prefix("environment.") {
                 plain
@@ -822,6 +831,31 @@ mod tests {
             let err = with(&[(k, v)]).validate_from_caller().expect_err(k);
             assert!(err.contains(k), "{k}: {err}");
         }
+        // An OCI image's command with the module's settings as arguments; it runs inside the
+        // container, like the image's own command, and only for an OCI image.
+        let command = (
+            "oci.entrypoint",
+            "docker-entrypoint.sh valkey-server --maxmemory 512mb",
+        );
+        assert_eq!(with(&[command]).validate_from_caller(), Ok(()));
+        let system = InstanceSpec {
+            source: ImageSource {
+                protocol: ImageProtocol::Simplestreams,
+                ..spec().source
+            },
+            ..with(&[command])
+        };
+        assert!(
+            system
+                .validate_from_caller()
+                .expect_err("not OCI")
+                .contains("oci.entrypoint")
+        );
+        assert!(
+            with(&[("oci.entrypoint", "valkey-server\n--port 1")])
+                .validate_from_caller()
+                .is_err()
+        );
         // Apelora's own keys stay reserved.
         assert!(
             with(&[("environment.APELORA_SERVICE_DB", "10.0.0.1")])

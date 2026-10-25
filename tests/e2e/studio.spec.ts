@@ -228,6 +228,20 @@ test.describe("configuration forms", () => {
   const field = (page: import("@playwright/test").Page, id: string) => page.locator(`[data-testid=cfg-field][data-prop-id="${id}"]`);
   const cfg = async (page: import("@playwright/test").Page, appId: string) => (await assemblyState(page)).spec.modules.find((a) => a.id === appId)!.config;
 
+  test("a deployable module says which settings change what runs; a design-only one does not", async ({ page }) => {
+    await open(page);
+    await openProps(page, "nginx-01", "config");
+    await expect(page.getByTestId("cfg-applied-summary")).toHaveText("1 of 12 settings change the running module; the others are kept in the design.");
+    await expect(field(page, "channel").getByTestId("cfg-not-applied")).toHaveCount(0);
+    await expect(field(page, "workers").getByTestId("cfg-not-applied")).toHaveText("Kept in the design: not applied to the running module yet.");
+    await expect(field(page, "server-name").getByTestId("cfg-not-applied")).toHaveText("Reaches the module as SETUP_SERVER_NAME; its image does not read it yet.");
+    await page.getByTestId("props-close").click();
+    await openProps(page, "postgresql-01", "config");
+    await expect(page.getByTestId("config-form")).toBeVisible();
+    await expect(page.getByTestId("cfg-applied-summary")).toHaveCount(0);
+    await expect(page.getByTestId("cfg-not-applied")).toHaveCount(0);
+  });
+
   test("typed fields: int, enum, bool, string, secret with validation, reset and persistence", async ({ page }) => {
     await open(page);
     await openProps(page, "postgresql-01", "config");
