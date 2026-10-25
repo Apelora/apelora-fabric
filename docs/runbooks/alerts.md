@@ -31,10 +31,11 @@ Related: [alerts design](../design/alerts.md), [troubleshooting](troubleshooting
 | Reason shown | Do |
 |---|---|
 | `secret APELORA_ALERT_SECRET_… is not set on the worker` | Set the variable on every worker and restart them. The waiting messages are retried. |
-| `could not connect to the receiver` / `did not answer within 5 s` | Check the receiver is up and reachable from the workers (firewall, DNS, proxy). |
+| `could not connect to the receiver` / `did not answer within 5 s` / `could not resolve the receiver's name` | Check the receiver is up and reachable from the workers (firewall, DNS, proxy). The worker's log has the full error (`alert: webhook delivery failed`). |
+| `the receiver's address is not allowed…` | The receiver's name resolves to the worker's own computer (loopback), a link-local address (169.254.0.0/16, fe80::/10, where cloud metadata services answer), an unspecified, multicast or broadcast address. Point the channel at the receiver's real address; private addresses (10/8, 172.16/12, 192.168/16, fd00::/8) are fine. |
 | `the receiver answered 401/403` | The receiver refused the signature or token: compare secrets; check its clock (timestamps older than five minutes are refused). |
 | `the receiver answered 3xx (a redirect…)` | Use the final URL; Apelora does not follow redirects. |
-| TLS errors | The receiver's certificate must be valid for its name and trusted by the workers' system trust store. |
+| `TLS with the receiver failed…` | The receiver's certificate must be valid for its name and trusted by the workers' system trust store. The worker's log says what TLS refused. |
 
 Messages for a deleted or turned-off channel are dropped. Undelivered messages are never dropped otherwise; the `outbox-stuck` rule fires when they wait more than 10 minutes.
 

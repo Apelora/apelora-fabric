@@ -142,9 +142,10 @@ async fn receiver(status: u16) -> Receiver {
     }
 }
 
-fn trusting(cert: &CertificateDer<'static>) -> reqwest::Client {
+/// Clients that trust the receiver's certificate only.
+fn trusting(cert: &CertificateDer<'static>) -> ClientSource {
     let c = reqwest::Certificate::from_der(cert).expect("cert");
-    WebhookSink::client(reqwest::Client::builder().tls_certs_only([c])).expect("client")
+    Arc::new(move || reqwest::Client::builder().tls_certs_only([c.clone()]))
 }
 
 async fn channel_to(pool: &Pool, url: &str) -> Uuid {
@@ -196,11 +197,10 @@ async fn a_signed_notification_reaches_an_https_receiver_once_through_the_relay(
     let channel = channel_to(&pool, &r.url).await;
     let m = message_for(&pool, channel).await;
     let sink = Routed {
-        alerts: Arc::new(WebhookSink::with(
-            pool.clone(),
-            trusting(&r.cert),
-            secrets(Some("s3cret")),
-        )),
+        alerts: Arc::new(
+            WebhookSink::with(pool.clone(), trusting(&r.cert), secrets(Some("s3cret")))
+                .allowing_loopback(),
+        ),
         other: Arc::new(crate::outbox::LogSink),
     };
     let pass = crate::outbox::relay_once(&pool, &sink, None)
@@ -238,9 +238,10 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
     message_for(&pool, channel).await;
     let system_trust = WebhookSink::with(
         pool.clone(),
-        WebhookSink::client(reqwest::Client::builder()).expect("client"),
+        Arc::new(reqwest::Client::builder),
         secrets(Some("s3cret")),
-    );
+    )
+    .allowing_loopback();
     let pass = crate::outbox::relay_once(&pool, &system_trust, None)
         .await
         .expect("pass");
@@ -255,6 +256,11 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
         !error.contains("hidden-in-url") && !error.contains("localhost:"),
         "{error}"
     );
+    // Coarse: that TLS failed, not what the certificate said.
+    assert_eq!(
+        error,
+        "TLS with the receiver failed (its certificate was not accepted, or the handshake failed)"
+    );
     assert_eq!((d[0].pending, d[0].failing), (1, 1));
 
     // A missing secret is a visible failure; nothing is sent.
@@ -262,7 +268,8 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
         .execute(&pool)
         .await
         .expect("due");
-    let no_secret = WebhookSink::with(pool.clone(), trusting(&r.cert), secrets(None));
+    let no_secret =
+        WebhookSink::with(pool.clone(), trusting(&r.cert), secrets(None)).allowing_loopback();
     crate::outbox::relay_once(&pool, &no_secret, None)
         .await
         .expect("pass");
@@ -288,7 +295,8 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
         pool.clone(),
         trusting(&failing.cert),
         secrets(Some("s3cret")),
-    );
+    )
+    .allowing_loopback();
     crate::outbox::relay_once(&pool, &sink, None)
         .await
         .expect("pass");
@@ -298,6 +306,28 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
         Some("the receiver answered 500")
     );
     assert_eq!(failing.seen.lock().expect("lock").len(), 1);
+
+    // Nothing listening: only that the connection failed, never the system's own words.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = closed.local_addr().expect("addr").port();
+    drop(closed);
+    sqlx::query("UPDATE alert_channels SET url = $1")
+        .bind(format!("https://localhost:{port}/hook"))
+        .execute(&pool)
+        .await
+        .expect("url");
+    sqlx::query("UPDATE outbox SET next_attempt_at = now()")
+        .execute(&pool)
+        .await
+        .expect("due");
+    crate::outbox::relay_once(&pool, &sink, None)
+        .await
+        .expect("pass");
+    let d = db::channel_deliveries(&pool).await.expect("deliveries");
+    assert_eq!(
+        d[0].last_error.as_deref(),
+        Some("could not connect to the receiver")
+    );
 
     // A deleted channel: the message is dropped (delivered), not retried forever.
     db::delete_channel(&pool, channel).await.expect("delete");
@@ -309,4 +339,74 @@ async fn failures_are_retried_with_a_reason_that_never_names_the_url_or_the_secr
         .await
         .expect("pass");
     assert_eq!((pass.delivered, pass.pending), (1, 0));
+}
+
+/// A webhook is never sent to this computer, by name or by address (a receiver that only listens
+/// on loopback stands in for the control plane's own services and the metadata service).
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_channel_that_points_at_this_computer_is_refused(pool: Pool) {
+    let r = receiver(204).await;
+    let port = r.url.trim_start_matches("https://localhost:");
+    let channel = channel_to(&pool, &r.url).await;
+    message_for(&pool, channel).await;
+    let sink = WebhookSink::with(pool.clone(), trusting(&r.cert), secrets(Some("s3cret")));
+    for url in [
+        r.url.clone(),
+        format!("https://127.0.0.1:{port}"),
+        format!("https://[::1]:{port}"),
+        format!("https://[::ffff:127.0.0.1]:{port}"),
+    ] {
+        sqlx::query("UPDATE alert_channels SET url = $1")
+            .bind(&url)
+            .execute(&pool)
+            .await
+            .expect("url");
+        sqlx::query("UPDATE outbox SET next_attempt_at = now()")
+            .execute(&pool)
+            .await
+            .expect("due");
+        let pass = crate::outbox::relay_once(&pool, &sink, None)
+            .await
+            .expect("pass");
+        assert_eq!(pass.failed, 1, "{url}");
+        let d = db::channel_deliveries(&pool).await.expect("deliveries");
+        assert_eq!(d[0].last_error.as_deref(), Some(ADDRESS_REFUSED), "{url}");
+    }
+    assert!(r.seen.lock().expect("lock").is_empty(), "nothing was sent");
+}
+
+#[test]
+fn only_this_computer_link_local_unspecified_and_multicast_are_refused() {
+    let ip = |s: &str| s.parse::<IpAddr>().expect("ip");
+    for bad in [
+        "127.0.0.1",
+        "127.8.9.10",
+        "0.0.0.0",
+        "0.1.2.3",
+        "169.254.169.254",
+        "224.0.0.1",
+        "255.255.255.255",
+        "::1",
+        "::",
+        "fe80::1",
+        "febf::1",
+        "ff02::1",
+        "::ffff:127.0.0.1",
+        "::ffff:169.254.169.254",
+    ] {
+        assert!(forbidden_address(ip(bad)), "{bad}");
+    }
+    for good in [
+        "10.0.0.5",
+        "172.16.0.1",
+        "192.168.1.20",
+        "100.64.0.1",
+        "203.0.113.9",
+        "fd00::5",
+        "fec0::1",
+        "2001:db8::1",
+        "::ffff:10.0.0.5",
+    ] {
+        assert!(!forbidden_address(ip(good)), "{good}");
+    }
 }
