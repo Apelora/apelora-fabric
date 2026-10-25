@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ModuleInstanceSchema, MAX_VOLUMES, MAX_REPLICAS, PLATFORMS, PLATFORM_INFO, applicationDemand, assemblyTotals, availabilityOf, budgetIssues, cableColorOf, readinessOf, ReadinessSchema, restartsElsewhere, effectiveSize, formatMemory, platformOf, portOf, replicasOf, tagNet, volumesOf, type ModuleClass, type ApplicationAssembly, type InternetAccess, type PlatformId, type Readiness, type ResourceBudget, type Volume } from "@apelora/assembly-model";
+import type { InstanceViewAddress } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
+import { client, messageOf } from "../../features/deploy/api";
+import { useLive } from "../../features/deploy/live";
 import { useStudio, useStudioApi } from "../../features/editor/context";
 import { diagnosticsFor, type PropsTarget } from "../../features/editor/store";
 import { draftFromPorts, useCustomCatalog } from "../../features/catalog/customCatalog";
@@ -26,6 +29,63 @@ function Section({ title, children, right }: { title: string; children: React.Re
       <div className="mb-1.5 flex items-center justify-between"><h4 className="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">{title}</h4>{right}</div>
       {children}
     </section>
+  );
+}
+
+/** The addresses others reach an instance at: its global ones (not loopback or link-local). */
+const reachable = (as: readonly InstanceViewAddress[]) => as.filter((a) => a.scope === "global").map((a) => a.address);
+
+/**
+ * Where a deployed module runs: each replica's server and addresses, and its service address.
+ * Addresses are read only while this window shows them (one request per replica, again when a
+ * replica appears or changes status), so the status every open canvas polls stays one listing.
+ */
+function RunningSection({ moduleId }: { moduleId: string }) {
+  const watching = useLive((s) => s.application !== null);
+  const instances = useLive((s) => s.byModule[moduleId]);
+  const service = useLive((s) => s.services[moduleId]);
+  const [reads, setReads] = useState<Record<string, { addresses: string[] } | { error: string }>>({});
+  const key = (instances ?? []).map((i) => `${i.project}/${i.instance}:${i.status}`).join(",");
+  useEffect(() => {
+    let current = true;
+    for (const i of instances ?? []) {
+      client.request("instance_page", { params: { project: i.project, name: i.instance } }).then(
+        (p) => { if (current) setReads((r) => ({ ...r, [i.instance]: { addresses: reachable(p.instance.addresses) } })); },
+        (e: unknown) => { if (current) setReads((r) => ({ ...r, [i.instance]: { error: messageOf(e) } })); },
+      );
+    }
+    return () => { current = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  if (!watching) return null;
+  if (!instances?.length) return <Section title="Running"><p className="text-xs text-base-content/60" data-testid="running-none">Not deployed yet: deploy the application to run this module.</p></Section>;
+  return (
+    <Section title="Running">
+      <ul className="flex flex-col gap-2" data-testid="running-instances">
+        {instances.map((i) => {
+          const failing = i.health?.health === "unhealthy";
+          const read = reads[i.instance];
+          return (
+            <li key={i.instance} data-testid="running-instance" data-instance={i.instance} className="text-xs">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className={`status shrink-0 ${i.status !== "Running" ? "status-warning" : failing ? "status-error" : "status-success"}`} aria-hidden="true" />
+                  <span className="truncate font-mono">{i.instance}</span>
+                </span>
+                <span className="shrink-0 text-base-content/70">{i.status}{failing ? ", failing its check" : ""} on {i.location || "this server"}</span>
+              </div>
+              <p className="mt-0.5 pl-3 font-mono text-[11px]" data-testid="instance-addresses">
+                {read === undefined ? <span className="font-sans text-base-content/60">Reading addresses…</span>
+                  : "error" in read ? <span className="font-sans text-error">Addresses not read: {read.error}</span>
+                  : read.addresses.length === 0 ? <span className="font-sans text-base-content/60">{i.status === "Running" ? "No address yet" : `No address while ${i.status.toLowerCase()}`}</span>
+                  : <span className="select-all break-all">{read.addresses.join(", ")}</span>}
+              </p>
+            </li>
+          );
+        })}
+      </ul>
+      {service && <p className="mt-2 flex items-baseline justify-between gap-3 text-xs" data-testid="running-service"><span className="text-base-content/60">Service address</span><span className="select-all font-mono">{service}</span></p>}
+    </Section>
   );
 }
 
@@ -176,6 +236,7 @@ function ModuleBody({ id, tab }: { id: string; tab: "general" | "config" | "port
         <dt className="text-base-content/60">Network</dt><dd className="truncate" data-testid="nic-status">{nicStatus(assembly, app.id)}</dd>
         <dt className="text-base-content/60">Size</dt><dd className="tabular-nums" data-testid="node-size">{size.width} × {size.height}{layout.custom && <button className="link ml-2" onClick={() => api.getState().resetSize(app.id)}>reset</button>}</dd>
       </dl>
+      <RunningSection moduleId={app.id} />
       <Section title="Resources (request)">
         <div className="flex gap-2">
           <NumberField label="vCPU" value={app.resources.cpu} min={1} step={1} testId="res-cpu" onCommit={(n) => api.getState().setRes(app.id, { cpu: n })} />

@@ -121,6 +121,7 @@ test.describe("deploying from the Studio", () => {
 
   test("a deployed application's canvas shows live state when opened later, not only after deploying", async ({ page }) => {
     let polled = 0;
+    let pages = 0;
     const ok = { allowed: true, reason: null };
     const info = {
       name: "shop", description: "", icon: "generic-box", archived: false, createdAt: now, updatedAt: now, latestRevision: 1,
@@ -143,6 +144,13 @@ test.describe("deploying from the Studio", () => {
         { module: "nginx-01", instance: "shop-nginx-01", project: "apelora", status: "Running", location: "node-1" },
         { module: "nginx-01", instance: "shop-nginx-01-r2", project: "apelora", status: "Running", location: "node-2" },
       ], services: [{ module: "nginx-01", project: "apelora", address: "198.18.100.1" }], trafficBlocked: "Traffic cannot move to replacement replicas: Incus refuses load balancer changes while cluster member node-3 is unreachable." } }; },
+      "GET /api/v1/instances/apelora/shop-nginx-01": () => { pages += 1; return { json: { instance: { addresses: [
+        { address: "127.0.0.1", family: "inet", interface: "lo", netmask: "8", scope: "local" },
+        { address: "10.20.0.5", family: "inet", interface: "eth0", netmask: "24", scope: "global" },
+        { address: "fe80::1", family: "inet6", interface: "eth0", netmask: "64", scope: "link" },
+        { address: "fd42::5", family: "inet6", interface: "eth0", netmask: "64", scope: "global" },
+      ] } } }; },
+      "GET /api/v1/instances/apelora/shop-nginx-01-r2": () => { pages += 1; return { status: 502, json: { error: { code: "incus_unavailable", message: "Incus did not answer" } } }; },
     });
     await page.goto("/studio/applications/shop/designer");
     await page.waitForSelector("[data-testid=module-node]");
@@ -151,6 +159,20 @@ test.describe("deploying from the Studio", () => {
     await expect(live).toHaveAttribute("title", /shop-nginx-01-r2: Running on node-2[\s\S]*Service address 198\.18\.100\.1/);
     await expect(page.getByTestId("mock-badge")).toHaveText("Live · 2 running");
     await expect(page.getByTestId("traffic-blocked")).toHaveAttribute("title", /while cluster member node-3 is unreachable/);
+    // Addresses are read when the module's properties open: global ones only, and a failed read says so.
+    expect(pages).toBe(0);
+    await page.locator(`[data-node-id="nginx-01"]`).click();
+    await page.keyboard.press("Enter");
+    const replica = (name: string) => page.locator(`[data-testid=running-instance][data-instance="${name}"]`);
+    await expect(replica("shop-nginx-01")).toContainText("Running on node-1");
+    await expect(replica("shop-nginx-01").getByTestId("instance-addresses")).toHaveText("10.20.0.5, fd42::5");
+    await expect(replica("shop-nginx-01-r2").getByTestId("instance-addresses")).toHaveText(/Addresses not read: .*Incus did not answer/);
+    await expect(page.getByTestId("running-service")).toContainText("198.18.100.1");
+    // Polling the status again does not read them again while nothing changed.
+    const read = pages;
+    const polledBefore = polled;
+    await expect.poll(() => polled, { timeout: 12_000 }).toBeGreaterThan(polledBefore);
+    expect(pages).toBe(read);
     // Leaving the canvas stops asking for the state.
     await page.goto("/studio/applications");
     const after = polled;
