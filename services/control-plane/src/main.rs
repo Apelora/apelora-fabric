@@ -292,10 +292,7 @@ fn sign_in_from_env(
         return Ok(None);
     };
     let issuer = get("APELORA_OIDC_ISSUER").unwrap_or_default();
-    if !issuer.starts_with("https://")
-        && !issuer.starts_with("http://127.0.0.1")
-        && !issuer.starts_with("http://localhost")
-    {
+    if !apelora_identity::secure_url(&issuer) {
         return Err("APELORA_OIDC_ISSUER must be an https:// URL for browser sign-in".into());
     }
     let scopes: Vec<String> = get("APELORA_OIDC_SCOPES")
