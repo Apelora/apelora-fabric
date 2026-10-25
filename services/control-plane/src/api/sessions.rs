@@ -22,7 +22,7 @@
 //! between several control plane replicas.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
-use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -881,17 +881,21 @@ pub(super) async fn terminate(
 
 // ---- GET /sessions/connect (websocket) --------------------------------------------------------
 
-/// The address of the peer, when the server was started with connection information.
-pub(super) struct Peer(pub(super) Option<SocketAddr>);
+/// The client's address: the connection's peer, or the address a trusted proxy
+/// (`APELORA_TRUSTED_PROXIES`) forwarded for, as the rate limits see it
+/// (`rate_limit::client_ip`). `None` when the server runs without connection information.
+pub(super) struct ClientAddress(pub(super) Option<IpAddr>);
 
-impl<S: Send + Sync> FromRequestParts<S> for Peer {
+impl FromRequestParts<AppState> for ClientAddress {
     type Rejection = std::convert::Infallible;
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, Self::Rejection> {
-        Ok(Peer(
-            parts
-                .extensions
-                .get::<axum::extract::ConnectInfo<SocketAddr>>()
-                .map(|c| c.0),
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(ClientAddress(
+            state
+                .rate_limits
+                .client_of(&parts.extensions, &parts.headers),
         ))
     }
 }
@@ -930,7 +934,7 @@ pub(super) async fn connect(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
     headers: HeaderMap,
-    Peer(peer): Peer,
+    ClientAddress(client): ClientAddress,
 ) -> Response {
     if !state.console.enabled {
         return refuse(
@@ -993,7 +997,7 @@ pub(super) async fn connect(
     ws.protocols([PROTOCOL])
         .max_message_size(MAX_INBOUND)
         .max_frame_size(MAX_INBOUND)
-        .on_upgrade(move |socket| run(state, ticket, stop, guard, socket, peer))
+        .on_upgrade(move |socket| run(state, ticket, stop, guard, socket, client))
 }
 
 fn closing(reason: &'static str) -> Message {
@@ -1071,7 +1075,7 @@ async fn run(
     mut stop: oneshot::Receiver<&'static str>,
     _guard: RunGuard,
     mut socket: WebSocket,
-    peer: Option<SocketAddr>,
+    client: Option<IpAddr>,
 ) {
     let cfg = state.console.clone();
     let target = approval_target(&ticket.application, &ticket.instance);
@@ -1086,7 +1090,7 @@ async fn run(
         send_close(&mut socket, "unsupported").await;
         return;
     };
-    let source = peer.map(|a| a.ip().to_string());
+    let source = client.map(|a| a.to_string());
     // The ticket can be up to a minute old: check the person once more before opening anything.
     match still_allowed(&state, &ticket).await {
         Some(true) => {}
