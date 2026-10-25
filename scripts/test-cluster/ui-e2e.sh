@@ -41,10 +41,11 @@ free() { ! curl -s -m 2 -o /dev/null "http://$1/"; }
 set -m
 pids=()
 cleanup() {
-  set +e
+  set +e +m
   say "cleanup"
   if [ -s "$run/token" ]; then
-    for app in $(api "$API/applications" | jq -r '.items[]?.name | select(startswith("e2e-"))'); do
+    apps=$(api "$API/applications" | jq -r '.items[]?.name | select(startswith("e2e-"))')
+    for app in $apps; do
       project=$(api "$API/applications/$app/status" | jq -r '.items[0].project // "apelora"')
       api -X POST -H "Idempotency-Key: ui-e2e-cleanup-$app" \
         -d "{\"project\":\"$project\",\"document\":{\"apiVersion\":\"fabric.apelora/v1alpha1\"},\"modules\":[],\"connections\":[],\"removeMissing\":true}" \
@@ -55,12 +56,18 @@ cleanup() {
       { incus_ list --project apelora -c n --format csv; incus_ network list --project apelora -c n --format csv; } | grep -q '^e2e-' || break
       sleep 5
     done
+    # Volumes outlive their module on purpose (data is never deleted by a redeploy); delete them by name.
+    for app in $apps; do
+      for v in $(api "$API/applications/$app/volumes" | jq -r '.items[]?.incusName'); do
+        api -X DELETE -d "{\"confirm\":\"$v\"}" "$API/applications/$app/volumes/$v" >/dev/null
+      done
+    done
   fi
   for p in "${pids[@]}"; do kill "$p" 2>/dev/null; done
   sleep 2
   docker exec -i "$DB_CONTAINER" dropdb -U apelora --if-exists --force "$db" >/dev/null
   rm -f "$run/token"
-  say "left on the cluster: $(incus_ list --project apelora -c n --format csv | tr '\n' ' ')/ networks: $(incus_ network list --project apelora -c n --format csv | tr '\n' ' ')"
+  say "left on the cluster: $(incus_ list --project apelora -c n --format csv | tr '\n' ' ')/ networks: $(incus_ network list --project apelora -c n --format csv | tr '\n' ' ')/ e2e volumes: $(incus_ storage volume list "${APELORA_VOLUME_POOL:-local}" --project apelora -c n --format csv | grep -c '^e2e-')"
   say "log: $log"
 }
 trap cleanup EXIT
