@@ -1332,12 +1332,37 @@ async fn check_joining(
         PrincipalRef::User { id: user },
         "group.member.add",
         json!({ "user": user }),
+        false,
     )
     .await
 }
 
-/// The caller could grant each of the group's live assignments to `to`; otherwise the refusal is
-/// audited as `action` (denied) and answered 403 `membership_refused`.
+/// Leaving a group takes away every role the group holds, so the caller must be able to revoke
+/// each of the group's live assignments, exactly as `revoke_assignment` checks a direct one.
+async fn check_leaving(
+    pool: &apelora_persistence::Pool,
+    p: &Principal,
+    g: &db::GroupRow,
+    group_res: &Resource,
+    user: Uuid,
+) -> Res<()> {
+    check_group_roles(
+        pool,
+        p,
+        g,
+        group_res,
+        PrincipalRef::User { id: user },
+        "group.member.remove",
+        json!({ "user": user }),
+        true,
+    )
+    .await
+}
+
+/// The caller could grant (or, with `revoke`, take away) each of the group's live assignments
+/// for `to`; otherwise the refusal is audited as `action` (denied) and answered 403
+/// `membership_refused`.
+#[allow(clippy::too_many_arguments)]
 async fn check_group_roles(
     pool: &apelora_persistence::Pool,
     p: &Principal,
@@ -1346,6 +1371,7 @@ async fn check_group_roles(
     to: PrincipalRef,
     action: &str,
     detail: Value,
+    revoke: bool,
 ) -> Res<()> {
     let held = db::load_engine(pool, &[PrincipalRef::Group { id: g.id }]).await?;
     let (engine, subject) = actor(p);
@@ -1356,6 +1382,10 @@ async fn check_group_roles(
         };
         // An assignment whose role or scope can no longer be resolved is refused, not skipped.
         let verdict = match (role, resource_of(pool, &a.scope).await) {
+            (Some(role), Ok(scope_res)) if revoke => {
+                check_revocation(&engine, &subject, &role, &a.scope, &scope_res, now())
+                    .map_err(|e| (role.name.clone(), e.to_string()))
+            }
             (Some(role), Ok(scope_res)) => check_assignment(
                 &engine,
                 &subject,
@@ -1387,7 +1417,8 @@ async fn check_group_roles(
                 StatusCode::FORBIDDEN,
                 "membership_refused",
                 format!(
-                    "this group holds {role}, which you could not grant to those members: {why}"
+                    "this group holds {role}, which you could not {} those members: {why}",
+                    if revoke { "take away from" } else { "grant to" }
                 ),
             ));
         }
@@ -1417,6 +1448,8 @@ async fn change_member(
         .ok_or_else(|| not_found("user"))?;
     if add {
         check_joining(pool, p, &g, &res, user).await?;
+    } else {
+        check_leaving(pool, p, &g, &res, user).await?;
     }
     let mut tx = begin(pool).await?;
     if add {
@@ -1484,6 +1517,7 @@ pub(super) async fn set_external(
         PrincipalRef::Group { id: g.id },
         "group.external.set",
         json!({ "source": source, "externalName": name }),
+        false,
     )
     .await?;
     let mut tx = begin(pool).await?;

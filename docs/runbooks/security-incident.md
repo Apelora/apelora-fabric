@@ -63,7 +63,7 @@ Filter the audit trail by actor, then read in time order. The actions that matte
 |---|---|
 | Did they get in? | `auth.oidc.signed_in`, `auth.password.succeeded` and `auth.password.failed`, `auth.directory.*`, `auth.locked`, `auth.refused` (a disabled account) |
 | Did they try things they could not do? | `access.denied`, `session.denied`, refused approvals |
-| Did they give themselves or others more access? | `role.assign`, `role.revoke`, `role.create`, `group.member.add`, `emergency_access.request` and `emergency_access.grant`, `token.create` (and `token.create_admin`), `personal_token.create`, `service_identity.create` |
+| Did they give themselves or others more access? | `role.assign`, `role.revoke`, `role.create`, `group.member.add`, `group.member.remove`, `emergency_access.request` and `emergency_access.grant`, `token.create` (and `token.create_admin`), `personal_token.create`, `service_identity.create` |
 | Did they get a shell? | `session.request`, `session.open`, `session.close` (instance, source address, duration) |
 | Did they change or remove workloads? | `application.deploy.requested`, `application.operation`, `application.delete`, `application.volume.delete`, `application.volume.restore`, `instance.create`/`start`/`stop`/`delete`/`move`, `cluster.member.evacuate`, `cluster.member.remove` |
 | Did they read data out? | `audit.exported`, support bundle downloads |

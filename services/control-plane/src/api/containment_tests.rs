@@ -700,6 +700,37 @@ async fn joining_a_group_never_gives_more_than_the_caller_could_grant(pool: Pool
         rows[0].1.contains("platform-super-admin") || rows[0].1.contains("Platform Super Admin"),
         "{rows:?}"
     );
+
+    // Leaving takes the group's roles away: the clerk may not remove anyone from a group whose
+    // roles he could not revoke, but runs the plain group as before.
+    let (s, b) = l.req("DELETE", &member(&owners, eve), &t, None).await;
+    assert_eq!(
+        (s, code(&b)),
+        (StatusCode::FORBIDDEN, Some("membership_refused")),
+        "{b}"
+    );
+    assert!(
+        b["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("could not take away from")),
+        "{b}"
+    );
+    assert_eq!(
+        l.req("DELETE", &member(&plain, eve), &t, None).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        l.req("DELETE", &member(&owners, eve), &w.admin, None)
+            .await
+            .0,
+        StatusCode::NO_CONTENT,
+        "someone who could revoke the group's roles may remove members"
+    );
+    let rows = audit_rows(&pool, "group.member.remove").await;
+    assert_eq!(
+        rows.iter().map(|(o, _)| o.as_str()).collect::<Vec<_>>(),
+        ["denied", "success", "success"]
+    );
 }
 
 /// An approval is another person's judgement: a legacy token is not a person (it is recorded as a

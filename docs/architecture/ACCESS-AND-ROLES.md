@@ -12,7 +12,7 @@ Evidence labels used below: **BUILT** (in the repository and tested), **PROPOSED
 4. **Two authorities, never mixed.** Apelora decides who may design, deploy and operate *applications*. Incus decides what a certificate may do *inside Incus*. The browser never holds Incus credentials.
 5. **Defence in depth.** A mistake in one layer (a missing check in a screen) must not be enough to cause harm in the next.
 6. **Everything that matters is audited,** with who, what, when, on which object, and the outcome. Secrets never appear in the audit log.
-7. **Membership is a grant.** Adding someone to a group, or taking a group's members from an identity provider or a directory, gives them the group's roles. It therefore passes the same escalation check as assigning a role directly, and a group's outside members come only from the one source it names: another provider, or another part of the directory, with a group of the same name gives nothing ([ADR 0016](../adr/0016-group-mappings-name-their-source.md)).
+7. **Membership is a grant.** Adding someone to a group, or taking a group's members from an identity provider or a directory, gives them the group's roles. It therefore passes the same escalation check as assigning a role directly, and removing someone from such a group passes the same check as revoking the role, and a group's outside members come only from the one source it names: another provider, or another part of the directory, with a group of the same name gives nothing ([ADR 0016](../adr/0016-group-mappings-name-their-source.md)).
 8. **A second person means a person.** An approval is decided by someone signed in as themselves, never by an API token, which the audit trail would record as someone else.
 
 ## 2. User roles, access levels and interfaces
