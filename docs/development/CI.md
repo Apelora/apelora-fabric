@@ -12,7 +12,8 @@ CI has to be fast enough that nobody waits on it and strict enough that main sta
 | `codeql.yml` | pull requests, main, weekly | CodeQL for Rust, TypeScript and the workflows, shipping code only | |
 | `dependency-review.yml` | pull requests | refuses new dependencies with high-severity advisories | |
 | `dependabot-auto-merge.yml` | after CI finishes on a Dependabot pull request | merges passing patch and minor updates | |
-| `mutation.yml`, `upstream-check.yml`, `release.yml` | as described in each file | | |
+| `mutation.yml`, `upstream-check.yml` | as described in each file | | |
+| `release.yml` | a version tag (`v*`) | checks the tag, that it is on `main` and that CI passed; builds each service and screen for both architectures with checksums and a provenance attestation; publishes pre-releases, drafts final versions | [releasing](RELEASING.md) |
 
 Which areas run is decided by `scripts/ci/changed-areas.sh`: a pull request compares with its base, a push with the commit before it. A change to `.github/workflows/`, `.github/actions/` or `scripts/ci/` runs everything, and so does a manual run or an unknown base. A documentation-only change runs only the dependency and secret job, which also checks that counts stated in the documentation (built-in alert rules, module classes, deployable classes, API operations) match the code.
 

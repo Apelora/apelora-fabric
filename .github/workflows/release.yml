@@ -1,8 +1,11 @@
 name: Release
 
-# Builds independent artefacts for each service and app when a version tag (v*) is pushed, and
-# attaches them with SHA-256 checksums to a *draft* GitHub release that a maintainer reviews and
-# publishes. No secrets beyond the workflow's own token; nothing is deployed anywhere.
+# Publishes a release when a version tag is pushed (docs/development/RELEASING.md):
+#   v<major>.<minor>.<patch>-alpha.<n> | -beta.<n> | -rc.<n>  -> published at once as a pre-release
+#   v<major>.<minor>.<patch>                                    -> a draft a maintainer reviews and publishes
+# The tag must point at a commit on main whose CI passed. Each service and app is built on its own,
+# with SHA-256 checksums and a signed build-provenance attestation. No secrets beyond the
+# workflow's own token; nothing is deployed anywhere.
 on:
   push:
     tags: ["v*"]
@@ -10,9 +13,56 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
+  check:
+    name: Tag, branch and CI
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+      previous: ${{ steps.tag.outputs.previous }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: The tag is a version, on main, and follows the previous one
+        id: tag
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "::error::$tag is not v<major>.<minor>.<patch> with an optional -alpha.N, -beta.N or -rc.N"; exit 1
+          fi
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$tag does not point at a commit on main"; exit 1; }
+          if [[ "$tag" == *-* ]]; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          previous=$(git tag --list 'v*' --sort=-v:refname --merged "$GITHUB_SHA" | grep -vx "$tag" | head -1 || true)
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "releasing $tag (previous: ${previous:-none})"
+      - name: CI passed on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Wait for CI on the tagged commit when it is still running (at most 45 minutes).
+          for _ in $(seq 1 90); do
+            read -r status conclusion < <(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" \
+              --json status,conclusion --jq '.[0] | "\(.status // "none") \(.conclusion // "none")"')
+            case "$status/$conclusion" in
+              completed/success) echo "CI passed"; exit 0 ;;
+              completed/*) echo "::error::CI on this commit ended: $conclusion"; exit 1 ;;
+              none/*) echo "::error::no CI run for this commit; push it to main first"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::CI did not finish in time"; exit 1
+
   services:
     name: Services (${{ matrix.arch }})
+    needs: check
     strategy:
       matrix:
         include:
@@ -45,6 +95,7 @@ jobs:
 
   apps:
     name: Studio and Fabric Console
+    needs: check
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,21 +117,60 @@ jobs:
           name: apps
           path: dist/
 
-  draft-release:
-    name: Draft release
-    needs: [services, apps]
+  release:
+    name: Publish
+    needs: [check, services, apps]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
-      - name: Create a draft release with the artefacts
+      - name: Attest where each archive was built
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+      - name: Release notes
+        env:
+          PREVIOUS: ${{ needs.check.outputs.previous }}
+        run: |
+          {
+            echo "## Changes"
+            echo
+            if [ -n "$PREVIOUS" ]; then
+              git log --no-merges --pretty='- %s (%h)' "$PREVIOUS..$GITHUB_REF_NAME" | cut -c1-240
+              echo
+              echo "Full list: https://github.com/$GITHUB_REPOSITORY/compare/$PREVIOUS...$GITHUB_REF_NAME"
+            else
+              echo "First release."
+            fi
+            echo
+            echo "## Install"
+            echo
+            echo "Follow [Install Apelora Fabric](https://apelora.github.io/docs/install/install-on-your-servers/) with \`TAG=$GITHUB_REF_NAME\`."
+            echo
+            echo "## Check the downloads"
+            echo
+            echo '```sh'
+            echo "sha256sum --check --ignore-missing SHA256SUMS-services-\$ARCH SHA256SUMS-apps"
+            echo "gh attestation verify <archive> --repo $GITHUB_REPOSITORY"
+            echo '```'
+            echo
+            echo "What this version has been tested against: [what works today](https://apelora.github.io/docs/project/current-state/)."
+          } > notes.md
+          cat notes.md
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ needs.check.outputs.prerelease }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft \
-            --title "Apelora $GITHUB_REF_NAME" \
-            --notes "Draft: review the artefacts and checksums, and docs/architecture/current-state.md for what this version has been verified against, before publishing."
+          if [ "$PRERELEASE" = true ]; then kind=(--prerelease); else kind=(--draft); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" "${kind[@]}" \
+            --verify-tag --title "Apelora $GITHUB_REF_NAME" --notes-file notes.md
