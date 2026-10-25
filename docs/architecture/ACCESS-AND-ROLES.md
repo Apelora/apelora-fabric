@@ -12,6 +12,8 @@ Evidence labels used below: **BUILT** (in the repository and tested), **PROPOSED
 4. **Two authorities, never mixed.** Apelora decides who may design, deploy and operate *applications*. Incus decides what a certificate may do *inside Incus*. The browser never holds Incus credentials.
 5. **Defence in depth.** A mistake in one layer (a missing check in a screen) must not be enough to cause harm in the next.
 6. **Everything that matters is audited,** with who, what, when, on which object, and the outcome. Secrets never appear in the audit log.
+7. **Membership is a grant.** Adding someone to a group, or taking a group's members from an identity provider or a directory, gives them the group's roles. It therefore passes the same escalation check as assigning a role directly, and a group's outside members come only from the one source it names: another provider, or another part of the directory, with a group of the same name gives nothing ([ADR 0016](../adr/0016-group-mappings-name-their-source.md)).
+8. **A second person means a person.** An approval is decided by someone signed in as themselves, never by an API token, which the audit trail would record as someone else.
 
 ## 2. User roles, access levels and interfaces
 
@@ -192,7 +194,7 @@ flowchart TB
 
 | Identity | State | Notes |
 |---|---|---|
-| People | BUILT: API tokens created by an administrator, shown once, hashed in storage, with a role, expiry and last-use | PROPOSED: OIDC sign-in; groups from the identity provider map to role bindings; multi-factor authentication is the provider's job; tokens remain for automation only |
+| People | BUILT: OIDC sign-in, local accounts and directories (LDAP over TLS); groups from a provider or a directory map onto Apelora groups, each mapping tied to its source ([ADR 0016](../adr/0016-group-mappings-name-their-source.md)); API tokens created by an administrator, shown once, hashed in storage, with a role, expiry and last-use | Multi-factor authentication is the provider's job; tokens remain for automation only |
 | Automation | BUILT: API tokens | PROPOSED: tokens bound to one scope and role, short expiry, named owner, visible in the Console |
 | Apelora → Incus | BUILT: deploy identity (restricted) and admin identity (unrestricted) as two certificates | Rotate on schedule; store only in the backend's secret store |
 | Hosts → cluster | BUILT: single-use join tokens issued after an administrator approves the machine | MAAS provisioning later ([ADR 0002](../adr/0002-bare-metal-provisioning-maas.md)) |

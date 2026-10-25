@@ -5,6 +5,8 @@ Use this page to cut off a person, a script, a join token, Apelora's own Incus i
 | What | How |
 |---|---|
 | A person's or a script's API token | Fabric Console → Administration → *Revoke*, or `DELETE /api/v1/tokens/<id>`. Takes effect on the next request; audited (`token.revoke`). |
+| A person's Apelora sign-in (local account or directory) | Identity & Access → Sign-ins & tokens → *Sign out*, a password reset, or disabling the person. Takes effect on the next request; a terminal or PowerShell session they opened with it closes within 30 s (`access-revoked`). |
+| Membership through an identity provider or directory group | Remove them from the group there; they lose it at their next sign-in. A group's members come only from the source it names (Identity & Access → Groups). |
 | An unused cluster join token | Servers → Machines and join tokens → *Revoke*, or `DELETE /api/v1/cluster/join-tokens/<member>`. |
 | Apelora's Incus identities (deploy or admin certificate) | Rotate them: [certificates.md](certificates.md). |
 | A server that left the cluster | See [member-failure.md](member-failure.md) (*A member that will not return*). |

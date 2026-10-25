@@ -101,7 +101,7 @@ Choose **Add identity provider**. Any OpenID Connect provider works.
 | Field | What to enter |
 |---|---|
 | Name on the sign-in button | Shown as *Continue with …* (or the name alone when there are several providers) |
-| Issuer URL | The provider's issuer, exactly as in its discovery document (`<issuer>/.well-known/openid-configuration`). `https://` only; plain `http://` only for `127.0.0.1` or `localhost` |
+| Issuer URL | The provider's issuer, exactly as in its discovery document (`<issuer>/.well-known/openid-configuration`). `https://` only; plain `http://` only when the host is exactly `127.0.0.1`, `::1` or `localhost`. Discovery and key-set requests do not follow redirects |
 | Audience | The name tokens must be issued for (`aud`); several separated by commas |
 | Browser client ID (optional) | A **public** client at the provider (no client secret) that uses authorization code with PKCE. Without it there is no sign-in button |
 | Scopes | Default `openid profile email` |

@@ -38,6 +38,7 @@ The Tenancy page says why. Common reasons:
 | No administrator identity is configured | Configure `APELORA_INCUS_ADMIN_CLIENT_CERT`/`KEY` on the control plane (never the worker), restart it, then *Prepare Incus project* |
 | `Incus: …` (unreachable, refused) | Fix Incus reachability ([api-outage](api-outage.md)), then *Prepare Incus project*; the first deployment also retries |
 | The project exists but is not restricted | Apelora adopts only restricted projects. On a member: `incus project set <name> restricted=true` (and review its `restricted.*` keys), then *Prepare Incus project* |
+| `incus_project_exists`: the project exists and Apelora did not create it for this environment | Apelora does not take over a project because its name matches. If the project is meant for this environment, a platform administrator creates the environment again naming that project (*Incus project*, `incusProject`); otherwise choose another environment identifier. A project that belongs to another Apelora environment is never taken over |
 | The deploy identity cannot use it | See [deploy-identity](deploy-identity.md); *Prepare Incus project* re-adds the grant |
 | A platform deploy project (`APELORA_DEPLOY_PROJECTS`) | Set up by the operator; *Prepare Incus project* checks it and adopts it as it is |
 

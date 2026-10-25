@@ -62,7 +62,7 @@ Audit actions: `auth.password.succeeded`, `auth.password.failed` (username, reas
 
 ## 3. Deep dive: the risky parts
 
-**Brute force.** Per account: five failures lock for 15 minutes (`locked_until`), success resets the counter. Per client address: at most 10 attempts a minute (in memory, 429 `rate_limited` with `Retry-After`). Unknown usernames verify against a fixed dummy hash so the timing does not reveal accounts.
+**Brute force.** Per account: five failures lock for 15 minutes (`locked_until`), success resets the counter. Per client address: at most 10 attempts a minute (in memory, 429 `rate_limited` with `Retry-After`); behind a proxy listed in `APELORA_TRUSTED_PROXIES` the address is the one it forwarded for, and IPv6 clients count per /64. Unknown usernames verify against a fixed dummy hash so the timing does not reveal accounts.
 
 **Hashing cost.** Argon2id in `spawn_blocking`; about 50 ms per attempt on the lab hardware.
 
