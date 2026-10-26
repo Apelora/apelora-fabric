@@ -1361,6 +1361,175 @@ async fn windows_modules_offer_powershell_only_when_turned_on_and_never_a_deskto
     );
 }
 
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_remote_desktop_relays_bytes_unchanged_once_the_gateway_is_on_and_approved(pool: Pool) {
+    let (l, _mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    let (st, v) = l
+        .req(
+            "POST",
+            "/api/v1/applications/shop/versions",
+            &s.owner,
+            Some(json!({ "label": "first" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let win = json!({ "module": "win-01", "availability": "singleton", "guestOs": "windows", "spec": {
+        "project": "ignored", "name": "ignored", "kind": "virtual-machine", "start": true,
+        "source": { "protocol": "simplestreams", "server": "https://images.example", "alias": "windows/2025" } } });
+    let (st, d) = l.req("POST", "/api/v1/applications/shop/deployments", &s.owner, Some(json!({ "project": "acme-prod-live", "document": {}, "version": v["revision"], "modules": [win], "connections": [] }))).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    settle(&l).await;
+    let on = l.state.clone().with_console(ConsoleSettings {
+        rdp_gateway: true,
+        ..ConsoleSettings::default()
+    });
+    let path = "/api/v1/applications/shop/instances/shop-win-01/sessions";
+    // Production: someone else approves `instance.desktop` on exactly this instance first.
+    let (st, b) = call(
+        on.clone(),
+        "POST",
+        path,
+        &s.owner,
+        Some(json!({ "kind": "rdp" })),
+        &[],
+    )
+    .await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("approval_required")),
+        "approval first: {b}"
+    );
+    let approver_id = l.user("sub-carol", "carol").await;
+    let approver = l.token("sub-carol", "carol");
+    let (st, g) = l
+        .grant(
+            &s.w.admin,
+            approver_id,
+            "organization-owner",
+            json!({ "type": "organization", "id": s.w.acme }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::CREATED, "{g}");
+    // An approval for a terminal on the same instance does not open a desktop.
+    let (st, a) = l
+        .req(
+            "POST",
+            "/api/v1/approvals",
+            &s.owner,
+            Some(json!({ "action": "instance.console", "target": "instance:shop/shop-win-01", "reason": "reading a log" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::CREATED, "{a}");
+    let console_approval = a["id"].as_str().expect("id").to_owned();
+    let (st, b) = l
+        .req(
+            "POST",
+            &format!("/api/v1/approvals/{console_approval}/approve"),
+            &approver,
+            None,
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    let (st, b) = call(
+        on.clone(),
+        "POST",
+        path,
+        &s.owner,
+        Some(json!({ "kind": "rdp" })),
+        &[("apelora-approval", &console_approval)],
+    )
+    .await;
+    assert_ne!(
+        st,
+        StatusCode::CREATED,
+        "a terminal approval opened a desktop: {b}"
+    );
+    assert!(code(&b).is_some(), "{b}");
+    let (st, a) = l
+        .req(
+            "POST",
+            "/api/v1/approvals",
+            &s.owner,
+            Some(json!({ "action": "instance.desktop", "target": "instance:shop/shop-win-01", "reason": "checking the event log" })),
+        )
+        .await;
+    assert_eq!(st, StatusCode::CREATED, "{a}");
+    let id = a["id"].as_str().expect("id").to_owned();
+    let (st, b) = l
+        .req(
+            "POST",
+            &format!("/api/v1/approvals/{id}/approve"),
+            &approver,
+            None,
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    let (st, t) = call(
+        on.clone(),
+        "POST",
+        path,
+        &s.owner,
+        Some(json!({ "kind": "rdp" })),
+        &[("apelora-approval", &id)],
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{t}");
+    assert_eq!(t["kind"], json!("rdp"));
+
+    // The mock relay hands every byte back unchanged: what an RDP client sends (not text)
+    // reaches the guest's side as it was, and the answer comes back the same way.
+    let addr = serve(on).await;
+    let mut ws = connect_ws(addr, &protocols(&t), None)
+        .await
+        .expect("connect");
+    let hello = vec![0x03, 0x00, 0x00, 0x13, 0x0e, 0xe0, 0xff, 0x80];
+    ws.send(Message::Binary(hello.clone().into()))
+        .await
+        .unwrap();
+    let back = loop {
+        match tokio::time::timeout(Duration::from_secs(5), ws.next())
+            .await
+            .expect("answer")
+        {
+            Some(Ok(Message::Binary(b))) => break b.to_vec(),
+            Some(Ok(Message::Text(_))) => {}
+            other => panic!("ended early: {other:?}"),
+        }
+    };
+    assert_eq!(back, hello);
+    // A terminal resize means nothing to a desktop and is ignored.
+    ws.send(Message::Text(
+        json!({ "type": "resize", "cols": 120, "rows": 40 })
+            .to_string()
+            .into(),
+    ))
+    .await
+    .unwrap();
+    ws.close(None).await.unwrap();
+    let mut open: Vec<Value> = Vec::new();
+    for _ in 0..50 {
+        open = sqlx::query_scalar(
+            "SELECT detail FROM audit_events WHERE action = 'session.open' AND outcome = 'success'",
+        )
+        .fetch_all(&l.pool)
+        .await
+        .unwrap();
+        if !open.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(open.len(), 1, "{open:?}");
+    assert_eq!(open[0]["kind"], json!("rdp"));
+    assert_eq!(
+        open[0]["runsAs"],
+        Value::Null,
+        "no numeric user in a Windows guest"
+    );
+    assert_eq!(open[0]["approval"], json!(id));
+}
+
 /// Everything the server says on the socket until it ends: (text frames, close reason).
 async fn texts_until_closed(ws: &mut Client) -> (Vec<Value>, String) {
     let mut texts = Vec::new();

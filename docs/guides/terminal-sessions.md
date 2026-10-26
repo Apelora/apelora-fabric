@@ -62,6 +62,19 @@ The websocket accepts a browser page only from the control plane's own host name
 
 Sessions need sign-in. A control plane in development mode (`DATABASE_URL=`) checks origins and tickets but never opens a shell.
 
+## Remote desktop (Windows modules)
+
+Off unless the control plane runs with `APELORA_RDP_GATEWAY=enabled`. It needs `instance.desktop` on the application (and, in production, another person's approval of `instance.desktop`, as for a terminal).
+
+1. Install `apelora-desktop-tunnel` on your computer (the `apelora-desktop-tunnel-…` archive of the release; on other systems `cargo build --release -p apelora-desktop-tunnel`).
+2. In the Fabric Console choose **Terminal…** on the Windows instance, pick **Remote desktop** and **Connect with RDP**.
+3. Run the command the dialog shows. When it asks, paste the ticket; it works once, for about a minute.
+4. Connect your remote desktop client to the address the tunnel prints (a free port on `127.0.0.1`). Check the certificate Windows presents before you sign in: the client and Windows encrypt the session between them, and Apelora relays it without decrypting it. If you accept a certificate you have not checked, that protection depends on everything in between being trustworthy.
+
+Do not run the tunnel on a computer other people are signed in to: until your client connects, anyone on that computer could connect to the port first and get your session.
+
+The session ends when you disconnect, after 15 minutes without input or at 60 minutes, like a terminal, and appears on the Sessions page. The module's RDP port is never published; the control plane reaches it from inside the guest. The Studio's right-click menu lists the remote desktop and points here.
+
 ## Content security policy
 
 The terminal emulator writes `<style>` elements while it runs, so both sites set `$apelora_style_elements` to `'unsafe-inline'` in `infra/serve/apelora.conf`. Scripts stay limited to the site's own files.
@@ -76,8 +89,10 @@ The terminal emulator writes `<style>` elements while it runs, so both sites set
 | *The control plane cannot read Incus…* | Incus is unreachable, so the state is unknown | Try again; check Health |
 | *You already have the most sessions allowed* | 3 sessions or unused tickets per person (`APELORA_CONSOLE_MAX_SESSIONS`) | End one on the Sessions page |
 | The terminal never connects | The websocket was refused, usually by the origin check | Check that the proxy passes `Upgrade` and `Host`, or list the origin in `APELORA_ALLOWED_ORIGINS` |
+| The tunnel says *Apelora refused the session (401 …)* | The ticket was used, expired, or issued to another page | Ask for a new one in the Console and paste it within a minute; keep `--origin` as the dialog shows it |
+| The tunnel says *--listen must be a loopback address* | The tunnel only serves this computer | Use `127.0.0.1:<port>` |
 | *Mock · no real instance* | The control plane runs with simulated data (the mock provider used in development) | The shell is a labelled fake; nothing runs on a server |
 
 ## Before you rely on it
 
-- Terminal sessions have been tested against a simulated Incus, not yet against a real instance, a Windows guest or a live identity provider. Open one on a test application before you rely on it.
+- Terminal sessions have been tested against a simulated Incus, not yet against a real instance, a Windows guest or a live identity provider. Remote desktop has never reached a Windows guest. Open one on a test application before you rely on it.

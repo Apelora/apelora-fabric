@@ -26,13 +26,17 @@ export function sessionMenuItems(moduleId: string): SessionMenuItem[] {
   return kinds.map((kind) => {
     const entry = (i: InstanceAccess): SessionMenuItem => {
       const k = kindOf(i, kind)!;
-      const suffix = k.allowed && k.approvalRequired ? " · needs approval" : "";
+      // A remote desktop runs in the person's own client through the desktop tunnel; the
+      // Fabric Console hands it over. The Studio's window is a terminal.
+      const elsewhere = kind === "rdp" && k.allowed;
+      const allowed = k.allowed && !elsewhere;
+      const suffix = allowed && k.approvalRequired ? " · needs approval" : "";
       return {
         type: "item",
         id: `session-${kind}-${i.instance}`,
         label: instances.length > 1 ? `${i.instance}${suffix}` : `${KIND_ACTION[kind]}… (${i.instance})${suffix}`,
-        hint: k.allowed ? undefined : (k.reason ?? "Not available"),
-        disabled: !k.allowed,
+        hint: elsewhere ? "Open it from the Fabric Console: it uses the desktop tunnel on your computer" : allowed ? undefined : (k.reason ?? "Not available"),
+        disabled: !allowed,
         run: () => open({ app, instance: i.instance, module: moduleId, kind, approvalRequired: k.approvalRequired }),
       };
     };

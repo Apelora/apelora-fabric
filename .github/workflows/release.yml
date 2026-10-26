@@ -75,12 +75,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the pinned toolchain (rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
-      - name: Build the control plane and the worker
-        run: cargo build --locked --release -p apelora-control-plane -p apelora-deployment-worker -p apelora-dns-resolver
+      - name: Build the control plane, the worker and the desktop tunnel
+        run: cargo build --locked --release -p apelora-control-plane -p apelora-deployment-worker -p apelora-dns-resolver -p apelora-desktop-tunnel
       - name: Package each service on its own
         run: |
           mkdir -p dist
-          for svc in control-plane deployment-worker; do
+          for svc in control-plane deployment-worker desktop-tunnel; do
             dir="apelora-$svc-${GITHUB_REF_NAME}-linux-${{ matrix.arch }}"
             mkdir -p "$dir"
             cp "target/release/apelora-$svc" LICENSE README.md "$dir/"

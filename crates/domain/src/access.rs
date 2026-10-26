@@ -15,6 +15,23 @@ pub enum GuestOs {
     Windows,
 }
 
+/// The port the remote desktop relay connects to inside a Windows guest. It is reached only from
+/// inside the guest (loopback), never published on a network.
+pub const RDP_PORT: u16 = 3389;
+
+/// The relay a remote desktop session starts in a Windows guest: Windows PowerShell connects to
+/// the guest's own RDP port on loopback and copies bytes between that connection and its
+/// standard input and output, which Incus carries to the control plane (non-interactive exec,
+/// so the bytes pass unchanged). Fixed text: nothing a caller sends is put into it.
+pub const RDP_RELAY: [&str; 6] = [
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-Command",
+    "$c=[Net.Sockets.TcpClient]::new('127.0.0.1',3389);$n=$c.GetStream();$i=[Console]::OpenStandardInput();$o=[Console]::OpenStandardOutput();$a=$i.CopyToAsync($n);$b=$n.CopyToAsync($o);[void][Threading.Tasks.Task]::WaitAny($a,$b);$c.Close()",
+];
+
 /// What a person can open on a module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -63,13 +80,20 @@ impl SessionKind {
         }
     }
 
-    /// The program an exec session starts (Linux: a POSIX shell; Windows: Windows PowerShell).
+    /// The program an exec session starts (Linux: a POSIX shell; Windows: Windows PowerShell;
+    /// remote desktop: the relay to the guest's RDP port, [`RDP_RELAY`]).
     pub fn command(self) -> Option<&'static [&'static str]> {
         match self {
             SessionKind::Terminal => Some(&["/bin/sh"]),
             SessionKind::Powershell => Some(&["powershell.exe", "-NoLogo"]),
-            SessionKind::Rdp => None,
+            SessionKind::Rdp => Some(&RDP_RELAY),
         }
+    }
+
+    /// Whether the session runs with a terminal. A remote desktop carries a byte stream that a
+    /// terminal would alter, so it runs without one.
+    pub fn interactive(self) -> bool {
+        self != SessionKind::Rdp
     }
 }
 
@@ -155,7 +179,8 @@ mod tests {
         assert_eq!(SessionKind::Terminal.permission(), "instance.console");
         assert_eq!(SessionKind::Powershell.permission(), "instance.console");
         assert_eq!(SessionKind::Rdp.permission(), "instance.desktop");
-        assert!(SessionKind::Rdp.command().is_none());
+        assert!(!SessionKind::Rdp.interactive());
+        assert!(SessionKind::Terminal.interactive() && SessionKind::Powershell.interactive());
         assert_eq!(SessionKind::Terminal.command(), Some(&["/bin/sh"][..]));
         assert_eq!(
             SessionKind::Powershell.command(),
@@ -209,6 +234,18 @@ mod tests {
             Ok(()),
             "the terminal is not affected"
         );
+    }
+
+    #[test]
+    fn the_remote_desktop_relay_is_fixed_and_reaches_only_the_guests_own_port() {
+        let relay = SessionKind::Rdp.command().expect("relay");
+        assert_eq!(relay[0], "powershell.exe");
+        let script = relay.last().expect("script");
+        assert!(
+            script.contains(&format!("'127.0.0.1',{RDP_PORT}")),
+            "{script}"
+        );
+        assert!(relay.iter().all(|a| a.len() <= 1024));
     }
 
     #[test]

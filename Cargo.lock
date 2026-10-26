@@ -97,6 +97,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "apelora-desktop-tunnel"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-platform-verifier",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+]
+
+[[package]]
 name = "apelora-dns-resolver"
 version = "0.0.0"
 dependencies = [

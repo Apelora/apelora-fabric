@@ -21,7 +21,7 @@
 //! Sessions live in this process's memory: they do not survive a restart and are not shared
 //! between several control plane replicas.
 
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -88,7 +88,9 @@ pub struct ConsoleSettings {
     /// Browser origins besides the API's own host that may open a session
     /// (`APELORA_ALLOWED_ORIGINS`, comma separated, e.g. `https://studio.example.test`).
     pub allowed_origins: Vec<String>,
-    /// An RDP gateway is configured. There is none yet, so this is always false.
+    /// Remote desktop sessions are turned on (`APELORA_RDP_GATEWAY=enabled`): the control plane
+    /// relays a person's RDP client (through `apelora-desktop-tunnel`) to the guest's own RDP
+    /// port. Off by default: not yet verified against a Windows guest.
     pub rdp_gateway: bool,
     /// PowerShell sessions into Windows modules are turned on (`APELORA_CONSOLE_POWERSHELL=enabled`).
     /// Off by default: they have not been verified against a Windows guest.
@@ -145,6 +147,13 @@ impl ConsoleSettings {
                         "APELORA_CONSOLE_POWERSHELL: unknown value {other:?}"
                     ));
                 }
+            }
+        }
+        if let Some(v) = get("APELORA_RDP_GATEWAY") {
+            match v.trim() {
+                "" | "disabled" | "off" => {}
+                "enabled" => s.rdp_gateway = true,
+                other => return Err(format!("APELORA_RDP_GATEWAY: unknown value {other:?}")),
             }
         }
         if let Some(n) = num("APELORA_CONSOLE_UID", 0, 4_000_000_000)? {
@@ -1131,6 +1140,9 @@ async fn run(
     }
     // Numeric users mean nothing in a Windows guest; do not pretend to drop privileges there.
     let linux = ticket.kind == SessionKind::Terminal;
+    // A remote desktop carries the RDP byte stream between the person's client and the guest:
+    // no terminal, no environment, nothing in it that Apelora reads.
+    let interactive = ticket.kind.interactive();
     let req = ShellRequest {
         project: ticket.project.clone(),
         name: ticket.instance.clone(),
@@ -1145,11 +1157,14 @@ async fn run(
                 ("LANG".to_owned(), "C.UTF-8".to_owned()),
             ]
             .into()
-        } else {
+        } else if interactive {
             [("TERM".to_owned(), "xterm-256color".to_owned())].into()
+        } else {
+            BTreeMap::new()
         },
         cols: ticket.cols,
         rows: ticket.rows,
+        interactive,
     };
     let mut shell = match state.provider.open_shell(&req).await {
         Ok(s) => s,
@@ -1275,7 +1290,7 @@ async fn run(
                             Err(_) => break "stalled",
                         }
                     }
-                    Some(Ok(Message::Text(t))) => {
+                    Some(Ok(Message::Text(t))) if interactive => {
                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&t)
                             && v["type"] == "resize"
                         {

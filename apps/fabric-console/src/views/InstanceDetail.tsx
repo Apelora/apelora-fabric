@@ -185,7 +185,7 @@ export function InstanceDetailView({ project, name, me, onAuth }: { project: str
                   {running
                     ? <>{btn("restart", "Restart…", "btn-primary", () => setConfirm("restart"), a.restart)}{btn("stop", "Stop…", "btn-outline", () => setConfirm("stop"), a.stop)}</>
                     : btn("start", "Start", "btn-primary", () => void act("start"), a.start)}
-                  {holds(me, "instance.console") && i.managed && i.owner && (
+                  {(holds(me, "instance.console") || holds(me, "instance.desktop")) && i.managed && i.owner && (
                     <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTerminal({ application: i.owner!.application, instance: i.name })} data-testid="terminal-open">Terminal…</button>
                   )}
                   {btn("move", "Move…", "btn-ghost", () => setMoving(asInstance), a.move)}

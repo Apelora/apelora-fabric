@@ -32,6 +32,12 @@ use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, 
 const OP: &str = "11111111-2222-4333-8444-555555555555";
 const DATA_SECRET: &str = "data-secret-do-not-log";
 const CONTROL_SECRET: &str = "control-secret-do-not-log";
+const STDIN_SECRET: &str = "stdin-secret-do-not-log";
+const STDOUT_SECRET: &str = "stdout-secret-do-not-log";
+const STDERR_SECRET: &str = "stderr-secret-do-not-log";
+/// What the fixture's process writes first on standard output: not text, so any re-encoding
+/// would show.
+const HELLO: &[u8] = &[0x03, 0x00, 0x00, 0x13, 0xff, 0xfe, 0x80];
 
 /// A stream that first replays bytes already read from it.
 struct Replay<S> {
@@ -79,6 +85,8 @@ struct Seen {
     http: Vec<String>,
     /// Messages received on the control socket.
     control: Vec<Value>,
+    /// Bytes received on a separate standard-input socket (sessions without a terminal).
+    stdin: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -137,8 +145,14 @@ async fn serve_one(
     if head.to_lowercase().contains("upgrade: websocket") {
         let is_data = path.contains(&format!("secret={DATA_SECRET}"));
         let is_control = path.contains(&format!("secret={CONTROL_SECRET}"));
+        let stream_of = |secret: &str| path.contains(&format!("secret={secret}"));
+        let (is_stdin, is_stdout, is_stderr) = (
+            stream_of(STDIN_SECRET),
+            stream_of(STDOUT_SECRET),
+            stream_of(STDERR_SECRET),
+        );
         let allowed = path.starts_with(&format!("/1.0/operations/{OP}/websocket?"))
-            && ((is_data && fx.data_secret_ok) || is_control);
+            && ((is_data && fx.data_secret_ok) || is_control || is_stdin || is_stdout || is_stderr);
         let stream = Replay {
             head: buf,
             inner: tls,
@@ -153,6 +167,33 @@ async fn serve_one(
         let Ok(mut ws) = tokio_tungstenite::accept_hdr_async(stream, check).await else {
             return;
         };
+        if is_stdin {
+            while let Some(Ok(m)) = ws.next().await {
+                if let Message::Binary(b) = m {
+                    seen.lock().unwrap().stdin.extend_from_slice(&b);
+                }
+            }
+            return;
+        }
+        if is_stderr {
+            let _ = ws
+                .send(Message::Binary(b"noise on stderr".to_vec().into()))
+                .await;
+            let _ = ws.close(None).await;
+            return;
+        }
+        if is_stdout {
+            let _ = ws.send(Message::Binary(HELLO.to_vec().into())).await;
+            for _ in 0..150 {
+                if !seen.lock().unwrap().stdin.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let _ = ws.send(Message::Binary(vec![0x00, 0xff].into())).await;
+            let _ = ws.close(None).await;
+            return;
+        }
         if is_control {
             while let Some(Ok(m)) = ws.next().await {
                 if let Message::Text(t) = m
@@ -212,11 +253,16 @@ async fn serve_one(
     } else if method == "POST" && path.starts_with("/1.0/instances/web-01/exec") {
         let v: Value = serde_json::from_slice(&buf[head_end..head_end + content_length])
             .unwrap_or(Value::Null);
+        let fds = if v["interactive"] == json!(false) {
+            json!({"0": STDIN_SECRET, "1": STDOUT_SECRET, "2": STDERR_SECRET, "control": CONTROL_SECRET})
+        } else {
+            json!({"0": DATA_SECRET, "control": CONTROL_SECRET})
+        };
         seen.lock().unwrap().exec.push(v);
         envelope(
             "async",
             json!({"id": OP, "class": "websocket", "status": "Running", "status_code": 103,
-                   "metadata": {"fds": {"0": DATA_SECRET, "control": CONTROL_SECRET}}}),
+                   "metadata": {"fds": fds}}),
         )
     } else if method == "DELETE" && path.starts_with(&format!("/1.0/operations/{OP}")) {
         envelope("sync", json!({}))
@@ -273,6 +319,7 @@ fn request() -> ShellRequest {
         env: BTreeMap::from([("TERM".to_owned(), "xterm-256color".to_owned())]),
         cols: 100,
         rows: 30,
+        interactive: true,
     }
 }
 
@@ -344,6 +391,50 @@ async fn a_session_carries_typed_bytes_and_output_over_the_instances_exec_socket
         "{:?}",
         seen.control
     );
+}
+
+#[tokio::test]
+async fn a_session_without_a_terminal_carries_bytes_unchanged_over_separate_streams() {
+    let (p, seen) = connect(running()).await;
+    let relay = ShellRequest {
+        command: vec!["powershell.exe".into(), "-NoProfile".into()],
+        uid: None,
+        gid: None,
+        cwd: None,
+        env: BTreeMap::new(),
+        cols: 0,
+        rows: 0,
+        interactive: false,
+        ..request()
+    };
+    let mut s = p.open_shell(&relay).await.expect("session");
+    let first = tokio::time::timeout(Duration::from_secs(5), s.output.recv())
+        .await
+        .expect("output in time")
+        .expect("bytes");
+    assert_eq!(first, HELLO, "standard output arrives byte for byte");
+    s.input
+        .send(ShellInput::Data(vec![0x03, 0x00, 0xff, 0x0d, 0x0a]))
+        .await
+        .unwrap();
+    let next = tokio::time::timeout(Duration::from_secs(5), s.output.recv())
+        .await
+        .expect("output in time")
+        .expect("bytes");
+    assert_eq!(next, vec![0x00, 0xff], "standard error is not mixed in");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), s.output.recv())
+            .await
+            .expect("end in time"),
+        None,
+        "the session ends with standard output"
+    );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.stdin, vec![0x03, 0x00, 0xff, 0x0d, 0x0a]);
+    let body = &seen.exec[0];
+    assert_eq!(body["interactive"], json!(false));
+    assert!(body.get("width").is_none() && body.get("height").is_none());
+    assert_eq!(body["record-output"], json!(false));
 }
 
 #[tokio::test]

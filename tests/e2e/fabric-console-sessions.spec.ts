@@ -204,6 +204,51 @@ test.describe("terminal from the Console", () => {
     expect(r.headers[0]?.["apelora-approval"]).toBe(uid(802));
   });
 
+  test("a Windows module offers a remote desktop: the hand-over gives the tunnel command and the ticket, and the browser opens no socket", async ({ page }) => {
+    const windows = {
+      observed: true, provider: "mock", idleSecs: 900, maxSecs: 3600,
+      items: [{ instance: "shop-web-01", module: "web-01", guestOs: "windows", status: "Running", kinds: [
+        { kind: "powershell", allowed: false, reason: "PowerShell sessions are not turned on: they have not been verified against a Windows guest", approvalRequired: false },
+        { kind: "rdp", allowed: true, approvalRequired: false },
+      ] }],
+    };
+    const r = await rig(page, whoami(["cluster.view", "instance.desktop", "application.view"], { platform: [] }), {
+      "GET /api/v1/applications/shop/access": { json: windows },
+      "POST /api/v1/applications/shop/instances/shop-web-01/sessions": () => ({ status: 201, json: { ...TICKET, kind: "rdp", ticket: "a1".repeat(32), expiresAt: new Date(Date.now() + 5_000).toISOString() } }),
+    });
+    await page.goto("/#/instances");
+    // instance.desktop alone is enough to be offered the session button.
+    await page.getByTestId("terminal-open").first().click();
+    const dialog = page.getByTestId("session-dialog");
+    // The kind the person may open is chosen first; the other stays visible with its reason.
+    await expect(dialog.getByTestId("session-kind-rdp")).toBeChecked();
+    await expect(dialog.getByTestId("session-prepare")).toContainText("without decrypting it");
+    await dialog.getByTestId("session-kind-powershell").check();
+    await expect(dialog.getByTestId("session-unavailable")).toContainText("not turned on");
+    await expect(dialog.getByTestId("session-open")).toHaveCount(0);
+    await dialog.getByTestId("session-kind-rdp").check();
+    await expect(dialog.getByTestId("session-open")).toHaveText("Connect with RDP");
+    await dialog.getByTestId("session-open").click();
+    const handover = dialog.getByTestId("desktop-handover");
+    await expect(handover).toBeVisible();
+    const origin = new URL(page.url()).origin;
+    const host = new URL(page.url()).host;
+    await expect(dialog.getByTestId("desktop-command")).toHaveText(`apelora-desktop-tunnel --url ws://${host}/api/v1/sessions/connect --origin ${origin}`);
+    await expect(dialog.getByTestId("desktop-ticket")).toHaveText("a1".repeat(32));
+    await expect(handover).toContainText("the address the tunnel prints");
+    expect(r.calls.find((c) => c.method === "POST")!.body).toEqual({ kind: "rdp", cols: 100, rows: 30 });
+    // The ticket is for the tunnel: the page never spends it.
+    expect(r.sockets).toHaveLength(0);
+    const results = await new AxeBuilder({ page }).include("[data-testid=session-dialog]").analyze();
+    expect(results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")).toEqual([]);
+    // Once it expires, the ticket leaves the page.
+    await expect(dialog.getByTestId("desktop-expired")).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByTestId("desktop-ticket")).toHaveCount(0);
+    await expect(dialog).not.toContainText("a1a1a1a1");
+    await dialog.getByTestId("session-close").click();
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("the session dialog has no serious accessibility violations", async ({ page }) => {
     await rig(page, SESSIONS, {
       "GET /api/v1/instances": { json: INSTANCES },

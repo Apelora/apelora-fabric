@@ -380,6 +380,12 @@ pub const SETTINGS: &[Setting] = &[
         "enabled offers PowerShell",
     ),
     s(
+        "APELORA_RDP_GATEWAY",
+        Cp,
+        Some("disabled"),
+        "enabled offers remote desktop sessions into Windows modules through the control plane (the person runs apelora-desktop-tunnel; not yet verified against a Windows guest)",
+    ),
+    s(
         "APELORA_ALLOWED_ORIGINS",
         Cp,
         None,

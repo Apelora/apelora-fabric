@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import { ApiRequestError, type AccessList, type ApprovalDto, type KindAccess, type SessionTicket } from "@apelora/api-client";
-import { KIND_ACTION, KIND_LABEL, approvalTarget, permissionOf, type Kind } from "@apelora/terminal";
+import { KIND_ACTION, KIND_LABEL, approvalTarget, permissionOf, socketUrl, type Kind } from "@apelora/terminal";
 import { TerminalScreen } from "@apelora/terminal/screen";
 
 import { client } from "../lib/api";
@@ -10,7 +10,7 @@ import { actorRef, describeError, fmtTime } from "../lib/identity";
 import type { TerminalTarget } from "./TerminalDialog";
 import { Badge, ErrorPanel, Notice, sentence, type Tone } from "./ui";
 
-type Phase = "prepare" | "connecting" | "live" | "ended";
+type Phase = "prepare" | "connecting" | "live" | "ended" | "handover";
 
 /** What the control plane says about this instance, read when the dialog opens. */
 type Access =
@@ -18,10 +18,10 @@ type Access =
   | { kind: "error"; message: string }
   | { kind: "unobserved" }
   | { kind: "absent" }
-  | { kind: "ok"; access: KindAccess; idleSecs: number; maxSecs: number; mock: boolean };
+  | { kind: "ok"; kinds: KindAccess[]; idleSecs: number; maxSecs: number; mock: boolean };
 
-/** Terminal for Linux modules, PowerShell for Windows ones: whichever the instance offers first. */
-const PREFERRED: Kind[] = ["terminal", "powershell"];
+/** What the dialog offers first: a terminal for Linux modules, PowerShell for Windows ones. */
+const PREFERRED: Kind[] = ["terminal", "powershell", "rdp"];
 
 const APPROVAL: Record<string, { tone: Tone; label: string }> = {
   pending: { tone: "warn", label: "Waiting for approval" },
@@ -129,6 +129,60 @@ function ApprovalStep({ target, kind, onAuth, onApproved }: { target: TerminalTa
   );
 }
 
+/** Copies text to the clipboard; says so for a moment. */
+function CopyButton({ text, label, testId }: { text: string; label: string; testId: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn btn-xs btn-outline"
+      onClick={() => { void navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); }}
+      data-testid={testId}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+/**
+ * A remote desktop is opened by the person's own RDP client through `apelora-desktop-tunnel` on
+ * their computer: the browser cannot listen on a local port, and the module's RDP port is never
+ * published. Shows the command for this control plane and page, and the single-use ticket the
+ * tunnel asks for.
+ */
+function DesktopHandover({ ticket }: { ticket: SessionTicket }) {
+  const command = `apelora-desktop-tunnel --url ${socketUrl(ticket)} --origin ${location.origin}`;
+  // Once the ticket can no longer be used it leaves the page, so it is not left on screen.
+  const [expired, setExpired] = useState(() => Date.parse(ticket.expiresAt) <= Date.now());
+  useEffect(() => {
+    if (expired) return;
+    const id = setTimeout(() => setExpired(true), Math.max(0, Date.parse(ticket.expiresAt) - Date.now()));
+    return () => clearTimeout(id);
+  }, [ticket.expiresAt, expired]);
+  return (
+    <div className="flex flex-col gap-3 text-sm" data-testid="desktop-handover">
+      <ol className="list-decimal space-y-3 pl-5">
+        <li className="flex flex-col gap-1">
+          <span>On your computer, run:</span>
+          <code className="block overflow-x-auto rounded-box bg-base-200 px-3 py-2 font-mono text-xs" data-testid="desktop-command">{command}</code>
+          <span><CopyButton text={command} label="Copy command" testId="desktop-copy-command" /></span>
+        </li>
+        {expired ? (
+          <li data-testid="desktop-expired">The ticket has expired and was removed from this page. If the tunnel has not used it, close this window and ask for a new one.</li>
+        ) : (
+          <li className="flex flex-col gap-1">
+            <span>When it asks, paste this ticket. It works once, until {fmtTime(ticket.expiresAt)}. Do not keep it in a clipboard that syncs to other devices.</span>
+            <code className="block overflow-x-auto rounded-box bg-base-200 px-3 py-2 font-mono text-xs" data-testid="desktop-ticket">{ticket.ticket}</code>
+            <span><CopyButton text={ticket.ticket} label="Copy ticket" testId="desktop-copy-ticket" /></span>
+          </li>
+        )}
+        <li>Connect your remote desktop client to the address the tunnel prints (on <span className="font-mono">127.0.0.1</span>), check the certificate Windows presents, and sign in.</li>
+      </ol>
+      <p className="text-xs text-base-content/60">Ends after {Math.round(ticket.idleSecs / 60)} min without input, and at {Math.round(ticket.maxSecs / 60)} min. You can end it from Sessions.</p>
+    </div>
+  );
+}
+
 /** The dialog itself (loaded with the terminal code; see `TerminalDialog`). */
 export function TerminalSession({ target, onClose, onAuth }: { target: TerminalTarget; onClose: () => void; onAuth: (message: string) => void }) {
   const [access, setAccess] = useState<Access>({ kind: "loading" });
@@ -153,8 +207,8 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
         if (!current) return;
         if (!a.observed) { setAccess({ kind: "unobserved" }); return; }
         const item = a.items.find((i) => i.instance === target.instance);
-        const kind = item && PREFERRED.map((k) => item.kinds.find((x) => x.kind === k)).find((x) => !!x);
-        setAccess(kind ? { kind: "ok", access: kind, idleSecs: a.idleSecs, maxSecs: a.maxSecs, mock: a.provider === "mock" } : { kind: "absent" });
+        const kinds = PREFERRED.map((k) => item?.kinds.find((x) => x.kind === k)).filter((x): x is KindAccess => !!x);
+        setAccess(kinds.length > 0 ? { kind: "ok", kinds, idleSecs: a.idleSecs, maxSecs: a.maxSecs, mock: a.provider === "mock" } : { kind: "absent" });
       },
       (e: unknown) => {
         if (!current) return;
@@ -165,7 +219,11 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
     return () => { current = false; };
   }, [target, onAuth, attempt]);
 
-  const ok = access.kind === "ok" ? access : null;
+  const [chosen, setChosen] = useState<Kind | null>(null);
+  const loaded = access.kind === "ok" ? access : null;
+  // The person's choice, else the first kind they may open, else the first offered.
+  const picked = loaded && (loaded.kinds.find((k) => k.kind === chosen) ?? loaded.kinds.find((k) => k.allowed) ?? loaded.kinds[0]);
+  const ok = loaded && picked ? { ...loaded, access: picked } : null;
   const kind: Kind = ok?.access.kind ?? "terminal";
   const needsApproval = !!ok?.access.allowed && ok.access.approvalRequired;
 
@@ -174,7 +232,8 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
     setError(null);
     try {
       setTicket(await client.request("open_session", { params: { name: target.application, instance: target.instance }, body: { kind, cols: 100, rows: 30 }, approvalId: approval ?? undefined }));
-      setPhase("connecting");
+      // A remote desktop is opened by the person's own client through the tunnel, not here.
+      setPhase(kind === "rdp" ? "handover" : "connecting");
     } catch (e) {
       if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message);
       setError(describeError(e));
@@ -212,18 +271,33 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
             {access.kind === "unobserved" && <Notice tone="warn" testId="session-unavailable">The control plane cannot read Incus right now, so it cannot tell whether the instance is running. Try again in a moment.</Notice>}
             {access.kind === "absent" && <Notice tone="warn" testId="session-unavailable">{target.instance} is not a running instance of {target.application} that Apelora can open a session into.</Notice>}
             {ok && !ok.access.allowed && <Notice tone="warn" testId="session-unavailable" title="Not available">{sentence(ok.access.reason ?? "This session is not available.")}.</Notice>}
+            {loaded && loaded.kinds.length > 1 && (
+              <fieldset className="flex flex-wrap gap-4" data-testid="session-kinds">
+                <legend className="sr-only">What to open</legend>
+                {loaded.kinds.map((k) => (
+                  <label key={k.kind} className="flex items-center gap-2">
+                    <input type="radio" className="radio radio-sm" name="session-kind" checked={k.kind === kind} onChange={() => { setChosen(k.kind); setApproval(null); }} data-testid={`session-kind-${k.kind}`} />
+                    {KIND_LABEL[k.kind]}
+                  </label>
+                ))}
+              </fieldset>
+            )}
             {ok?.access.allowed && (
               <ul className="list-disc space-y-1 pl-5 text-base-content/80">
-                <li>Runs as an unprivileged user, through the control plane.</li>
-                <li>Ends after {Math.round(ok.idleSecs / 60)} minutes without typing, or at {Math.round(ok.maxSecs / 60)} minutes.</li>
+                {kind === "rdp"
+                  ? <li>Your own remote desktop client connects through the control plane; the module's RDP port is never published. Apelora relays the encrypted connection without decrypting it; you sign in to Windows yourself.</li>
+                  : <li>Runs as an unprivileged user, through the control plane.</li>}
+                <li>Ends after {Math.round(ok.idleSecs / 60)} minutes without {kind === "rdp" ? "input" : "typing"}, or at {Math.round(ok.maxSecs / 60)} minutes.</li>
                 <li>Who opened it and why it ended are recorded; what you type or see is not.</li>
               </ul>
             )}
-            {needsApproval && <ApprovalStep target={target} kind={kind} onAuth={onAuth} onApproved={setApproval} />}
+            {needsApproval && <ApprovalStep key={kind} target={target} kind={kind} onAuth={onAuth} onApproved={setApproval} />}
           </div>
         )}
 
-        {phase !== "prepare" && ticket && (
+        {phase === "handover" && ticket && <DesktopHandover ticket={ticket} />}
+
+        {phase !== "prepare" && phase !== "handover" && ticket && (
           <>
             <TerminalScreen
               ticket={ticket}
@@ -250,6 +324,8 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
                 </button>
               )}
             </>
+          ) : phase === "handover" ? (
+            <button type="button" className="btn btn-sm btn-primary" onClick={onClose} data-testid="session-close">Done</button>
           ) : connected ? (
             <button type="button" className="btn btn-sm" onClick={end} data-testid="session-end">End session</button>
           ) : (

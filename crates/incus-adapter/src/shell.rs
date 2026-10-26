@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Interactive sessions inside an instance (Incus exec with a terminal). The adapter hands the
-//! control plane two bounded channels; the browser never sees an Incus address, certificate or
-//! secret. The mock provider answers with a labelled fake shell and touches nothing.
+//! Sessions inside an instance through Incus exec: with a terminal (a shell, PowerShell), or
+//! without one for a byte stream that must pass unchanged (the remote desktop relay). The adapter
+//! hands the control plane two bounded channels; the browser never sees an Incus address,
+//! certificate or secret. The mock provider answers with a labelled fake shell (or, without a
+//! terminal, echoes the bytes back) and touches nothing.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -40,6 +42,9 @@ pub struct ShellRequest {
     pub env: BTreeMap<String, String>,
     pub cols: u16,
     pub rows: u16,
+    /// With a terminal. Without one, standard input and output are separate channels that carry
+    /// bytes unchanged, and the size is ignored.
+    pub interactive: bool,
 }
 
 /// What the person typed or did to the terminal window.
@@ -69,10 +74,12 @@ impl ShellRequest {
         {
             return bad("invalid project or instance name");
         }
-        if self.command.is_empty() || self.command.iter().any(|c| c.is_empty() || c.len() > 256) {
+        if self.command.is_empty() || self.command.iter().any(|c| c.is_empty() || c.len() > 1024) {
             return bad("a session needs a command");
         }
-        if self.cols == 0 || self.rows == 0 || self.cols > 1000 || self.rows > 1000 {
+        if self.interactive
+            && (self.cols == 0 || self.rows == 0 || self.cols > 1000 || self.rows > 1000)
+        {
             return bad("the terminal size is out of range");
         }
         Ok(())
@@ -185,6 +192,21 @@ impl MockIncus {
             Some(_) => {
                 let (in_tx, mut in_rx) = mpsc::channel::<ShellInput>(32);
                 let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>(64);
+                if !req.interactive {
+                    // No terminal: hand every byte back unchanged, so a relay can be tested
+                    // end to end without a guest.
+                    tokio::spawn(async move {
+                        while let Some(ShellInput::Data(d)) = in_rx.recv().await {
+                            if out_tx.send(d).await.is_err() {
+                                return;
+                            }
+                        }
+                    });
+                    return Ok(ShellSession {
+                        input: in_tx,
+                        output: out_rx,
+                    });
+                }
                 let mut shell = MockShell::new(&req.name);
                 tokio::spawn(async move {
                     if out_tx.send(shell.banner()).await.is_err() {
@@ -358,11 +380,13 @@ impl IncusClient {
             "command": req.command,
             "environment": req.env,
             "wait-for-websocket": true,
-            "interactive": true,
-            "width": req.cols,
-            "height": req.rows,
+            "interactive": req.interactive,
             "record-output": false,
         });
+        if req.interactive {
+            body["width"] = json!(req.cols);
+            body["height"] = json!(req.rows);
+        }
         if let Some(uid) = req.uid {
             body["user"] = json!(uid);
         }
@@ -377,7 +401,14 @@ impl IncusClient {
         let op = env.metadata.unwrap_or(Value::Null);
         let id = op["id"].as_str().unwrap_or_default().to_owned();
         let fd = |k: &str| op["metadata"]["fds"][k].as_str().map(str::to_owned);
-        let (Some(data_secret), Some(control_secret)) = (fd("0"), fd("control")) else {
+        // With a terminal one channel carries both directions; without one, Incus hands out
+        // standard input, output and error separately.
+        let names: &[&str] = if req.interactive {
+            &["0", "control"]
+        } else {
+            &["0", "1", "2", "control"]
+        };
+        let Some(secrets) = names.iter().map(|k| fd(k)).collect::<Option<Vec<String>>>() else {
             return Err(AdapterError::Decode(
                 "the exec response has no websocket channels".into(),
             ));
@@ -392,7 +423,7 @@ impl IncusClient {
                 && x.bytes()
                     .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
         };
-        if !plain(&data_secret) || !plain(&control_secret) {
+        if !secrets.iter().all(|x| plain(x)) {
             self.cancel_operation(&id).await;
             return Err(AdapterError::Decode(
                 "the exec channels have unexpected secrets".into(),
@@ -400,13 +431,15 @@ impl IncusClient {
         }
         let socket = |secret: &str| format!("/1.0/operations/{id}/websocket?secret={secret}");
         let connected = tokio::time::timeout(CONNECT_TIMEOUT, async {
-            let data = ws.connect(&socket(&data_secret)).await?;
-            let control = ws.connect(&socket(&control_secret)).await?;
-            Ok::<_, AdapterError>((data, control))
+            let mut sockets = Vec::with_capacity(secrets.len());
+            for secret in &secrets {
+                sockets.push(ws.connect(&socket(secret)).await?);
+            }
+            Ok::<_, AdapterError>(sockets)
         })
         .await;
-        let (data, control) = match connected {
-            Ok(Ok(pair)) => pair,
+        let mut sockets = match connected {
+            Ok(Ok(all)) => all,
             Ok(Err(e)) => {
                 self.cancel_operation(&id).await;
                 return Err(e);
@@ -418,7 +451,22 @@ impl IncusClient {
                 ));
             }
         };
-        Ok(pump(data, control))
+        let control = sockets
+            .pop()
+            .ok_or_else(|| AdapterError::Decode("no control".into()))?;
+        if req.interactive {
+            let data = sockets
+                .pop()
+                .ok_or_else(|| AdapterError::Decode("no data".into()))?;
+            return Ok(pump(data, control));
+        }
+        let mut it = sockets.into_iter();
+        match (it.next(), it.next(), it.next()) {
+            (Some(stdin), Some(stdout), Some(stderr)) => {
+                Ok(pump_streams(stdin, stdout, stderr, control))
+            }
+            _ => Err(AdapterError::Decode("missing exec channels".into())),
+        }
     }
 
     fn ws_target(&self) -> Result<&WsTarget, AdapterError> {
@@ -500,6 +548,62 @@ fn pump(data: Ws, control: Ws) -> ShellSession {
     }
 }
 
+/// Like [`pump`], for a session without a terminal: input goes to standard input, standard
+/// output comes back unchanged, standard error is read and dropped (it would otherwise stall the
+/// process once its buffer filled). The session ends when standard output ends.
+fn pump_streams(stdin: Ws, stdout: Ws, stderr: Ws, control: Ws) -> ShellSession {
+    let (in_tx, mut in_rx) = mpsc::channel::<ShellInput>(32);
+    let (out_tx, out_rx) = mpsc::channel::<Vec<u8>>(64);
+    tokio::spawn(async move {
+        let (mut in_w, mut in_r) = stdin.split();
+        let (mut out_w, mut out_r) = stdout.split();
+        let (mut err_w, mut err_r) = stderr.split();
+        let (mut ctl_w, mut ctl_r) = control.split();
+        let (mut err_open, mut ctl_open, mut in_open) = (true, true, true);
+        'session: loop {
+            tokio::select! {
+                msg = out_r.next() => match msg {
+                    Some(Ok(Message::Binary(b))) => {
+                        if !matches!(tokio::time::timeout(SEND_TIMEOUT, out_tx.send(b.to_vec())).await, Ok(Ok(()))) { break 'session; }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break 'session,
+                    Some(Ok(_)) => {}
+                },
+                e = err_r.next(), if err_open => {
+                    if matches!(e, None | Some(Err(_)) | Some(Ok(Message::Close(_)))) { err_open = false; }
+                }
+                c = ctl_r.next(), if ctl_open => {
+                    if matches!(c, None | Some(Err(_))) { ctl_open = false; }
+                }
+                // Incus never writes to the standard-input socket; drain its closing.
+                i = in_r.next(), if in_open => {
+                    if matches!(i, None | Some(Err(_)) | Some(Ok(Message::Close(_)))) { in_open = false; }
+                }
+                input = in_rx.recv() => match input {
+                    Some(ShellInput::Data(d)) => {
+                        for chunk in d.chunks(MAX_CHUNK) {
+                            if !send_within(&mut in_w, Message::Binary(chunk.to_vec().into())).await { break 'session; }
+                        }
+                    }
+                    Some(ShellInput::Resize { .. }) => {}
+                    Some(ShellInput::Hangup) | None => {
+                        let m = json!({"command": "signal", "signal": 15});
+                        if ctl_open { let _ = send_within(&mut ctl_w, Message::Text(m.to_string().into())).await; }
+                        break 'session;
+                    }
+                },
+            }
+        }
+        for w in [&mut in_w, &mut out_w, &mut err_w, &mut ctl_w] {
+            let _ = tokio::time::timeout(SEND_TIMEOUT, w.close()).await;
+        }
+    });
+    ShellSession {
+        input: in_tx,
+        output: out_rx,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,8 +638,19 @@ mod tests {
             env: BTreeMap::new(),
             cols: 80,
             rows: 24,
+            interactive: true,
         };
         assert!(ok.check().is_ok());
+        let relay = ShellRequest {
+            cols: 0,
+            rows: 0,
+            interactive: false,
+            ..ok.clone()
+        };
+        assert!(
+            relay.check().is_ok(),
+            "the size means nothing without a terminal"
+        );
         for bad in [
             ShellRequest {
                 name: "../x".into(),
