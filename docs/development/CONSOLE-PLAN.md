@@ -84,7 +84,7 @@ Packages in one wave touch different files and can be built in parallel.
 
 **Wave 2 — clustering and infrastructure:**
 - Servers area: members with database roles and quorum, groups, settings with approvals, upgrades, certificates. Settings can be changed with a review, another person's approval and an audit row (`PATCH /api/v1/cluster/settings`, built, MOCK and CONTRACT VERIFIED; the Incus change REAL INCUS TESTED 2026-10-21). The upgrade assistant, power-off history and replica-spread dry run are MOCK VERIFIED (2026-10-22).
-- Upgrade assistant. Version skew, blockers and the written procedure are on Servers → Upgrades ([runbook](../runbooks/incus-rolling-upgrade.md)); the step-by-step assistant is not built.
+- Upgrade assistant. Version skew, blockers and the written procedure are on Servers → Upgrades ([runbook](../runbooks/incus-rolling-upgrade.md)); the step-by-step assistant on the same tab (built 2026-10-22, MOCK VERIFIED) starts a run, evacuates each member in order (spares and stand-bys first, the database leader last), records the package upgrade done on the server and restores it. Not yet run on the lab.
 - Networks page (read-only first) (built): per-application networks with the rules compiled from the design next to what Incus has, drift, uplink and address ranges.
 - Storage page with backups, restore from backup, schedules and orphans (built).
 

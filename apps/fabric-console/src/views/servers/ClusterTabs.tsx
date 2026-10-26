@@ -264,7 +264,7 @@ function UpgradeAssistant({ view, ready, onDone }: { view: UpgradeView; ready: b
           {open === "abandon"
             ? "The run is forgotten. Members that were evacuated stay evacuated until you restore them from Members."
             : view.next === "upgraded"
-              ? "This records that you upgraded Incus on the server. Apelora does not install the package."
+              ? "This records that you upgraded Incus on the server. Apelora does not install the package; it checks that the server now reports the new release."
               : view.summary}
         </p>
         <label className="flex flex-col gap-1 text-sm">

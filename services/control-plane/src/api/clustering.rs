@@ -626,6 +626,18 @@ pub(super) async fn upgrade(
                 let provider = super::cluster_admin::admin(&state)?;
                 provider.member_state(&cmd.member, false).await?;
             }
+            if cmd.action == "upgraded" {
+                let detail = details.iter().find(|d| d.name == cmd.member);
+                if let Some(why) =
+                    detail.and_then(|d| upgrade::not_upgraded(d, &super::admin::pinned_incus()))
+                {
+                    return Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        "not_upgraded",
+                        format!("nothing was recorded: {why}"),
+                    ));
+                }
+            }
             if cmd.action == "restore" {
                 let provider = super::cluster_admin::admin(&state)?;
                 provider.member_state(&cmd.member, true).await?;

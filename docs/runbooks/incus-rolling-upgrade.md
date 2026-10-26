@@ -49,6 +49,17 @@ For each member, spares and stand-bys first, the database leader last:
 4. **Restore** the member from Servers → Members, and check that its instances are back.
 5. Take the next member.
 
+### With the assistant
+
+The **Upgrade assistant** on the same tab walks these steps and remembers where you are. Type
+`upgrade` to **Start the upgrade** (only when nothing blocks it). For each member in the order it
+shows, it offers one button at a time, each confirmed by typing the member's name:
+**Evacuate this member** (after the same dry run as on Members), **Record the package upgrade**
+(after you upgraded Incus on that server yourself; refused while the member still reports the
+old release or does not answer yet, accepted when it is Blocked) and **Restore this member**.
+**Abandon the run** forgets the run; evacuated members stay evacuated until you restore them.
+Every step is audited (`cluster.upgrade.*`).
+
 Afterwards: Upgrades shows *Up to date*, Preflight passes, and Operations shows queued jobs
 completing.
 

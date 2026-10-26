@@ -61,6 +61,37 @@ pub fn order(members: &[ClusterMemberDetail]) -> Vec<String> {
         .collect()
 }
 
+/// Why recording a member's package upgrade must wait, or `None` when Incus shows it was done:
+/// the member reports the pinned release or a newer one, or it is Blocked (in Incus, that is a
+/// member already on the new release waiting for the others).
+pub fn not_upgraded(member: &ClusterMemberDetail, pinned: &str) -> Option<String> {
+    if member.status == "Blocked" {
+        return None;
+    }
+    let pinned = pinned.trim().trim_start_matches('v');
+    match member.incus_version.as_deref() {
+        None => Some(format!(
+            "{} does not report its Incus release yet ({}); wait until its daemon answers",
+            member.name,
+            member
+                .version_error
+                .as_deref()
+                .unwrap_or("no version reported")
+        )),
+        Some(v) => match crate::clustering::compare_versions(v, pinned) {
+            Some(std::cmp::Ordering::Less) => Some(format!(
+                "{} still runs Incus {v}; upgrade it to {pinned} on the server and restart Incus",
+                member.name
+            )),
+            Some(_) => None,
+            None => Some(format!(
+                "{} reports Incus {v}, which cannot be compared with {pinned}",
+                member.name
+            )),
+        },
+    }
+}
+
 /// The view of a run, or of the order alone when none is running.
 pub fn view(order: Vec<String>, steps: Option<&[UpgradeStep]>) -> UpgradeView {
     let Some(steps) = steps else {
@@ -158,6 +189,31 @@ mod tests {
             detail("n4", &[], false),
         ];
         assert_eq!(order(&members), vec!["n4", "n3", "n2", "n1"]);
+    }
+
+    #[test]
+    fn the_package_upgrade_is_recorded_only_once_incus_shows_it() {
+        let mut m = detail("n2", &["database"], false);
+        let still = not_upgraded(&m, "v7.0.2").expect("older");
+        assert!(still.contains("still runs Incus 7.0.1"), "{still}");
+        m.incus_version = Some("7.0.2".into());
+        assert_eq!(not_upgraded(&m, "7.0.2"), None);
+        m.incus_version = Some("7.1.0".into());
+        assert_eq!(
+            not_upgraded(&m, "7.0.2"),
+            None,
+            "newer than the pin is upgraded"
+        );
+        m.incus_version = None;
+        m.version_error = Some("no answer within 3 s".into());
+        let unread = not_upgraded(&m, "7.0.2").expect("unread");
+        assert!(unread.contains("no answer within 3 s"), "{unread}");
+        m.status = "Blocked".into();
+        assert_eq!(
+            not_upgraded(&m, "7.0.2"),
+            None,
+            "Blocked: on the new release, waiting"
+        );
     }
 
     #[test]
