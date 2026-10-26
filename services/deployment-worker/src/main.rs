@@ -16,8 +16,6 @@
 //! worker holding the `alert-evaluator` lease; webhook secrets are read from the
 //! `APELORA_ALERT_SECRET_*` variables the channels name (docs/design/alerts.md).
 
-use std::time::Duration;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     apelora_telemetry::init("apelora-deployment-worker");
@@ -62,119 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => None,
     };
-    // The replica supervisor restores lost stateless replicas (0 turns it off).
-    // A member must stay offline this long before replicas on it are substituted.
-    let recover_after: u64 = std::env::var("APELORA_RECOVER_AFTER_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(120);
-    let secs = |key: &str, default: f64| {
-        std::env::var(key)
-            .ok()
-            .and_then(|v| v.parse::<f64>().ok())
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .unwrap_or(default)
-    };
-    let health = apelora_domain::health::HealthPolicy {
-        fail_after: secs("APELORA_HEALTH_FAIL_AFTER_SECS", 20.0),
-        restart_after: secs("APELORA_HEALTH_RESTART_AFTER_SECS", 60.0),
-        ..Default::default()
-    };
-    let every: u64 = std::env::var("APELORA_SUPERVISE_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(30);
-    // Fencing before restarts on shared storage (ADR 0013): APELORA_FENCE_PROBE (off | ssh) and
-    // its settings, APELORA_FENCE_LOCKSPACE.
-    let (probe, lockspace) =
-        apelora_deployment_worker::fencing::probe_from_env(|k| std::env::var(k).ok())?;
-    tracing::info!(
-        probe = if probe.configured() { "ssh" } else { "off" },
-        lockspace = lockspace.as_deref().unwrap_or("-"),
-        "fence probe"
-    );
-    // Fencing by switching a server off through its BMC (ADR 0014): APELORA_BMC_MAP,
-    // APELORA_BMC_FENCE_AFTER_SECS, APELORA_BMC_ALLOW_LAB; passwords from APELORA_BMC_SECRET_*.
-    let (bmc, bmc_after) = apelora_deployment_worker::bmc::bmc_from_env(|k| std::env::var(k).ok())?;
-    tracing::info!(members = ?bmc.members(), after_secs = bmc_after, "BMC fence providers");
-    let recovery = apelora_deployment_worker::recovery::Recovery::new(probe, lockspace)
-        .with_bmc(bmc, bmc_after);
-    let supervisor = (every > 0).then(|| {
-        tracing::info!(every_secs = every, "replica supervisor started");
-        tokio::spawn(apelora_deployment_worker::supervisor::supervise(
-            pool.clone(),
-            provider.clone(),
-            Duration::from_secs(every),
-            Duration::from_secs(recover_after),
-            health,
-            worker.clone(),
-            recovery,
-        ))
-    });
-    // Scheduled snapshots and backups of volumes, checked every minute; backups go to the pool
-    // in APELORA_BACKUP_POOL (without it, scheduled backups report that none is configured).
-    let backup_pool = std::env::var("APELORA_BACKUP_POOL")
-        .ok()
-        .filter(|p| !p.trim().is_empty());
-    if let Some(p) = &backup_pool {
-        if !apelora_domain::is_valid_name(p) {
-            return Err(format!("APELORA_BACKUP_POOL: invalid pool name {p:?}").into());
-        }
-        tracing::info!(pool = %p, "volume backups go to this pool");
-    }
-    let storage = tokio::spawn(apelora_deployment_worker::storage::schedule(
-        pool.clone(),
-        provider.clone(),
-        Duration::from_secs(60),
-        backup_pool,
-    ));
-    // The outbox relay (EVERY-SIZE.md §2.5): delivers what changes wrote to the outbox, while
-    // this worker holds the `outbox-relay` lease. APELORA_OUTBOX_SINK=log (default) or off.
-    // Alert notifications (topic `alert`) go to webhook channels; everything else to that sink.
-    let relay = match apelora_deployment_worker::outbox::sink_from_env(|k| std::env::var(k).ok())? {
-        Some(other) => {
-            let webhooks = apelora_deployment_worker::webhook::WebhookSink::new(pool.clone())?;
-            let sink: std::sync::Arc<dyn apelora_deployment_worker::outbox::Sink> =
-                std::sync::Arc::new(apelora_deployment_worker::webhook::Routed {
-                    alerts: std::sync::Arc::new(webhooks),
-                    other,
-                });
-            Some(tokio::spawn(apelora_deployment_worker::outbox::relay(
-                pool.clone(),
-                sink,
-                Duration::from_secs(2),
-                worker.clone(),
-            )))
-        }
-        None => None,
-    };
-    // The alert evaluator (docs/design/alerts.md), under the `alert-evaluator` lease:
-    // APELORA_ALERT_EVALUATE_SECS (default 30, 0 = off), APELORA_RESTORE_DRILL_RECORD.
-    let alerts = apelora_deployment_worker::alerts::config_from_env(|k| std::env::var(k).ok())?
-        .map(|cfg| {
-            tokio::spawn(apelora_deployment_worker::alerts::evaluate(
-                pool.clone(),
-                provider.clone(),
-                std::sync::Arc::new(cfg),
-                worker.clone(),
-            ))
-        });
-    apelora_deployment_worker::run(pool, provider, worker, Duration::from_secs(2), async {
+    let served = apelora_deployment_worker::serve(pool, provider, worker, async {
         let _ = tokio::signal::ctrl_c().await;
     })
     .await;
-    if let Some(s) = supervisor {
-        s.abort();
-    }
-    storage.abort();
-    if let Some(r) = relay {
-        r.abort();
-    }
-    if let Some(a) = alerts {
-        a.abort();
-    }
     if let Some(m) = metrics {
         m.abort();
     }
-    Ok(())
+    Ok(served?)
 }

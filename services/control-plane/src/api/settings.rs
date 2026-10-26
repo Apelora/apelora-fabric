@@ -344,6 +344,12 @@ pub const SETTINGS: &[Setting] = &[
         "User terminal sessions run as",
     ),
     s(
+        "APELORA_MOCK_WORKER",
+        Cp,
+        None,
+        "1 runs the deployment worker inside the control plane on the mock cluster (development builds with the dev-worker feature only)",
+    ),
+    s(
         "APELORA_DRAIN_WAIT_SECS",
         Cp,
         Some("30"),

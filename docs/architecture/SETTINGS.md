@@ -48,6 +48,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_INCUS_ADMIN_CLIENT_KEY` | none | Private key file of the unrestricted admin identity (never shown) |
 | `APELORA_LEGACY_TOKENS` | `enabled` | disabled refuses legacy apl_ API tokens |
 | `APELORA_METRICS_ADDR` | `off` | Separate metrics listener without authentication |
+| `APELORA_MOCK_WORKER` | none | 1 runs the deployment worker inside the control plane on the mock cluster (development builds with the dev-worker feature only) |
 | `APELORA_NETWORK_UPLINK` | none | Uplink for per-application OVN networks |
 | `APELORA_OIDC_AUDIENCE` | none | Names this API has at the provider |
 | `APELORA_OIDC_AUTHORIZED_PARTIES` | none | Clients a token must be issued to (azp) |

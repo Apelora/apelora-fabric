@@ -9,7 +9,13 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Development only: `APELORA_MOCK_WORKER=1` runs the deployment worker inside the control plane on
+# the same mock cluster, so what the worker creates is what the API shows. Off in releases.
+dev-worker = ["dep:apelora-deployment-worker"]
+
 [dependencies]
+apelora-deployment-worker = { version = "0.0.0", path = "../deployment-worker", optional = true }
 apelora-auth = { version = "0.0.0", path = "../../crates/auth", features = ["utoipa"] }
 apelora-domain = { version = "0.0.0", path = "../../crates/domain", features = ["utoipa"] }
 apelora-identity = { version = "0.0.0", path = "../../crates/identity" }
