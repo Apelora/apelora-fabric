@@ -18,7 +18,7 @@ sequenceDiagram
   participant A as Control plane
   participant I as Incus
   participant G as Windows guest
-  P->>C: Remote desktop… (instance.desktop; approval in production)
+  P->>C: Remote desktop… (instance.desktop, and an approval in production)
   C->>A: POST …/sessions {kind: rdp}
   A-->>C: single-use ticket (about a minute)
   C-->>P: command and ticket to copy
