@@ -314,6 +314,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/cluster/recovery", get(recovery::recovery))
         .route("/api/v1/cluster/upgrade", post(clustering::upgrade))
+        .route("/api/v1/sectors", get(sectors::list).post(sectors::add))
+        .route("/api/v1/sectors/{name}", delete(sectors::remove))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
         .route("/api/v1/capacity", get(fabric_health::capacity))
@@ -1799,6 +1801,7 @@ impl Modify for ErrorResponses {
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
         clustering::members, clustering::groups, clustering::settings, clustering::change_settings, clustering::upgrade,
+        sectors::list, sectors::add, sectors::remove,
         recovery::recovery, recovery::confirm,
         machines::list, provisioners::machines, provisioners::commission, provisioners::deploy, provisioners::release, provisioners::test, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
@@ -1864,6 +1867,7 @@ mod fabric_health;
 pub mod headers;
 mod health_cache;
 mod identity;
+mod sectors;
 pub use identity::bind_unsourced_mappings;
 mod instance_detail;
 mod jobs;
@@ -1910,6 +1914,8 @@ mod manage_tests;
 mod metrics_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod sectors_tests;
 #[cfg(test)]
 mod sessions_auth_tests;
 #[cfg(test)]

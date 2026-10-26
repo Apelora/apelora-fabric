@@ -4,10 +4,12 @@ import { MachinesTab } from "../Membership";
 import { PreflightView } from "../Preflight";
 import { CertificatesTab, SettingsTab, UpgradesTab } from "./ClusterTabs";
 import { MembersTab } from "./Members";
+import { SectorsTab } from "./Sectors";
 
 /** The Servers area's tabs, in order; each is its own address (`#/servers/<tab>`). */
 export const SERVER_TABS = [
   { id: "members", label: "Members" },
+  { id: "sectors", label: "Sectors" },
   { id: "machines", label: "Machines and join tokens", needsAdmin: true },
   { id: "settings", label: "Cluster settings" },
   { id: "certificates", label: "Certificates" },
@@ -35,6 +37,7 @@ export function ServersView({ tab, me, onAuth }: { tab: ServerTab; me: WhoAmI | 
       </nav>
       <div key={current}>
         {current === "members" && <MembersTab me={me} onAuth={onAuth} />}
+        {current === "sectors" && <SectorsTab me={me} onAuth={onAuth} />}
         {current === "machines" && <MachinesTab me={me} onAuth={onAuth} />}
         {current === "settings" && <SettingsTab me={me} onAuth={onAuth} />}
         {current === "certificates" && <CertificatesTab onAuth={onAuth} />}

@@ -149,7 +149,7 @@ test("a viewer sees the cluster but no machines tab and no maintenance actions",
   await stub(page, base(viewer));
   await page.goto("/#/servers/machines");
   const tabs = page.getByRole("navigation", { name: "Servers" });
-  await expect(tabs.getByRole("link")).toHaveText(["Members", "Cluster settings", "Certificates", "Upgrades", "Preflight"]);
+  await expect(tabs.getByRole("link")).toHaveText(["Members", "Sectors", "Cluster settings", "Certificates", "Upgrades", "Preflight"]);
   await expect(page.getByTestId("server-member")).toHaveCount(4);
   await expect(page.getByTestId("evacuate-member")).toHaveCount(0);
   await expect(page.getByRole("columnheader", { name: "Actions" })).toHaveCount(0);

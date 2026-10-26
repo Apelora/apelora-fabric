@@ -15723,6 +15723,265 @@
         }
       }
     },
+    "/api/v1/sectors": {
+      "get": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "The sectors this control plane knows and whether each answers. Needs `cluster.view`.",
+        "operationId": "sectors",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectorList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not do this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address or caller; retry after `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before trying again."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Registers another Incus cluster as a sector. Stores its name, site, address and the name of\nits credentials; the identity's files stay on the control plane. Needs `cluster.manage`.",
+        "operationId": "add_sector",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewSector"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectorInfo"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request is not valid; the error says which part.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not do this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicts with the current state; the error code says how.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address or caller; retry after `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before trying again."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Something this needs is not configured or not reachable yet; the error code says what.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sectors/{name}": {
+      "delete": {
+        "tags": [
+          "cluster"
+        ],
+        "summary": "Forgets a registered sector. Nothing changes in its Incus. Needs `cluster.manage`.",
+        "operationId": "remove_sector",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Sector name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveSector"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "The request is not valid; the error says which part.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller may not do this.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or not visible to the caller.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many requests from this address or caller; retry after `Retry-After` seconds.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                },
+                "description": "Seconds to wait before trying again."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Something this needs is not configured or not reachable yet; the error code says what.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "tags": [
@@ -24832,6 +25091,31 @@
           }
         }
       },
+      "NewSector": {
+        "type": "object",
+        "required": [
+          "name",
+          "site",
+          "url",
+          "credentials"
+        ],
+        "properties": {
+          "credentials": {
+            "type": "string",
+            "description": "Names the variables `APELORA_SECTOR_<credentials>_CLIENT_CERT`, `_CLIENT_KEY` and\n`_SERVER_CERT` on the control plane. Never a file or a secret."
+          },
+          "name": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "`https://host:port` of its Incus API."
+          }
+        }
+      },
       "NewServiceIdentity": {
         "type": "object",
         "required": [
@@ -26819,6 +27103,18 @@
           }
         }
       },
+      "RemoveSector": {
+        "type": "object",
+        "required": [
+          "confirm"
+        ],
+        "properties": {
+          "confirm": {
+            "type": "string",
+            "description": "The sector's name, typed again."
+          }
+        }
+      },
       "ReplicaSummary": {
         "type": "object",
         "required": [
@@ -27322,6 +27618,119 @@
               }
             }
           }
+        ]
+      },
+      "SectorInfo": {
+        "type": "object",
+        "description": "One sector as the Servers area shows it.",
+        "required": [
+          "name",
+          "site",
+          "home",
+          "state",
+          "credentialVars"
+        ],
+        "properties": {
+          "addedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "addedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "credentialVars": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "For a registered sector: the variables that must name its identity's files."
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why it is not connected, in a sentence."
+          },
+          "home": {
+            "type": "boolean",
+            "description": "The sector this control plane runs against (`APELORA_SITE`, `APELORA_SECTOR`)."
+          },
+          "incusVersion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "members": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Members of its cluster (1 for a standalone server); `null` when it did not answer.",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SectorState"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Its Incus API; `null` for the home sector (`APELORA_INCUS_URL`, a setting)."
+          },
+          "warning": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "SectorList": {
+        "type": "object",
+        "required": [
+          "source",
+          "items",
+          "note"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SectorInfo"
+            },
+            "description": "The home sector first, then the registered ones by site and name."
+          },
+          "note": {
+            "type": "string",
+            "description": "Applications deploy only to the home sector in this version."
+          },
+          "source": {
+            "$ref": "#/components/schemas/Source"
+          }
+        }
+      },
+      "SectorState": {
+        "type": "string",
+        "enum": [
+          "connected",
+          "unreachable",
+          "not-configured"
         ]
       },
       "ServerInfo": {

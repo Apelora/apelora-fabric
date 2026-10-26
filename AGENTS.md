@@ -88,7 +88,7 @@ bash scripts/test-cluster/ui-e2e.sh   # sign-in to deploy to traffic, through th
 | Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
 | Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
 | Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |
-| Terminal and PowerShell into modules (built; RDP not built) | `secure-remote-access`, `identity-authorization`, `security-review` |
+| Terminal, PowerShell and remote desktop into modules (built; PowerShell and RDP unverified and off by default) | `secure-remote-access`, `identity-authorization`, `security-review` |
 | Mutation testing, strengthening tests | `mutation-testing`, `testing-operations`, `quality-assurance` |
 | Design work and scaling | `system-design-framework`, `capacity-estimation`, `scalability-patterns` |
 

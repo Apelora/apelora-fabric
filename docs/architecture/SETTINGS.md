@@ -115,6 +115,7 @@ These variables have names an administrator chooses, so they are not listed abov
 |---|---|---|
 | `APELORA_ALERT_SECRET_<NAME>` | worker | The signing secret of an alert channel whose `secretRef` names it ([alerts runbook](../runbooks/alerts.md)) |
 | `APELORA_BMC_SECRET_<NAME>` | worker | The password of a BMC whose entry in `APELORA_BMC_MAP` names it as `secretRef` ([member-failure runbook](../runbooks/member-failure.md)) |
+| `APELORA_SECTOR_<CREDENTIALS>_CLIENT_CERT`, `_CLIENT_KEY`, `_SERVER_CERT` | control plane | Paths of the Incus identity and server certificate of a registered sector whose `credentials` names them ([ADR 0008](../adr/0008-sectors.md)); read when the sector is probed, never stored |
 
 ## Read by the DNS resolver
 

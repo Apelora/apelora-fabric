@@ -2339,6 +2339,15 @@ export type NewRole = {
   permissions: string[];
 };
 
+export type NewSector = {
+  /** Names the variables `APELORA_SECTOR_<credentials>_CLIENT_CERT`, `_CLIENT_KEY` and `_SERVER_CERT` on the control plane. Never a file or a secret. */
+  credentials: string;
+  name: string;
+  site: string;
+  /** `https://host:port` of its Incus API. */
+  url: string;
+};
+
 export type NewServiceIdentity = {
   credentialRef?: string | null;
   /** Automation identities only: days until their token expires (1–365, default 90). */
@@ -2902,6 +2911,11 @@ export type RemovalPreview = {
   source: Source;
 };
 
+export type RemoveSector = {
+  /** The sector's name, typed again. */
+  confirm: string;
+};
+
 export type ReplicaSummary = {
   desired: number;
   healthy: number;
@@ -3037,6 +3051,37 @@ export type Scope = {
   name: string;
   type: "pool";
 };
+
+/** One sector as the Servers area shows it. */
+export type SectorInfo = {
+  addedAt?: string | null;
+  addedBy?: string | null;
+  /** For a registered sector: the variables that must name its identity's files. */
+  credentialVars: string[];
+  /** Why it is not connected, in a sentence. */
+  detail?: string | null;
+  /** The sector this control plane runs against (`APELORA_SITE`, `APELORA_SECTOR`). */
+  home: boolean;
+  incusVersion?: string | null;
+  /** Members of its cluster (1 for a standalone server); `null` when it did not answer. */
+  members?: number | null;
+  name: string;
+  site: string;
+  state: SectorState;
+  /** Its Incus API; `null` for the home sector (`APELORA_INCUS_URL`, a setting). */
+  url?: string | null;
+  warning?: string | null;
+};
+
+export type SectorList = {
+  /** The home sector first, then the registered ones by site and name. */
+  items: SectorInfo[];
+  /** Applications deploy only to the home sector in this version. */
+  note: string;
+  source: Source;
+};
+
+export type SectorState = "connected" | "unreachable" | "not-configured";
 
 /** Facts about the Incus server the adapter is talking to. */
 export type ServerInfo = {
@@ -3768,6 +3813,9 @@ export const operations = {
   maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/deploy", params: ["system_id"], public: false },
   maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/release", params: ["system_id"], public: false },
   maas_test: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/test", params: ["system_id"], public: false },
+  sectors: { method: "GET", path: "/api/v1/sectors", params: [], public: false },
+  add_sector: { method: "POST", path: "/api/v1/sectors", params: [], public: false },
+  remove_sector: { method: "DELETE", path: "/api/v1/sectors/{name}", params: ["name"], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
@@ -4130,6 +4178,12 @@ export type Responses = {
   maas_release: MaasAccepted;
   /** Starts a hardware test run (burn-in) through MAAS. Needs `hardware.commission` and the hostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is allocated or deployed (an Incus member, for one) is refused, so tests never load a running server. Audited with the test names; MAAS is asked first. */
   maas_test: MaasAccepted;
+  /** The sectors this control plane knows and whether each answers. Needs `cluster.view`. */
+  sectors: SectorList;
+  /** Registers another Incus cluster as a sector. Stores its name, site, address and the name of its credentials; the identity's files stay on the control plane. Needs `cluster.manage`. */
+  add_sector: SectorInfo;
+  /** Forgets a registered sector. Nothing changes in its Incus. Needs `cluster.manage`. */
+  remove_sector: null;
   /** Open sessions the caller started, and those on applications they may operate. */
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
@@ -4340,6 +4394,9 @@ export type Bodies = {
   maas_deploy: MaasDeploy;
   maas_release: MaasRelease;
   maas_test: MaasTest;
+  sectors: never;
+  add_sector: NewSector;
+  remove_sector: RemoveSector;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

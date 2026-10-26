@@ -26,6 +26,7 @@ pub mod monitoring;
 pub mod outbox;
 pub mod personal_tokens;
 pub mod recovery;
+pub mod sectors;
 pub mod status;
 pub mod tenancy;
 pub mod upgrades;

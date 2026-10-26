@@ -350,6 +350,11 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     ("GET", "/api/v1/cluster/recovery", &["cluster.view"]),
     ("POST", "/api/v1/cluster/upgrade", &["cluster.evacuate"]),
+    // Other Incus clusters (ADR 0008): read with cluster.view, registered and forgotten with
+    // cluster.manage (platform level, checked again by the handlers).
+    ("GET", "/api/v1/sectors", &["cluster.view"]),
+    ("POST", "/api/v1/sectors", &["cluster.manage"]),
+    ("DELETE", "/api/v1/sectors/{name}", &["cluster.manage"]),
     ("GET", "/api/v1/health/components", &["cluster.view"]),
     ("GET", "/api/v1/health/servers", &["cluster.view"]),
     // Server names only with cluster.view; capacity.view sees numbered servers (the handler decides).
