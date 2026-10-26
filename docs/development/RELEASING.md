@@ -38,6 +38,8 @@ Apelora Fabric is released from `main` by pushing a version tag. The release wor
    gh attestation verify apelora-studio-$TAG.tar.gz --repo Apelora/apelora-fabric
    ```
 
+   `gh attestation` needs GitHub CLI 2.49 or later; older versions print their command list instead. With an older one, at least confirm each archive has its attestation on record: `gh api "repos/Apelora/apelora-fabric/attestations/sha256:$(shasum -a 256 <archive> | cut -d' ' -f1)" -q '.attestations | length'` (1 or more). That does not check the signature; use a current `gh` for that.
+
 6. **A final version** (`v0.1.0`) stops as a draft: read the notes, open the assets, then `gh release edit "$TAG" --draft=false --repo Apelora/apelora-fabric`.
 
 ## Release notes
