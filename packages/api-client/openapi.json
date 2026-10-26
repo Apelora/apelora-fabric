@@ -23696,9 +23696,14 @@
         "type": "object",
         "required": [
           "member",
-          "operation"
+          "operation",
+          "drain"
         ],
         "properties": {
+          "drain": {
+            "type": "string",
+            "description": "What was done first so no request goes to a replica Incus is about to move: the\nreplicas taken out of their service addresses, and whether that finished in time."
+          },
           "member": {
             "type": "string"
           },

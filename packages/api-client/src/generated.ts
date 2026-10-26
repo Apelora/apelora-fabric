@@ -2002,6 +2002,8 @@ export type MachineList = {
 export type MachineState = "registered" | "approved" | "approval-expired" | "held" | "eligible" | "left";
 
 export type MemberStateStarted = {
+  /** What was done first so no request goes to a replica Incus is about to move: the replicas taken out of their service addresses, and whether that finished in time. */
+  drain: string;
   member: string;
   /** Incus operation carrying out the evacuation or restore. */
   operation: string;

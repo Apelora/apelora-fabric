@@ -98,7 +98,14 @@ pub struct AppState {
     environment: Arc<Vec<(String, String)>>,
     /// The MAAS provisioner (`APELORA_MAAS_URL`); `Off`: only manual machines.
     maas: provisioners::Maas,
+    /// How long evacuating or restoring a member waits for the replicas Incus will move to
+    /// leave their service addresses (`APELORA_DRAIN_WAIT_SECS`); zero: no drain.
+    drain_wait: std::time::Duration,
 }
+
+/// Seconds evacuating or restoring a member waits for its replicas to leave their service
+/// addresses unless `APELORA_DRAIN_WAIT_SECS` says otherwise: a sync per application takes a few.
+pub const DEFAULT_DRAIN_WAIT_SECS: u64 = 30;
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
 pub const DEFAULT_DEPLOY_PROJECT: &str = "apelora";
@@ -133,6 +140,7 @@ impl AppState {
             monitoring: Arc::default(),
             environment: Arc::default(),
             maas: provisioners::Maas::Off,
+            drain_wait: std::time::Duration::from_secs(DEFAULT_DRAIN_WAIT_SECS),
         }
     }
 
@@ -155,6 +163,11 @@ impl AppState {
 
     pub fn with_maas(mut self, maas: provisioners::Maas) -> Self {
         self.maas = maas;
+        self
+    }
+
+    pub fn with_drain_wait(mut self, wait: std::time::Duration) -> Self {
+        self.drain_wait = wait;
         self
     }
 

@@ -210,7 +210,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => None,
     };
+    let drain_wait = match std::env::var("APELORA_DRAIN_WAIT_SECS") {
+        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<u64>() {
+            Ok(n) if n <= 600 => n,
+            _ => {
+                return Err(format!(
+                    "APELORA_DRAIN_WAIT_SECS: {v:?} is not a number of seconds from 0 to 600"
+                )
+                .into());
+            }
+        },
+        _ => api::DEFAULT_DRAIN_WAIT_SECS,
+    };
+    if drain_wait == 0 {
+        tracing::warn!(
+            "APELORA_DRAIN_WAIT_SECS=0: evacuating or restoring a member does not take its replicas out of their service addresses first"
+        );
+    }
     let state = api::AppState::new(provider, auth)
+        .with_drain_wait(std::time::Duration::from_secs(drain_wait))
         .with_deploy_fingerprint(deploy_fingerprint)
         .with_console(console)
         .with_oidc(oidc)

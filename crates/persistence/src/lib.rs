@@ -15,6 +15,7 @@ pub mod alerts;
 pub mod auth_settings;
 pub mod coordination;
 pub mod directories;
+pub mod drains;
 mod health;
 pub mod identity;
 pub mod jobs;

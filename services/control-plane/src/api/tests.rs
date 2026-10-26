@@ -1912,6 +1912,119 @@ async fn the_status_says_when_traffic_cannot_move_because_a_member_is_down(pool:
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn evacuating_takes_the_members_replicas_out_of_their_service_addresses_first(pool: Pool) {
+    use apelora_persistence::drains::active_drains;
+    let mock = Provider::Mock(MockIncus::default());
+    let state = AppState::new(mock.clone(), Auth::Tokens(pool.clone()))
+        .with_admin(Some(mock.clone()))
+        .with_drain_wait(std::time::Duration::from_secs(5));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let spec: apelora_domain::InstanceSpec = serde_json::from_value(json!({
+        "project": "apelora", "name": "shop-web-01", "kind": "container", "start": true,
+        "source": { "protocol": "oci", "server": "https://docker.io", "alias": "library/nginx:1" },
+        "owner": { "application": "shop", "module": "web-01", "replica": 1 } }))
+    .expect("spec");
+    mock.create_instance(&spec).await.expect("create");
+    let member = mock
+        .instances()
+        .await
+        .expect("instances")
+        .into_iter()
+        .find(|i| i.name == "shop-web-01")
+        .expect("instance")
+        .location;
+    // Stands in for the worker: every sync the evacuation asks for succeeds.
+    let worker = {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Some(job) = apelora_persistence::claim_job(&pool, "test-worker", 30)
+                    .await
+                    .expect("claim")
+                {
+                    assert_eq!(job.kind, "network.resync");
+                    assert_eq!(job.payload, json!({ "application": "shop" }));
+                    apelora_persistence::complete_job(
+                        &pool,
+                        &job,
+                        "test-worker",
+                        &apelora_persistence::Outcome::Succeeded,
+                    )
+                    .await
+                    .expect("complete");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+    };
+    let base = format!("/api/v1/cluster/members/{member}");
+    let confirm = Some(json!({ "confirm": member }));
+    let (status, started) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(
+        started["drain"],
+        "Took 1 replica of 1 application out of their service addresses first; they serve again once moved."
+    );
+    let drains = active_drains(&pool).await.expect("drains");
+    assert_eq!(
+        drains
+            .iter()
+            .map(|d| (d.instance.as_str(), d.from_member.as_str()))
+            .collect::<Vec<_>>(),
+        [("shop-web-01", member.as_str())]
+    );
+    // Restoring starts what stayed on the member: its drains end.
+    let (status, restored) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/restore"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{restored}");
+    assert!(active_drains(&pool).await.expect("drains").is_empty());
+    // Without a worker the wait ends at its bound, says so, and the evacuation goes ahead.
+    worker.abort();
+    let state = state.with_drain_wait(std::time::Duration::from_secs(1));
+    let (status, started) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert!(
+        started["drain"]
+            .as_str()
+            .is_some_and(|d| d.contains("did not finish within 1 s")),
+        "{started}"
+    );
+    let audited: Value = sqlx::query_scalar(
+        "SELECT detail FROM audit_events WHERE action = 'cluster.member.evacuate' ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(audited["drain"], started["drain"]);
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
 async fn evacuation_is_previewed_then_confirmed_audited_and_restored(pool: Pool) {
     let mock = Provider::Mock(MockIncus::default());
     let state =

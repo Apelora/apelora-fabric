@@ -43,6 +43,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_CONSOLE_POWERSHELL` | `disabled` | enabled offers PowerShell |
 | `APELORA_CONSOLE_UID` | `1000` | User terminal sessions run as |
 | `APELORA_DB_BACKUP_DIR` | none | Directory the database backup and restore-drill scripts write their records to (read only; Administration shows whether backups are recent and a restore was verified) |
+| `APELORA_DRAIN_WAIT_SECS` | `30` | Seconds evacuating or restoring a member waits for its replicas to leave their service addresses; 0 skips it |
 | `APELORA_INCUS_ADMIN_CLIENT_CERT` | none | Client certificate file of the unrestricted admin identity (never shown) |
 | `APELORA_INCUS_ADMIN_CLIENT_KEY` | none | Private key file of the unrestricted admin identity (never shown) |
 | `APELORA_LEGACY_TOKENS` | `enabled` | disabled refuses legacy apl_ API tokens |

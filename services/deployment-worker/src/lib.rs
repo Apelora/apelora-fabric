@@ -62,6 +62,9 @@ async fn handle(
             Err(msg) => Outcome::Rejected(msg),
         });
     }
+    if job.kind == "network.resync" {
+        return resync(pool, provider, &job.payload).await;
+    }
     match lifecycle::Goal::from_job(&job.kind, &job.payload) {
         Some(Ok(goal)) => lifecycle::run(pool, provider, job, worker, goal).await,
         Some(Err(msg)) => Ok(Outcome::Rejected(msg)),
@@ -70,6 +73,35 @@ async fn handle(
             job.kind
         ))),
     }
+}
+
+/// Syncs an application's networks from its recorded deployments (`{"application": …}`), e.g.
+/// after the control plane drained replicas before an evacuation. Succeeds when there is nothing
+/// to sync (no deployment, or one that does not enforce connections).
+async fn resync(
+    pool: &Pool,
+    provider: &Provider,
+    payload: &serde_json::Value,
+) -> Result<Outcome, StoreError> {
+    let Some(application) = payload.get("application").and_then(|a| a.as_str()) else {
+        return Ok(Outcome::Rejected(
+            "payload needs the application's name".into(),
+        ));
+    };
+    for d in apelora_persistence::list_deployments(pool)
+        .await?
+        .iter()
+        .filter(|d| d.application == application)
+    {
+        let Some(s) = supervisor::sync_request_for(d) else {
+            continue;
+        };
+        let outcome = network::sync(pool, provider, &s).await;
+        if outcome != Outcome::Succeeded {
+            return Ok(outcome);
+        }
+    }
+    Ok(Outcome::Succeeded)
 }
 
 /// What a job works on, for logs: `project/name` for instance jobs, the application otherwise.

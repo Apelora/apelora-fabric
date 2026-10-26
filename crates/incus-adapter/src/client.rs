@@ -2445,6 +2445,7 @@ impl IncusClient {
                 Instance {
                     unreachable,
                     built_from: config.get(apelora_domain::SPEC_KEY).cloned(),
+                    evacuated_from: config.get("volatile.evacuate.origin").cloned(),
                     kind: match i.kind.as_str() {
                         "container" => InstanceKind::Container,
                         "virtual-machine" => InstanceKind::VirtualMachine,

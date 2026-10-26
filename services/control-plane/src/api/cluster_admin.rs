@@ -228,6 +228,150 @@ pub struct MemberStateStarted {
     pub member: String,
     /// Incus operation carrying out the evacuation or restore.
     pub operation: String,
+    /// What was done first so no request goes to a replica Incus is about to move: the
+    /// replicas taken out of their service addresses, and whether that finished in time.
+    pub drain: String,
+}
+
+/// Which replicas an evacuation or a restore is about to move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Moving {
+    /// Those on the member being evacuated.
+    Off,
+    /// Those an earlier evacuation moved away from the member being restored.
+    Back,
+}
+
+/// Takes the application instances Incus is about to move out of their service addresses:
+/// records the drains, asks the worker to sync each application, and waits for those syncs
+/// (at most `APELORA_DRAIN_WAIT_SECS`). Never fails the request: what it could not do is said
+/// in the returned sentence, and the move goes ahead (the health check still catches a stopped
+/// replica, as before).
+async fn drain_moving(
+    state: &AppState,
+    by: &str,
+    member: &str,
+    moving: Moving,
+) -> (String, Vec<apelora_persistence::drains::Drain>) {
+    use apelora_persistence::drains::{Drain, drain, end_drains_from};
+    if state.drain_wait.is_zero() {
+        return ("Replicas were not taken out of their service addresses first (APELORA_DRAIN_WAIT_SECS=0).".into(), Vec::new());
+    }
+    let Ok(pool) = audit_store(state) else {
+        return (
+            "Replicas were not taken out of their service addresses first: no database.".into(),
+            Vec::new(),
+        );
+    };
+    let instances = match state.provider.instances().await {
+        Ok(i) => i,
+        Err(e) => {
+            tracing::warn!(member, error = %e, "drain: cannot read the instances; moving without a drain");
+            return ("Replicas were not taken out of their service addresses first: Incus did not list the instances.".into(), Vec::new());
+        }
+    };
+    let mut drains = Vec::new();
+    let mut applications = std::collections::BTreeSet::new();
+    for i in instances.iter().filter(|i| i.managed) {
+        let Some(owner) = &i.owner else { continue };
+        let moves = match moving {
+            Moving::Off => i.location == member,
+            Moving::Back => i.evacuated_from.as_deref() == Some(member) && i.location != member,
+        };
+        if moves {
+            drains.push(Drain {
+                project: i.project.clone(),
+                instance: i.name.clone(),
+                from_member: i.location.clone(),
+            });
+            applications.insert(owner.application.clone());
+        }
+    }
+    // A restore starts the instances that stayed on the member: they serve again.
+    if moving == Moving::Back
+        && let Err(e) = end_drains_from(pool, member).await
+    {
+        tracing::warn!(member, error = %e, "drain: could not end the evacuation's drains");
+    }
+    if drains.is_empty() {
+        return (
+            "No application replica moves, so none was taken out of a service address.".into(),
+            Vec::new(),
+        );
+    }
+    if let Err(e) = drain(pool, &drains, by).await {
+        tracing::warn!(member, error = %e, "drain: could not record the drains; moving without one");
+        return ("Replicas were not taken out of their service addresses first: the drains could not be recorded.".into(), Vec::new());
+    }
+    let mut jobs = Vec::new();
+    for application in &applications {
+        let id = match apelora_persistence::ensure_application(pool, application).await {
+            Ok(a) => a.id,
+            Err(e) => {
+                tracing::warn!(application, error = %e, "drain: unknown application");
+                continue;
+            }
+        };
+        match apelora_persistence::enqueue_job(
+            pool,
+            "network.resync",
+            Some(id),
+            &json!({ "application": application }),
+            None,
+        )
+        .await
+        {
+            Ok(j) => jobs.push(j.id()),
+            Err(e) => tracing::warn!(application, error = %e, "drain: could not queue the sync"),
+        }
+    }
+    let deadline = tokio::time::Instant::now() + state.drain_wait;
+    let mut failed = Vec::new();
+    let mut waiting = jobs.clone();
+    while !waiting.is_empty() && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let mut still = Vec::new();
+        for id in waiting {
+            match apelora_persistence::get_job(pool, id).await {
+                Ok(j) if j.status == "pending" || j.status == "running" => still.push(id),
+                Ok(j) if j.status == "succeeded" => {}
+                Ok(j) => failed.push(j.last_error.unwrap_or(j.status)),
+                Err(_) => still.push(id),
+            }
+        }
+        waiting = still;
+    }
+    let (n, a) = (drains.len(), applications.len());
+    let what = format!(
+        "{n} {} of {a} {}",
+        if n == 1 { "replica" } else { "replicas" },
+        if a == 1 {
+            "application"
+        } else {
+            "applications"
+        }
+    );
+    let said = if !waiting.is_empty() {
+        tracing::warn!(
+            member,
+            waiting = waiting.len(),
+            wait_secs = state.drain_wait.as_secs(),
+            "drain: the syncs did not finish in time; moving anyway"
+        );
+        format!(
+            "Taking {what} out of their service addresses did not finish within {} s; the move went ahead, and requests to them can fail until the health check notices.",
+            state.drain_wait.as_secs()
+        )
+    } else if !failed.is_empty() {
+        tracing::warn!(member, errors = ?failed, "drain: a sync failed; moving anyway");
+        format!(
+            "Taking {what} out of their service addresses failed ({}); the move went ahead.",
+            failed.join("; ")
+        )
+    } else {
+        format!("Took {what} out of their service addresses first; they serve again once moved.")
+    };
+    (said, drains)
 }
 
 /// The dry run: what evacuating `member` does to each instance on it, with what blocks it
@@ -367,18 +511,30 @@ pub(super) async fn evacuate(
         &format!("evacuate:{member}"),
     )
     .await?;
-    let operation = provider.member_state(&member, false).await?;
+    let (drain, drained) = drain_moving(&state, &p.actor_ref(), &member, Moving::Off).await;
+    let operation = match provider.member_state(&member, false).await {
+        Ok(o) => o,
+        Err(e) => {
+            // Nothing moves: the replicas serve again (the worker re-syncs when a drain ends).
+            let _ = apelora_persistence::drains::undrain(pool, &drained).await;
+            return Err(e.into());
+        }
+    };
     super::authz::audit_alone(pool, &p,
         if unsafe_run { "cluster.member.evacuate.unsafe" } else { "cluster.member.evacuate" },
         &member,
         "success",
         None,
-        &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings, "blocked": plan.blocked, "approval": approval }),
+        &json!({ "role": p.role, "operation": operation, "instances": plan.items.len(), "warnings": plan.warnings, "blocked": plan.blocked, "approval": approval, "drain": drain }),
     )
     .await?;
     Ok((
         StatusCode::ACCEPTED,
-        Json(MemberStateStarted { member, operation }),
+        Json(MemberStateStarted {
+            member,
+            operation,
+            drain,
+        }),
     ))
 }
 
@@ -400,7 +556,14 @@ pub(super) async fn restore(
     confirm(body, &member)?;
     let pool = audit_store(&state)?;
     let provider = admin(&state)?;
-    let operation = provider.member_state(&member, true).await?;
+    let (drain, drained) = drain_moving(&state, &p.actor_ref(), &member, Moving::Back).await;
+    let operation = match provider.member_state(&member, true).await {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = apelora_persistence::drains::undrain(pool, &drained).await;
+            return Err(e.into());
+        }
+    };
     super::authz::audit_alone(
         pool,
         &p,
@@ -408,12 +571,16 @@ pub(super) async fn restore(
         &member,
         "success",
         None,
-        &json!({ "role": p.role, "operation": operation }),
+        &json!({ "role": p.role, "operation": operation, "drain": drain }),
     )
     .await?;
     Ok((
         StatusCode::ACCEPTED,
-        Json(MemberStateStarted { member, operation }),
+        Json(MemberStateStarted {
+            member,
+            operation,
+            drain,
+        }),
     ))
 }
 

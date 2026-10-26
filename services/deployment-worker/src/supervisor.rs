@@ -31,7 +31,7 @@ use std::time::{Duration, Instant};
 
 use apelora_domain::Instance;
 use apelora_domain::health::HealthPolicy;
-use apelora_domain::network::{Connection, SyncRequest, discovery_env, with_discovery};
+use apelora_domain::network::{Connection, discovery_env, with_discovery};
 use apelora_domain::plan::{
     Availability, DesiredModule, PlanAction, deploy_spec, plan, slot_instances, substitute_name,
 };
@@ -74,6 +74,72 @@ pub struct Supervisor {
     /// Spread stateless replicas that share a member (`APELORA_REBALANCE=1`). Off unless set:
     /// a move stops a container briefly.
     rebalance: bool,
+    /// Where each deployment's instances were on the previous pass (`replica_layout`), so a
+    /// replica that moved, a member that came back and a drain that started or ended re-sync
+    /// its service addresses.
+    layouts: HashMap<(uuid::Uuid, String), String>,
+}
+
+/// The network sync of a recorded deployment, as the supervisor and `network.resync` queue it;
+/// `None` when the deployment does not enforce connections (it has no application network) or
+/// its record cannot be read.
+pub fn sync_request_for(
+    d: &apelora_persistence::DeploymentRecord,
+) -> Option<apelora_domain::network::SyncRequest> {
+    let desired: Vec<DesiredModule> = serde_json::from_value(d.desired.clone()).ok()?;
+    let connections: Vec<Connection> = serde_json::from_value(d.connections.clone()?).ok()?;
+    let published: Vec<apelora_domain::network::Published> = d
+        .published
+        .clone()
+        .and_then(|p| serde_json::from_value(p).ok())
+        .unwrap_or_default();
+    Some(
+        apelora_domain::network::SyncRequest::for_deployment(
+            &d.application,
+            &d.project,
+            d.uplink.as_deref()?,
+            &desired,
+            &connections,
+            d.service_range.as_deref(),
+        )
+        .with_published(&published),
+    )
+}
+
+/// Where a deployment's instances are, for noticing a change: each instance with its member, its
+/// status (a moved replica serves once it runs), and whether that member is unavailable or the
+/// instance is being drained from it.
+fn replica_layout(
+    d: &apelora_persistence::DeploymentRecord,
+    observed: &[Instance],
+    unavailable: &[String],
+    drains: &[apelora_persistence::drains::Drain],
+) -> String {
+    let mut parts: Vec<String> = observed
+        .iter()
+        .filter(|i| {
+            i.project == d.project
+                && i.owner
+                    .as_ref()
+                    .is_some_and(|o| o.application == d.application)
+        })
+        .map(|i| {
+            let down = unavailable.contains(&i.location);
+            let draining = drains.iter().any(|x| {
+                x.project == i.project && x.instance == i.name && x.from_member == i.location
+            });
+            format!(
+                "{}@{} {}{}{}",
+                i.name,
+                i.location,
+                i.status,
+                if down { " down" } else { "" },
+                if draining { " draining" } else { "" }
+            )
+        })
+        .collect();
+    parts.sort();
+    parts.join(",")
 }
 
 /// The leader lease the replica supervisor runs under.
@@ -177,6 +243,7 @@ impl Supervisor {
             health: HealthWatch::new(HealthPolicy::default()),
             reported: HashMap::new(),
             members_unreadable: false,
+            layouts: HashMap::new(),
             leadership: None,
             recovery: crate::recovery::Recovery::default(),
             rebalance: false,
@@ -293,6 +360,7 @@ impl Supervisor {
             .filter(|m| m.status != "Online")
             .map(|m| m.name.clone())
             .collect();
+        let drains = apelora_persistence::drains::active_drains(pool).await?;
         let now = Instant::now();
         // Without the member list nothing is known about members: keep what was known.
         self.offline_since.retain(|name, since| {
@@ -327,11 +395,6 @@ impl Supervisor {
                 tracing::warn!(application = %d.application, "supervisor: unreadable deployment record");
                 continue;
             };
-            let published: Vec<apelora_domain::network::Published> = d
-                .published
-                .clone()
-                .and_then(|p| serde_json::from_value(p).ok())
-                .unwrap_or_default();
             let connections: Option<Vec<Connection>> = d
                 .connections
                 .clone()
@@ -593,8 +656,18 @@ impl Supervisor {
                 Some((status, age)) => status == "failed" && age >= SYNC_RETRY_SECS,
                 None => false,
             };
-            if (queued_here > 0 || sync_failed)
-                && let (Some(uplink), Some(connections)) = (&d.uplink, &connections)
+            // A replica that moved (an evacuation or a restore finished), a member that came
+            // back and a drain that started or ended all change which replicas serve.
+            let layout = replica_layout(d, &observed, &unavailable, &drains);
+            let moved = self
+                .layouts
+                .insert((d.application_id, d.project.clone()), layout.clone())
+                .is_some_and(|before| before != layout);
+            if moved {
+                tracing::info!(application = %d.application, project = %d.project, "supervisor: replicas moved, a member changed or a drain changed; syncing the service addresses");
+            }
+            if (queued_here > 0 || sync_failed || moved)
+                && let Some(sync) = sync_request_for(d)
                 && !apelora_persistence::application_job_in_flight(
                     pool,
                     "network.sync",
@@ -602,18 +675,8 @@ impl Supervisor {
                 )
                 .await?
             {
-                let payload = serde_json::to_value(
-                    SyncRequest::for_deployment(
-                        &d.application,
-                        &d.project,
-                        uplink,
-                        &desired,
-                        connections,
-                        d.service_range.as_deref(),
-                    )
-                    .with_published(&published),
-                )
-                .map_err(|e| StoreError::Conflict(e.to_string()))?;
+                let payload =
+                    serde_json::to_value(sync).map_err(|e| StoreError::Conflict(e.to_string()))?;
                 let mut tx = begin_fenced(pool, self.leadership.as_ref()).await?;
                 apelora_persistence::enqueue_job_in(
                     &mut tx,
@@ -1755,6 +1818,132 @@ mod tests {
             crate::network::sync(&pool, &provider, &s).await,
             Outcome::Succeeded
         );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_replica_about_to_move_leaves_its_service_address_unless_nothing_else_serves(
+        pool: Pool,
+    ) {
+        use apelora_domain::network::{Connection, SyncRequest, network_name};
+        use apelora_persistence::Outcome;
+        use apelora_persistence::drains::{Drain, drain, end_drains_from};
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        deploy(&pool, &provider).await;
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("198.18.100.0/28".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+            resolvers: Vec::new(),
+        };
+        let backends = || async {
+            assert_eq!(
+                crate::network::sync(&pool, &provider, &s).await,
+                Outcome::Succeeded
+            );
+            let lbs = provider
+                .load_balancers(PROJECT, &network_name("shop"))
+                .await
+                .expect("lbs");
+            let mut names: Vec<String> = lbs[0].backends.iter().map(|b| b.name.clone()).collect();
+            names.sort();
+            names
+        };
+        assert_eq!(backends().await, ["r1", "r2"]);
+        let (r1, r2) = ("shop-web-01", "shop-web-01-r2");
+        let observed = provider.instances().await.expect("instances");
+        let at = |name: &str| {
+            observed
+                .iter()
+                .find(|i| i.name == name)
+                .expect("instance")
+                .location
+                .clone()
+        };
+        let d = |instance: &str, from_member: String| Drain {
+            project: PROJECT.into(),
+            instance: instance.into(),
+            from_member,
+        };
+        drain(&pool, &[d(r1, at(r1))], "test").await.expect("drain");
+        assert_eq!(backends().await, ["r2"], "the replica about to move is out");
+        // Both about to move: they keep serving until they stop, rather than no backend at all.
+        drain(&pool, &[d(r2, at(r2))], "test").await.expect("drain");
+        assert_eq!(backends().await, ["r1", "r2"]);
+        // A drain holds only while the instance is still on the member it is leaving.
+        drain(&pool, &[d(r2, "somewhere-else".into())], "test")
+            .await
+            .expect("drain");
+        assert_eq!(backends().await, ["r2"]);
+        end_drains_from(&pool, &at(r1)).await.expect("end");
+        assert_eq!(backends().await, ["r1", "r2"]);
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_running_replica_without_its_address_yet_is_waited_for_not_left_out(pool: Pool) {
+        use apelora_domain::network::{Connection, SyncRequest, network_name};
+        use apelora_persistence::Outcome;
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        mock.net().ipv6 = true;
+        deploy(&pool, &provider).await;
+        // Replica 1 runs with its IPv6 address but no IPv4 lease yet, as a replica just moved to
+        // another member on the test cluster: its address set looks complete.
+        mock.net().no_ipv4_yet.insert("shop-web-01".into());
+        let s = SyncRequest {
+            project: PROJECT.into(),
+            application: "shop".into(),
+            uplink: "incusbr0".into(),
+            modules: vec!["web-01".into(), "db-01".into()],
+            connections: vec![Connection {
+                from: "db-01".into(),
+                to: "web-01".into(),
+                transport: "tcp".into(),
+                port: Some(80),
+            }],
+            replicas: [("web-01".to_owned(), 2)].into(),
+            stateless: vec!["web-01".into()],
+            service_range: Some("198.18.100.0/28".into()),
+            published: Vec::new(),
+            internet: Default::default(),
+            resolvers: Vec::new(),
+        };
+        let backends = || async {
+            let lbs = provider
+                .load_balancers(PROJECT, &network_name("shop"))
+                .await
+                .expect("lbs");
+            let mut names: Vec<String> = lbs[0].backends.iter().map(|b| b.name.clone()).collect();
+            names.sort();
+            names
+        };
+        match crate::network::sync(&pool, &provider, &s).await {
+            Outcome::Failed(m) => assert!(m.contains("shop-web-01"), "{m}"),
+            other => panic!("the sync must be retried, not succeed: {other:?}"),
+        }
+        assert_eq!(
+            backends().await,
+            ["r2"],
+            "the other replica serves meanwhile"
+        );
+        mock.net().no_ipv4_yet.clear();
+        assert_eq!(
+            crate::network::sync(&pool, &provider, &s).await,
+            Outcome::Succeeded
+        );
+        assert_eq!(backends().await, ["r1", "r2"]);
     }
 
     #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

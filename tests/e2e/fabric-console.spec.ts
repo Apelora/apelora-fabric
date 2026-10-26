@@ -477,8 +477,8 @@ test.describe("fabric console views", () => {
       "GET /api/v1/machines": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [] } }),
       "GET /api/v1/cluster/members": () => ({ json: serverMembers({ members: [serverMember("node-1"), serverMember("node-2", { status })] }) }),
       "GET /api/v1/cluster/members/node-2/evacuation": () => ({ json: plan(blocked) }),
-      "POST /api/v1/cluster/members/node-2/evacuate": (req) => { sent.push({ path: "evacuate", body: req.postDataJSON() }); status = "Evacuated"; return { status: 202, json: { member: "node-2", operation: "op-1" } }; },
-      "POST /api/v1/cluster/members/node-2/restore": (req) => { sent.push({ path: "restore", body: req.postDataJSON() }); status = "Online"; return { status: 202, json: { member: "node-2", operation: "op-2" } }; },
+      "POST /api/v1/cluster/members/node-2/evacuate": (req) => { sent.push({ path: "evacuate", body: req.postDataJSON() }); status = "Evacuated"; return { status: 202, json: { member: "node-2", operation: "op-1", drain: "Took 2 replicas of 1 application out of their service addresses first; they serve again once moved." } }; },
+      "POST /api/v1/cluster/members/node-2/restore": (req) => { sent.push({ path: "restore", body: req.postDataJSON() }); status = "Online"; return { status: 202, json: { member: "node-2", operation: "op-2", drain: "No application replica moves, so none was taken out of a service address." } }; },
     });
     await page.goto("/#/servers/members");
     await expect(page.getByTestId("server-member")).toHaveCount(2);
@@ -504,6 +504,7 @@ test.describe("fabric console views", () => {
     await dialog.getByTestId("evacuate-confirm").fill("node-2");
     await dialog.getByTestId("evacuate-start").click();
     await expect(page.getByTestId("servers-notice")).toContainText("Evacuating node-2");
+    await expect(page.getByTestId("servers-notice")).toContainText("Took 2 replicas of 1 application out of their service addresses first");
     await expect(page.getByTestId("restore-member")).toHaveCount(1);
 
     await page.getByTestId("restore-member").click();
@@ -511,6 +512,7 @@ test.describe("fabric console views", () => {
     await open.getByTestId("confirm-input").fill("node-2");
     await open.getByTestId("confirm-action").click();
     await expect(page.getByTestId("servers-notice")).toContainText("Restoring node-2");
+    await expect(page.getByTestId("servers-notice")).toContainText("No application replica moves");
     expect(sent).toEqual([{ path: "evacuate", body: { confirm: "node-2" } }, { path: "restore", body: { confirm: "node-2" } }]);
   });
 

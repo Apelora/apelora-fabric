@@ -344,6 +344,12 @@ pub const SETTINGS: &[Setting] = &[
         "User terminal sessions run as",
     ),
     s(
+        "APELORA_DRAIN_WAIT_SECS",
+        Cp,
+        Some("30"),
+        "Seconds evacuating or restoring a member waits for its replicas to leave their service addresses; 0 skips it",
+    ),
+    s(
         "APELORA_CONSOLE_GID",
         Cp,
         Some("1000"),

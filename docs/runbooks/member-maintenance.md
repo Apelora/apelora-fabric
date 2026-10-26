@@ -15,7 +15,7 @@ In Fabric Console, open **Servers → Members** and choose **Evacuate…** on an
 Read the dry run before you type the name.
 
 - **What Incus does** comes from the instance's `cluster.evacuate` mode. `auto` moves it while it is stopped. A volume that cannot move makes Incus stop the instance on this server until restore.
-- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops. For up to about ten seconds after a replica on this server stops, a share of the requests to its service address can still go to it and fail, until the load balancer's health check takes it out (two failed checks, five seconds apart). Apelora does not drain the server first yet (issue #50), so evacuate when that short dip is acceptable.
+- **Effect.** Replicas elsewhere keep the service up. A single instance, or a stateful module, is down while it moves, or until restore if it only stops.
 - **Blocked.** No other member is Online, or none has the instance's architecture. Fix that first. Evacuation is refused while anything blocks it.
 - **Warnings.** Replicas will share the remaining servers until you restore this one.
 
@@ -34,7 +34,9 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -X POST "$API/api/v1/cluster/members/node-2/evacuate"
 ```
 
-The member shows Evacuating, then Evacuated. The replica supervisor does not start a replacement for an instance on a member that is not Online.
+Before Incus moves anything, Apelora takes the replicas on this server out of their service addresses, so no request goes to one that is about to stop. A replica whose service has no other replica keeps serving until it stops. This takes a few seconds per application, at most `APELORA_DRAIN_WAIT_SECS` (30 s by default); the confirmation says what was done, for example *Took 2 replicas of 1 application out of their service addresses first*. If it does not finish in time, the evacuation goes ahead and says so, and requests to those replicas can fail for up to about ten seconds, until the load balancer's health check takes them out.
+
+The member shows Evacuating, then Evacuated. A moved replica rejoins its service address once it runs on its new server and has its address (the worker checks every `APELORA_SUPERVISE_SECS`). The replica supervisor does not start a replacement for an instance on a member that is not Online.
 
 ## Do the work
 
@@ -42,7 +44,7 @@ Updates, a reboot, or hardware. The instances stay where the evacuation put them
 
 ## Restore
 
-On the evacuated member, choose **Restore…**, type its name, and confirm. Incus moves the evacuated instances back and starts them. New instances may be placed on it again.
+On the evacuated member, choose **Restore…**, type its name, and confirm. Apelora first takes the replicas that will move back out of their service addresses, the same way; Incus then moves the evacuated instances back and starts them, and they rejoin their service addresses once they run. New instances may be placed on it again.
 
 <p align="center">
   <img src="../screenshots/48-console-restore-1440x900.png" alt="Restore node-2 dialog. The text says Incus moves the evacuated instances back and starts them, and that new instances may be placed on it again. The name node-2 is typed and Restore member is available." width="720">

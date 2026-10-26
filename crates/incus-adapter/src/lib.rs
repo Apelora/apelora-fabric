@@ -1427,7 +1427,10 @@ impl Provider {
                 let net = m.net();
                 Ok(found
                     .map(|n| {
-                        let mut a = vec![format!("198.51.100.{}/32", n + 1)];
+                        let mut a = Vec::new();
+                        if !net.no_ipv4_yet.contains(name) {
+                            a.push(format!("198.51.100.{}/32", n + 1));
+                        }
                         if net.ipv6 && !net.no_ipv6_yet.contains(name) {
                             a.push(format!("2001:db8:a::{:x}/128", n + 1));
                         }
@@ -2363,6 +2366,8 @@ pub struct MockNetwork {
     pub ipv6: bool,
     /// Instances whose IPv6 address has not arrived yet (it comes after IPv4) (tests).
     pub no_ipv6_yet: std::collections::BTreeSet<String>,
+    /// Instances whose IPv4 lease has not arrived yet, as after a move on the test cluster (tests).
+    pub no_ipv4_yet: std::collections::BTreeSet<String>,
     /// Instances that will never get IPv6: the sync should stop waiting (tests).
     pub ipv6_wait_over: std::collections::BTreeSet<String>,
     /// A member Incus cannot reach (`host:port`): every load balancer change is refused, as
@@ -2617,6 +2622,7 @@ impl MockIncus {
                     .filter_map(|k| spec.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
                     .collect(),
                 built_from: spec.config.get(apelora_domain::SPEC_KEY).cloned(),
+                evacuated_from: None,
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
@@ -2947,6 +2953,7 @@ impl Default for MockIncus {
             evacuate: None,
             unreachable: false,
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         };
         Self {

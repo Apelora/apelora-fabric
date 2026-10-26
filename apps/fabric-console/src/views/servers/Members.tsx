@@ -191,8 +191,8 @@ export function MembersTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: stri
   const restore = async (member: string) => {
     setError(null);
     try {
-      await client.request("restore_member", { params: { member }, body: { confirm: member } });
-      setNotice(`Restoring ${member}: Incus moves its instances back and starts them.`);
+      const started = await client.request("restore_member", { params: { member }, body: { confirm: member } });
+      setNotice(`Restoring ${member}: Incus moves its instances back and starts them. ${started.drain}`);
       reload();
     } catch (e) {
       setError(messageOf(e));

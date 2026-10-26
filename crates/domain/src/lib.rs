@@ -139,6 +139,10 @@ pub struct Instance {
     /// instance created before Apelora recorded it. Read by the planner, not part of the API.
     #[serde(skip)]
     pub built_from: Option<String>,
+    /// The member it was moved away from when that member was evacuated
+    /// (`volatile.evacuate.origin`); restoring the member moves it back. Not part of the API.
+    #[serde(skip)]
+    pub evacuated_from: Option<String>,
 }
 
 /// Instance config key with what an instance was built from ([`plan::spec_fingerprint`]),

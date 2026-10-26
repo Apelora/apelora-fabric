@@ -133,7 +133,7 @@ async fn apply(
                     .get("ipv6.address")
                     .is_some_and(|v| !v.is_empty() && v != "none")
             });
-    let inv = Inventory::read(provider).await?;
+    let inv = Inventory::read(pool, provider).await?;
     for a in &s.modules {
         let name = acl_name(app, a);
         provider.ensure_acl(p, &name, app).await?;
@@ -247,17 +247,34 @@ async fn services(
         kept.push(listen_address.to_string());
         names.push((a.clone(), listen_address.to_string()));
         let mut backends = Vec::new();
+        // Replicas about to be moved by an evacuation or a restore stay out, unless nothing
+        // else would serve: then they serve until they stop.
+        let mut draining = Vec::new();
         for replica in 1..=s.replicas.get(a).copied().unwrap_or(1).max(1) {
             let base = replica_name(app, a, replica);
             for (instance, reachable) in inv.slot(s, a, replica) {
                 if !reachable {
+                    tracing::debug!(instance = %format!("{p}/{instance}"), "network: not a backend: its member is not online");
                     continue;
                 }
+                let into = if inv.draining(p, &instance) {
+                    &mut draining
+                } else {
+                    &mut backends
+                };
                 let address = backend_for_listen(
                     listen_address,
                     provider.instance_addresses(p, &instance).await?,
                 );
-                let Some(address) = address else { continue };
+                let Some(address) = address else {
+                    // A running replica gets its address shortly (after a move, the IPv4 lease can
+                    // come after the instance runs): sync again then, or it would never serve.
+                    if inv.running(p, &instance) {
+                        waiting.push(format!("an address of {instance} for {a}'s service"));
+                    }
+                    tracing::debug!(instance = %format!("{p}/{instance}"), "network: not a backend: no address of the service address's family");
+                    continue;
+                };
                 // Only describes the backend: a missing UUID is logged, not fatal.
                 let uuid = provider
                     .instance_uuid(p, &instance)
@@ -266,13 +283,18 @@ async fn services(
                         tracing::warn!(instance = %format!("{p}/{instance}"), "network: Incus reports no UUID for the instance; its service backend is described without one");
                         String::new()
                     });
-                backends.push(Backend {
+                into.push(Backend {
                     // `r2`, or `r2-s1` for a substitute of replica 2.
                     name: format!("r{replica}{}", instance.strip_prefix(&base).unwrap_or("")),
                     address,
                     description: format!("{instance} {uuid}").trim().to_owned(),
                 });
             }
+        }
+        if backends.is_empty() {
+            backends = draining;
+        } else if !draining.is_empty() {
+            tracing::info!(application = %app, module = %a, drained = draining.len(), "network: replicas about to move are left out of the service address");
         }
         if backends.is_empty() {
             waiting.push(format!("an address of a {a} replica for its service"));
@@ -528,14 +550,17 @@ async fn remove_stale(provider: &Provider, s: &NetworkSync) -> Result<(), Adapte
     Ok(())
 }
 
-/// The instances Incus reports, and the members that cannot be asked about theirs.
+/// The instances Incus reports, the members that cannot be asked about theirs, and the
+/// replicas being drained before Incus moves them.
 struct Inventory {
     observed: Vec<Instance>,
     unavailable: Vec<String>,
+    drains: Vec<apelora_persistence::drains::Drain>,
 }
 
 impl Inventory {
-    async fn read(provider: &Provider) -> Result<Self, AdapterError> {
+    async fn read(pool: &Pool, provider: &Provider) -> Result<Self, SyncError> {
+        let drains = apelora_persistence::drains::active_drains(pool).await?;
         let observed = provider.instances().await?;
         let unavailable = provider
             .cluster_members()
@@ -550,7 +575,27 @@ impl Inventory {
         Ok(Inventory {
             observed,
             unavailable,
+            drains,
         })
+    }
+
+    fn running(&self, project: &str, instance: &str) -> bool {
+        self.observed
+            .iter()
+            .any(|i| i.project == project && i.name == instance && i.status == "Running")
+    }
+
+    /// Whether the instance is drained: a drain names it and it is still on the member it is
+    /// leaving (once moved, it serves again).
+    fn draining(&self, project: &str, instance: &str) -> bool {
+        self.observed
+            .iter()
+            .find(|i| i.project == project && i.name == instance)
+            .is_some_and(|i| {
+                self.drains.iter().any(|d| {
+                    d.project == project && d.instance == instance && d.from_member == i.location
+                })
+            })
     }
 
     /// The instances filling replica `replica` of `module` (the replica and its
