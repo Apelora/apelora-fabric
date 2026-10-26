@@ -55,6 +55,12 @@ const SYNC_RETRY_SECS: f64 = 60.0;
 /// most this often, and at once when it changes.
 const REPEAT_LOG_AFTER: Duration = Duration::from_secs(600);
 
+/// How long a stopped replica that an evacuation or a restore moved
+/// (`volatile.evacuate.origin`) is left for Incus to start before the supervisor starts it
+/// (issue #52). Incus starts a moved container a few seconds after the move; this is a margin
+/// over that, not a measured bound.
+const MOVE_START_GRACE: Duration = Duration::from_secs(60);
+
 /// Remembers since when each member has been offline, so a short outage (a reboot, a network
 /// blip) does not trigger recovery: hysteresis across passes.
 #[derive(Debug)]
@@ -78,6 +84,10 @@ pub struct Supervisor {
     /// replica that moved, a member that came back and a drain that started or ended re-sync
     /// its service addresses.
     layouts: HashMap<(uuid::Uuid, String), String>,
+    /// Since when each stopped replica that Incus moved (`project/name`) has been seen stopped,
+    /// so Incus gets [`MOVE_START_GRACE`] to start it before the supervisor does.
+    moved_stopped_since: HashMap<String, Instant>,
+    move_grace: Duration,
 }
 
 /// The network sync of a recorded deployment, as the supervisor and `network.resync` queue it;
@@ -244,10 +254,18 @@ impl Supervisor {
             reported: HashMap::new(),
             members_unreadable: false,
             layouts: HashMap::new(),
+            moved_stopped_since: HashMap::new(),
+            move_grace: MOVE_START_GRACE,
             leadership: None,
             recovery: crate::recovery::Recovery::default(),
             rebalance: false,
         }
+    }
+
+    /// How long a stopped replica that Incus moved is left for Incus to start.
+    pub fn with_move_grace(mut self, grace: Duration) -> Self {
+        self.move_grace = grace;
+        self
     }
 
     /// Spread stateless replicas that landed on the same member (slice C).
@@ -388,6 +406,18 @@ impl Supervisor {
             .filter(|(_, since)| now.duration_since(**since) >= self.recover_after)
             .map(|(name, _)| name.clone())
             .collect();
+        // A stopped replica that Incus moved: remembered from the first pass that sees it, and
+        // forgotten once it runs or no longer carries the move.
+        let moved_stopped: Vec<String> = observed
+            .iter()
+            .filter(|i| i.status == "Stopped" && i.evacuated_from.is_some())
+            .map(|i| format!("{}/{}", i.project, i.name))
+            .collect();
+        self.moved_stopped_since
+            .retain(|k, _| moved_stopped.contains(k));
+        for k in moved_stopped {
+            self.moved_stopped_since.entry(k).or_insert(now);
+        }
         let mut recreated = std::mem::take(&mut recovered);
         for d in &deployments {
             let Ok(desired) = serde_json::from_value::<Vec<DesiredModule>>(d.desired.clone())
@@ -583,6 +613,17 @@ impl Supervisor {
                         tracing::warn!(application = %d.application, %instance, availability = ?da.availability, state = if stopped { "stopped" } else { "missing" },
                         "supervisor: instance is missing or stopped; only stateless replicas are restored automatically (repeated at most every 10 minutes)");
                     }
+                    continue;
+                }
+                if stopped
+                    && let Some(since) = self
+                        .moved_stopped_since
+                        .get(&format!("{}/{}", d.project, item.instance))
+                    && now.duration_since(*since) < self.move_grace
+                {
+                    // Moved by an evacuation or a restore: Incus starts it (issue #52).
+                    tracing::debug!(application = %d.application, instance = %format!("{}/{}", d.project, item.instance), waited_secs = now.duration_since(*since).as_secs(), grace_secs = self.move_grace.as_secs(), "supervisor: stopped after Incus moved it; leaving Incus to start it");
+                    count_action("restart", "deferred");
                     continue;
                 }
                 if stopped
@@ -1267,6 +1308,56 @@ mod tests {
         assert_eq!(
             supervise_once(&pool, &provider).await.expect("pass"),
             vec!["shop-web-01".to_owned()]
+        );
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_replica_an_evacuation_moved_is_left_for_incus_to_start_for_a_while(pool: Pool) {
+        let provider = Provider::Mock(MockIncus::default());
+        deploy(&pool, &provider).await;
+        let Provider::Mock(m) = &provider else {
+            unreachable!("mock")
+        };
+        // Moved to an Online member and not started yet: Incus is about to start it.
+        assert!(m.moved_by_evacuation(PROJECT, "shop-web-01", "mock-member-02"));
+        let mut waiting = Supervisor::new(Duration::ZERO)
+            .with_health(HealthPolicy::immediate())
+            .with_move_grace(Duration::from_secs(3600));
+        for _ in 0..2 {
+            assert_eq!(
+                waiting.pass(&pool, &provider).await.expect("pass"),
+                Vec::<String>::new()
+            );
+        }
+        assert!(
+            !recent_audit(&pool, 20)
+                .await
+                .expect("audit")
+                .iter()
+                .any(|e| e.action == "application.replica.restart"),
+            "no restart is recorded for a replica Incus is moving"
+        );
+        // Incus never started it: once the grace is over, the supervisor does.
+        let mut done = Supervisor::new(Duration::ZERO)
+            .with_health(HealthPolicy::immediate())
+            .with_move_grace(Duration::ZERO);
+        assert_eq!(
+            done.pass(&pool, &provider).await.expect("pass"),
+            vec!["shop-web-01".to_owned()]
+        );
+        // A replica that was not moved is restarted at once, grace or not.
+        provider
+            .change_state(
+                PROJECT,
+                "shop-web-01-r2",
+                apelora_domain::InstanceAction::Stop,
+                true,
+            )
+            .await
+            .expect("crash");
+        assert_eq!(
+            waiting.pass(&pool, &provider).await.expect("pass"),
+            vec!["shop-web-01-r2".to_owned()]
         );
     }
 

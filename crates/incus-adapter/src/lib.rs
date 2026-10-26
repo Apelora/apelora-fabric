@@ -2811,6 +2811,23 @@ impl MockIncus {
             .ok_or_else(|| AdapterError::NotFound(format!("cluster member {name}")))
     }
 
+    /// Leaves an instance where Incus leaves one partway through an evacuation: moved to
+    /// `member`, stopped, and carrying the member it came from (`volatile.evacuate.origin`).
+    /// `false` when there is no such instance.
+    pub fn moved_by_evacuation(&self, project: &str, name: &str, member: &str) -> bool {
+        let mut all = self.lock();
+        let Some(i) = all
+            .iter_mut()
+            .find(|i| i.instance.project == project && i.instance.name == name)
+        else {
+            return false;
+        };
+        let origin = std::mem::replace(&mut i.instance.location, member.to_owned());
+        i.instance.evacuated_from = Some(origin);
+        i.instance.status = "Stopped".into();
+        true
+    }
+
     /// Simulates a server joining with its pending token (as `incus admin init` would), held
     /// out of placement when `held` (as the enrolment script does). `false` without a token.
     pub fn join(&self, member: &str, held: bool) -> bool {

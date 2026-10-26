@@ -10,6 +10,7 @@
 # Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (at least three members), the dev
 # PostgreSQL (infra/dev/compose.yaml) and jq. Mutates only the test cluster.
 #   bash scripts/test-cluster/demo.sh            # log in a new temporary directory
+#   DEMO_SETTLE_SECS=300 bash scripts/test-cluster/demo.sh   # watch the restored member longer (issue #51)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -241,6 +242,9 @@ watcher=$!
 ( while [ ! -f "$run/stop-watch" ]; do echo "$(date +%T) $(incus_ query "/1.0/networks/$APP/load-balancers/$svc/state?project=apelora" | jq -c '[.backend_health // {} | to_entries[] | {(.key): [.value.ports[]?.status]}] | add')" >> "$run/lb-state"; sleep 2; done ) &
 lbwatcher=$!
 sleep 3
+# The replica Incus moves away and back, and when the evacuation began (for the audit check).
+mover=$(api "$API/applications/$APP/status" | jq -r --arg m "$target" '.items[] | select(.module=="web-01" and .location==$m) | .instance' | head -1)
+evac_from=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 started=$(api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/evacuate")
 evacuated=$target
 say "evacuate: $(echo "$started" | jq -r .drain)"
@@ -254,9 +258,28 @@ say "restore: $(echo "$restored" | jq -r .drain)"
 [[ $(echo "$restored" | jq -r .drain) == Took* ]] && pass "the replicas returning to $target left their service address before Incus moved them back" || fail "no drain before the restore: $restored"
 for _ in $(seq 1 30); do sleep 5; [ "$(api "$API/cluster" | jq -r --arg m "$target" '.members[] | select(.name==$m) | .status')" = Online ] && break; done
 evacuated=""
-# The returning replica rejoins once it runs on the member again; watch it serve for a while.
-sleep 30
-touch "$run/stop-watch"; wait "$watcher" "$lbwatcher" || true
+# The returning replica rejoins once it runs on the member again; watch it serve for a while,
+# through the service address and at its own address from the client (issue #51: reachable from
+# its own member, where OVN's health check runs, but not from the others).
+settle=${DEMO_SETTLE_SECS:-30}
+own=""
+for _ in $(seq 1 12); do
+  own=$(incus_ list "$mover" --project apelora -f csv -c 4 | grep -o '^[0-9.]*' | head -1)
+  [ -n "$own" ] && break; sleep 5
+done
+client_at=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.module=="client-01") | .location')
+say "watching $mover at $own from the client on $client_at, and the service address, for $settle s"
+direct="$run/direct"; : > "$direct"
+if [ -n "$own" ]; then
+  ( while [ ! -f "$run/stop-direct" ]; do echo "$(date +%T) $(probe "$own")" >> "$direct"; done ) &
+  directwatcher=$!
+fi
+sleep "$settle"
+touch "$run/stop-watch" "$run/stop-direct"; wait "$watcher" "$lbwatcher" ${directwatcher:-} || true
+d_requests=$(( $(wc -w < "$direct") - $(wc -l < "$direct") )); d_failed=$({ grep -o FAIL "$direct" || true; } | wc -l | tr -d ' ')
+d_first=$({ grep FAIL "$direct" || true; } | head -1 | cut -d' ' -f1); d_last=$({ grep FAIL "$direct" || true; } | tail -1 | cut -d' ' -f1)
+say "$mover at its own address after the restore: $d_requests requests, $d_failed failed${d_first:+ (from $d_first to $d_last)}"
+{ echo "$mover at $own from the client on $client_at:"; cat "$direct"; } >> "$log"
 requests=$(( $(wc -w < "$watch") - $(wc -l < "$watch") )); failed=$({ grep -o FAIL "$watch" || true; } | wc -l | tr -d ' ')
 { grep FAIL "$watch" || true; } | while read -r line; do say "a request failed at ${line%% *}"; done
 { echo "load balancer backend health during the window:"; cat "$run/lb-state"; } >> "$log"
@@ -266,6 +289,9 @@ say "service during the evacuation and the restore: $requests requests, $failed 
 # in a thousand, and fail on anything more (a replica unreachable after it moved back, issue #51).
 [ "$requests" -ge 40 ] && [ $(( failed * 1000 )) -le "$requests" ] && pass "$failed of $requests requests failed while $target was evacuated and restored (at most one in a thousand)" || fail "$failed of $requests requests failed during the evacuation and the restore"
 pass "member restored"
+# Incus starts the replicas it moves; the supervisor must not start them as well (issue #52).
+moved_starts=$(api "$API/audit?action=application.replica.restart&from=$evac_from" | jq '.items | length')
+[ "$moved_starts" -eq 0 ] && pass "the supervisor left the moved replicas for Incus to start" || fail "the supervisor started $moved_starts replica(s) during the evacuation or the restore"
 
 say "audit: $(api "$API/audit?limit=50" | jq -c '[.items[] | select(.actor=="supervisor" or .actor=="demo") | .action] | group_by(.) | map({(.[0]): length}) | add')"
 say "DEMONSTRATION PASSED"
