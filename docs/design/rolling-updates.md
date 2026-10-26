@@ -31,6 +31,29 @@ A deployment plan knows five actions: create, keep, resize, remove, conflict (`c
 
 **Applying (stateless, slice 2).** The deployment queues one `instance.replace` job per module (not per replica): for each replica in turn, create a replacement beside it with the new spec, wait until the load balancer reports it healthy (same hysteresis as the supervisor), then delete the old instance. A replacement is named `<replica>-u<n>`, and the replica's slot recognises it the way it already recognises a substitute (`-s<n>`), so no instance is renamed. A replica that does not become healthy within the module's readiness window stops the job: the new instance is deleted, the old ones keep serving, the job fails with the reason, and the application's status says "update stopped".
 
+The proposed slice 2 flow (a proposal: not built, issue #48):
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor P as Person deploying
+  participant C as Control plane
+  participant W as Worker (instance.replace job)
+  participant I as Incus
+  participant L as Load balancer (OVN)
+  P->>C: deploy a version whose image or settings changed
+  C->>W: queue one instance.replace job per module
+  loop each replica in turn
+    W->>I: create a replacement (-uN) beside it, new spec
+    W->>L: wait until the replacement is healthy
+    break not healthy within the readiness window
+      W->>I: delete the replacement, old replicas keep serving
+      Note over C,W: the job fails with the reason, status "update stopped"
+    end
+    W->>I: delete the old replica
+  end
+```
+
 **Single replica or stateful (slice 3).** Stop, recreate with the same volumes attached, start; needs `confirmDisruption`, like Stop.
 
 ## 3. Slices
