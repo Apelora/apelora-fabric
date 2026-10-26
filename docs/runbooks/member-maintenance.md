@@ -36,7 +36,31 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 Before Incus moves anything, Apelora takes the replicas on this server out of their service addresses, so no request goes to one that is about to stop. A replica whose service has no other replica keeps serving until it stops. This takes a few seconds per application, at most `APELORA_DRAIN_WAIT_SECS` (30 s by default); the confirmation says what was done, for example *Took 2 replicas of 1 application out of their service addresses first*. If it does not finish in time, the evacuation goes ahead and says so, and requests to those replicas can fail for up to about ten seconds, until the load balancer's health check takes them out.
 
-The member shows Evacuating, then Evacuated. A moved replica rejoins its service address once it runs on its new server and has its address (the worker checks every `APELORA_SUPERVISE_SECS`). The replica supervisor does not start a replacement for an instance on a member that is not Online.
+The member shows Evacuating, then Evacuated. A moved replica rejoins its service address once it runs on its new server and has its address (the worker checks every `APELORA_SUPERVISE_SECS`). The replica supervisor does not start a replacement for an instance on a member that is not Online. A replica that Incus has moved but not started yet is left for Incus to start; the supervisor starts it only if it is still stopped 60 s later.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor A as Administrator
+  participant C as Control plane
+  participant W as Worker (network sync, supervisor)
+  participant L as Load balancer (OVN)
+  participant I as Incus
+  A->>C: Evacuate node-2 (typed name)
+  C->>W: record drains, queue a network sync per application
+  W->>L: leave node-2's replicas out of the service addresses
+  C-->>C: wait until synced (at most APELORA_DRAIN_WAIT_SECS)
+  C->>I: evacuate node-2
+  I->>I: move each instance to another member (a container stops first) and start it
+  Note over W,I: a moved replica that is still stopped is Incus's to start for 60 s
+  W->>I: next pass: replica runs on its new member with its address
+  W->>L: replica rejoins its service address
+  A->>C: Restore node-2 (typed name)
+  C->>W: drain the replicas that will move back, sync
+  C->>I: restore node-2
+  I->>I: move the evacuated instances back and start them
+  W->>L: returning replicas rejoin once they run
+```
 
 ## Do the work
 

@@ -105,3 +105,21 @@ Every setting is an environment variable. The control plane reads its own at sta
 | Setting | Default | What it does |
 |---|---|---|
 | `APELORA_API_URL` | `http://127.0.0.1:8080` | Where the web development server sends /api |
+
+## Named by other settings
+
+These variables have names an administrator chooses, so they are not listed above. Their values are secrets: read when needed, never stored, logged or shown.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `APELORA_ALERT_SECRET_<NAME>` | worker | The signing secret of an alert channel whose `secretRef` names it ([alerts runbook](../runbooks/alerts.md)) |
+| `APELORA_BMC_SECRET_<NAME>` | worker | The password of a BMC whose entry in `APELORA_BMC_MAP` names it as `secretRef` ([member-failure runbook](../runbooks/member-failure.md)) |
+
+## Read by the DNS resolver
+
+`apelora-dns` runs inside an application's resolver module, not on the servers.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `APELORA_DNS_RECORDS_FILE` | `/etc/apelora-dns.records` | The service names it answers (`name address` lines), read again on every query |
+| `APELORA_DNS_UPSTREAM_FILE` | `/etc/apelora-dns.upstream` | The resolvers it forwards every other lookup to |

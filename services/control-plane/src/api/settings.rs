@@ -596,6 +596,19 @@ pub fn markdown() -> String {
             let _ = writeln!(out, "| `{}` | {default} | {what}{note} |", x.name);
         }
     }
+    out.push_str(
+        "\n## Named by other settings\n\n\
+         These variables have names an administrator chooses, so they are not listed above. Their values are \
+         secrets: read when needed, never stored, logged or shown.\n\n\
+         | Setting | Read by | What it does |\n|---|---|---|\n\
+         | `APELORA_ALERT_SECRET_<NAME>` | worker | The signing secret of an alert channel whose `secretRef` names it ([alerts runbook](../runbooks/alerts.md)) |\n\
+         | `APELORA_BMC_SECRET_<NAME>` | worker | The password of a BMC whose entry in `APELORA_BMC_MAP` names it as `secretRef` ([member-failure runbook](../runbooks/member-failure.md)) |\n\
+         \n## Read by the DNS resolver\n\n\
+         `apelora-dns` runs inside an application's resolver module, not on the servers.\n\n\
+         | Setting | Default | What it does |\n|---|---|---|\n\
+         | `APELORA_DNS_RECORDS_FILE` | `/etc/apelora-dns.records` | The service names it answers (`name address` lines), read again on every query |\n\
+         | `APELORA_DNS_UPSTREAM_FILE` | `/etc/apelora-dns.upstream` | The resolvers it forwards every other lookup to |\n",
+    );
     out
 }
 
