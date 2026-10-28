@@ -840,6 +840,7 @@ pub(super) async fn update(
 #[serde(rename_all = "camelCase")]
 pub struct DraftDto {
     pub version: i32,
+    /// A Studio document (the application assembly format the Studio imports and exports).
     #[schema(value_type = Object)]
     pub document: Value,
     pub validation_errors: Vec<String>,
@@ -892,6 +893,7 @@ pub(super) async fn get_draft(
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveDraft {
+    /// A Studio document (the application assembly format the Studio imports and exports).
     #[schema(value_type = Object)]
     pub document: Value,
     /// The draft version this edit started from; omit only for the first save.
@@ -1036,6 +1038,7 @@ pub(super) async fn versions(
 
 #[derive(Serialize, ToSchema)]
 pub struct VersionDocument {
+    /// A Studio document (the application assembly format the Studio imports and exports).
     #[schema(value_type = Object)]
     pub document: Value,
     pub published: bool,

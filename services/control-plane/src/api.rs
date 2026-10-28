@@ -1271,7 +1271,6 @@ pub struct WhoAmI {
 #[serde(rename_all = "camelCase")]
 pub struct RoleGrant {
     pub role: String,
-    #[schema(value_type = Object)]
     pub scope: apelora_auth::Scope,
     pub via_group: bool,
     pub emergency: bool,
@@ -1363,10 +1362,20 @@ pub struct AuditItem {
     /// `success`, `denied` or `failed`.
     pub outcome: String,
     /// The organisation, project and application the event concerns, when it concerns any.
-    #[schema(value_type = Option<Object>)]
+    #[schema(value_type = Option<AuditScope>)]
     pub scope: Option<Value>,
+    /// What the action changed or was refused, in fields that depend on the action.
     #[schema(value_type = Object)]
     pub detail: Value,
+}
+
+/// The ids of the organisation, project and application an audit event concerns.
+#[derive(ToSchema)]
+#[allow(dead_code)]
+pub struct AuditScope {
+    pub organization: Option<uuid::Uuid>,
+    pub project: Option<uuid::Uuid>,
+    pub application: Option<uuid::Uuid>,
 }
 
 impl AuditItem {

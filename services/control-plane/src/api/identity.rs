@@ -493,6 +493,8 @@ pub struct ServiceIdentityDto {
     pub operations: Vec<String>,
     /// Name of the credential in the backend's secret store (never the secret).
     pub credential_ref: Option<String>,
+    /// Limits recorded with the identity, such as `{"projects": ["acme-prod"]}`. Recorded and
+    /// shown, not yet enforced.
     #[schema(value_type = Object)]
     pub restrictions: Value,
     pub created_by: String,
@@ -513,6 +515,8 @@ pub struct NewServiceIdentity {
     pub name: String,
     pub kind: ServiceKind,
     pub credential_ref: Option<String>,
+    /// Limits recorded with the identity, such as `{"projects": ["acme-prod"]}`. Recorded and
+    /// shown, not yet enforced.
     #[serde(default)]
     #[schema(value_type = Object)]
     pub restrictions: Value,
@@ -551,6 +555,9 @@ pub struct PolicyDto {
     pub name: String,
     /// `mfa` or `approval`.
     pub kind: String,
+    /// For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`)
+    /// and/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids
+    /// that need an approval.
     #[schema(value_type = Object)]
     pub parameters: Value,
     pub enabled: bool,
@@ -565,6 +572,9 @@ pub struct PolicyList {
 pub struct SavePolicy {
     pub name: String,
     pub kind: String,
+    /// For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`)
+    /// and/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids
+    /// that need an approval.
     #[schema(value_type = Object)]
     pub parameters: Value,
     #[serde(default = "yes")]

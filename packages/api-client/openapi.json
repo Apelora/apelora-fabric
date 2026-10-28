@@ -20037,7 +20037,8 @@
             "description": "RFC 3339 timestamp."
           },
           "detail": {
-            "type": "object"
+            "type": "object",
+            "description": "What the action changed or was refused, in fields that depend on the action."
           },
           "id": {
             "type": "integer",
@@ -20048,11 +20049,15 @@
             "description": "`success`, `denied` or `failed`."
           },
           "scope": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "The organisation, project and application the event concerns, when it concerns any."
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AuditScope",
+                "description": "The organisation, project and application the event concerns, when it concerns any."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "target": {
             "type": "string"
@@ -20077,6 +20082,33 @@
               "null"
             ],
             "description": "Pass this as `after` for the next, older page; absent on the last page."
+          }
+        }
+      },
+      "AuditScope": {
+        "type": "object",
+        "description": "The ids of the organisation, project and application an audit event concerns.",
+        "properties": {
+          "application": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "organization": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -21951,7 +21983,8 @@
         ],
         "properties": {
           "document": {
-            "type": "object"
+            "type": "object",
+            "description": "A Studio document (the application assembly format the Studio imports and exports)."
           },
           "updatedAt": {
             "type": "string",
@@ -24566,7 +24599,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "`instance.create`, `instance.start`, `instance.stop` or `instance.delete`."
+            "description": "`instance.create`, `instance.start`, `instance.stop`, `instance.restart`,\n`instance.delete`, `instance.rebuild`, `instance.resize`, `instance.move`,\n`instance.recover`, `volume.backup`, `volume.restore`, `network.sync`, `network.resync` or\n`application.operation`."
           },
           "lastError": {
             "type": [
@@ -24586,7 +24619,8 @@
             "description": "Who asked for it (`user:…`, `service:…`, `token:…`); absent for jobs the supervisor or\nthe scheduler queued, and for jobs queued before this was recorded."
           },
           "request": {
-            "type": "object"
+            "type": "object",
+            "description": "What the job was asked to do; its fields depend on `kind` (an instance specification\nfor `instance.create`, the instance's project and name for `instance.start`, …)."
           },
           "requestId": {
             "type": [
@@ -26637,7 +26671,8 @@
             "type": "string"
           },
           "restrictions": {
-            "type": "object"
+            "type": "object",
+            "description": "Limits recorded with the identity, such as `{\"projects\": [\"acme-prod\"]}`. Recorded and\nshown, not yet enforced."
           }
         }
       },
@@ -27487,7 +27522,8 @@
             "type": "string"
           },
           "parameters": {
-            "type": "object"
+            "type": "object",
+            "description": "For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`)\nand/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids\nthat need an approval."
           },
           "updatedAt": {
             "type": "string",
@@ -28832,7 +28868,7 @@
             "type": "string"
           },
           "scope": {
-            "type": "object"
+            "$ref": "#/components/schemas/Scope"
           },
           "viaGroup": {
             "type": "boolean"
@@ -28930,7 +28966,8 @@
             "description": "The draft version this edit started from; omit only for the first save."
           },
           "document": {
-            "type": "object"
+            "type": "object",
+            "description": "A Studio document (the application assembly format the Studio imports and exports)."
           }
         }
       },
@@ -28952,7 +28989,8 @@
             "type": "string"
           },
           "parameters": {
-            "type": "object"
+            "type": "object",
+            "description": "For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`)\nand/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids\nthat need an approval."
           }
         }
       },
@@ -29358,7 +29396,8 @@
             "description": "The operation families this kind may perform."
           },
           "restrictions": {
-            "type": "object"
+            "type": "object",
+            "description": "Limits recorded with the identity, such as `{\"projects\": [\"acme-prod\"]}`. Recorded and\nshown, not yet enforced."
           }
         }
       },
@@ -30779,7 +30818,8 @@
         ],
         "properties": {
           "document": {
-            "type": "object"
+            "type": "object",
+            "description": "A Studio document (the application assembly format the Studio imports and exports)."
           },
           "published": {
             "type": "boolean"

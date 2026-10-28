@@ -47,7 +47,10 @@ pub struct InstancePath {
 #[serde(rename_all = "camelCase")]
 pub struct Job {
     pub id: Uuid,
-    /// `instance.create`, `instance.start`, `instance.stop` or `instance.delete`.
+    /// `instance.create`, `instance.start`, `instance.stop`, `instance.restart`,
+    /// `instance.delete`, `instance.rebuild`, `instance.resize`, `instance.move`,
+    /// `instance.recover`, `volume.backup`, `volume.restore`, `network.sync`, `network.resync` or
+    /// `application.operation`.
     pub kind: String,
     /// `pending`, `running`, `succeeded`, `failed` or `cancelled`.
     pub status: String,
@@ -61,6 +64,8 @@ pub struct Job {
     /// The `x-request-id` of the API request that queued the job; absent for jobs the
     /// supervisor or the scheduler queued. The request's audit rows carry it as `requestId`.
     pub request_id: Option<String>,
+    /// What the job was asked to do; its fields depend on `kind` (an instance specification
+    /// for `instance.create`, the instance's project and name for `instance.start`, …).
     #[schema(value_type = Object)]
     pub request: Value,
     /// RFC 3339.

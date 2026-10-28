@@ -402,12 +402,12 @@ export type AuditItem = {
   actorType: string;
   /** RFC 3339 timestamp. */
   at: string;
+  /** What the action changed or was refused, in fields that depend on the action. */
   detail: Record<string, unknown>;
   id: number;
   /** `success`, `denied` or `failed`. */
   outcome: string;
-  /** The organisation, project and application the event concerns, when it concerns any. */
-  scope?: Record<string, unknown> | null;
+  scope?: AuditScope | null;
   target: string;
 };
 
@@ -415,6 +415,13 @@ export type AuditList = {
   items: AuditItem[];
   /** Pass this as `after` for the next, older page; absent on the last page. */
   next?: string | null;
+};
+
+/** The ids of the organisation, project and application an audit event concerns. */
+export type AuditScope = {
+  application?: string | null;
+  organization?: string | null;
+  project?: string | null;
 };
 
 export type AuthMode = "tokens" | "disabled-development";
@@ -954,6 +961,7 @@ export type DirectoryView = {
 };
 
 export type DraftDto = {
+  /** A Studio document (the application assembly format the Studio imports and exports). */
   document: Record<string, unknown>;
   updatedAt: string;
   updatedBy: string;
@@ -1710,12 +1718,13 @@ export type Job = {
   incusOperation?: string | null;
   /** Every Incus operation the job started, oldest first (kept after they finish). */
   incusOperations: string[];
-  /** `instance.create`, `instance.start`, `instance.stop` or `instance.delete`. */
+  /** `instance.create`, `instance.start`, `instance.stop`, `instance.restart`, `instance.delete`, `instance.rebuild`, `instance.resize`, `instance.move`, `instance.recover`, `volume.backup`, `volume.restore`, `network.sync`, `network.resync` or `application.operation`. */
   kind: string;
   lastError?: string | null;
   maxAttempts: number;
   /** Who asked for it (`user:…`, `service:…`, `token:…`); absent for jobs the supervisor or the scheduler queued, and for jobs queued before this was recorded. */
   queuedBy?: string | null;
+  /** What the job was asked to do; its fields depend on `kind` (an instance specification for `instance.create`, the instance's project and name for `instance.start`, …). */
   request: Record<string, unknown>;
   /** The `x-request-id` of the API request that queued the job; absent for jobs the supervisor or the scheduler queued. The request's audit rows carry it as `requestId`. */
   requestId?: string | null;
@@ -2342,6 +2351,7 @@ export type NewServiceIdentity = {
   expiresInDays?: number | null;
   kind: ServiceKind;
   name: string;
+  /** Limits recorded with the identity, such as `{"projects": ["acme-prod"]}`. Recorded and shown, not yet enforced. */
   restrictions?: Record<string, unknown>;
 };
 
@@ -2589,6 +2599,7 @@ export type PolicyDto = {
   /** `mfa` or `approval`. */
   kind: string;
   name: string;
+  /** For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`) and/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids that need an approval. */
   parameters: Record<string, unknown>;
   updatedAt: string;
   updatedBy: string;
@@ -2966,7 +2977,7 @@ export type RoleGrant = {
   /** RFC 3339. */
   expiresAt?: string | null;
   role: string;
-  scope: Record<string, unknown>;
+  scope: Scope;
   viaGroup: boolean;
 };
 
@@ -2992,6 +3003,7 @@ export type RotatePersonalToken = {
 export type SaveDraft = {
   /** The draft version this edit started from; omit only for the first save. */
   baseVersion?: number | null;
+  /** A Studio document (the application assembly format the Studio imports and exports). */
   document: Record<string, unknown>;
 };
 
@@ -2999,6 +3011,7 @@ export type SavePolicy = {
   enabled?: boolean;
   kind: string;
   name: string;
+  /** For `mfa`: `environments` (a list of `production`, `staging`, `development`, `other`) and/or `infrastructure` (`true` or `false`). For `approval`: `actions`, the permission ids that need an approval. */
   parameters: Record<string, unknown>;
 };
 
@@ -3104,6 +3117,7 @@ export type ServiceIdentityDto = {
   name: string;
   /** The operation families this kind may perform. */
   operations: string[];
+  /** Limits recorded with the identity, such as `{"projects": ["acme-prod"]}`. Recorded and shown, not yet enforced. */
   restrictions: Record<string, unknown>;
 };
 
@@ -3501,6 +3515,7 @@ export type UserList = {
 };
 
 export type VersionDocument = {
+  /** A Studio document (the application assembly format the Studio imports and exports). */
   document: Record<string, unknown>;
   published: boolean;
 };

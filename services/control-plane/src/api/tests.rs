@@ -343,6 +343,34 @@ fn every_timestamp_in_the_openapi_document_says_it_is_a_date_time() {
 }
 
 #[test]
+fn every_free_form_object_in_the_openapi_document_says_what_it_holds() {
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut bare = Vec::new();
+    for (schema, s) in doc["components"]["schemas"].as_object().expect("schemas") {
+        let Some(props) = s["properties"].as_object() else {
+            continue;
+        };
+        for (name, p) in props {
+            let object = p["type"] == "object"
+                || p["type"]
+                    .as_array()
+                    .is_some_and(|t| t.contains(&"object".into()));
+            let shaped = p.get("properties").is_some()
+                || p.get("additionalProperties").is_some()
+                || p.get("$ref").is_some();
+            if object && !shaped && p.get("description").is_none() {
+                bare.push(format!("{schema}.{name}"));
+            }
+        }
+    }
+    assert!(
+        bare.is_empty(),
+        "free-form objects without a description: {bare:?}"
+    );
+}
+
+#[test]
 fn api_descriptions_do_not_point_into_the_repository() {
     fn walk(v: &serde_json::Value, found: &mut Vec<String>) {
         match v {
