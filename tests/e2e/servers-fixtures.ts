@@ -65,7 +65,7 @@ export const settings = (): ClusterSettingsReport => ({ source, identity: "admin
 ] });
 
 export const system = (certificates: SystemInfo["certificates"]): SystemInfo => ({
-  version: "0.1.0", apiVersion: "v1", incusPinned: "v7.0.2", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.1",
+  version: "0.1.0", apiVersion: "v1", incusPinned: "v7.0.2", incusSeries: "7.0", incusTestedRelease: "7.0.1",
   incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true }, certificates,
 });
 

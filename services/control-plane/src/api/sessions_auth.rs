@@ -704,7 +704,7 @@ pub struct PasswordChangeRequest {
 
 /// Changes the caller's own password (local accounts only). Every other session of theirs is
 /// revoked; the one making the request stays. Counts towards the account's lock like a sign-in.
-#[utoipa::path(put, path = "/api/v1/me/password", tag = "system", operation_id = "change_password",
+#[utoipa::path(put, path = "/api/v1/me/password", tag = "identity", operation_id = "change_password",
     request_body = PasswordChangeRequest,
     responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 409, body = ErrorBody), (status = 429, body = ErrorBody)))]

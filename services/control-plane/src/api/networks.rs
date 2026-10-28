@@ -444,7 +444,7 @@ struct ProjectObserved {
 /// Each application the caller may view that has a recorded deployment: its network, the
 /// rules compiled from its design, its service and published addresses, and what Incus holds
 /// for each, with the differences. Read-only. Needs `application.view` on each application.
-#[utoipa::path(get, path = "/api/v1/networks/applications", tag = "applications", operation_id = "application_networks",
+#[utoipa::path(get, path = "/api/v1/networks/applications", tag = "inventory", operation_id = "application_networks",
     responses((status = 200, body = NetApplications), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody)))]
 pub(super) async fn applications(

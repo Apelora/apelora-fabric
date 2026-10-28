@@ -3352,8 +3352,8 @@ export type SystemInfo = {
   incusPinned: string;
   /** Incus LTS series the pin follows, e.g. "7.0". */
   incusSeries: string;
-  /** Evidence recorded for the pin. */
-  incusTestedWith: string;
+  /** The Incus release this version of Apelora was last tested with, e.g. "7.0.2"; empty when none is recorded. */
+  incusTestedRelease: string;
   version: string;
 };
 

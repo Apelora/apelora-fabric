@@ -8,7 +8,7 @@ const NOW = "2026-10-21T10:00:00Z";
 const health = { status: "ok", service: "control-plane", version: "0.1.0", apiVersion: "v1", provider: "incus", auth: "tokens", incus: { connected: true }, checkedAt: NOW };
 const admin = { name: "alex", kind: "user", id: "u1", credential: "identity-provider", role: null, permissions: ["read-inventory"], capabilities: ["cluster.view"], platformPermissions: ["cluster.view"], roles: [], deployProjects: ["apelora"], localAccount: false };
 const noView = { ...admin, capabilities: [], platformPermissions: [] };
-const system = { version: "0.1.0", apiVersion: "v1", incusPinned: "v7.0.2", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.1", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true }, certificates: [] };
+const system = { version: "0.1.0", apiVersion: "v1", incusPinned: "v7.0.2", incusSeries: "7.0", incusTestedRelease: "7.0.1", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.1", clustered: true }, certificates: [] };
 
 const backup = { file: "apelora-db-20261021T020000Z.dump", createdAt: "2026-10-21T02:00:00Z", sizeBytes: 5_242_880, encryption: "age", pgDumpVersion: "pg_dump 18", durationSeconds: 4, migrations: 28 };
 const passed = { drilledAt: "2026-10-20T04:00:00Z", backup: backup.file, passed: true, reason: "", durationSeconds: 12 };

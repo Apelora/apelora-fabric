@@ -42,7 +42,7 @@ const NOTICES = {
   components: [{ ecosystem: "cargo", name: "axum", version: "0.8.9", license: "MIT" }, { ecosystem: "npm", name: "react", version: "19.0.0", license: "MIT" }],
 };
 const ADMIN_PAGE: Record<string, Result> = {
-  "GET /api/v1/system": { json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } },
+  "GET /api/v1/system": { json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] } },
   "GET /api/v1/image-mirrors": { json: { mode: "any", mirrors: [], overall: "ok", checks: [], servers: [] } },
   "GET /api/v1/monitoring": { json: { region: "default", site: "default", sector: "default", provider: "mock", mayScrape: false, permission: "fabric.metrics.read", role: "metrics-reader", endpoints: [], formats: [], incusMetricsPath: "/1.0/metrics" } },
   "GET /api/v1/tokens": { json: { items: [] } },

@@ -10,6 +10,7 @@ lock_set incus pinned_tag "$tag"
 lock_set incus pinned_commit "$commit"
 lock_set incus latest_feature_release "$(remote_tags "$url" 'v*' | tail -1)"
 lock_set incus tested_with "NOT TESTED with $tag yet (update pending review)"
+# The release last tested stays as it was until the new pin has been tested.
 lock_set incus verified "$(date -u +%Y-%m-%d)"
 echo "Pinned $old -> $tag (${commit:0:12})"
 echo "Changes: ${url}/compare/${old}...${tag}"

@@ -58,7 +58,7 @@ jobs:
           - [ ] Read the upstream release notes and the compare link above (security fixes, API extension changes, host minimums)
           - [ ] Rebase the fork's patch branch onto ${TAG} if it carries patches (docs/development/UPSTREAM-INCUS.md)
           - [ ] Run the adapter contract tests and, when available, the disposable test cluster
-          - [ ] Update \`tested_with\` in upstream.lock.yaml with the evidence
+          - [ ] Update \`tested_with\` (the evidence) and \`tested_release\` (the release tested) in upstream.lock.yaml
 
           Opened automatically by the upstream-check workflow. No production system is upgraded by this PR.
           EOF

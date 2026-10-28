@@ -15577,7 +15577,7 @@
     "/api/v1/me/password": {
       "put": {
         "tags": [
-          "system"
+          "identity"
         ],
         "summary": "Changes the caller's own password (local accounts only). Every other session of theirs is\nrevoked; the one making the request stays. Counts towards the account's lock like a sign-in.",
         "operationId": "change_password",
@@ -16313,7 +16313,7 @@
     "/api/v1/networks/applications": {
       "get": {
         "tags": [
-          "applications"
+          "inventory"
         ],
         "summary": "Each application the caller may view that has a recorded deployment: its network, the\nrules compiled from its design, its service and published addresses, and what Incus holds\nfor each, with the differences. Read-only. Needs `application.view` on each application.",
         "operationId": "application_networks",
@@ -18092,7 +18092,7 @@
     "/api/v1/storage/volumes": {
       "get": {
         "tags": [
-          "applications"
+          "inventory"
         ],
         "summary": "Every application volume the caller may see, with what Incus reports, its schedules and\nhow many backups it has. Read-only. Needs `application.view` on each application.",
         "operationId": "storage_volumes",
@@ -30161,7 +30161,7 @@
           "apiVersion",
           "incusPinned",
           "incusSeries",
-          "incusTestedWith",
+          "incusTestedRelease",
           "certificates",
           "incus"
         ],
@@ -30188,9 +30188,9 @@
             "type": "string",
             "description": "Incus LTS series the pin follows, e.g. \"7.0\"."
           },
-          "incusTestedWith": {
+          "incusTestedRelease": {
             "type": "string",
-            "description": "Evidence recorded for the pin."
+            "description": "The Incus release this version of Apelora was last tested with, e.g. \"7.0.2\"; empty\nwhen none is recorded."
           },
           "version": {
             "type": "string"

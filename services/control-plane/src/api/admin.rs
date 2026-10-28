@@ -88,8 +88,9 @@ pub struct SystemInfo {
     pub incus_pinned: String,
     /// Incus LTS series the pin follows, e.g. "7.0".
     pub incus_series: String,
-    /// Evidence recorded for the pin.
-    pub incus_tested_with: String,
+    /// The Incus release this version of Apelora was last tested with, e.g. "7.0.2"; empty
+    /// when none is recorded.
+    pub incus_tested_release: String,
     /// The certificates Apelora uses to reach Incus and when they expire (empty with the mock).
     pub certificates: Vec<CertificateStatus>,
     /// Incus as observed now: running version, clustering, or why it cannot be reached. (The
@@ -354,7 +355,7 @@ pub(super) async fn system(
         api_version: API_VERSION.into(),
         incus_pinned: lock_value(LOCK, "pinned_tag"),
         incus_series: lock_value(LOCK, "series"),
-        incus_tested_with: lock_value(LOCK, "tested_with"),
+        incus_tested_release: lock_value(LOCK, "tested_release"),
         certificates,
         incus: super::incus_status(&state.provider).await,
     }))

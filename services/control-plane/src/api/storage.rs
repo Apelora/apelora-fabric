@@ -286,7 +286,7 @@ fn find<'a>(
 
 /// Every application volume the caller may see, with what Incus reports, its schedules and
 /// how many backups it has. Read-only. Needs `application.view` on each application.
-#[utoipa::path(get, path = "/api/v1/storage/volumes", tag = "applications", operation_id = "storage_volumes",
+#[utoipa::path(get, path = "/api/v1/storage/volumes", tag = "inventory", operation_id = "storage_volumes",
     responses((status = 200, body = StorageVolumeList), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody)))]
 pub(super) async fn volumes(

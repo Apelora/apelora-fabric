@@ -8,6 +8,7 @@ echo "Incus pinned:           $pinned ($(lock_get incus pinned_commit | cut -c1-
 echo "Upstream latest $series:   ${latest_lts:-unknown}"
 echo "Upstream latest overall: ${latest_any:-unknown}"
 echo "Fork / patch branch:    $(lock_get incus fork) @ $(lock_get incus fork_patch_branch)"
+echo "Tested with release:    $(lock_get incus tested_release)"
 echo "Tested with:            $(lock_get incus tested_with)"
 if [ -d "$ROOT/upstream/incus/.git" ]; then
   echo "Local checkout:         upstream/incus @ $(git -C "$ROOT/upstream/incus" rev-parse --short=12 HEAD)"

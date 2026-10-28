@@ -811,7 +811,7 @@ test.describe("fabric console on a phone", () => {
     await page.route("**/api/**", (route) => route.abort());
     await page.route("**/api/v1/health", (route) => route.fulfill({ json: health("incus", true) }));
     await page.route("**/api/v1/whoami", (route) => route.fulfill({ json: { name: "alex", role: "auditor", permissions: ["read-inventory"], deployProjects: ["apelora"] } }));
-    await page.route("**/api/v1/system", (route) => route.fulfill({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }));
+    await page.route("**/api/v1/system", (route) => route.fulfill({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] } }));
     await page.route("**/api/v1/image-mirrors", (route) => route.fulfill({ json: imageMirrors }));
     await page.goto("/#/administration");
     await expect(page.getByTestId("image-server-row")).toHaveCount(2);
@@ -862,7 +862,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "REAL INCUS TESTED with 7.0.2", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.2", clustered: true }, certificates: [
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "7.0.2", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.2", clustered: true }, certificates: [
         { certificate: "deploy", expiresAt: "2026-11-02T00:00:00Z", daysLeft: 12, state: "expiring" },
         { certificate: "server", expiresAt: "2036-10-18T00:00:00Z", daysLeft: 3650, state: "ok" },
       ] } }),
@@ -900,7 +900,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory", "read-audit"]) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] } }),
       "GET /api/v1/image-mirrors": () => { loads += 1; return { json: imageMirrors }; },
     });
     await page.goto("/#/administration");
@@ -934,7 +934,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("mock", false) }),
       "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory"]) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] } }),
       "GET /api/v1/image-mirrors": () => ({ json: { mode: "any", mirrors: [], overall: "warn", checks: [], servers: imageMirrors.servers.map((s) => ({ ...s, coverage: "upstream", mirror: null })) } }),
     });
     await page.goto("/#/administration");
@@ -949,7 +949,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("auditor", ["read-inventory"]) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] } }),
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] } }),
       "GET /api/v1/image-mirrors": () => (fail ? { status: 403, json: { error: { code: "forbidden", message: "not allowed: cluster.view" } } } : { json: imageMirrors }),
     });
     await page.goto("/#/administration");
@@ -993,7 +993,7 @@ const monitoring = (over: Record<string, unknown> = {}) => ({
   ],
   ...over,
 });
-const system = { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedWith: "", certificates: [] };
+const system = { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "", certificates: [] };
 
 test.describe("fabric console monitoring", () => {
   test.beforeEach(async ({ page }) => { await page.route("**/api/**", (route) => route.abort()); });

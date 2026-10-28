@@ -1147,6 +1147,12 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
             .as_str()
             .is_some_and(|v| v.starts_with("v7.0."))
     );
+    // A plain release, never the evidence note kept in the repository.
+    let tested = system["incusTestedRelease"].as_str().unwrap_or_default();
+    assert!(
+        tested.starts_with("7.0.") && tested.bytes().all(|b| b.is_ascii_digit() || b == b'.'),
+        "{tested}"
+    );
 }
 
 // ---- Applications ----------------------------------------------------------------------------
