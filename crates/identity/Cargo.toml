@@ -13,7 +13,7 @@ workspace = true
 # Counts discovery and key-set reads by result (no dependencies of its own).
 apelora-metrics = { version = "0.0.0", path = "../metrics" }
 # Already in the workspace (incus-adapter): reading a token's issuer before choosing its verifier.
-base64 = "0.22.1"
+base64 = "0.23.1"
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -23,6 +23,6 @@ tokio = { version = "1.54.1", features = ["sync", "time"] }
 
 [dev-dependencies]
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs", "use_pem"] }
-base64 = "0.22.1"
+base64 = "0.23.1"
 rcgen = "0.14.10"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }

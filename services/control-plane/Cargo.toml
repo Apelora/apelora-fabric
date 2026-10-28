@@ -54,7 +54,7 @@ utoipa = { version = "5.5.0", features = ["axum_extras", "uuid"] }
 uuid = "1.26.1"
 
 [dev-dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 futures-util = { version = "0.3.32", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "0.29.0", default-features = false, features = ["connect"] }
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs", "use_pem"] }

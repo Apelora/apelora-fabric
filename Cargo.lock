@@ -42,7 +42,7 @@ dependencies = [
  "apelora-telemetry",
  "argon2",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "futures-util",
  "getrandom 0.4.3",
  "http-body-util",
@@ -133,7 +133,7 @@ name = "apelora-identity"
 version = "0.0.0"
 dependencies = [
  "apelora-metrics",
- "base64 0.22.1",
+ "base64 0.23.1",
  "jsonwebtoken",
  "rcgen",
  "reqwest",
@@ -150,7 +150,7 @@ dependencies = [
  "apelora-domain",
  "apelora-metrics",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "futures-util",
  "jiff",
  "rcgen",
