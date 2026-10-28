@@ -369,9 +369,9 @@ async fn known(state: &AppState, system_id: &str) -> Result<MaasMachine, ApiErro
 
 /// Starts commissioning. Needs `hardware.commission` and the hostname typed again. The cloud-init
 /// of a later deploy is not part of this. Audited; MAAS is asked first.
-#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{system_id}/commission", tag = "cluster",
+#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{systemId}/commission", tag = "cluster",
     operation_id = "maas_commission",
-    params(("system_id" = String, Path, description = "MAAS system id")),
+    params(("systemId" = String, Path, description = "MAAS system id")),
     request_body = MaasConfirm,
     responses((status = 202, body = MaasAccepted), (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
@@ -441,9 +441,9 @@ const TESTABLE: [&str; 3] = ["Ready", "Broken", "Failed testing"];
 /// hostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is
 /// allocated or deployed (an Incus member, for one) is refused, so tests never load a running
 /// server. Audited with the test names; MAAS is asked first.
-#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{system_id}/test", tag = "cluster",
+#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{systemId}/test", tag = "cluster",
     operation_id = "maas_test",
-    params(("system_id" = String, Path, description = "MAAS system id")),
+    params(("systemId" = String, Path, description = "MAAS system id")),
     request_body = MaasTest,
     responses((status = 202, body = MaasAccepted), (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
@@ -520,9 +520,9 @@ pub(super) async fn test(
 
 /// Installs an operating system. Needs `hardware.deploy` and the hostname typed again.
 /// `userData` is sent to MAAS and is not stored or written to the audit log. Audited.
-#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{system_id}/deploy", tag = "cluster",
+#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{systemId}/deploy", tag = "cluster",
     operation_id = "maas_deploy",
-    params(("system_id" = String, Path, description = "MAAS system id")),
+    params(("systemId" = String, Path, description = "MAAS system id")),
     request_body = MaasDeploy,
     responses((status = 202, body = MaasAccepted), (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),
@@ -586,9 +586,9 @@ pub(super) async fn deploy(
 /// Returns the machine to MAAS's pool. Needs `hardware.deploy` and the hostname typed again.
 /// Disk erasure needs `hardware.delete` as well and is off unless asked. A secure wipe is not offered.
 /// Audited; MAAS is asked first.
-#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{system_id}/release", tag = "cluster",
+#[utoipa::path(post, path = "/api/v1/provisioners/maas/machines/{systemId}/release", tag = "cluster",
     operation_id = "maas_release",
-    params(("system_id" = String, Path, description = "MAAS system id")),
+    params(("systemId" = String, Path, description = "MAAS system id")),
     request_body = MaasRelease,
     responses((status = 202, body = MaasAccepted), (status = 400, body = ErrorBody),
         (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody),

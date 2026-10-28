@@ -4194,7 +4194,7 @@
         }
       }
     },
-    "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore": {
+    "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restoration": {
       "get": {
         "tags": [
           "applications"
@@ -4329,7 +4329,9 @@
             }
           }
         }
-      },
+      }
+    },
+    "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore": {
       "post": {
         "tags": [
           "applications"
@@ -16663,7 +16665,7 @@
         }
       }
     },
-    "/api/v1/provisioners/maas/machines/{system_id}/commission": {
+    "/api/v1/provisioners/maas/machines/{systemId}/commission": {
       "post": {
         "tags": [
           "cluster"
@@ -16672,7 +16674,7 @@
         "operationId": "maas_commission",
         "parameters": [
           {
-            "name": "system_id",
+            "name": "systemId",
             "in": "path",
             "description": "MAAS system id",
             "required": true,
@@ -16793,7 +16795,7 @@
         }
       }
     },
-    "/api/v1/provisioners/maas/machines/{system_id}/deploy": {
+    "/api/v1/provisioners/maas/machines/{systemId}/deploy": {
       "post": {
         "tags": [
           "cluster"
@@ -16802,7 +16804,7 @@
         "operationId": "maas_deploy",
         "parameters": [
           {
-            "name": "system_id",
+            "name": "systemId",
             "in": "path",
             "description": "MAAS system id",
             "required": true,
@@ -16923,7 +16925,7 @@
         }
       }
     },
-    "/api/v1/provisioners/maas/machines/{system_id}/release": {
+    "/api/v1/provisioners/maas/machines/{systemId}/release": {
       "post": {
         "tags": [
           "cluster"
@@ -16932,7 +16934,7 @@
         "operationId": "maas_release",
         "parameters": [
           {
-            "name": "system_id",
+            "name": "systemId",
             "in": "path",
             "description": "MAAS system id",
             "required": true,
@@ -17053,7 +17055,7 @@
         }
       }
     },
-    "/api/v1/provisioners/maas/machines/{system_id}/test": {
+    "/api/v1/provisioners/maas/machines/{systemId}/test": {
       "post": {
         "tags": [
           "cluster"
@@ -17062,7 +17064,7 @@
         "operationId": "maas_test",
         "parameters": [
           {
-            "name": "system_id",
+            "name": "systemId",
             "in": "path",
             "description": "MAAS system id",
             "required": true,
@@ -17928,75 +17930,6 @@
           },
           "503": {
             "description": "Something this needs is not configured or not reachable yet; the error code says what. `error.code`: `database_not_configured`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/storage-pools": {
-      "get": {
-        "tags": [
-          "inventory"
-        ],
-        "summary": "Storage pools. Needs `read-inventory`.",
-        "operationId": "storage_pools",
-        "responses": {
-          "200": {
-            "description": "Done; the response holds the result.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StoragePoolList"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller may not do this.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too many requests from this address or caller; retry after `Retry-After` seconds.",
-            "headers": {
-              "Retry-After": {
-                "schema": {
-                  "type": "integer"
-                },
-                "description": "Seconds to wait before trying again."
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "502": {
-            "description": "A service Apelora relies on (Incus, an identity provider, a provisioner) refused or did not answer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19097,7 +19030,7 @@
       "AlertChannelList": {
         "type": "object",
         "required": [
-          "channels",
+          "items",
           "secretPrefix",
           "actions"
         ],
@@ -19105,7 +19038,7 @@
           "actions": {
             "$ref": "#/components/schemas/AlertActions"
           },
-          "channels": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AlertChannel"
@@ -19506,14 +19439,14 @@
       "AlertRuleList": {
         "type": "object",
         "required": [
-          "rules",
+          "items",
           "actions"
         ],
         "properties": {
           "actions": {
             "$ref": "#/components/schemas/AlertActions"
           },
-          "rules": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AlertRuleItem"
@@ -28889,7 +28822,7 @@
       "RoleDto": {
         "type": "object",
         "required": [
-          "id",
+          "key",
           "reference",
           "name",
           "description",
@@ -28904,9 +28837,9 @@
           "description": {
             "type": "string"
           },
-          "id": {
+          "key": {
             "type": "string",
-            "description": "`builtin:<key>` or `custom:<uuid>`."
+            "description": "Unique among roles (`builtin:<key>` or `custom:<uuid>`), for keeping lists and links\napart. Assignments and the other role operations take `reference` (a custom role's bare\nid), never this key."
           },
           "name": {
             "type": "string"
@@ -28918,7 +28851,8 @@
             }
           },
           "reference": {
-            "$ref": "#/components/schemas/RoleRef"
+            "$ref": "#/components/schemas/RoleRef",
+            "description": "The role to name in assignments, grants and deletion."
           },
           "scopes": {
             "type": "array",
@@ -30011,54 +29945,6 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
-          }
-        }
-      },
-      "StoragePool": {
-        "type": "object",
-        "required": [
-          "name",
-          "driver",
-          "status",
-          "description"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "driver": {
-            "type": "string"
-          },
-          "locations": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Cluster members it is created on; empty when unknown."
-          },
-          "name": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        }
-      },
-      "StoragePoolList": {
-        "type": "object",
-        "required": [
-          "source",
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/StoragePool"
-            }
-          },
-          "source": {
-            "$ref": "#/components/schemas/Source"
           }
         }
       },

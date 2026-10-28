@@ -35,22 +35,22 @@ const EXEMPT: &[(&str, &str, &str)] = &[
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/commission",
+        "/api/v1/provisioners/maas/machines/{systemId}/commission",
         "MAAS is asked first; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+        "/api/v1/provisioners/maas/machines/{systemId}/deploy",
         "MAAS is asked first and the cloud-init is not stored; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/release",
+        "/api/v1/provisioners/maas/machines/{systemId}/release",
         "MAAS is asked first; the audit row is checked in provisioners_tests::commissioning_and_deploy_are_audited_without_the_cloud_init",
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/test",
+        "/api/v1/provisioners/maas/machines/{systemId}/test",
         "MAAS is asked first; the audit row is checked in provisioners_tests::a_burn_in_runs_only_on_a_machine_not_in_use_and_is_audited",
     ),
     // Dry runs and checks: they compute or probe, and change nothing.
@@ -434,7 +434,7 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
             "role.create",
         )
         .await;
-    let role = id(&role, "id").trim_start_matches("custom:").to_owned();
+    let role = id(&role["reference"], "id");
     s.step(
         Atomic,
         "DELETE",

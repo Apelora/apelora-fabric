@@ -191,16 +191,16 @@ function MaasAction({ machine, kind, canErase, onClose, onDone }: { machine: Maa
     setError(null);
     try {
       if (kind === "commission") {
-        await client.request("maas_commission", { params: { system_id: machine.systemId }, body: { confirm: typed } });
+        await client.request("maas_commission", { params: { systemId: machine.systemId }, body: { confirm: typed } });
         onDone(`${machine.hostname} is being commissioned by MAAS.`);
       } else if (kind === "test") {
-        await client.request("maas_test", { params: { system_id: machine.systemId }, body: { confirm: typed, scripts: names } });
+        await client.request("maas_test", { params: { systemId: machine.systemId }, body: { confirm: typed, scripts: names } });
         onDone(`MAAS is running ${names.length ? names.join(", ") : "its default tests"} on ${machine.hostname}. The result shows in the Status column.`);
       } else if (kind === "release") {
-        await client.request("maas_release", { params: { system_id: machine.systemId }, body: { confirm: typed, eraseDisks: erase } });
+        await client.request("maas_release", { params: { systemId: machine.systemId }, body: { confirm: typed, eraseDisks: erase } });
         onDone(erase ? `${machine.hostname} is released and its disks are being erased.` : `${machine.hostname} is released. Its disks were not erased.`);
       } else {
-        await client.request("maas_deploy", { params: { system_id: machine.systemId }, body: { confirm: typed, distroSeries: distro.trim(), userData: cloud } });
+        await client.request("maas_deploy", { params: { systemId: machine.systemId }, body: { confirm: typed, distroSeries: distro.trim(), userData: cloud } });
         onDone(`MAAS is installing ${distro.trim()} on ${machine.hostname}. The cloud-init was not stored here.`);
       }
     } catch (e) {

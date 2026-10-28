@@ -73,8 +73,8 @@ Snapshots (protection against mistakes, not against losing the server: they live
    where a policy asks for one).
 5. Check the data, then start the module again.
 
-API: `GET /api/v1/applications/<name>/volumes/<volume>/backups/<backup>/restore` (dry run,
-`?safetyBackup=false` to see it without the safety backup), then `POST` the same path with
+API: `GET /api/v1/applications/<name>/volumes/<volume>/backups/<backup>/restoration` (dry run,
+`?safetyBackup=false` to see it without the safety backup), then `POST …/backups/<backup>/restore` with
 `{"confirm": "<volume>", "safetyBackup": true}` and an `Idempotency-Key`.
 
 If the job fails:

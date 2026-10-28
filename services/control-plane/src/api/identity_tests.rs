@@ -1041,7 +1041,7 @@ async fn designers_design_and_operators_deploy_only_where_assigned(pool: Pool) {
         ("POST", "/api/v1/machines"),
         ("GET", "/api/v1/tokens"),
         ("POST", "/api/v1/cluster/join-tokens"),
-        ("GET", "/api/v1/storage-pools"),
+        ("GET", "/api/v1/storage/pools"),
     ] {
         assert_eq!(
             l.req(m, p, &td, Some(json!({}))).await.0,
@@ -1255,7 +1255,7 @@ async fn nobody_can_grant_more_than_they_hold_and_an_organisation_owner_never_re
         ("DELETE", "/api/v1/machines/rack1-07"),
         ("POST", "/api/v1/cluster/join-tokens"),
         ("POST", "/api/v1/cluster/members/mock-member-01/evacuate"),
-        ("GET", "/api/v1/storage-pools"),
+        ("GET", "/api/v1/storage/pools"),
         ("GET", "/api/v1/networks"),
     ] {
         assert_eq!(

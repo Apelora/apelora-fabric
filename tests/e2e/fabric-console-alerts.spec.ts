@@ -30,7 +30,7 @@ const list = (alerts: unknown[], actions = { respond: yes, configure: yes }, sil
 const params = (threshold: number, forSecs: number, severity: string) => ({ enabled: true, threshold, forSecs, severity });
 const rules = (actions = { respond: yes, configure: yes }, wait = params(300, 60, "warning")) => ({
   actions,
-  rules: [
+  items: [
     { id: "job-queue-wait", title: "Jobs are waiting too long", description: "How long the oldest job that could run has waited.", unit: "seconds", comparison: "at-least", thresholdEditable: true, thresholdMin: 10, thresholdMax: 86400,
       params: wait, defaults: params(300, 60, "warning"), source: "Job queue", sourceState: "ok", firing: 0, runbook: "alerts.md#jobs-are-waiting-too-long", updatedAt: null, updatedBy: null },
     { id: "restore-drill-age", title: "Apelora's database restore is not proven", description: "Days since a restore was verified.", unit: "days", comparison: "at-least", thresholdEditable: true, thresholdMin: 1, thresholdMax: 365,
@@ -115,7 +115,7 @@ test("alerts: a viewer sees everything and changes nothing; a stale evaluator is
     "GET /api/v1/alerts": { json: { ...list([alert(1, "job-failures", "Jobs are failing", "network.sync", "warning")], { respond: RESPOND_NO, configure: CONFIGURE_NO }),
       evaluator: { lastPassAt: null, everySecs: null, worker: null, durationSecs: null, stale: true, message: "Alerts have not been evaluated yet: no deployment worker has run the alert evaluator." } } },
     "GET /api/v1/alerts/rules": { json: rules({ respond: RESPOND_NO, configure: CONFIGURE_NO }) },
-    "GET /api/v1/alerts/channels": { json: { channels: [channel({ url: null })], secretPrefix: "APELORA_ALERT_SECRET_", actions: { respond: RESPOND_NO, configure: CONFIGURE_NO } } },
+    "GET /api/v1/alerts/channels": { json: { items: [channel({ url: null })], secretPrefix: "APELORA_ALERT_SECRET_", actions: { respond: RESPOND_NO, configure: CONFIGURE_NO } } },
   });
   await page.goto("/#/alerts");
   await expect(page.getByTestId("alerts-stale")).toContainText("no deployment worker has run the alert evaluator");
@@ -146,7 +146,7 @@ test("alerts: a rule's threshold is edited and the server's refusal is shown", a
       if (body.threshold < 60) return { status: 400, json: { error: { code: "invalid_request", message: "the threshold of job-queue-wait must be at least 60 seconds here" } } };
       saved = body;
       wait = body;
-      return { json: rules().rules[0] };
+      return { json: rules().items[0] };
     },
   });
   await page.goto("/#/alerts");
@@ -178,7 +178,7 @@ test("alerts: a webhook is added with a secret reference, tested, shows its fail
   await stub(page, {
     ...base(),
     "GET /api/v1/alerts": { json: list([]) },
-    "GET /api/v1/alerts/channels": () => ({ json: { channels, secretPrefix: "APELORA_ALERT_SECRET_", actions: { respond: yes, configure: yes } } }),
+    "GET /api/v1/alerts/channels": () => ({ json: { items: channels, secretPrefix: "APELORA_ALERT_SECRET_", actions: { respond: yes, configure: yes } } }),
     "POST /api/v1/alerts/channels": (req) => {
       const body = req.postDataJSON() as { secretRef: string };
       sent.push({ what: "create", body });

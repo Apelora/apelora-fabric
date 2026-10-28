@@ -646,7 +646,7 @@ test.describe("roles and permissions", () => {
   test("creating a custom role shows where it can be assigned as permissions are ticked, and sends the explicit list", async ({ page }) => {
     const calls = await stub(page, {
       ...base(),
-      "POST /api/v1/identity/roles": (c) => ({ status: 201, json: { id: `custom:${uid(61)}`, reference: { type: "custom", id: uid(61) }, builtin: false, scopes: ["platform", "organization", "project", "application"], ...(c.body as object) } }),
+      "POST /api/v1/identity/roles": (c) => ({ status: 201, json: { key: `custom:${uid(61)}`, reference: { type: "custom", id: uid(61) }, builtin: false, scopes: ["platform", "organization", "project", "application"], ...(c.body as object) } }),
     });
     await page.goto("/#/identity/roles");
     await page.getByTestId("role-open").click();

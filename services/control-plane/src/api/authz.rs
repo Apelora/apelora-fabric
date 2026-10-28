@@ -588,7 +588,7 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     // The dry run is offered to whoever may restore; both check the application.
     (
         "GET",
-        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
+        "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restoration",
         &["application.operate"],
     ),
     (
@@ -705,22 +705,22 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/commission",
+        "/api/v1/provisioners/maas/machines/{systemId}/commission",
         &["hardware.commission"],
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+        "/api/v1/provisioners/maas/machines/{systemId}/deploy",
         &["hardware.deploy"],
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/release",
+        "/api/v1/provisioners/maas/machines/{systemId}/release",
         &["hardware.deploy"],
     ),
     (
         "POST",
-        "/api/v1/provisioners/maas/machines/{system_id}/test",
+        "/api/v1/provisioners/maas/machines/{systemId}/test",
         &["hardware.commission"],
     ),
     ("POST", "/api/v1/machines", &["machine.enrol"]),
@@ -753,7 +753,6 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
         "/api/v1/networks/applications",
         &["application.view"],
     ),
-    ("GET", "/api/v1/storage-pools", &["cluster.view"]),
     ("GET", "/api/v1/storage/pools", &["cluster.view"]),
     // Per application; the handler lists only applications the caller may view.
     ("GET", "/api/v1/storage/volumes", &["application.view"]),

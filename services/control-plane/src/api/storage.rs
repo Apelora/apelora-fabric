@@ -890,7 +890,7 @@ async fn restore_plan(
 /// Dry run of restoring the volume from one of its backups: what is replaced (data written
 /// since the backup, the volume's snapshots), which instances must be stopped, where the safety
 /// backup goes, and the steps. Changes nothing. Needs `application.operate`.
-#[utoipa::path(get, path = "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", tag = "applications", operation_id = "preview_volume_restore",
+#[utoipa::path(get, path = "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restoration", tag = "applications", operation_id = "preview_volume_restore",
     params(BackupPath, RestoreQuery),
     responses((status = 200, body = RestorePreview), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
         (status = 404, body = ErrorBody), (status = 502, body = ErrorBody)))]

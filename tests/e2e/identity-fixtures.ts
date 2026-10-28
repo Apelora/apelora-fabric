@@ -64,7 +64,7 @@ export const PERMISSIONS = [
 export const ALL_PERMISSION_IDS = PERMISSIONS.map((p) => p.id);
 
 const builtin = (key: string, name: string, description: string, scopes: Level[], permissions: string[]) =>
-  ({ id: `builtin:${key}`, reference: { type: "builtin", key }, name, description, builtin: true, permissions, scopes });
+  ({ key: `builtin:${key}`, reference: { type: "builtin", key }, name, description, builtin: true, permissions, scopes });
 export const ROLES = [
   builtin("platform-super-admin", "Platform Super Admin", "Everything, including identity and emergency access.", ["platform"], ALL_PERMISSION_IDS),
   builtin("fabric-administrator", "Fabric Administrator", "Runs the cluster.", ["platform"], ["cluster.view", "cluster.evacuate_unsafe", "audit.read", "approval.grant"]),
@@ -76,7 +76,7 @@ export const ROLES = [
   builtin("viewer", "Viewer", "Reads what the scope contains.", ["platform", "organization", "project", "application"], ["organization.view", "project.view", "application.view", "cluster.view"]),
   builtin("auditor", "Auditor", "Reads the scope and its audit trail.", ["platform", "organization", "project", "application"], ["organization.view", "project.view", "application.view", "audit.read", "user.view"]),
 ];
-export const CUSTOM_ROLE = { id: `custom:${uid(60)}`, reference: { type: "custom", id: uid(60) }, name: "Release manager", description: "Deploys and approves", builtin: false, permissions: ["application.view", "application.deploy", "approval.grant"], scopes: ["platform", "organization", "project"] };
+export const CUSTOM_ROLE = { key: `custom:${uid(60)}`, reference: { type: "custom", id: uid(60) }, name: "Release manager", description: "Deploys and approves", builtin: false, permissions: ["application.view", "application.deploy", "approval.grant"], scopes: ["platform", "organization", "project"] };
 
 const grant = (roleName: string, scope: unknown, extra: Record<string, unknown> = {}) => ({ assignment: uid(70), emergency: false, role: { type: "builtin", key: "viewer" }, roleName, scope, ...extra });
 export const effective = (permission: string, cls: string, grants: unknown[]) => ({ permission, class: cls, description: PERMISSIONS.find((p) => p.id === permission)?.description ?? "", grants });

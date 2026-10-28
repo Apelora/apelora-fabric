@@ -50,7 +50,7 @@ function EmergencyForm({ onAuth, onClose, onGranted }: { onAuth: (m: string) => 
         <label htmlFor={roleId}>Platform role</label>
         <select id={roleId} className="select select-sm w-full" value={roleKey} onChange={(e) => setRoleKey(e.target.value)} disabled={roles.kind !== "ok"} data-testid="emergency-role">
           <option value="">{roles.kind === "loading" ? "Loading…" : "Choose a role…"}</option>
-          {roles.kind === "ok" && roles.data.map((r) => r.reference.type === "builtin" && <option key={r.id} value={r.reference.key}>{r.name}</option>)}
+          {roles.kind === "ok" && roles.data.map((r) => r.reference.type === "builtin" && <option key={r.key} value={r.reference.key}>{r.name}</option>)}
         </select>
         {roles.kind === "error" && <ErrorPanel message={roles.message} />}
         {role && <span className="text-xs text-base-content/60">{role.description}</span>}

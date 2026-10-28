@@ -326,8 +326,11 @@ pub struct GroupExternal {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RoleDto {
-    /// `builtin:<key>` or `custom:<uuid>`.
-    pub id: String,
+    /// Unique among roles (`builtin:<key>` or `custom:<uuid>`), for keeping lists and links
+    /// apart. Assignments and the other role operations take `reference` (a custom role's bare
+    /// id), never this key.
+    pub key: String,
+    /// The role to name in assignments, grants and deletion.
     pub reference: RoleRef,
     pub name: String,
     pub description: String,
@@ -1575,7 +1578,7 @@ pub(super) async fn remove_member(
 fn builtin_dto(b: Builtin) -> RoleDto {
     let r = ResolvedRole::builtin(b);
     RoleDto {
-        id: format!("builtin:{}", b.key()),
+        key: format!("builtin:{}", b.key()),
         reference: r.reference,
         name: b.name().into(),
         description: b.description().into(),
@@ -1587,7 +1590,7 @@ fn builtin_dto(b: Builtin) -> RoleDto {
 fn custom_dto(c: &CustomRole) -> RoleDto {
     let r = ResolvedRole::custom(c);
     RoleDto {
-        id: format!("custom:{}", c.id),
+        key: format!("custom:{}", c.id),
         reference: r.reference,
         name: c.name.clone(),
         description: c.description.clone(),

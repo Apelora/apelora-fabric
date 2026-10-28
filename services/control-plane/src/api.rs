@@ -9,7 +9,7 @@ use std::sync::Arc;
 use apelora_domain::preflight::{Check, CheckStatus};
 use apelora_domain::{
     API_VERSION, ClusterMember, Instance, Network, Permission, Project, ProviderMode, Role,
-    ServerInfo, StoragePool,
+    ServerInfo,
 };
 use apelora_incus_adapter::{AdapterError, Provider};
 use apelora_persistence::Pool;
@@ -468,19 +468,19 @@ pub fn router(state: AppState) -> Router {
             get(provisioners::machines),
         )
         .route(
-            "/api/v1/provisioners/maas/machines/{system_id}/commission",
+            "/api/v1/provisioners/maas/machines/{systemId}/commission",
             post(provisioners::commission),
         )
         .route(
-            "/api/v1/provisioners/maas/machines/{system_id}/deploy",
+            "/api/v1/provisioners/maas/machines/{systemId}/deploy",
             post(provisioners::deploy),
         )
         .route(
-            "/api/v1/provisioners/maas/machines/{system_id}/release",
+            "/api/v1/provisioners/maas/machines/{systemId}/release",
             post(provisioners::release),
         )
         .route(
-            "/api/v1/provisioners/maas/machines/{system_id}/test",
+            "/api/v1/provisioners/maas/machines/{systemId}/test",
             post(provisioners::test),
         )
         .route("/api/v1/machines/{name}/approve", post(machines::approve))
@@ -503,7 +503,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/networks", get(networks))
         .route("/api/v1/networks/settings", get(networks::settings))
         .route("/api/v1/networks/applications", get(networks::applications))
-        .route("/api/v1/storage-pools", get(storage_pools))
         .route("/api/v1/storage/pools", get(storage::pool_usage))
         .route("/api/v1/storage/volumes", get(storage::volumes))
         .route("/api/v1/storage/orphans", get(storage::orphans))
@@ -516,8 +515,12 @@ pub fn router(state: AppState) -> Router {
             put(storage::set_schedules),
         )
         .route(
+            "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restoration",
+            get(storage::preview_restore),
+        )
+        .route(
             "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore",
-            get(storage::preview_restore).post(storage::restore),
+            post(storage::restore),
         )
         .route(
             "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}",
@@ -1296,7 +1299,6 @@ macro_rules! list_response {
 list_response!(InstanceList, Instance);
 list_response!(ProjectList, Project);
 list_response!(NetworkList, Network);
-list_response!(StoragePoolList, StoragePool);
 
 #[derive(Serialize, ToSchema)]
 pub struct PreflightReport {
@@ -1604,22 +1606,6 @@ async fn networks(
     }))
 }
 
-/// Storage pools. Needs `read-inventory`.
-#[utoipa::path(get, path = "/api/v1/storage-pools", tag = "inventory", responses(
-    (status = 200, body = StoragePoolList), (status = 401, body = ErrorBody),
-    (status = 403, body = ErrorBody), (status = 502, body = ErrorBody)))]
-async fn storage_pools(
-    State(state): State<AppState>,
-    Extension(p): Extension<Principal>,
-) -> Result<Json<StoragePoolList>, ApiError> {
-    require(&p, Permission::ReadInventory)?;
-    let items = state.provider.storage_pools().await?;
-    Ok(Json(StoragePoolList {
-        source: source(state.provider.mode()),
-        items,
-    }))
-}
-
 struct BearerAuth;
 
 impl Modify for BearerAuth {
@@ -1817,7 +1803,7 @@ impl Modify for ErrorResponses {
     paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password,
         account::my_tokens, account::create_my_token, account::rotate_my_token, account::revoke_my_token,
         account::personal_tokens, account::revoke_personal_token, account::my_sign_ins, account::end_my_sign_in,
-        account::all_sign_ins, account::end_any_sign_in, settings::effective_settings, support::bundle, whoami, cluster, instances, projects, networks, storage_pools, preflight, audit::list, audit::export,
+        account::all_sign_ins, account::end_any_sign_in, settings::effective_settings, support::bundle, whoami, cluster, instances, projects, networks, preflight, audit::list, audit::export,
         deploy::create_instance, deploy::change_state, deploy::delete_instance, mobility::preview, mobility::request, deploy::job, deploy::jobs,
         jobs::detail, jobs::retry, jobs::cancel,
         instance_detail::page, instance_detail::logs, instance_detail::log_file, instance_detail::console_log,

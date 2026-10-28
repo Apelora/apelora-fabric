@@ -72,7 +72,6 @@ async fn inventory_endpoints_label_their_source() {
         "/api/v1/instances",
         "/api/v1/projects",
         "/api/v1/networks",
-        "/api/v1/storage-pools",
     ] {
         let (status, body, _) = call(dev(Provider::Mock(MockIncus::default())), path, None).await;
         assert_eq!(status, 200, "{path}");
@@ -422,7 +421,7 @@ async fn openapi_document_is_public_and_lists_every_route() {
         "/api/v1/instances",
         "/api/v1/projects",
         "/api/v1/networks",
-        "/api/v1/storage-pools",
+        "/api/v1/storage/pools",
         "/api/v1/audit",
         "/api/v1/jobs/{id}",
         "/api/v1/preflight",

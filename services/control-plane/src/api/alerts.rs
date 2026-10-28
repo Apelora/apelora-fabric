@@ -203,7 +203,7 @@ pub struct AlertRuleItem {
 
 #[derive(Serialize, ToSchema)]
 pub struct AlertRuleList {
-    pub rules: Vec<AlertRuleItem>,
+    pub items: Vec<AlertRuleItem>,
     pub actions: AlertActions,
 }
 
@@ -244,7 +244,7 @@ pub struct AlertChannel {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AlertChannelList {
-    pub channels: Vec<AlertChannel>,
+    pub items: Vec<AlertChannel>,
     /// What a secret reference must start with.
     pub secret_prefix: String,
     pub actions: AlertActions,
@@ -815,7 +815,7 @@ pub(super) async fn rules(
     allow_platform(&p, VIEW)?;
     let pool = store(&state)?;
     Ok(Json(AlertRuleList {
-        rules: rule_items(pool).await?,
+        items: rule_items(pool).await?,
         actions: actions(&p),
     }))
 }
@@ -897,7 +897,7 @@ pub(super) async fn channels(
     let deliveries = db::channel_deliveries(pool).await?;
     let full = allow_platform(&p, CONFIGURE).is_ok();
     Ok(Json(AlertChannelList {
-        channels: db::channels(pool)
+        items: db::channels(pool)
             .await?
             .into_iter()
             .map(|c| channel_view(c, &deliveries, full))

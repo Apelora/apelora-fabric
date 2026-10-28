@@ -28,7 +28,7 @@ function RoleCard({ role, catalogue, onDelete }: { role: RoleDto; catalogue: Per
     byClass.set(c, [...(byClass.get(c) ?? []), id]);
   }
   return (
-    <article className="flex flex-col gap-2 rounded-box border border-base-300 p-4" aria-label={role.name} data-testid="role-card" data-role={role.id}>
+    <article className="flex flex-col gap-2 rounded-box border border-base-300 p-4" aria-label={role.name} data-testid="role-card" data-role={role.key}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="flex flex-wrap items-center gap-2 font-semibold">{role.name} <Badge>{role.builtin ? "Predefined" : "Custom"}</Badge></h3>
         {onDelete && <button type="button" className="btn btn-xs btn-ghost text-error" aria-label={`Delete the role ${role.name}`} onClick={() => onDelete(role)}>Delete…</button>}
@@ -128,13 +128,13 @@ export function RolesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: strin
 
               <section className="flex flex-col gap-2" aria-label="Predefined roles" data-testid="builtin-roles">
                 <h2 className="font-semibold">Predefined roles <span className="font-normal text-base-content/60">({builtin.length})</span></h2>
-                <div className="grid gap-3 lg:grid-cols-2">{builtin.map((r) => <RoleCard key={r.id} role={r} catalogue={permissions} />)}</div>
+                <div className="grid gap-3 lg:grid-cols-2">{builtin.map((r) => <RoleCard key={r.key} role={r} catalogue={permissions} />)}</div>
               </section>
 
               <section className="flex flex-col gap-2" aria-label="Custom roles" data-testid="custom-roles">
                 <h2 className="font-semibold">Custom roles <span className="font-normal text-base-content/60">({custom.length})</span></h2>
                 {custom.length === 0 ? <p className="text-sm text-base-content/70" data-testid="custom-empty">No custom roles yet.{canManage ? "" : " Platform administrators can define them."}</p> : (
-                  <div className="grid gap-3 lg:grid-cols-2">{custom.map((r) => <RoleCard key={r.id} role={r} catalogue={permissions} onDelete={canManage ? setToDelete : undefined} />)}</div>
+                  <div className="grid gap-3 lg:grid-cols-2">{custom.map((r) => <RoleCard key={r.key} role={r} catalogue={permissions} onDelete={canManage ? setToDelete : undefined} />)}</div>
                 )}
               </section>
 

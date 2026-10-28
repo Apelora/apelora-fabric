@@ -129,7 +129,7 @@ test("a restore shows the server's dry run, refuses while blocked, needs the vol
   const sent: { body: unknown; key?: string }[] = [];
   const J = "44444444-4444-4444-8444-444444444444";
   await stub(page, storageRoutes(ADMIN, {
-    [`GET /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}/restore`]: (req) => {
+    [`GET /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}/restoration`]: (req) => {
       previews.push(new URL(req.url()).search);
       const safety = new URL(req.url()).searchParams.get("safetyBackup") !== "false";
       return { json: { source: src, plan: plan(blocked
@@ -349,7 +349,7 @@ test.describe("phones", () => {
   test("storage and networks fit a phone without sideways scrolling, and pass axe", async ({ page }) => {
     const phoneAdmin = person(["cluster.view", "application.view", "application.operate", "application.deploy", "application.delete"]);
     await stub(page, { ...storageRoutes(phoneAdmin), ...networkRoutes(phoneAdmin, true),
-      [`GET /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}/restore`]: { json: { source: src, plan: plan() } } });
+      [`GET /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}/restoration`]: { json: { source: src, plan: plan() } } });
     await page.goto("/#/storage");
     await expect(page.getByTestId("storage-volume-row")).toHaveCount(2);
     const fits = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);

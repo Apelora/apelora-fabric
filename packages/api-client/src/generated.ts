@@ -120,7 +120,7 @@ export type AlertChannelDelivery = {
 
 export type AlertChannelList = {
   actions: AlertActions;
-  channels: AlertChannel[];
+  items: AlertChannel[];
   /** What a secret reference must start with. */
   secretPrefix: string;
 };
@@ -235,7 +235,7 @@ export type AlertRuleItem = {
 
 export type AlertRuleList = {
   actions: AlertActions;
-  rules: AlertRuleItem[];
+  items: AlertRuleItem[];
 };
 
 /** A rule's parameters. */
@@ -2972,10 +2972,11 @@ export type Role = "fabric-admin" | "operator" | "studio-designer" | "auditor";
 export type RoleDto = {
   builtin: boolean;
   description: string;
-  /** `builtin:<key>` or `custom:<uuid>`. */
-  id: string;
+  /** Unique among roles (`builtin:<key>` or `custom:<uuid>`), for keeping lists and links apart. Assignments and the other role operations take `reference` (a custom role's bare id), never this key. */
+  key: string;
   name: string;
   permissions: string[];
+  /** The role to name in assignments, grants and deletion. */
   reference: RoleRef;
   /** Scope levels it can be assigned at. */
   scopes: Level[];
@@ -3286,20 +3287,6 @@ export type StorageMemberUsage = {
   member: string;
   totalBytes: number;
   usedBytes: number;
-};
-
-export type StoragePool = {
-  description: string;
-  driver: string;
-  /** Cluster members it is created on; empty when unknown. */
-  locations?: string[];
-  name: string;
-  status: string;
-};
-
-export type StoragePoolList = {
-  items: StoragePool[];
-  source: Source;
 };
 
 export type StoragePoolReport = {
@@ -3686,7 +3673,7 @@ export const operations = {
   volume_backups: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
   back_up_volume: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups", params: ["name","volume"], public: false },
   delete_volume_backup: { method: "DELETE", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}", params: ["name","volume","backup"], public: false },
-  preview_volume_restore: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
+  preview_volume_restore: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restoration", params: ["name","volume","backup"], public: false },
   restore_volume_backup: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}/restore", params: ["name","volume","backup"], public: false },
   set_volume_schedules: { method: "PUT", path: "/api/v1/applications/{name}/volumes/{volume}/schedules", params: ["name","volume"], public: false },
   volume_snapshots: { method: "GET", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots", params: ["name","volume"], public: false },
@@ -3813,10 +3800,10 @@ export const operations = {
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
   projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   maas_machines: { method: "GET", path: "/api/v1/provisioners/maas/machines", params: [], public: false },
-  maas_commission: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/commission", params: ["system_id"], public: false },
-  maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/deploy", params: ["system_id"], public: false },
-  maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/release", params: ["system_id"], public: false },
-  maas_test: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/test", params: ["system_id"], public: false },
+  maas_commission: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/commission", params: ["systemId"], public: false },
+  maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/deploy", params: ["systemId"], public: false },
+  maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/release", params: ["systemId"], public: false },
+  maas_test: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/test", params: ["systemId"], public: false },
   sectors: { method: "GET", path: "/api/v1/sectors", params: [], public: false },
   add_sector: { method: "POST", path: "/api/v1/sectors", params: [], public: false },
   remove_sector: { method: "DELETE", path: "/api/v1/sectors/{name}", params: ["name"], public: false },
@@ -3827,7 +3814,6 @@ export const operations = {
   sign_in_with_password: { method: "POST", path: "/api/v1/sign-in/password", params: [], public: true },
   complete_password_setup: { method: "POST", path: "/api/v1/sign-in/setup", params: [], public: true },
   sign_out: { method: "POST", path: "/api/v1/sign-out", params: [], public: false },
-  storage_pools: { method: "GET", path: "/api/v1/storage-pools", params: [], public: false },
   orphan_volumes: { method: "GET", path: "/api/v1/storage/orphans", params: [], public: false },
   storage_pool_usage: { method: "GET", path: "/api/v1/storage/pools", params: [], public: false },
   storage_volumes: { method: "GET", path: "/api/v1/storage/volumes", params: [], public: false },
@@ -4202,8 +4188,6 @@ export type Responses = {
   complete_password_setup: null;
   /** Ends the Apelora session the request was made with. With any other credential (an identity-provider or API token) there is nothing to end here: 204. */
   sign_out: null;
-  /** Storage pools. Needs `read-inventory`. */
-  storage_pools: StoragePoolList;
   /** Custom volumes in Apelora's projects that no application volume or backup record refers to, in every pool, with their size. Read-only: deleting one is a decision made in Incus or, for a kept application volume, on the application. Needs `cluster.view`. */
   orphan_volumes: OrphanList;
   /** Storage pools with how full each is, per member and in total (read from each member's state, like the Health page). Read-only. Needs `cluster.view`. */
@@ -4408,7 +4392,6 @@ export type Bodies = {
   sign_in_with_password: PasswordSignInRequest;
   complete_password_setup: PasswordSetupRequest;
   sign_out: never;
-  storage_pools: never;
   orphan_volumes: never;
   storage_pool_usage: never;
   storage_volumes: never;

@@ -188,7 +188,7 @@ async fn rules_are_tuned_within_bounds_by_those_who_may_configure_them(pool: Poo
     let admin = person(&l, "fabric", Some(Builtin::FabricAdministrator)).await;
     let (s, v) = l.req("GET", "/api/v1/alerts/rules", &viewer, None).await;
     assert_eq!(s, StatusCode::OK);
-    let rules = v["rules"].as_array().expect("rules");
+    let rules = v["items"].as_array().expect("rules");
     assert_eq!(rules.len(), apelora_domain::alerts::RULES.len());
     let wait = rules
         .iter()
@@ -247,7 +247,7 @@ async fn rules_are_tuned_within_bounds_by_those_who_may_configure_them(pool: Poo
     assert!(v["updatedBy"].as_str().expect("by").starts_with("user:"));
     evaluate(&l.pool).await;
     let (_, v) = l.req("GET", "/api/v1/alerts/rules", &viewer, None).await;
-    let cert = v["rules"]
+    let cert = v["items"]
         .as_array()
         .expect("rules")
         .iter()
@@ -307,13 +307,13 @@ async fn channels_hold_a_secret_reference_and_https_urls_only(pool: Pool) {
 
     // Viewers see the host, not the URL (it may carry a receiver's token).
     let (_, v) = l.req("GET", path, &viewer, None).await;
-    assert_eq!(v["channels"][0]["host"], "hooks.example");
-    assert_eq!(v["channels"][0]["url"], Value::Null);
-    assert_eq!(v["channels"][0]["secretRef"], "APELORA_ALERT_SECRET_OPS");
+    assert_eq!(v["items"][0]["host"], "hooks.example");
+    assert_eq!(v["items"][0]["url"], Value::Null);
+    assert_eq!(v["items"][0]["secretRef"], "APELORA_ALERT_SECRET_OPS");
     assert_eq!(v["secretPrefix"], "APELORA_ALERT_SECRET_");
     let (_, v) = l.req("GET", path, &admin, None).await;
     assert_eq!(
-        v["channels"][0]["url"],
+        v["items"][0]["url"],
         "https://hooks.example/apelora?token=abc"
     );
 
@@ -324,7 +324,7 @@ async fn channels_hold_a_secret_reference_and_https_urls_only(pool: Pool) {
     assert_eq!(s, StatusCode::ACCEPTED, "{v}");
     let message = v["messageId"].as_i64().expect("message");
     let (_, v) = l.req("GET", path, &admin, None).await;
-    assert_eq!(v["channels"][0]["delivery"]["pending"], 1);
+    assert_eq!(v["items"][0]["delivery"]["pending"], 1);
     let payload: Value = sqlx::query_scalar("SELECT payload FROM outbox WHERE id = $1")
         .bind(message)
         .fetch_one(&l.pool)

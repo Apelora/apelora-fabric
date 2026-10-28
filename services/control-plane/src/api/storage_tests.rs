@@ -108,7 +108,8 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
 
     // The dry run refuses while the database runs, and says why.
     let restore = format!("{VOLUME}/backups/{backup}/restore");
-    let (st, plan) = l.req("GET", &restore, o, None).await;
+    let restoration = format!("{VOLUME}/backups/{backup}/restoration");
+    let (st, plan) = l.req("GET", &restoration, o, None).await;
     assert_eq!(st, StatusCode::OK, "{plan}");
     assert_eq!(plan["plan"]["running"], json!(["shop-db-01"]));
     assert!(
@@ -150,7 +151,7 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
         .await;
     assert_eq!(st, StatusCode::ACCEPTED, "{op}");
     settle(&l).await;
-    let (_, plan) = l.req("GET", &restore, o, None).await;
+    let (_, plan) = l.req("GET", &restoration, o, None).await;
     assert_eq!(plan["plan"]["blocked"], json!([]), "{plan}");
     assert_eq!(plan["plan"]["snapshotsDeleted"], json!(["snap-1"]));
     assert_eq!(plan["plan"]["safetyBackupPool"], json!("mock-backup"));
@@ -448,7 +449,7 @@ async fn storage_routes_check_the_exact_application_and_infrastructure_needs_clu
     let (st, _) = l
         .req(
             "GET",
-            &format!("{VOLUME}/backups/x-bk-1/restore"),
+            &format!("{VOLUME}/backups/x-bk-1/restoration"),
             &viewer,
             None,
         )

@@ -385,7 +385,7 @@ function RulesPanel({ onAuth }: { onAuth: (m: string) => void }) {
           <TableFrame>
             <thead><tr><th>Rule</th><th>Fires when</th><th className="max-md:hidden">Waits</th><th className="max-sm:hidden">Severity</th><th>State</th><th><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
-              {l.rules.map((r) => {
+              {l.items.map((r) => {
                 const src = SOURCE[r.sourceState] ?? SOURCE.unknown!;
                 const muted = sameParams(r) ? "text-base-content/60" : "";
                 return (
@@ -496,19 +496,19 @@ function ChannelsPanel({ onAuth }: { onAuth: (m: string) => void }) {
         const can = l.actions.configure.allowed;
         return (
           <>
-            <SectionHeader title="Webhooks" count={l.channels.length}>
+            <SectionHeader title="Webhooks" count={l.items.length}>
               {can && <button type="button" className="btn btn-sm btn-primary" onClick={() => { setNotice(null); setEditing("new"); }} data-testid="channel-add">Add webhook</button>}
             </SectionHeader>
             <p className="text-sm text-base-content/70">Each webhook receives alerts when they fire and resolve, signed with your secret.</p>
             {notice && <Notice tone="ok" testId="channels-notice">{notice}</Notice>}
             {error && <ErrorPanel message={error} testId="channels-error" />}
-            {l.channels.length === 0 ? (
+            {l.items.length === 0 ? (
               <p className="text-sm text-base-content/70" data-testid="channels-empty">{can ? "No webhook yet. Add one to be told about alerts outside the Console." : "No webhook is set up."}</p>
             ) : (
               <TableFrame>
                 <thead><tr><th>Webhook</th><th className="max-md:hidden">Secret reference</th><th className="max-sm:hidden">Sends</th><th>Delivery</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
-                  {l.channels.map((c) => {
+                  {l.items.map((c) => {
                     const d = deliveryState(c);
                     return (
                       <tr key={c.id} data-testid="channel-row">

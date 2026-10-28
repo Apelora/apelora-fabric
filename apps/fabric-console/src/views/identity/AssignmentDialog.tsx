@@ -145,7 +145,7 @@ function AssignmentForm({ preset, onAuth, onClose, onSaved, dir }: { preset: Ass
   const reasonId = useId();
 
   const roleList = roles.kind === "ok" ? roles.data : [];
-  const role = roleList.find((r) => r.id === roleId);
+  const role = roleList.find((r) => r.key === roleId);
 
   const principal: PrincipalRef | null =
     ptype === "user" ? (person ? { type: "user", id: person.id } : null)
@@ -207,8 +207,8 @@ function AssignmentForm({ preset, onAuth, onClose, onSaved, dir }: { preset: Ass
         <label htmlFor={roleSel}>Role</label>
         <select id={roleSel} className="select select-sm w-full" value={roleId} onChange={(e) => setRoleId(e.target.value)} disabled={roles.kind !== "ok"} data-testid="assignment-role">
           <option value="">{roles.kind === "loading" ? "Loading…" : "Choose a role…"}</option>
-          <optgroup label="Predefined roles">{roleList.filter((r) => r.builtin).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</optgroup>
-          {roleList.some((r) => !r.builtin) && <optgroup label="Custom roles">{roleList.filter((r) => !r.builtin).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</optgroup>}
+          <optgroup label="Predefined roles">{roleList.filter((r) => r.builtin).map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}</optgroup>
+          {roleList.some((r) => !r.builtin) && <optgroup label="Custom roles">{roleList.filter((r) => !r.builtin).map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}</optgroup>}
         </select>
         {roles.kind === "error" && <ErrorPanel message={roles.message} />}
         {role && (
