@@ -127,7 +127,7 @@ export type AlertChannelList = {
 
 export type AlertChannelRequest = {
   enabled?: boolean;
-  minSeverity?: null | AlertSeverity;
+  minSeverity?: AlertSeverity | null;
   /** 1 to 80 characters, unique. */
   name: string;
   /** The name of the environment variable on the worker holding the signing secret, e.g. `APELORA_ALERT_SECRET_OPS`. Never the secret itself. */
@@ -174,7 +174,7 @@ export type AlertHistory = {
 
 /** One alert, firing or resolved. */
 export type AlertItem = {
-  acknowledged?: null | AlertAcknowledgement;
+  acknowledged?: AlertAcknowledgement | null;
   /** Firing, but the condition has been clear since this time (it resolves once it stays clear for the rule's duration). */
   clearingSince?: string | null;
   comparison: AlertComparison;
@@ -186,7 +186,7 @@ export type AlertItem = {
   /** Where the operator runbooks explain this alert: a page and section, e.g. `alerts.md#jobs-are-failing`. */
   runbook: string;
   severity: AlertSeverity;
-  silencedBy?: null | AlertSilencedBy;
+  silencedBy?: AlertSilencedBy | null;
   /** RFC 3339: when the condition was first seen, when it fired, last seen holding, resolved. */
   startedAt: string;
   /** `firing` or `resolved`. */
@@ -306,7 +306,7 @@ export type ApplicationInfo = {
   deployment: DeploymentInfo;
   description: string;
   design: DesignInfo;
-  environment?: null | EnvironmentRef;
+  environment?: EnvironmentRef | null;
   /** Key of the icon (a catalog icon such as `nginx`, or a generic one such as `generic-box`). */
   icon: string;
   latestRevision?: number | null;
@@ -476,10 +476,10 @@ export type CapacityServer = {
   label: string;
   /** 1-minute load average (clustered servers only). */
   load?: number | null;
-  memory?: null | HealthUsage;
+  memory?: HealthUsage | null;
   /** Why it does not accept new modules. */
   reason?: string | null;
-  volumePool?: null | HealthUsage;
+  volumePool?: HealthUsage | null;
 };
 
 export type CapacityTotals = {
@@ -624,7 +624,7 @@ export type ClusterMembersReport = {
   rebalance?: RebalanceMove[];
   sites: SiteReport;
   source: Source;
-  upgrade?: null | UpgradeView;
+  upgrade?: UpgradeView | null;
   /** Version skew against the pinned Incus release, and whether an upgrade could start. */
   versions: ClusterVersions;
 };
@@ -791,16 +791,16 @@ export type CreateToken = {
 };
 
 export type DatabaseBackupReport = {
-  assessment?: null | BackupAssessment;
+  assessment?: BackupAssessment | null;
   /** How many backup manifests the directory holds. */
   backups: number;
   /** `APELORA_DB_BACKUP_DIR` is set. When false, nothing else is known. */
   configured: boolean;
   /** The directory the records are read from. */
   directory?: string | null;
-  lastDrill?: null | DrillInfo;
-  lastVerified?: null | DrillInfo;
-  newestBackup?: null | BackupInfo;
+  lastDrill?: DrillInfo | null;
+  lastVerified?: DrillInfo | null;
+  newestBackup?: BackupInfo | null;
 };
 
 export type DeployRequest = {
@@ -840,7 +840,7 @@ export type DeploymentInfo = {
   modules: number;
   /** When the control plane last observed Incus for this answer (RFC 3339). */
   observedAt: string;
-  operation?: null | OperationSummary;
+  operation?: OperationSummary | null;
   replicas: ReplicaSummary;
   source: ProviderMode;
   /** The answer could not be refreshed (Incus unreachable); the status is `unknown`. */
@@ -873,7 +873,7 @@ export type DesiredModule = {
   internet?: Internet;
   /** The module's stable id in the design (e.g. `nginx-01`). */
   module: string;
-  readiness?: null | Readiness;
+  readiness?: Readiness | null;
   /** How many instances (1–9); more than one only for stateless modules. */
   replicas?: number;
   /** Image, kind and settings; the control plane sets the name, project and owner. */
@@ -881,10 +881,10 @@ export type DesiredModule = {
 };
 
 export type DirectoryCheck = {
-  entry?: null | CheckedEntry;
+  entry?: CheckedEntry | null;
   message: string;
   ok: boolean;
-  problem?: null | DirectoryProblem;
+  problem?: DirectoryProblem | null;
 };
 
 /** Settings to check (saved or not) and a test username and password, which are used for one bind and never stored or logged. */
@@ -959,7 +959,7 @@ export type DirectoryView = {
   idAttribute: string;
   name: string;
   nameAttribute: string;
-  problem?: null | DirectoryProblem;
+  problem?: DirectoryProblem | null;
   /** Whether a TLS connection (with certificate and host-name checks) worked just now; false for a directory that is turned off. */
   reachable: boolean;
   startTls: boolean;
@@ -1149,8 +1149,8 @@ export type FenceLeaseState = "free" | "live" | "fail" | "dead" | "unknown";
 /** A failed member's fencing state, with the reason and what a person can do. */
 export type FenceView = {
   condition: FenceCondition;
-  evidence?: null | FenceEvidence;
-  leaseState?: null | FenceLeaseState;
+  evidence?: FenceEvidence | null;
+  leaseState?: FenceLeaseState | null;
   nextStep?: string | null;
   observedAt?: number | null;
   observedBy?: string | null;
@@ -1280,7 +1280,7 @@ export type HealthIdentityProviders = {
 export type HealthIncus = {
   apiVersion?: string | null;
   clustered?: boolean | null;
-  members?: null | HealthMemberCounts;
+  members?: HealthMemberCounts | null;
   nextStep?: string | null;
   provider: ProviderMode;
   reason?: string | null;
@@ -1302,7 +1302,7 @@ export type HealthInventory = {
 };
 
 export type HealthJobQueue = {
-  counts?: null | HealthQueueCounts;
+  counts?: HealthQueueCounts | null;
   nextStep?: string | null;
   reason?: string | null;
   state: HealthCondition;
@@ -1365,7 +1365,7 @@ export type HealthServer = {
   /** Incus's message for the status. */
   message: string;
   name: string;
-  resources?: null | HealthServerResources;
+  resources?: HealthServerResources | null;
   resourcesError?: string | null;
   roles: string[];
   state: HealthCondition;
@@ -1390,7 +1390,7 @@ export type HealthServerResources = {
   cpuThreads?: number | null;
   /** 1, 5 and 15-minute load averages (clustered servers only). */
   loadAverages: number[];
-  memory?: null | HealthUsage;
+  memory?: HealthUsage | null;
   pools: HealthPoolUsage[];
   uptimeSecs?: number | null;
 };
@@ -1483,7 +1483,7 @@ export type IncusProjectPrepared = {
   environmentId: string;
   findings: TenancyFinding[];
   incusProject?: string | null;
-  limits?: null | TenancyLimitOutcome;
+  limits?: TenancyLimitOutcome | null;
   state: TenancyIncusState;
 };
 
@@ -1516,7 +1516,7 @@ export type Instance = {
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
   managed?: boolean;
   name: string;
-  owner?: null | Owner;
+  owner?: Owner | null;
   project: string;
   status: string;
   /** Incus cannot report its configuration because its member is unreachable, so its labels (and `managed`, `owner`) are unknown, not absent. */
@@ -1606,8 +1606,8 @@ export type InstanceSpec = {
   /** `container` (system or OCI) or `virtual-machine`. */
   kind: InstanceKind;
   name: string;
-  network?: null | NetworkAttachment;
-  owner?: null | Owner;
+  network?: NetworkAttachment | null;
+  owner?: Owner | null;
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
@@ -1637,7 +1637,7 @@ export type InstanceView = {
   /** Carries Apelora's ownership marker. */
   managed: boolean;
   name: string;
-  owner?: null | Owner;
+  owner?: Owner | null;
   profiles: string[];
   project: string;
   snapshots: InstanceViewSnapshot[];
@@ -1645,7 +1645,7 @@ export type InstanceView = {
   startedAt?: string | null;
   /** `Running`, `Stopped`, `Frozen`, `Error`, … */
   status: string;
-  usage?: null | InstanceViewUsage;
+  usage?: InstanceViewUsage | null;
 };
 
 /** One address on one interface, as the instance reports it. */
@@ -2068,7 +2068,7 @@ export type ModuleDetail = {
 };
 
 export type ModuleStatus = {
-  health?: null | InstanceHealth;
+  health?: InstanceHealth | null;
   instance: string;
   location: string;
   module: string;
@@ -2137,7 +2137,7 @@ export type NetApplication = {
   enforced: boolean;
   modules: NetModule[];
   network: string;
-  networkObserved?: null | NetObservedNetwork;
+  networkObserved?: NetObservedNetwork | null;
   project: string;
   published: Published[];
   /** The deployed revision these settings come from. */
@@ -2250,7 +2250,7 @@ export type NetSettings = {
   uplink?: string | null;
   /** Why the uplink is not shown (identity, error). */
   uplinkNote?: string | null;
-  uplinkObserved?: null | NetUplink;
+  uplinkObserved?: NetUplink | null;
 };
 
 /** The uplink network, as Incus reports it (read with the administrator identity). */
@@ -2568,7 +2568,7 @@ export type PhaseDto = {
 
 export type Plan = {
   items: PlanItem[];
-  quota?: null | QuotaCheck;
+  quota?: QuotaCheck | null;
   /** Facts the designer should know before applying, e.g. single points of failure. */
   warnings: string[];
 };
@@ -2757,7 +2757,7 @@ export type QueuedChange = {
 export type QuotaChange = {
   /** Each environment beneath the scope: what mirroring the change to Incus did. */
   environments: TenancyLimitOutcome[];
-  quota?: null | QuotaLimits;
+  quota?: QuotaLimits | null;
 };
 
 /** A deployment against the quotas above its environment. */
@@ -2818,10 +2818,10 @@ export type QuotaView = {
   id: string;
   kind: QuotaScopeKind;
   name: string;
-  quota?: null | QuotaLimits;
+  quota?: QuotaLimits | null;
   updatedAt?: string | null;
   updatedBy?: string | null;
-  usage?: null | QuotaUsage;
+  usage?: QuotaUsage | null;
   usageError?: string | null;
 };
 
@@ -2868,7 +2868,7 @@ export type RecoveryMember = {
   decidedAt?: string | null;
   /** When Apelora noticed (RFC 3339). */
   detectedAt?: string | null;
-  evidence?: null | FenceEvidence;
+  evidence?: FenceEvidence | null;
   /** The failure record; `None` until the supervisor has seen it. */
   failure?: string | null;
   fencedAt?: string | null;
@@ -2891,7 +2891,7 @@ export type RegisterMachine = {
   description?: string;
   /** The name it will have as a cluster member. */
   name: string;
-  provider?: null | ProvisionerKind;
+  provider?: ProvisionerKind | null;
   /** For a `maas` machine: its MAAS system id (from `GET /api/v1/provisioners/maas/machines`). */
   systemId?: string | null;
 };
@@ -3181,8 +3181,8 @@ export type SessionTicket = {
 };
 
 export type SetVolumeSchedules = {
-  backups?: null | Schedule;
-  snapshots?: null | Schedule;
+  backups?: Schedule | null;
+  snapshots?: Schedule | null;
 };
 
 /** One setting in a change: what it is now, what it becomes, and what to know first. */
@@ -3320,7 +3320,7 @@ export type StoragePoolUsage = {
   /** One pool every member reaches (clustered LVM, Ceph): its space is counted once. */
   shared: boolean;
   status: string;
-  total?: null | HealthUsage;
+  total?: HealthUsage | null;
   /** Members whose use could not be read, with the reason. */
   unreadable: string[];
 };
@@ -3341,7 +3341,7 @@ export type StorageVolume = {
   pool: string;
   schedules: VolumeSchedules;
   sizeMib: number;
-  state?: null | VolumeUse;
+  state?: VolumeUse | null;
   usedBy: string[];
 };
 
@@ -3381,14 +3381,14 @@ export type TenancyEnvironment = {
   effective: QuotaLimits;
   findings: TenancyFinding[];
   id: string;
-  incus?: null | TenancyIncusView;
+  incus?: TenancyIncusView | null;
   incusDetail: string;
   incusError?: string | null;
   incusProject?: string | null;
   incusState: TenancyIncusState;
   kind: EnvKind;
   name: string;
-  quota?: null | QuotaLimits;
+  quota?: QuotaLimits | null;
   slug: string;
 };
 
@@ -3432,9 +3432,9 @@ export type TenancyOrganization = {
   id: string;
   name: string;
   projects: TenancyProject[];
-  quota?: null | QuotaLimits;
+  quota?: QuotaLimits | null;
   slug: string;
-  usage?: null | QuotaUsage;
+  usage?: QuotaUsage | null;
 };
 
 export type TenancyOverview = {
@@ -3451,9 +3451,9 @@ export type TenancyProject = {
   environments: TenancyEnvironment[];
   id: string;
   name: string;
-  quota?: null | QuotaLimits;
+  quota?: QuotaLimits | null;
   slug: string;
-  usage?: null | QuotaUsage;
+  usage?: QuotaUsage | null;
 };
 
 /** An Incus project's use and limits (Incus's own aggregate of instance limits, root disk sizes and volume sizes). */
@@ -3615,8 +3615,8 @@ export type VolumeMount = {
 };
 
 export type VolumeSchedules = {
-  backups?: null | ScheduleState;
-  snapshots?: null | ScheduleState;
+  backups?: ScheduleState | null;
+  snapshots?: ScheduleState | null;
 };
 
 /** What Incus reports about a recorded volume now. */
@@ -3640,7 +3640,7 @@ export type WhoAmI = {
   permissions: Permission[];
   /** Permission ids held across the whole platform. */
   platformPermissions: string[];
-  role?: null | Role;
+  role?: Role | null;
   /** The role assignments in force for this caller. */
   roles: RoleGrant[];
 };

@@ -1697,6 +1697,10 @@ struct ErrorResponses;
 impl ErrorResponses {
     fn meaning(status: &str) -> Option<&'static str> {
         Some(match status {
+            "200" => "Done; the response holds the result.",
+            "201" => "Created; the response describes what was created.",
+            "202" => "Accepted: the work is queued; the response says how to follow it.",
+            "204" => "Done; nothing is returned.",
             "400" => "The request is not valid; the error says which part.",
             "401" => "Not signed in: no token, or one that is unknown, expired or revoked.",
             "403" => "The caller may not do this.",
@@ -1731,13 +1735,15 @@ impl ErrorResponses {
         if status == "429" {
             r.headers.insert(
                 "Retry-After".into(),
-                utoipa::openapi::HeaderBuilder::new()
-                    .schema(
-                        utoipa::openapi::ObjectBuilder::new()
-                            .schema_type(utoipa::openapi::schema::Type::Integer),
-                    )
-                    .description(Some("Seconds to wait before trying again."))
-                    .build(),
+                utoipa::openapi::RefOr::T(
+                    utoipa::openapi::HeaderBuilder::new()
+                        .schema(Some(
+                            utoipa::openapi::ObjectBuilder::new()
+                                .schema_type(utoipa::openapi::schema::Type::Integer),
+                        ))
+                        .description(Some("Seconds to wait before trying again."))
+                        .build(),
+                ),
             );
         }
         r.into()

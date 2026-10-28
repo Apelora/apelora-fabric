@@ -19,7 +19,7 @@
         "operationId": "alerts",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -88,7 +88,7 @@
         "operationId": "alert_channels",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -165,7 +165,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -276,7 +276,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -385,7 +385,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -469,7 +469,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -580,7 +580,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -649,7 +649,7 @@
         "operationId": "alert_rules",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -739,7 +739,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -838,7 +838,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -929,7 +929,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -1023,7 +1023,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1132,7 +1132,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1209,7 +1209,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1319,7 +1319,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1427,7 +1427,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1527,7 +1527,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1627,7 +1627,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -1752,7 +1752,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1872,7 +1872,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1980,7 +1980,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2090,7 +2090,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2209,7 +2209,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2320,7 +2320,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2440,7 +2440,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2560,7 +2560,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2680,7 +2680,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2790,7 +2790,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2900,7 +2900,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -3015,7 +3015,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3115,7 +3115,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3223,7 +3223,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3353,7 +3353,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3453,7 +3453,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3582,7 +3582,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -3712,7 +3712,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -3834,7 +3834,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3953,7 +3953,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4091,7 +4091,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -4231,7 +4231,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4379,7 +4379,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4518,7 +4518,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -4630,7 +4630,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4747,7 +4747,7 @@
         ],
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4885,7 +4885,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -5016,7 +5016,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -5118,7 +5118,7 @@
         "operationId": "approvals",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5195,7 +5195,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5286,7 +5286,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5397,7 +5397,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5498,7 +5498,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5663,7 +5663,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5911,7 +5911,7 @@
         "operationId": "capacity",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5980,7 +5980,7 @@
         "operationId": "cluster",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6049,7 +6049,7 @@
         "operationId": "cluster_groups",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6118,7 +6118,7 @@
         "operationId": "list_join_tokens",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6205,7 +6205,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6315,7 +6315,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -6407,7 +6407,7 @@
         "operationId": "cluster_members",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6517,7 +6517,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6637,7 +6637,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6747,7 +6747,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6867,7 +6867,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6977,7 +6977,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -7100,7 +7100,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7199,7 +7199,7 @@
         "operationId": "cluster_recovery",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7268,7 +7268,7 @@
         "operationId": "cluster_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7355,7 +7355,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7464,7 +7464,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7474,7 +7474,7 @@
             }
           },
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7583,7 +7583,7 @@
         "operationId": "database_backups",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7642,7 +7642,7 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7676,7 +7676,7 @@
         "operationId": "health_components",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7735,7 +7735,7 @@
         "operationId": "health_servers",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7837,7 +7837,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7924,7 +7924,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8033,7 +8033,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8134,7 +8134,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -8302,7 +8302,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8391,7 +8391,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8502,7 +8502,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8591,7 +8591,7 @@
         "operationId": "groups",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8668,7 +8668,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8789,7 +8789,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8900,7 +8900,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8991,7 +8991,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -9093,7 +9093,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -9185,7 +9185,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9286,7 +9286,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9385,7 +9385,7 @@
         "operationId": "organizations",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9462,7 +9462,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9573,7 +9573,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9672,7 +9672,7 @@
         "operationId": "permissions",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9733,7 +9733,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9814,7 +9814,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -9886,7 +9886,7 @@
         "operationId": "policies",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9963,7 +9963,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10064,7 +10064,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -10150,7 +10150,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10231,7 +10231,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10330,7 +10330,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10450,7 +10450,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10568,7 +10568,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10657,7 +10657,7 @@
         "operationId": "roles",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10734,7 +10734,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10835,7 +10835,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -10917,7 +10917,7 @@
         "operationId": "service_identities",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -10994,7 +10994,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11095,7 +11095,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -11179,7 +11179,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -11251,7 +11251,7 @@
         "operationId": "sign_in_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11320,7 +11320,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11419,7 +11419,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11498,7 +11498,7 @@
         "operationId": "list_directories",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11565,7 +11565,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11674,7 +11674,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11765,7 +11765,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -11884,7 +11884,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -11986,7 +11986,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12085,7 +12085,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12196,7 +12196,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12315,7 +12315,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -12419,7 +12419,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12500,7 +12500,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -12572,7 +12572,7 @@
         "operationId": "tenancy",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12641,7 +12641,7 @@
         "operationId": "users",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12721,7 +12721,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -12812,7 +12812,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -12906,7 +12906,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -12988,7 +12988,7 @@
         "operationId": "image_mirrors",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13047,7 +13047,7 @@
         "operationId": "instances",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13138,7 +13138,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13257,7 +13257,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13386,7 +13386,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13499,7 +13499,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13618,7 +13618,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13760,7 +13760,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -13897,7 +13897,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14036,7 +14036,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14187,7 +14187,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14314,7 +14314,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14405,7 +14405,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14496,7 +14496,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14607,7 +14607,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14710,7 +14710,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14809,7 +14809,7 @@
         "operationId": "list_machines",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14896,7 +14896,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15006,7 +15006,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -15119,7 +15119,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15239,7 +15239,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15359,7 +15359,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`.",
@@ -15462,7 +15462,7 @@
         ],
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15581,7 +15581,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`, `weak_password`, `wrong_password`.",
@@ -15655,7 +15655,7 @@
         "operationId": "my_sign_ins",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15736,7 +15736,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -15808,7 +15808,7 @@
         "operationId": "my_tokens",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15885,7 +15885,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -15986,7 +15986,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -16080,7 +16080,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16179,7 +16179,7 @@
         "operationId": "monitoring",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16238,7 +16238,7 @@
         "operationId": "networks",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16307,7 +16307,7 @@
         "operationId": "application_networks",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16376,7 +16376,7 @@
         "operationId": "network_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16445,7 +16445,7 @@
         "operationId": "preflight",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16514,7 +16514,7 @@
         "operationId": "projects",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16583,7 +16583,7 @@
         "operationId": "maas_machines",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16683,7 +16683,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16813,7 +16813,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -16943,7 +16943,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17073,7 +17073,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Accepted: the work is queued; the response says how to follow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17192,7 +17192,7 @@
         "operationId": "sectors",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17269,7 +17269,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17389,7 +17389,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `confirmation_mismatch`, `invalid_request`.",
@@ -17471,7 +17471,7 @@
         "operationId": "sessions",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17542,7 +17542,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -17614,7 +17614,7 @@
         "operationId": "effective_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17683,7 +17683,7 @@
         "operationId": "sign_in_options",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17735,7 +17735,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17829,7 +17829,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "400": {
             "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`, `setup_invalid`, `weak_password`.",
@@ -17886,7 +17886,7 @@
         "operationId": "sign_out",
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -17938,7 +17938,7 @@
         "operationId": "storage_pools",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18007,7 +18007,7 @@
         "operationId": "orphan_volumes",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18086,7 +18086,7 @@
         "operationId": "storage_pool_usage",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18155,7 +18155,7 @@
         "operationId": "storage_volumes",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18293,7 +18293,7 @@
         "operationId": "system",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18352,7 +18352,7 @@
         "operationId": "tokens",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18444,7 +18444,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Created; the response describes what was created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -18545,7 +18545,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Done; nothing is returned."
           },
           "401": {
             "description": "Not signed in: no token, or one that is unknown, expired or revoked.",
@@ -18617,7 +18617,7 @@
         "operationId": "whoami",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Done; the response holds the result.",
             "content": {
               "application/json": {
                 "schema": {
@@ -19121,11 +19121,11 @@
           "minSeverity": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/AlertSeverity",
                 "description": "Alerts of this severity and above are sent (default `warning`)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -19283,10 +19283,10 @@
           "acknowledged": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AlertAcknowledgement"
               },
               {
-                "$ref": "#/components/schemas/AlertAcknowledgement"
+                "type": "null"
               }
             ]
           },
@@ -19335,10 +19335,10 @@
           "silencedBy": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AlertSilencedBy"
               },
               {
-                "$ref": "#/components/schemas/AlertSilencedBy"
+                "type": "null"
               }
             ]
           },
@@ -19748,10 +19748,10 @@
           "environment": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EnvironmentRef"
               },
               {
-                "$ref": "#/components/schemas/EnvironmentRef"
+                "type": "null"
               }
             ]
           },
@@ -20350,10 +20350,10 @@
           "memory": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HealthUsage"
               },
               {
-                "$ref": "#/components/schemas/HealthUsage"
+                "type": "null"
               }
             ]
           },
@@ -20367,11 +20367,11 @@
           "volumePool": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/HealthUsage",
                 "description": "Space in the pool volumes are created in (`APELORA_VOLUME_POOL`), on this server."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -20848,11 +20848,11 @@
           "upgrade": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/UpgradeView",
                 "description": "The rolling-upgrade assistant. Absent when there is no database."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -21373,10 +21373,10 @@
           "assessment": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/BackupAssessment"
               },
               {
-                "$ref": "#/components/schemas/BackupAssessment"
+                "type": "null"
               }
             ]
           },
@@ -21399,32 +21399,32 @@
           "lastDrill": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DrillInfo",
                 "description": "The latest restore drill, whether it passed or failed."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "lastVerified": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DrillInfo",
                 "description": "The latest drill that passed."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "newestBackup": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/BackupInfo"
               },
               {
-                "$ref": "#/components/schemas/BackupInfo"
+                "type": "null"
               }
             ]
           }
@@ -21570,10 +21570,10 @@
           "operation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/OperationSummary"
               },
               {
-                "$ref": "#/components/schemas/OperationSummary"
+                "type": "null"
               }
             ]
           },
@@ -21687,11 +21687,11 @@
           "readiness": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Readiness",
                 "description": "A command that runs inside each instance and exits 0 when the application is ready\n(from the class); the port check alone cannot tell a hung application from a ready one."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -21717,10 +21717,10 @@
           "entry": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/CheckedEntry"
               },
               {
-                "$ref": "#/components/schemas/CheckedEntry"
+                "type": "null"
               }
             ]
           },
@@ -21733,11 +21733,11 @@
           "problem": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DirectoryProblem",
                 "description": "What went wrong, when it did."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -22009,10 +22009,10 @@
           "problem": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DirectoryProblem"
               },
               {
-                "$ref": "#/components/schemas/DirectoryProblem"
+                "type": "null"
               }
             ]
           },
@@ -22639,21 +22639,21 @@
           "evidence": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/FenceEvidence"
               },
               {
-                "$ref": "#/components/schemas/FenceEvidence"
+                "type": "null"
               }
             ]
           },
           "leaseState": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/FenceLeaseState",
                 "description": "The latest reading of the member's lease, when there is one."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -23094,11 +23094,11 @@
           "members": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/HealthMemberCounts",
                 "description": "`null` when Incus could not be read or is not clustered."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -23185,11 +23185,11 @@
           "counts": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/HealthQueueCounts",
                 "description": "`null` when the database could not be read."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -23405,11 +23405,11 @@
           "resources": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/HealthServerResources",
                 "description": "`null` when they could not be read (see `resourcesError`)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -23497,10 +23497,10 @@
           "memory": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/HealthUsage"
               },
               {
-                "$ref": "#/components/schemas/HealthUsage"
+                "type": "null"
               }
             ]
           },
@@ -23816,11 +23816,11 @@
           "limits": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TenancyLimitOutcome",
                 "description": "The quotas mirrored right after (absent when the project is not ready)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -23923,11 +23923,11 @@
           "owner": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Owner",
                 "description": "The application and module this instance was deployed for (Apelora's labels)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -24213,22 +24213,22 @@
           "network": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/NetworkAttachment",
                 "description": "Set by the control plane when the application's connections are enforced: the NIC\njoins the application's network with its own ACL (unmatched traffic rejected)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "owner": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Owner",
                 "description": "Set by the control plane when the instance is part of an application deployment."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -24341,11 +24341,11 @@
           "owner": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Owner",
                 "description": "The application and module it was deployed for."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -24379,11 +24379,11 @@
           "usage": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/InstanceViewUsage",
                 "description": "`None` while stopped (Incus reports no usage then)."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -25754,11 +25754,11 @@
           "health": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/InstanceHealth",
                 "description": "What the worker decided from the instance's port check, with hysteresis; absent for\ninstances that are not checked (no service address, not running, or no database)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -25982,11 +25982,11 @@
           "networkObserved": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/NetObservedNetwork",
                 "description": "`None`: missing in Incus, not enforced, or Incus could not be read (see `incusError`)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -26380,10 +26380,10 @@
           "uplinkObserved": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/NetUplink"
               },
               {
-                "$ref": "#/components/schemas/NetUplink"
+                "type": "null"
               }
             ]
           }
@@ -27450,11 +27450,11 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaCheck",
                 "description": "The deployment against the quotas above its environment; absent when no\nquota applies. `allowed: false` means applying is refused."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -28141,10 +28141,10 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/QuotaLimits"
               },
               {
-                "$ref": "#/components/schemas/QuotaLimits"
+                "type": "null"
               }
             ]
           }
@@ -28347,11 +28347,11 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaLimits",
                 "description": "`None`: this scope has no quota of its own."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -28371,11 +28371,11 @@
           "usage": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaUsage",
                 "description": "Use beneath this scope as Incus reports it; `None` with `usageError` when it could not be read."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -28538,10 +28538,10 @@
           "evidence": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/FenceEvidence"
               },
               {
-                "$ref": "#/components/schemas/FenceEvidence"
+                "type": "null"
               }
             ]
           },
@@ -28619,11 +28619,11 @@
           "provider": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ProvisionerKind",
                 "description": "Defaults to `manual`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -29657,22 +29657,22 @@
           "backups": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Schedule",
                 "description": "Scheduled backups (into the backup pool, on another member); `null` turns them off."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "snapshots": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Schedule",
                 "description": "Scheduled snapshots (`auto-…`, in the volume's pool); `null` turns them off."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -30127,11 +30127,11 @@
           "total": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/HealthUsage",
                 "description": "Used of total over all members (a shared pool once); `None` when no member reported it."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -30209,11 +30209,11 @@
           "state": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/VolumeUse",
                 "description": "What Incus reports now; `None` when Incus could not be read."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -30358,11 +30358,11 @@
           "incus": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TenancyIncusView",
                 "description": "As Incus reports it; `None` when the project does not exist or could not be read."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -30393,11 +30393,11 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaLimits",
                 "description": "This environment's own quota."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -30560,10 +30560,10 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/QuotaLimits"
               },
               {
-                "$ref": "#/components/schemas/QuotaLimits"
+                "type": "null"
               }
             ]
           },
@@ -30573,11 +30573,11 @@
           "usage": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaUsage",
                 "description": "Use of all its environments; only for callers who see the whole organisation."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -30646,10 +30646,10 @@
           "quota": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/QuotaLimits"
               },
               {
-                "$ref": "#/components/schemas/QuotaLimits"
+                "type": "null"
               }
             ]
           },
@@ -30659,11 +30659,11 @@
           "usage": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/QuotaUsage",
                 "description": "Use of its environments; `None` when one could not be read."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -31202,22 +31202,22 @@
           "backups": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ScheduleState",
                 "description": "`None`: no scheduled backups."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "snapshots": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/ScheduleState",
                 "description": "`None`: no scheduled snapshots."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -31300,11 +31300,11 @@
           "role": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/Role",
                 "description": "The role of a legacy API token; `null` for people and service identities."
+              },
+              {
+                "type": "null"
               }
             ]
           },
