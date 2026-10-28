@@ -170,6 +170,8 @@ export type AlertEvaluator = {
 /** Resolved alerts, newest first. */
 export type AlertHistory = {
   items: AlertItem[];
+  /** Pass this as `after` for the next, older page; absent on the last page. */
+  next?: string | null;
 };
 
 /** One alert, firing or resolved. */
@@ -411,6 +413,8 @@ export type AuditItem = {
 
 export type AuditList = {
   items: AuditItem[];
+  /** Pass this as `after` for the next, older page; absent on the last page. */
+  next?: string | null;
 };
 
 export type AuthMode = "tokens" | "disabled-development";
@@ -3815,7 +3819,7 @@ export type Responses = {
   delete_alert_channel: null;
   /** Queues a test notification for one channel through the same outbox path as real alerts; the channel's delivery state shows the outcome within seconds. Needs `alert.configure`; audited as `alert.channel.test` in the same transaction as the message. */
   test_alert_channel: AlertChannelTest;
-  /** Resolved alerts, newest first, paged by `before`. Kept 90 days. Needs `cluster.view`. */
+  /** Resolved alerts, newest first, paged with `after` and `next`. Kept 90 days. Needs `cluster.view`. */
   alert_history: AlertHistory;
   /** The built-in rules with their parameters in force, their defaults and what the evaluator's last pass said about each source. Needs `cluster.view`. */
   alert_rules: AlertRuleList;
@@ -3905,7 +3909,7 @@ export type Responses = {
   cancel_request: ApprovalDto;
   /** Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused). */
   reject_request: ApprovalDto;
-  /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
+  /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `after` and `next`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
   /** Exports the audit events the caller may read, with the same filters as the list (`limit` does not apply), newest first, as CSV or JSON lines. Streamed one database page at a time. Needs `audit.read`; the export itself is audited as `audit.exported` with its filters. */
   audit_export: string;

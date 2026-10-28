@@ -554,17 +554,16 @@
         "tags": [
           "alerts"
         ],
-        "summary": "Resolved alerts, newest first, paged by `before`. Kept 90 days. Needs `cluster.view`.",
+        "summary": "Resolved alerts, newest first, paged with `after` and `next`. Kept 90 days. Needs `cluster.view`.",
         "operationId": "alert_history",
         "parameters": [
           {
-            "name": "before",
+            "name": "after",
             "in": "query",
-            "description": "Only alerts with a smaller id (the last one of the previous page).",
+            "description": "Paging: the `next` of the previous page.",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string"
             }
           },
           {
@@ -5593,7 +5592,7 @@
         "tags": [
           "audit"
         ],
-        "summary": "Audit events the caller may read, newest first, filtered by actor, target, action prefix,\noutcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to\nthe events of the caller's organisations, projects and applications) and a database.",
+        "summary": "Audit events the caller may read, newest first, filtered by actor, target, action prefix,\noutcome and time, and paged with `after` and `next`. Needs `audit.read` (platform-wide, or limited to\nthe events of the caller's organisations, projects and applications) and a database.",
         "operationId": "audit",
         "parameters": [
           {
@@ -5651,13 +5650,12 @@
             }
           },
           {
-            "name": "before",
+            "name": "after",
             "in": "query",
-            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
+            "description": "Paging: the `next` of the previous page.",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string"
             }
           },
           {
@@ -5806,13 +5804,12 @@
             }
           },
           {
-            "name": "before",
+            "name": "after",
             "in": "query",
-            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
+            "description": "Paging: the `next` of the previous page.",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string"
             }
           },
           {
@@ -8290,13 +8287,12 @@
             }
           },
           {
-            "name": "before",
+            "name": "after",
             "in": "query",
-            "description": "Only events older than this id (paging: the id of the last event of the previous page).",
+            "description": "Paging: the `next` of the previous page.",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int64"
+              "type": "string"
             }
           },
           {
@@ -19195,6 +19191,13 @@
             "items": {
               "$ref": "#/components/schemas/AlertItem"
             }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass this as `after` for the next, older page; absent on the last page."
           }
         }
       },
@@ -20067,6 +20070,13 @@
             "items": {
               "$ref": "#/components/schemas/AuditItem"
             }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Pass this as `after` for the next, older page; absent on the last page."
           }
         }
       },

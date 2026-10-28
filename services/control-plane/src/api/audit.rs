@@ -42,8 +42,8 @@ pub struct AuditFilter {
     pub from: Option<String>,
     /// RFC 3339: events before this time.
     pub to: Option<String>,
-    /// Only events older than this id (paging: the id of the last event of the previous page).
-    pub before: Option<i64>,
+    /// Paging: the `next` of the previous page.
+    pub after: Option<String>,
     /// Events per page, 1 to 500 (default 100). Not used by the export.
     pub limit: Option<i64>,
 }
@@ -109,7 +109,13 @@ impl AuditFilter {
             outcome,
             from,
             to,
-            before: self.before,
+            before: match self.after.as_deref() {
+                None => None,
+                Some(a) => Some(
+                    a.parse::<i64>()
+                        .map_err(|_| bad("after is the next of a previous page"))?,
+                ),
+            },
         })
     }
 
@@ -135,7 +141,7 @@ impl AuditFilter {
             }
         }
         if let Some(b) = q.before {
-            o.insert("before".into(), json!(b));
+            o.insert("after".into(), json!(b.to_string()));
         }
         Value::Object(o)
     }
@@ -176,16 +182,20 @@ pub(super) async fn page(
         return Err(bad("limit is 1 to 500"));
     }
     let q = f.query()?;
-    let items = audit_history(&pool, &filter, &q, limit)
-        .await?
-        .into_iter()
-        .map(AuditItem::from_row)
-        .collect();
-    Ok(AuditList { items })
+    // One more than shown tells whether another page exists.
+    let mut rows = audit_history(&pool, &filter, &q, limit + 1).await?;
+    let next = (rows.len() as i64 > limit).then(|| {
+        rows.truncate(limit as usize);
+        rows.last().map(|r| r.id.to_string())
+    });
+    Ok(AuditList {
+        items: rows.into_iter().map(AuditItem::from_row).collect(),
+        next: next.flatten(),
+    })
 }
 
 /// Audit events the caller may read, newest first, filtered by actor, target, action prefix,
-/// outcome and time, and paged with `before`. Needs `audit.read` (platform-wide, or limited to
+/// outcome and time, and paged with `after` and `next`. Needs `audit.read` (platform-wide, or limited to
 /// the events of the caller's organisations, projects and applications) and a database.
 #[utoipa::path(get, path = "/api/v1/audit", tag = "audit", operation_id = "audit", params(AuditFilter),
     responses((status = 200, body = AuditList), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),

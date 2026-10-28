@@ -179,6 +179,16 @@ async fn people_see_acknowledge_and_silence_alerts_by_permission(pool: Pool) {
     assert_eq!(v["items"][0]["id"], json!(id));
     assert_eq!(v["items"][0]["state"], "resolved");
     assert_eq!(v["items"][0]["acknowledged"]["byName"], "fabric");
+    // One resolved alert: nothing after it, and a cursor that is not one is refused.
+    assert!(v["next"].is_null(), "{v}");
+    let (s, _) = l
+        .req("GET", "/api/v1/alerts/history?after=x", &viewer, None)
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = l
+        .req("GET", "/api/v1/alerts/history?limit=201", &viewer, None)
+        .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

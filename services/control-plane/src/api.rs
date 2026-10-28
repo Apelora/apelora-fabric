@@ -1392,6 +1392,8 @@ impl AuditItem {
 #[derive(Serialize, ToSchema)]
 pub struct AuditList {
     pub items: Vec<AuditItem>,
+    /// Pass this as `after` for the next, older page; absent on the last page.
+    pub next: Option<String>,
 }
 
 /// Public. Reports that the service answers, the inventory provider, the authentication mode

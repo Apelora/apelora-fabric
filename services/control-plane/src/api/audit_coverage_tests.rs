@@ -1614,12 +1614,35 @@ async fn the_audit_trail_is_filtered_and_exported_and_exports_are_audited(pool: 
         .req("GET", "/api/v1/audit?action=organization.", &root, None)
         .await;
     assert_eq!(first["items"][0]["actorName"], "root");
-    let newest = first["items"][0]["id"].as_i64().expect("id");
+    // Paging: a page of one names the next; following it gives the older event, then no more.
+    let (_, one) = l
+        .req(
+            "GET",
+            "/api/v1/audit?action=organization.&limit=1",
+            &root,
+            None,
+        )
+        .await;
+    assert_eq!(one["items"][0]["id"], first["items"][0]["id"]);
+    let next = one["next"].as_str().expect("a next page").to_owned();
     assert_eq!(
-        listed(&l, &root, &format!("action=organization.&before={newest}")).await,
+        listed(&l, &root, &format!("action=organization.&after={next}")).await,
         [org("acme")],
         "paging"
     );
+    let (_, last) = l
+        .req(
+            "GET",
+            &format!("/api/v1/audit?action=organization.&after={next}"),
+            &root,
+            None,
+        )
+        .await;
+    assert!(last["next"].is_null(), "{last}");
+    let (st, _) = l
+        .req("GET", "/api/v1/audit?after=not-a-cursor", &root, None)
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
     for bad in [
         "outcome=maybe",
         "from=yesterday",

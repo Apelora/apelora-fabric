@@ -188,7 +188,7 @@ Status: **BUILT** (2026-10-21), MOCK VERIFIED with a real PostgreSQL (ADR 0011, 
 - `action`: a prefix, taken literally (`%` and `_` are not patterns);
 - `outcome`: `success`, `denied` or `failed`;
 - `from` and `to`: RFC 3339, `from` before `to`;
-- `before` (an id, for paging) and `limit` (1 to 500, default 100).
+- `after` (the `next` of the previous page; the answer has no `next` on the last page) and `limit` (1 to 500, default 100).
 
 Both need `audit.read`; below platform level a reader sees only the events of their organisations, projects and applications.
 

@@ -1810,5 +1810,6 @@ pub(super) async fn events(
     let rows = db::application_events(store(&state)?, row.id, 100).await?;
     Ok(Json(AuditList {
         items: rows.into_iter().map(AuditItem::from_row).collect(),
+        next: None,
     }))
 }

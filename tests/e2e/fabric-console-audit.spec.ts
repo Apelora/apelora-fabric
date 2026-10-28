@@ -56,6 +56,22 @@ test.describe("audit log", () => {
     await expect(page.getByTestId("audit-clear")).toHaveCount(0);
   });
 
+  test("older events follow the page's next cursor until there is none", async ({ page }) => {
+    const calls = await stub(page, {
+      ...base(reader),
+      "GET /api/v1/audit": (c) => (c.query.get("after") === "11" ? { json: { items: [rows[2]] } } : { json: { items: rows.slice(0, 2), next: "11" } }),
+    });
+    await page.goto("/#/audit");
+    await expect(page.getByTestId("audit-row")).toHaveCount(2);
+    await page.getByTestId("audit-older").click();
+    await expect(page.getByTestId("audit-row")).toHaveCount(3);
+    // Only the cursor the first page gave is sent, once.
+    expect(listCalls(calls).map((c) => c.query.get("after")).filter((a) => a !== null)).toEqual(["11"]);
+    // The last page has no next: no button, and the reader is told.
+    await expect(page.getByTestId("audit-older")).toHaveCount(0);
+    await expect(page.getByTestId("audit-end")).toBeVisible();
+  });
+
   test("a row says who, what, the outcome and why it was refused", async ({ page }) => {
     await stub(page, { ...base(reader), "GET /api/v1/audit": items(rows) });
     await page.goto("/#/audit");

@@ -151,11 +151,13 @@ function SessionHistory({ me, onAuth }: { me: WhoAmI; onAuth: (m: string) => voi
   const [items, setItems] = useState<AuditItem[]>([]);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [more, setMore] = useState(false);
+  // The cursor of the next, older page; null on the last one.
+  const [next, setNext] = useState<string | null>(null);
+  const more = next !== null;
   const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const dir = useDirectory(me, onAuth, { users: true, services: true });
-  const fetchPage = useCallback((before?: number) => client.request("identity_audit", { query: { action: "session.", before, limit: PAGE } }), []);
+  const fetchPage = useCallback((after?: string) => client.request("identity_audit", { query: { action: "session.", after, limit: PAGE } }), []);
   const fail = useCallback((e: unknown) => {
     if (e instanceof ApiRequestError && e.unauthenticated) onAuth(e.message);
     setError(describeError(e));
@@ -165,19 +167,18 @@ function SessionHistory({ me, onAuth }: { me: WhoAmI; onAuth: (m: string) => voi
     let current = true;
     setStatus("loading");
     fetchPage().then(
-      (r) => { if (!current) return; setItems(r.items); setMore(r.items.length === PAGE); setStatus("ok"); },
+      (r) => { if (!current) return; setItems(r.items); setNext(r.next ?? null); setStatus("ok"); },
       (e: unknown) => { if (!current) return; fail(e); setStatus("error"); },
     );
     return () => { current = false; };
   }, [fetchPage, fail, attempt]);
 
   const older = () => {
-    const last = items[items.length - 1];
-    if (!last) return;
+    if (!next) return;
     setLoadingMore(true);
     setError(null);
-    fetchPage(last.id).then(
-      (r) => { setItems((prev) => [...prev, ...r.items]); setMore(r.items.length === PAGE); },
+    fetchPage(next).then(
+      (r) => { setItems((prev) => [...prev, ...r.items]); setNext(r.next ?? null); },
       (e: unknown) => fail(e),
     ).finally(() => setLoadingMore(false));
   };

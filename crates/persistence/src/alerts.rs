@@ -126,7 +126,8 @@ pub async fn history(pool: &PgPool, before: Option<i64>, limit: i64) -> Result<V
          ORDER BY id DESC LIMIT $2"
     ))
     .bind(before)
-    .bind(limit.clamp(1, 200))
+    // One more than the largest page, so a caller can tell whether another page exists.
+    .bind(limit.clamp(1, 201))
     .fetch_all(pool)
     .await?)
 }

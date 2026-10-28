@@ -161,6 +161,8 @@ pub struct AlertList {
 #[derive(Serialize, ToSchema)]
 pub struct AlertHistory {
     pub items: Vec<AlertItem>,
+    /// Pass this as `after` for the next, older page; absent on the last page.
+    pub next: Option<String>,
 }
 
 /// A rule's parameters.
@@ -305,8 +307,8 @@ fn yes() -> bool {
 #[derive(Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct HistoryQuery {
-    /// Only alerts with a smaller id (the last one of the previous page).
-    pub before: Option<i64>,
+    /// Paging: the `next` of the previous page.
+    pub after: Option<String>,
     /// 1 to 200 (default 50).
     pub limit: Option<i64>,
 }
@@ -571,7 +573,7 @@ pub(super) async fn list(
     }))
 }
 
-/// Resolved alerts, newest first, paged by `before`. Kept 90 days. Needs `cluster.view`.
+/// Resolved alerts, newest first, paged with `after` and `next`. Kept 90 days. Needs `cluster.view`.
 #[utoipa::path(get, path = "/api/v1/alerts/history", tag = "alerts", operation_id = "alert_history", params(HistoryQuery),
     responses((status = 200, body = AlertHistory), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
@@ -582,9 +584,33 @@ pub(super) async fn history(
 ) -> Result<Json<AlertHistory>, ApiError> {
     allow_platform(&p, VIEW)?;
     let pool = store(&state)?;
-    let rows = db::history(pool, q.before, q.limit.unwrap_or(50)).await?;
+    let limit = q.limit.unwrap_or(50);
+    if !(1..=200).contains(&limit) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            "limit is 1 to 200",
+        ));
+    }
+    let before = match q.after.as_deref() {
+        None => None,
+        Some(a) => Some(a.parse::<i64>().map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                "after is the next of a previous page",
+            )
+        })?),
+    };
+    // One more than shown tells whether another page exists.
+    let mut rows = db::history(pool, before, limit + 1).await?;
+    let next = (rows.len() as i64 > limit).then(|| {
+        rows.truncate(limit as usize);
+        rows.last().map(|a| a.id.to_string())
+    });
     Ok(Json(AlertHistory {
         items: rows.into_iter().map(|a| item(a, &[])).collect(),
+        next: next.flatten(),
     }))
 }
 

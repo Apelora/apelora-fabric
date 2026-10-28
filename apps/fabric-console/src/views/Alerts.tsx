@@ -218,23 +218,24 @@ function History({ onAuth }: { onAuth: (m: string) => void }) {
   const [items, setItems] = useState<AlertItem[]>([]);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
-  const [more, setMore] = useState(false);
+  // The cursor of the next, older page; null on the last one.
+  const [next, setNext] = useState<string | null>(null);
+  const more = next !== null;
   const [attempt, setAttempt] = useState(0);
   const { run } = useRun(onAuth);
-  const page = useCallback((before?: number) => client.request("alert_history", { query: { before, limit: PAGE } }), []);
+  const page = useCallback((after?: string) => client.request("alert_history", { query: { after, limit: PAGE } }), []);
   useEffect(() => {
     let current = true;
     setStatus("loading");
     page().then(
-      (r: AlertHistory) => { if (!current) return; setItems(r.items); setMore(r.items.length === PAGE); setStatus("ok"); },
+      (r: AlertHistory) => { if (!current) return; setItems(r.items); setNext(r.next ?? null); setStatus("ok"); },
       (e: unknown) => { if (!current) return; setError(e instanceof Error ? e.message : String(e)); setStatus("error"); },
     );
     return () => { current = false; };
   }, [page, attempt]);
   const older = () => {
-    const last = items[items.length - 1];
-    if (!last) return;
-    void run(async () => { const r = await page(last.id); setItems((p) => [...p, ...r.items]); setMore(r.items.length === PAGE); });
+    if (!next) return;
+    void run(async () => { const r = await page(next); setItems((p) => [...p, ...r.items]); setNext(r.next ?? null); });
   };
   return (
     <section className="flex flex-col gap-2" aria-label="History" data-testid="alert-history">

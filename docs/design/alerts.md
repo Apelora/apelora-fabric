@@ -131,7 +131,7 @@ sequenceDiagram
 | Route | Permission |
 |---|---|
 | `GET /api/v1/alerts` (open alerts, the evaluator's status, per-severity counts, silences in force) | `cluster.view` |
-| `GET /api/v1/alerts/history` (resolved, newest first, paged by `before`) | `cluster.view` |
+| `GET /api/v1/alerts/history` (resolved, newest first, paged with `after` and the answer's `next`) | `cluster.view` |
 | `POST /api/v1/alerts/{id}/acknowledge` | `alert.respond` |
 | `POST /api/v1/alerts/silences`, `DELETE /api/v1/alerts/silences/{id}` | `alert.respond` |
 | `GET /api/v1/alerts/rules`, `GET /api/v1/alerts/channels` | `cluster.view` |
