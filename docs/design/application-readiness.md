@@ -23,6 +23,19 @@ The deployment worker's health supervision, once per pass and only on the superv
 - turns the result into a probe (`probe_of_run`): exit 0 passes, any other exit or a timeout fails, and **a command Incus could not run says nothing** and is logged, so a misdeclared command cannot restart healthy replicas;
 - combines it with the port check (`combine`): any failure fails the instance; otherwise any pass passes it, so an instance without a service address (a database) is judged by its command alone.
 
+```mermaid
+flowchart LR
+  P[Port check<br/>OVN load balancer] --> K{combine}
+  R[Readiness command<br/>exec, unprivileged, 1-15 s] --> K
+  R -. Incus could not run it .-> X[says nothing, logged]
+  K -->|any fails| F[failing]
+  K -->|none fails, one passes| OK[passing]
+  F --> H[hysteresis 20 s]
+  OK --> H
+  H -->|unhealthy 60 s, stateless| RS[restart once per cooldown, audited]
+  H -->|singleton or stateful| RP[reported only]
+```
+
 The result goes through the same hysteresis as the port check (unhealthy after failing 20 s, healthy after passing 20 s). The recorded detail says which check failed: *port check failing*, *readiness command failing*, *port check and readiness command failing*, and so on. A stateless replica that stays unhealthy for 60 s is restarted, once per cooldown, and audited, exactly as before; singleton and stateful modules are reported, never restarted.
 
 ## Why a command inside the instance

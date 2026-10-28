@@ -75,7 +75,7 @@ The audit trail records **decisions people (or the supervisor) make**: it is app
 
 ADR 0011 makes the outbox the only way a change causes anything outside its transaction. Alerts follow it:
 - the evaluator writes the message **in the state change's transaction**, so a notification exists exactly when the state change committed;
-- the worker's relay (lease `outbox-relay`) delivers it at least once, oldest first, retrying with its backoff (2 s … 5 min);
+- the worker's relay (lease `outbox-relay`) delivers it at least once, oldest first, retrying with its backoff (2 s, doubling, at most 5 min, plus up to 20% jitter);
 - one message per channel, so a failing channel never causes duplicates at another, and its failures are its own.
 
 The relay's sink routes by topic: `alert` → the webhook sink; everything else → the configured sink (`log`). A message for a channel that was deleted or turned off since is acknowledged and dropped with a log line.
@@ -95,6 +95,36 @@ The signature format carries its version (`v1=`), so a later change can be intro
 - 3 s to connect, 5 s in all; a non-2xx status is a failure; the response body is never read into errors or logs.
 - **The secret is a reference.** The channel stores the *name* of a secret, never its value: `secretRef` is an environment variable name that must start with `APELORA_ALERT_SECRET_` (so a channel cannot point at `DATABASE_URL` or a certificate path and have it used as a signing key an outsider could test guesses against). The worker reads it at delivery time; a missing secret is a delivery failure ("secret APELORA_ALERT_SECRET_OPS is not set on the worker"), retried and shown on the channel. The browser and the database never see a value. When Apelora gains a secret store, references gain a second form; the name stays the contract.
 - **Failures are visible** without extra writes: a channel's status (pending messages, failing messages, the last error and when it was delivered last) is read from the outbox rows that carry its id. **Test** queues one `test` message through the same path.
+
+From evaluation to delivery:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant E as Worker, evaluator (lease alert-evaluator)
+  participant I as Incus
+  participant D as PostgreSQL
+  participant R as Worker, relay (lease outbox-relay)
+  participant H as Webhook receiver
+  participant C as Control plane
+  actor O as Operator (Console)
+  loop every APELORA_ALERT_EVALUATE_SECS (30 s)
+    E->>D: read jobs, heartbeats, leases, health, volumes, outbox
+    E->>I: read members and instances
+    E->>D: one fenced transaction: alert rows, an outbox message per channel, evaluator status
+  end
+  R->>D: due messages, oldest first
+  R->>R: topic alert: read the channel, then the secret its secretRef names
+  R->>H: HTTPS POST, Apelora-Signature v1=HMAC-SHA256
+  alt 2xx
+    R->>D: mark delivered
+  else failure: no answer, TLS, non-2xx, redirect, secret not set
+    R->>D: keep the coarse reason, retry after 2 s, 4 s, 8 s, at most 5 min
+  end
+  O->>C: list alerts, rules, channels
+  C->>D: read alerts, evaluator status, channel deliveries
+  O->>C: acknowledge, silence, configure, send test (audited)
+```
 
 ### 2.5 API and permissions
 

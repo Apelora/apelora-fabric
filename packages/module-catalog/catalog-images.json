@@ -46,6 +46,27 @@
       "protocol": "simplestreams",
       "server": "https://images.linuxcontainers.org",
       "alias": "debian/13"
+    },
+    {
+      "class": "valkey",
+      "displayName": "Valkey",
+      "protocol": "oci",
+      "server": "https://docker.io",
+      "alias": "valkey/valkey@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd"
+    },
+    {
+      "class": "blackbox-exporter",
+      "displayName": "Blackbox exporter",
+      "protocol": "oci",
+      "server": "https://docker.io",
+      "alias": "prom/blackbox-exporter@sha256:ea1c7aa3ef3f307cd03e85f34abb604478ccb90b567fc690da0cd9776da76b13"
+    },
+    {
+      "class": "uptime-kuma",
+      "displayName": "Uptime Kuma",
+      "protocol": "oci",
+      "server": "https://docker.io",
+      "alias": "louislam/uptime-kuma@sha256:4b95dbe7ac5343b768f8e04e3035ccd59997872b1a35ab9b0f082d2cc279070e"
     }
   ]
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Instance lifecycle jobs (`instance.create|start|stop|restart|delete|resize`).
+//! Instance lifecycle jobs (`instance.create|start|stop|restart|delete|resize|rebuild`).
 //!
 //! Level-triggered and idempotent: every step re-reads the instance from Incus and decides the
 //! next call from what it finds, so a retried or reclaimed job converges instead of repeating
@@ -33,6 +33,11 @@ pub enum Goal {
     Absent(Target),
     /// Its resource limits are these (`None` removes one): CPU and memory changed in place.
     Limits(Target, std::collections::BTreeMap<String, Option<String>>),
+    /// The existing instance runs what the spec asks for, by the spec's fingerprint: stopped,
+    /// rebuilt from the spec's image when that changed, given the spec's settings, started.
+    /// Its name, member, devices and volumes are kept (an update of a singleton or stateful
+    /// module, docs/design/rolling-updates.md).
+    Rebuilt(Box<InstanceSpec>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -66,6 +71,9 @@ impl Goal {
             "instance.stop" => target().map(|t| Goal::State(t, InstanceAction::Stop)),
             "instance.restart" => target().map(Goal::Restarted),
             "instance.delete" => target().map(Goal::Absent),
+            "instance.rebuild" => serde_json::from_value::<InstanceSpec>(payload.clone())
+                .map_err(|e| format!("invalid payload: {e}"))
+                .and_then(|s| s.validate().map(|()| Goal::Rebuilt(Box::new(s)))),
             "instance.resize" => target().and_then(|t| {
                 let limits = serde_json::from_value::<
                     std::collections::BTreeMap<String, Option<String>>,
@@ -89,7 +97,7 @@ impl Goal {
 
     fn target(&self) -> (&str, &str) {
         match self {
-            Goal::Exists(s) => (&s.project, &s.name),
+            Goal::Exists(s) | Goal::Rebuilt(s) => (&s.project, &s.name),
             Goal::State(t, _)
             | Goal::PoweredOff(t)
             | Goal::Restarted(t)
@@ -112,6 +120,11 @@ pub enum Step {
     Delete,
     /// Change the instance's resource limits in place.
     Limits,
+    /// Rebuild the stopped instance's root disk from the spec's image, then give it the spec's
+    /// settings.
+    Rebuild,
+    /// Give the stopped instance the spec's settings (its image is the spec's).
+    Settings,
 }
 
 pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
@@ -168,6 +181,34 @@ pub fn next_step(goal: &Goal, now: Option<&InstanceState>) -> Step {
             Step::Change(InstanceAction::Stop, true)
         }
         (Goal::Absent(_), Some(_)) => Step::Delete,
+        (Goal::Rebuilt(_), None) => Step::Reject(format!(
+            "instance {project}/{name} does not exist; deploy again to create it"
+        )),
+        (Goal::Rebuilt(_), Some(s)) if !s.managed => not_ours(),
+        (Goal::Rebuilt(spec), Some(s)) => {
+            let want = apelora_domain::plan::spec_fingerprint(spec);
+            let parts = s
+                .built_from
+                .as_deref()
+                .map(|b| apelora_domain::plan::outdated_parts(b, &want));
+            match parts {
+                // Built from what the spec asks for: running when it should.
+                _ if s.built_from.as_deref() == Some(want.as_str()) => {
+                    if spec.start && s.status != "Running" {
+                        Step::Change(InstanceAction::Start, false)
+                    } else {
+                        Step::Done
+                    }
+                }
+                Some(p) if p.iter().any(|x| x == "storage") => Step::Reject(format!(
+                    "instance {project}/{name}: its volumes differ from the design's, which a rebuild cannot change"
+                )),
+                // Graceful: the guest is asked to shut down, so data reaches its volumes.
+                _ if s.status != "Stopped" => Step::Change(InstanceAction::Stop, false),
+                Some(p) if !p.iter().any(|x| x == "image") => Step::Settings,
+                _ => Step::Rebuild,
+            }
+        }
         (Goal::Limits(..), None) => {
             Step::Reject(format!("instance {project}/{name} does not exist"))
         }
@@ -273,7 +314,9 @@ pub fn safe_point(goal: &Goal, step: &Step) -> Option<&'static str> {
         (_, Step::Change(InstanceAction::Restart, _)) => Some("restarting"),
         (_, Step::Delete) => Some("deleting"),
         (_, Step::Limits) => Some("resizing"),
-        (_, Step::Create | Step::Volumes) => None,
+        (_, Step::Rebuild) => Some("rebuilding"),
+        // Right after a rebuild, before its settings: always finished.
+        (_, Step::Create | Step::Volumes | Step::Settings) => None,
     }
 }
 
@@ -445,6 +488,41 @@ async fn converge(
                 provider.change_state(project, name, action, force).await?
             }
             Step::Delete => provider.delete_instance(project, name).await?,
+            Step::Rebuild | Step::Settings => {
+                let (Goal::Rebuilt(spec), Some(now)) = (goal, now.as_ref()) else {
+                    unreachable!("a rebuild is only decided for an existing instance")
+                };
+                if step == Step::Rebuild {
+                    let op = provider.rebuild_instance(spec).await?;
+                    record_operation(pool, job, worker, Some(&op)).await?;
+                    tracing::info!(job = %job.id, operation = %op, instance = %format!("{project}/{name}"), "rebuilding from the design's image");
+                    match provider.wait_operation(&op, OPERATION_BUDGET).await? {
+                        OperationOutcome::Succeeded => {
+                            record_operation(pool, job, worker, None).await?
+                        }
+                        OperationOutcome::Failed(e) => {
+                            record_operation(pool, job, worker, None).await?;
+                            return Err(Failure::Retry(format!(
+                                "Incus could not rebuild {project}/{name}: {e}"
+                            )));
+                        }
+                        OperationOutcome::StillRunning => {
+                            return Ok(Outcome::Failed(format!(
+                                "Incus operation {op} is still running"
+                            )));
+                        }
+                    }
+                }
+                // What it is built from is written last, so an interrupted rebuild is redone.
+                let patch = apelora_domain::plan::settings_patch(&now.settings, spec);
+                match provider
+                    .apply_settings(project, name, &patch, &spec.profiles)
+                    .await?
+                {
+                    Some(op) => op,
+                    None => continue,
+                }
+            }
             Step::Limits => {
                 let Goal::Limits(_, wanted) = goal else {
                     unreachable!("limits are only decided for a Limits goal")
@@ -524,7 +602,62 @@ mod tests {
             kind: apelora_domain::InstanceKind::Container,
             stateful: false,
             limits: Default::default(),
+            built_from: None,
+            settings: Default::default(),
         })
+    }
+
+    #[test]
+    fn a_rebuild_stops_rebuilds_or_only_resets_settings_then_starts_by_what_it_was_built_from() {
+        let Goal::Exists(want) = spec(true) else {
+            unreachable!()
+        };
+        let goal = Goal::Rebuilt(want.clone());
+        let fp = apelora_domain::plan::spec_fingerprint(&want);
+        let built = |status: &str, from: &str| {
+            st(status, true).map(|s| InstanceState {
+                built_from: Some(from.to_owned()),
+                ..s
+            })
+        };
+        let other_image = fp.replacen("image=", "image=0", 1);
+        let other_settings = fp.replacen("settings=", "settings=0", 1);
+        let other_storage = fp.replacen("storage=", "storage=0", 1);
+        assert_eq!(
+            next_step(&goal, built("Running", &other_image).as_ref()),
+            Step::Change(InstanceAction::Stop, false),
+            "stopped gracefully first"
+        );
+        assert_eq!(
+            next_step(&goal, built("Stopped", &other_image).as_ref()),
+            Step::Rebuild
+        );
+        assert_eq!(
+            next_step(&goal, built("Stopped", &other_settings).as_ref()),
+            Step::Settings,
+            "the same image: only its settings"
+        );
+        assert_eq!(
+            next_step(&goal, st("Stopped", true).as_ref()),
+            Step::Rebuild,
+            "nothing recorded: rebuilt"
+        );
+        assert!(matches!(
+            next_step(&goal, built("Stopped", &other_storage).as_ref()),
+            Step::Reject(m) if m.contains("volumes differ")
+        ));
+        assert_eq!(
+            next_step(&goal, built("Stopped", &fp).as_ref()),
+            Step::Change(InstanceAction::Start, false)
+        );
+        assert_eq!(next_step(&goal, built("Running", &fp).as_ref()), Step::Done);
+        assert!(matches!(next_step(&goal, None), Step::Reject(_)));
+        assert!(matches!(
+            next_step(&goal, st("Running", false).as_ref()),
+            Step::Reject(m) if m.contains("not created by Apelora")
+        ));
+        assert_eq!(safe_point(&goal, &Step::Rebuild), Some("rebuilding"));
+        assert_eq!(safe_point(&goal, &Step::Settings), None);
     }
 
     const FP: &str = "aa11bb22cc33dd44ee55ff6600778899aabbccddeeff00112233445566778899";

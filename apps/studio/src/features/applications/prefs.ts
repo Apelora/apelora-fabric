@@ -33,5 +33,5 @@ export function savePrefs(p: Prefs): void {
 }
 
 /** Order for sorting by status: things that need attention first. */
-export const STATUS_ORDER: Record<DeploymentStatus, number> = { failed: 0, degraded: 1, unknown: 2, starting: 3, stopping: 4, migrating: 4, running: 5, stopped: 6, "not-deployed": 7 };
+export const STATUS_ORDER: Record<DeploymentStatus, number> = { failed: 0, degraded: 1, unknown: 2, starting: 3, stopping: 4, migrating: 4, updating: 4, running: 5, stopped: 6, "not-deployed": 7 };
 export const DESIGN_ORDER: Record<DesignStatus, number> = { draft: 0, validated: 1, published: 2 };

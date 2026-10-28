@@ -1,6 +1,6 @@
 import { trimHyphens } from "./ops";
 import { effectiveValue, validateProperty } from "./config";
-import type { ModuleClass, ModuleInstance, ApplicationAssembly, Availability, GuestOs, InternetAccess, OciImage, Resources, Readiness, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
+import type { ModuleClass, ModuleInstance, ApplicationAssembly, Property, Availability, GuestOs, InternetAccess, OciImage, Resources, Readiness, Runtime, SystemImage, Volume, VolumeClass } from "./schema";
 
 /**
  * Body of the control plane's "create instance" request (`InstanceSpec` in the API). Kept
@@ -33,11 +33,102 @@ export function resourceLimits(kind: InstanceRequest["kind"], r: Resources): Rec
   return limits;
 }
 
+/** `{setting}` or `{setting:yes|no}` in a command word or an environment value. */
+const PLACEHOLDER = /\{([a-z][a-z0-9_-]*)(?::([A-Za-z0-9_.-]*)\|([A-Za-z0-9_.-]*))?\}/g;
+/** What a choice may be to appear in a command: it can never become a second word. */
+const SAFE_CHOICE = /^[A-Za-z0-9_.-]+$/;
+/** Environment names Apelora sets itself. */
+const RESERVED_ENVIRONMENT = ["APELORA_", "SETUP_", "SECRET_"];
+
+const placeholders = (text: string) => [...text.matchAll(PLACEHOLDER)].map((m) => ({ id: m[1]!, yes: m[2], no: m[3], onOff: m[2] !== undefined }));
+
+/** Problems with the settings an OCI runtime puts into its command and environment. */
+function settingProblems(cls: ModuleClass): string[] {
+  const rt = cls.runtime;
+  if (rt?.kind !== "incus-oci-container") return [];
+  const out: string[] = [];
+  const prop = (id: string) => cls.properties?.find((p) => p.id === id);
+  for (const word of rt.command ?? []) {
+    for (const ph of placeholders(word)) {
+      const p = prop(ph.id);
+      if (!p) { out.push(`${cls.id}: the command uses {${ph.id}}, which is not a setting`); continue; }
+      if (p.type === "bool" ? !ph.onOff : ph.onOff) out.push(`${cls.id}: {${ph.id}} must ${p.type === "bool" ? "say what yes and no become ({id:yes|no})" : "not use the yes|no form"}`);
+      if (!["int", "enum", "bool"].includes(p.type)) out.push(`${cls.id}: {${ph.id}} is ${p.type}; only number, choice and on/off settings may go into the command`);
+      if (p.default === undefined) out.push(`${cls.id}: {${ph.id}} needs a default, so the command always has its value`);
+      if (p.type === "enum" && (p.options ?? []).some((o) => !SAFE_CHOICE.test(o))) out.push(`${cls.id}: a choice of {${ph.id}} has characters a command cannot carry safely`);
+    }
+  }
+  for (const [name, value] of Object.entries(rt.environment ?? {})) {
+    if (RESERVED_ENVIRONMENT.some((r) => name.startsWith(r))) out.push(`${cls.id}: environment ${name} is reserved for Apelora`);
+    for (const ph of placeholders(value)) {
+      const p = prop(ph.id);
+      if (!p) out.push(`${cls.id}: environment ${name} uses {${ph.id}}, which is not a setting`);
+      else if (p.type === "secret") out.push(`${cls.id}: environment ${name} cannot carry the secret reference {${ph.id}}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The settings that change what runs: the one that picks the image, and those the command or
+ * the environment carries. Every other setting of a deployable class is kept in the design only;
+ * one asked when the application is deployed still reaches the instance as its `SETUP_*` or
+ * `SECRET_*` variable (`setupVariable`), which the image may not read.
+ */
+export function appliedSettings(cls: ModuleClass | undefined): Set<string> {
+  const rt = cls?.runtime;
+  const out = new Set<string>();
+  if (!rt) return out;
+  if (rt.imageBy) out.add(rt.imageBy.property);
+  if (rt.kind === "incus-oci-container") {
+    for (const text of [...(rt.command ?? []), ...Object.values(rt.environment ?? {})]) for (const ph of placeholders(text)) out.add(ph.id);
+  }
+  return out;
+}
+
+/** A command word or environment value with the module's settings filled in, or why not. */
+function fill(cls: ModuleClass, text: string, config: ModuleInstance["config"]): { ok: true; text: string } | { ok: false; error: string } {
+  let error: string | null = null;
+  const filled = text.replace(PLACEHOLDER, (_m, id: string, yes?: string, no?: string) => {
+    const p = cls.properties?.find((x) => x.id === id);
+    const value = p ? effectiveValue(p, config) : undefined;
+    const problem = p ? validateProperty(p, value) : null;
+    if (!p || problem) { error ??= `${cls.displayName}: ${problem?.message ?? `no setting ${id}`}`; return ""; }
+    if (yes !== undefined) return value === true ? yes : (no ?? "");
+    return value === undefined ? "" : String(value);
+  });
+  return error ? { ok: false, error } : { ok: true, text: filled };
+}
+
+/** Incus config for an OCI runtime's command (`oci.entrypoint`) and environment, from the module's settings. */
+function settingsConfig(cls: ModuleClass, config: ModuleInstance["config"]): { ok: true; config: Record<string, string> } | { ok: false; error: string } {
+  const rt = cls.runtime;
+  if (rt?.kind !== "incus-oci-container") return { ok: true, config: {} };
+  const out: Record<string, string> = {};
+  if (rt.command) {
+    const words: string[] = [];
+    for (const w of rt.command) {
+      const f = fill(cls, w, config);
+      if (!f.ok) return f;
+      if (f.text !== "") words.push(f.text);
+    }
+    out["oci.entrypoint"] = words.join(" ");
+  }
+  for (const [name, value] of Object.entries(rt.environment ?? {})) {
+    const f = fill(cls, value, config);
+    if (!f.ok) return f;
+    if (f.text !== "") out[`environment.${name}`] = f.text;
+  }
+  return { ok: true, config: out };
+}
+
 /** Problems with a class's runtime definition (empty when it is sound or design-only). */
 export function runtimeProblems(cls: ModuleClass): string[] {
   const rt = cls.runtime;
   if (!rt) return [];
   if (!rt.image === !rt.imageBy) return [`${cls.id}: runtime needs exactly one of image and imageBy`];
+  const settings = settingProblems(cls);
+  if (settings.length) return settings;
   if (!rt.imageBy) return [];
   const prop = cls.properties?.find((p) => p.id === rt.imageBy?.property);
   if (!prop || prop.type !== "enum" || !prop.options?.length) {
@@ -91,6 +182,8 @@ export function instanceRequestFor(
   if (module.liveMigration && volumes.length) {
     return { ok: false, error: `${cls.displayName} keeps volumes on its server's own pool, which cannot follow it while it runs: turn live migration off or remove the volumes` };
   }
+  const settings = settingsConfig(cls, module.config);
+  if (!settings.ok) return settings;
   return {
     ok: true,
     request: {
@@ -107,6 +200,7 @@ export function instanceRequestFor(
         // Moves while running, also when its server is evacuated (docs/design/mobility-and-ha.md).
         ...(module.liveMigration ? { "migration.stateful": "true", "cluster.evacuate": "live-migrate" } : {}),
         ...setupEnvironment(cls, module.config),
+        ...settings.config,
       },
       ...(volumes.length ? { volumes: volumes.map((v) => ({ name: v.name, sizeMib: v.sizeMiB, path: v.path, ...(v.class === "data-replicated" ? { class: v.class } : {}) })) } : {}),
     },
@@ -140,10 +234,13 @@ export function setupEnvironment(cls: ModuleClass, config: ModuleInstance["confi
     if (value === undefined || value === "" || validateProperty(prop, value)) continue;
     const token = setupToken(prop.id);
     if (!token) continue;
-    out[prop.type === "secret" ? `environment.SECRET_${token}` : `environment.SETUP_${token}`] = String(value);
+    out[`environment.${setupVariable(prop)}`] = String(value);
   }
   return out;
 }
+
+/** The environment variable a deploy-time setting reaches the instance as, e.g. `SETUP_SERVER_NAME`. */
+export const setupVariable = (prop: Pick<Property, "id" | "type">): string => `${prop.type === "secret" ? "SECRET" : "SETUP"}_${setupToken(prop.id)}`;
 
 /** Applies answers from the deploy step onto a copy of the design. Empty answers leave the design unchanged. */
 export function withSetup(

@@ -87,7 +87,8 @@ pub struct AlertItem {
     pub clearing_since: Option<String>,
     pub acknowledged: Option<AlertAcknowledgement>,
     pub silenced_by: Option<AlertSilencedBy>,
-    /// The runbook section, relative to `docs/runbooks/`.
+    /// Where the operator runbooks explain this alert: a page and section, e.g.
+    /// `alerts.md#jobs-are-failing`.
     pub runbook: String,
 }
 

@@ -20,7 +20,7 @@ An operator needs one place that answers "is Apelora working, and if not, which 
 - *Actively probing identity providers on each refresh.* The page reports the control plane's own last result (it retries unreachable providers every minute), so a refresh never sends traffic to the provider.
 - *Reserving capacity.* Incus does not reserve CPU or memory for limits, so "fits" is advice, never a promise; the deploy itself decides.
 
-**Users and scale.** A handful of operators per installation; 1–20 servers today, ~100 later. A refresh every 20 s per open page.
+**Users and scale.** A handful of operators per installation; 1–20 servers today, ~100 later. A refresh every 20 s per open Health page, and every 60 s for the Studio's capacity chip.
 
 **Constraints.** Incus only through its REST API (read-only GETs here); every number comes from Incus, PostgreSQL or the services; mock data is labelled; names are original.
 
@@ -58,6 +58,25 @@ The rule for every row: **state in words** (Healthy, Degraded, Down, Unknown, No
 **Data model.** Migration `0016_worker_heartbeats.sql`: `worker_heartbeats (id text primary key, host, version, started_at, last_seen, stopped_at)`. The worker writes it at start, every 15 s from its own task (so a long job does not make it look dead), and marks `stopped_at` on a clean shutdown. Rows unseen for a day are deleted at worker start.
 
 **Incus reads (all GET).** Per member: `/1.0/resources?target=<m>` (CPU threads, memory total/used) and `/1.0/cluster/members/<m>/state` (load averages, uptime, per-pool space). A standalone server: `/1.0/resources` and `/1.0/storage-pools/<p>/resources`. Each member is read concurrently with a 5 s budget; an offline member's resources are "unavailable" with the reason, never zero. The restricted deploy identity can read these (REAL INCUS TESTED, see §5).
+
+Where the data comes from (each request reads its sources afresh; pages read only while visible):
+
+```mermaid
+flowchart LR
+  WK["Worker"]
+  DB[("PostgreSQL")]
+  INC["Incus REST API"]
+  CP["Control plane: states and warnings"]
+  HP["Console Health page, every 20 s"]
+  ST["Studio capacity chip, every 60 s"]
+  FIT["Fit, decided in the browser"]
+  WK -->|"heartbeat every 15 s"| DB
+  DB -->|"SELECT 1, schema, heartbeats, jobs"| CP
+  INC -->|"GET only, 5 s per member"| CP
+  CP -->|"health/components, health/servers"| HP
+  CP -->|"capacity"| ST
+  ST --> FIT
+```
 
 ## 4. Failure handling
 

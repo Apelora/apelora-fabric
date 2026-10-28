@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Run the install page's systemd units and NGINX example on one lab member (issue #17).
-# Uses release artefacts (default v0.1.0-alpha.3: control plane, worker, Studio and Console
+# Uses release artefacts (default v0.1.0-alpha.9: control plane, worker, Studio and Console
 # from the same commit, including GET /api/v1/sign-in) and a Lima VM standing in for a server.
 # Dry-run unless APPLY=1. Does not close #17: that needs a published release on a
 # production-like host. Certificates stay under /etc/apelora on the VM (ProtectHome=true).
@@ -15,7 +15,7 @@ set -euo pipefail
 
 APPLY=${APPLY:-0}
 STOP=${STOP:-0}
-TAG=${APELORA_INSTALL_TAG:-v0.1.0-alpha.3}
+TAG=${APELORA_INSTALL_TAG:-v0.1.0-alpha.9}
 ARCH=${APELORA_INSTALL_ARCH:-aarch64}
 VM=${APELORA_INSTALL_VM:-apelora-incus}
 DIR=${APELORA_TEST_DIR:-$HOME/.config/apelora/test-cluster}

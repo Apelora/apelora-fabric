@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InstanceSpec } from "@apelora/api-client";
-import { ModuleClassSchema, ModuleInstanceSchema, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, readinessOf, ReadinessSchema, restartsElsewhere, setReadiness, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
+import { ModuleClassSchema, ModuleInstanceSchema, appliedSettings, applicationName, deploymentModules, guestOsOf, instanceRequestFor, randomUid, resourceLimits, runtimeProblems, trimHyphens, setInternet, setLiveMigration, setReplicas, readinessOf, ReadinessSchema, restartsElsewhere, setReadiness, setVolumes, volumesOf, type ModuleClass } from "@apelora/assembly-model";
 import { MODULE_CLASSES, RUNTIMES, lookupClass, sampleCommerceStack } from "./index";
 
 const get = (id: string): ModuleClass => {
@@ -49,6 +49,44 @@ describe("runtimes", () => {
     expect(mainline.ok && mainline.request.source.alias).toContain("@sha256:bc4cad49");
     const debian = instanceRequestFor(get("debian"), { config: { version: "13" } }, { ...target, start: false });
     expect(debian.ok && debian.request).toMatchObject({ kind: "container", start: false, source: { protocol: "simplestreams", alias: "debian/13" } });
+  });
+
+  it("settings an OCI runtime declares become its command and environment", () => {
+    const valkey = get("valkey");
+    const plain = instanceRequestFor(valkey, {}, target);
+    expect(plain.ok && plain.request.config?.["oci.entrypoint"]).toBe("docker-entrypoint.sh valkey-server --maxmemory 512mb --maxmemory-policy allkeys-lru --appendonly no");
+    const tuned = instanceRequestFor(valkey, { config: { maxmemory: 2048, eviction: "noeviction", "append-only": true } }, target);
+    expect(tuned.ok && tuned.request.config?.["oci.entrypoint"]).toBe("docker-entrypoint.sh valkey-server --maxmemory 2048mb --maxmemory-policy noeviction --appendonly yes");
+    expect(tuned.ok && tuned.request.volumes).toEqual([{ name: "data", sizeMib: 1024, path: "/data" }]);
+    // A value the setting does not allow is refused, never passed on.
+    const tooBig = instanceRequestFor(valkey, { config: { maxmemory: 10_000_000 } }, target);
+    expect(tooBig.ok).toBe(false);
+    // Environment values take any setting except a secret reference.
+    const withEnv: ModuleClass = { ...valkey, runtime: { ...valkey.runtime!, kind: "incus-oci-container", environment: { MODE: "evict-{eviction}", PERSIST: "{append-only}" } } as ModuleClass["runtime"] };
+    const env = instanceRequestFor(withEnv, {}, target);
+    expect(env.ok && env.request.config).toMatchObject({ "environment.MODE": "evict-allkeys-lru", "environment.PERSIST": "false" });
+  });
+
+  it("a runtime cannot put free text, unknown settings or secrets where they could change the command", () => {
+    const valkey = get("valkey");
+    const oci = (extra: object): ModuleClass => ({ ...valkey, runtime: { ...valkey.runtime!, ...extra } as ModuleClass["runtime"] });
+    const withProp = (p: object, extra: object): ModuleClass => ({ ...oci(extra), properties: [...(valkey.properties ?? []), p as NonNullable<ModuleClass["properties"]>[number]] });
+    expect(runtimeProblems(oci({ command: ["valkey-server", "{nope}"] }))).toEqual([expect.stringContaining("not a setting")]);
+    expect(runtimeProblems(withProp({ id: "name", label: "Name", type: "string", required: false, default: "x" }, { command: ["run", "--name={name}"] }))).toEqual([expect.stringContaining("only number, choice and on/off")]);
+    expect(runtimeProblems(oci({ command: ["run", "{append-only}"] }))).toEqual([expect.stringContaining("say what yes and no become")]);
+    expect(runtimeProblems(withProp({ id: "mode", label: "Mode", type: "enum", required: true, default: "a", options: ["a", "b c"] }, { command: ["run", "{mode}"] }))).toEqual([expect.stringContaining("cannot carry safely")]);
+    expect(runtimeProblems(withProp({ id: "level", label: "Level", type: "int", required: false }, { command: ["run", "{level}"] }))).toEqual([expect.stringContaining("needs a default")]);
+    expect(runtimeProblems(oci({ environment: { SECRET_X: "y" } }))).toEqual([expect.stringContaining("reserved")]);
+    expect(runtimeProblems(oci({ environment: { PASSWORD: "{password-secret}" } }))).toEqual([expect.stringContaining("secret reference")]);
+    // The schema already refuses quotes and spaces in a command word.
+    expect(ModuleClassSchema.safeParse(oci({ command: ["sh", "-c", "rm -rf /"] })).success).toBe(false);
+  });
+
+  it("says which settings change what runs; the others stay in the design", () => {
+    // Its server name and certificate reach it as SETUP_/SECRET_ variables, which its image does not read.
+    expect([...appliedSettings(get("nginx"))]).toEqual(["channel"]);
+    expect([...appliedSettings(get("valkey"))].sort()).toEqual(["append-only", "eviction", "maxmemory"]);
+    expect(appliedSettings(get("postgresql")).size).toBe(0);
   });
 
   it("a module's own resources become Incus limits; a container's fraction of a CPU becomes a quota", () => {

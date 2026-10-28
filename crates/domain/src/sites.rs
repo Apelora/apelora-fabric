@@ -3,8 +3,8 @@
 //!
 //! An application stays in one sector. Surviving a site means a second deployment of that
 //! application in a sector of another site. Incus places instances inside the sector; this
-//! module only names the sector. It does not open a second Incus connection, move anything,
-//! or peer networks.
+//! module only names the sector and checks how other sectors are registered. It does not open
+//! an Incus connection, move anything, or peer networks.
 
 /// Enrolment warns at this many members in one sector (ADR 0008). This decision does not enrol.
 pub const MEMBER_WARN: u32 = 50;
@@ -168,6 +168,64 @@ fn enrolment_warning(sector: &Sector) -> Option<String> {
     })
 }
 
+/// Another Incus cluster Apelora is told about, besides the one it runs against (ADR 0008):
+/// reached at its own address with its own identity. Only what is not secret is stored; the
+/// identity's certificate and key and the cluster's certificate are files named by environment
+/// variables on the control plane ([`credential_vars`]), like Apelora's other Incus identities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SectorRegistration {
+    pub name: String,
+    pub site: String,
+    /// `https://host:port` of the sector's Incus API.
+    pub url: String,
+    /// Names the variables that hold the identity's files: `APELORA_SECTOR_<CREDENTIALS>_…`.
+    pub credentials: String,
+}
+
+/// Why a registration cannot be stored, or `None`.
+pub fn check_registration(r: &SectorRegistration) -> Option<String> {
+    if let Some(reason) = invalid_label("sector", &r.name) {
+        return Some(reason);
+    }
+    if let Some(reason) = invalid_label("site", &r.site) {
+        return Some(reason);
+    }
+    let authority = r
+        .url
+        .strip_prefix("https://")
+        .map(|rest| rest.strip_suffix('/').unwrap_or(rest))
+        .unwrap_or_default();
+    if authority.is_empty()
+        || authority.contains(['/', '?', '#', '@', ' '])
+        || authority.len() > 253
+    {
+        return Some(format!(
+            "url {:?} is not an Incus address like https://incus.site-b.example:8443",
+            r.url
+        ));
+    }
+    let c = r.credentials.as_bytes();
+    if c.is_empty()
+        || c.len() > 40
+        || !c
+            .iter()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || *b == b'_')
+    {
+        return Some(format!(
+            "credentials {:?} must be 1-40 capital letters, digits and '_' (it names APELORA_SECTOR_<CREDENTIALS>_CLIENT_CERT and the others)",
+            r.credentials
+        ));
+    }
+    None
+}
+
+/// Where the control plane finds a registered sector's identity: the client certificate, its key
+/// and the sector's server certificate, each a file path.
+pub fn credential_vars(credentials: &str) -> [String; 3] {
+    ["CLIENT_CERT", "CLIENT_KEY", "SERVER_CERT"]
+        .map(|f| format!("APELORA_SECTOR_{credentials}_{f}"))
+}
+
 /// Same shape as a metric place label (`apelora_metrics::valid_place_name`).
 fn invalid_label(kind: &str, value: &str) -> Option<String> {
     let bytes = value.as_bytes();
@@ -286,5 +344,63 @@ mod tests {
         let long = "a".repeat(64);
         let home = sector("west", &long, 1);
         assert!(!survival("north", &home, std::slice::from_ref(&home)).planned);
+    }
+
+    fn registration() -> SectorRegistration {
+        SectorRegistration {
+            name: "rack-b1".into(),
+            site: "site-b".into(),
+            url: "https://incus.site-b.example:8443".into(),
+            credentials: "SITE_B".into(),
+        }
+    }
+
+    #[test]
+    fn a_registration_names_its_sector_and_site_and_holds_no_secret() {
+        assert_eq!(check_registration(&registration()), None);
+        for bad in [
+            SectorRegistration {
+                name: "Rack B".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                site: String::new(),
+                ..registration()
+            },
+            SectorRegistration {
+                url: "http://incus.site-b.example:8443".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                url: "incus.site-b.example".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                url: "https://user@incus.example".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                url: "https://incus.example/1.0?x".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                credentials: "site-b".into(),
+                ..registration()
+            },
+            SectorRegistration {
+                credentials: "/etc/apelora/admin.key".into(),
+                ..registration()
+            },
+        ] {
+            assert!(check_registration(&bad).is_some(), "{bad:?}");
+        }
+        assert_eq!(
+            credential_vars("SITE_B"),
+            [
+                "APELORA_SECTOR_SITE_B_CLIENT_CERT",
+                "APELORA_SECTOR_SITE_B_CLIENT_KEY",
+                "APELORA_SECTOR_SITE_B_SERVER_CERT"
+            ]
+        );
     }
 }

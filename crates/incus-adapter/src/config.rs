@@ -72,6 +72,37 @@ pub fn admin_provider_from_env(
     }
 }
 
+/// A registered sector's Incus API (ADR 0008), with the identity whose files the
+/// `APELORA_SECTOR_<credentials>_*` variables name. With the mock provider every sector is a mock
+/// of its own, so a development control plane can show sectors without any cluster.
+pub fn sector_provider(
+    get: impl Fn(&str) -> Option<String>,
+    url: &str,
+    credentials: &str,
+    deploy: &Provider,
+) -> Result<Provider, String> {
+    if matches!(deploy, Provider::Mock(_)) {
+        return Ok(Provider::Mock(MockIncus::default()));
+    }
+    let [cert, key, server] = apelora_domain::sites::credential_vars(credentials);
+    let read = |k: &str| -> Result<Vec<u8>, String> {
+        let path = get(k)
+            .filter(|p| !p.trim().is_empty())
+            .ok_or_else(|| format!("{k} is not set on the control plane"))?;
+        std::fs::read(&path).map_err(|e| format!("{k}: cannot read {path}: {e}"))
+    };
+    let cfg = IncusConfig {
+        url: url.to_owned(),
+        client_cert_pem: read(&cert)?,
+        client_key_pem: read(&key)?,
+        server_cert_pem: read(&server)?,
+        tls_server_name: None,
+    };
+    IncusClient::mtls(&cfg)
+        .map(Provider::Incus)
+        .map_err(|e| e.to_string())
+}
+
 fn connect(
     get: &impl Fn(&str) -> Option<String>,
     url: String,
@@ -148,5 +179,32 @@ mod tests {
             err.contains("cannot read /nonexistent/apelora.pem"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn a_sector_needs_its_own_identity_files_unless_everything_is_mocked() {
+        let mock = Provider::Mock(MockIncus::default());
+        assert!(matches!(
+            sector_provider(|_| None, "https://b.example:8443", "SITE_B", &mock),
+            Ok(Provider::Mock(_))
+        ));
+        let real = Provider::Incus(crate::IncusClient::plain_for_tests("http://127.0.0.1:1"));
+        let err = sector_provider(|_| None, "https://b.example:8443", "SITE_B", &real)
+            .expect_err("no files");
+        assert!(
+            err.contains("APELORA_SECTOR_SITE_B_CLIENT_CERT is not set"),
+            "{err}"
+        );
+        let err = sector_provider(
+            |k| {
+                k.starts_with("APELORA_SECTOR_SITE_B_")
+                    .then(|| "/nonexistent/x.pem".to_owned())
+            },
+            "https://b.example:8443",
+            "SITE_B",
+            &real,
+        )
+        .expect_err("unreadable");
+        assert!(err.contains("cannot read /nonexistent/x.pem"), "{err}");
     }
 }

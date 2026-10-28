@@ -126,6 +126,26 @@ export async function followJob(
   }
 }
 
+/**
+ * Follows an application operation (start, stop, a rolling update, …) until it is final,
+ * reporting every poll; like [`followJob`], it stops watching after `timeoutMs`.
+ */
+export async function followOperation(
+  client: ApiClient,
+  application: string,
+  id: string,
+  onUpdate: (op: Responses["application_operation"]) => void,
+  { timeoutMs = 30 * 60_000, intervalMs = 1500 }: { timeoutMs?: number; intervalMs?: number } = {},
+): Promise<Responses["application_operation"]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const op = await client.request("application_operation", { params: { name: application, id } });
+    onUpdate(op);
+    if (FINAL_JOB_STATES.has(op.state) || Date.now() > deadline) return op;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 /** A random key, so a retried click never queues the same change twice. */
 export const newIdempotencyKey = (): string =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;

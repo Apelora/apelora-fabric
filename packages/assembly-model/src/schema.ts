@@ -232,6 +232,18 @@ export const OciImageSchema = z.object({
   version: z.string().max(40).optional(),
 });
 
+/**
+ * One word of the command an OCI image starts with: literal text and `{setting}` placeholders,
+ * replaced by the module's value of that setting (`{setting:yes|no}` for an on/off setting).
+ * Literal text has no spaces, quotes or shell characters, and only number, choice and on/off
+ * settings may appear (`runtimeProblems`), so a value never becomes another word: Incus splits
+ * the command like a shell would.
+ */
+export const COMMAND_WORD = /^(?:[A-Za-z0-9_./:=,@+%-]|\{[a-z][a-z0-9_-]*(?::[A-Za-z0-9_.-]*\|[A-Za-z0-9_.-]*)?\})+$/;
+const command = z.array(z.string().min(1).max(200).regex(COMMAND_WORD, "a command word: letters, digits, _./:=,@+%- and {setting} placeholders")).min(1).max(64).optional();
+/** Environment variables set from settings: NAME → text with `{setting}` placeholders. */
+const environment = z.record(z.string().regex(/^[A-Z_][A-Z0-9_]{0,127}$/, "an environment variable name"), z.string().max(1024)).optional();
+
 /** Picks the image from the value of one of the class's enum properties (e.g. its version). */
 const imageBy = <T extends z.ZodType>(image: T) =>
   z.object({ property: z.string().min(1).max(48), images: z.record(z.string(), image) });
@@ -260,7 +272,7 @@ const volumes = volumeList.optional();
 export const RuntimeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("incus-system-container"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, volumes, readiness: ReadinessSchema.optional() }),
   z.object({ kind: z.literal("incus-vm"), image: SystemImageSchema.optional(), imageBy: imageBy(SystemImageSchema).optional(), availability, guestOs: z.enum(GUEST_OS).optional(), volumes, readiness: ReadinessSchema.optional() }),
-  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes, readiness: ReadinessSchema.optional() }),
+  z.object({ kind: z.literal("incus-oci-container"), image: OciImageSchema.optional(), imageBy: imageBy(OciImageSchema).optional(), availability, volumes, readiness: ReadinessSchema.optional(), command, environment }),
 ]);
 
 /**

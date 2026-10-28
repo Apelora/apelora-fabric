@@ -15,6 +15,32 @@ Values you choose are written as variables, for example `$DB_HOST`. Nothing here
 
 Apelora is not in the data path: running instances keep running if the control plane, the worker or the database is down ([the control plane or the worker is down](../runbooks/api-outage.md)).
 
+How the parts connect once this page is done:
+
+```mermaid
+flowchart LR
+  B["Browser"]
+  subgraph WEB["Web server, HTTPS"]
+    F["Studio and Console files"]
+    P["Proxy for /api/"]
+  end
+  CP["Control plane"]
+  WK["Worker, one or more"]
+  DB[("PostgreSQL")]
+  subgraph IC["Incus cluster"]
+    M["Members: REST API and instances"]
+    OVN["OVN"]
+  end
+  B -->|"static files"| F
+  B -->|"/api/ requests"| P
+  P -->|"loopback, or a declared proxy"| CP
+  CP -->|"records, jobs"| DB
+  WK -->|"jobs, heartbeats"| DB
+  CP -->|"TLS: deploy and admin identities"| M
+  WK -->|"TLS: deploy identity only"| M
+  M -.-|"with APELORA_NETWORK_UPLINK"| OVN
+```
+
 ## 1. PostgreSQL
 
 Create a role and a database for Apelora on any PostgreSQL server that the control plane and the worker can reach. Development uses the version in `infra/dev/compose.yaml`. Both services create and upgrade the schema whenever they connect, so the role needs the right to create tables in its own database.

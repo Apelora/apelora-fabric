@@ -5,8 +5,8 @@ import { ApiRequestError, type ActionState, type OperationDto, type OperationKin
 import { client, idempotencyKey, messageOf } from "../lib/api";
 import { ConfirmDialog } from "./ui";
 
-const PRESENT: Record<OperationKind, string> = { start: "Starting", stop: "Stopping", shutdown: "Shutting down", restart: "Restarting", migrate: "Migrating" };
-const PAST: Record<OperationKind, string> = { start: "Started", stop: "Stopped", shutdown: "Shut down", restart: "Restarted", migrate: "Migrated" };
+const PRESENT: Record<OperationKind, string> = { start: "Starting", stop: "Stopping", shutdown: "Shutting down", restart: "Restarting", migrate: "Migrating", update: "Updating" };
+const PAST: Record<OperationKind, string> = { start: "Started", stop: "Stopped", shutdown: "Shut down", restart: "Restarted", migrate: "Migrated", update: "Updated" };
 /** What each button is called, and what its dialog says. An older control plane has no `shutdown`: its `stop` is the graceful one. */
 const LABEL: Record<string, string> = { start: "Start", restart: "Restart", shutdown: "Shut down", stop: "Stop" };
 const WHAT: Partial<Record<OperationKind, string>> = {

@@ -202,6 +202,7 @@ mod tests {
             evacuate: None,
             unreachable: false,
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         }
     }

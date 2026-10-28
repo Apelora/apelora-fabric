@@ -528,6 +528,28 @@
                       "command"
                     ],
                     "additionalProperties": false
+                  },
+                  "command": {
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^(?:[A-Za-z0-9_./:=,@+%-]|\\{[a-z][a-z0-9_-]*(?::[A-Za-z0-9_.-]*\\|[A-Za-z0-9_.-]*)?\\})+$"
+                    }
+                  },
+                  "environment": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "pattern": "^[A-Z_][A-Z0-9_]{0,127}$"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 1024
+                    }
                   }
                 },
                 "required": [

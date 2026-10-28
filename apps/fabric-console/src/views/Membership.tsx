@@ -35,8 +35,8 @@ export function EvacuateDialog({ member, onClose, onStarted }: { member: string 
     setBusy(true);
     setError(null);
     try {
-      await client.request("evacuate_member", { params: { member }, body: { confirm: typed } });
-      onStarted(`Evacuating ${member}: Incus is moving or stopping its instances. Restore the member when maintenance is done.`);
+      const started = await client.request("evacuate_member", { params: { member }, body: { confirm: typed } });
+      onStarted(`Evacuating ${member}: Incus is moving or stopping its instances. ${started.drain} Restore the member when maintenance is done.`);
     } catch (e) {
       setError(messageOf(e));
     } finally {
@@ -76,6 +76,7 @@ export function EvacuateDialog({ member, onClose, onStarted }: { member: string 
         </>
       )}
       {error && <ErrorPanel message={error} testId="evacuate-error" />}
+      {busy && <p className="text-sm text-base-content/70" role="status" data-testid="evacuate-draining">Taking its replicas out of their service addresses first, so no request goes to one that is about to move…</p>}
       <div className="modal-action mt-0">
         <button type="button" className="btn btn-sm btn-outline" onClick={onClose}>Cancel</button>
         <button type="button" className="btn btn-sm btn-ghost text-error" disabled={!plan || blocked || typed !== member || busy} onClick={() => void start()} data-testid="evacuate-start">

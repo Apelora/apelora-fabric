@@ -132,13 +132,17 @@ pub struct Instance {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unreachable: bool,
     /// The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`,
-    /// `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`].
+    /// `limits.memory`), as Incus reports them; no other keys.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub limits: std::collections::BTreeMap<String, String>,
     /// What the instance was built from ([`SPEC_KEY`], [`plan::spec_fingerprint`]); `None` for an
     /// instance created before Apelora recorded it. Read by the planner, not part of the API.
     #[serde(skip)]
     pub built_from: Option<String>,
+    /// The member it was moved away from when that member was evacuated
+    /// (`volatile.evacuate.origin`); restoring the member moves it back. Not part of the API.
+    #[serde(skip)]
+    pub evacuated_from: Option<String>,
 }
 
 /// Instance config key with what an instance was built from ([`plan::spec_fingerprint`]),
@@ -336,7 +340,8 @@ pub struct InstanceSpec {
     /// Start the instance once created.
     #[serde(default)]
     pub start: bool,
-    /// Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any.
+    /// Architectures the image is known to run on, as Incus names them (`x86_64`, `aarch64`, …);
+    /// empty allows any.
     /// Checked against the cluster before creating and against the instance Incus created.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub architectures: Vec<String>,
@@ -351,7 +356,7 @@ pub struct InstanceSpec {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes: Vec<storage::VolumeMount>,
     /// The pool of the root disk when it is not the one the project's profile gives: the shared
-    /// pool for a module that restarts on another member after a failure (ADR 0013). Set by the
+    /// pool for a module that restarts on another member after a failure. Set by the
     /// control plane from the module's volume classes, never by a caller.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_pool: Option<String>,
@@ -451,6 +456,12 @@ impl InstanceSpec {
         {
             return Err(format!("config key {k} is reserved for Apelora"));
         }
+        if self.config.contains_key("oci.entrypoint") && self.source.protocol != ImageProtocol::Oci
+        {
+            return Err(
+                "config key oci.entrypoint is only for an image from an OCI registry".into(),
+            );
+        }
         if let Some((k, v)) = self
             .config
             .iter()
@@ -459,7 +470,7 @@ impl InstanceSpec {
             return Err(format!(
                 "config key {k} (value {v:?}) is not one Apelora passes to Incus; a caller may set \
                  limits.cpu, limits.cpu.allowance, limits.memory, migration.stateful, \
-                 cluster.evacuate, environment.<NAME> and user.<key>"
+                 cluster.evacuate, oci.entrypoint, environment.<NAME> and user.<key>"
             ));
         }
         if let Some(v) = self.volumes.iter().find(|v| v.pool.is_some()) {
@@ -478,6 +489,22 @@ impl InstanceSpec {
     }
 }
 
+/// Whether `key` is one a design sets on its instances (the families
+/// [`caller_config_allowed`] accepts, without Apelora's own `user.apelora.*` labels): applying a
+/// design's settings to an existing instance sets these and removes the ones it no longer has.
+pub fn design_setting(key: &str) -> bool {
+    matches!(
+        key,
+        "limits.cpu"
+            | "limits.cpu.allowance"
+            | "limits.memory"
+            | "migration.stateful"
+            | "cluster.evacuate"
+            | "oci.entrypoint"
+    ) || key.starts_with("environment.")
+        || (key.starts_with("user.") && !key.starts_with("user.apelora."))
+}
+
 /// Whether a caller may put `key = value` into an instance's Incus config. An allow-list, so
 /// that a key which lets an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel
 /// limits) is refused by Apelora even when the project is not restricted (preflight only warns).
@@ -491,6 +518,9 @@ fn caller_config_allowed(key: &str, value: &str) -> bool {
         "limits.cpu" | "limits.cpu.allowance" | "limits.memory" => plain && value.len() <= 32,
         "migration.stateful" => matches!(value, "true" | "false"),
         "cluster.evacuate" => matches!(value, "auto" | "live-migrate" | "migrate" | "stop"),
+        // The command an OCI image starts with: it runs inside the container, as the image's own
+        // command would, so it reaches nothing the image could not.
+        "oci.entrypoint" => plain && !value.trim().is_empty(),
         _ => {
             if let Some(name) = key.strip_prefix("environment.") {
                 plain
@@ -821,6 +851,31 @@ mod tests {
             let err = with(&[(k, v)]).validate_from_caller().expect_err(k);
             assert!(err.contains(k), "{k}: {err}");
         }
+        // An OCI image's command with the module's settings as arguments; it runs inside the
+        // container, like the image's own command, and only for an OCI image.
+        let command = (
+            "oci.entrypoint",
+            "docker-entrypoint.sh valkey-server --maxmemory 512mb",
+        );
+        assert_eq!(with(&[command]).validate_from_caller(), Ok(()));
+        let system = InstanceSpec {
+            source: ImageSource {
+                protocol: ImageProtocol::Simplestreams,
+                ..spec().source
+            },
+            ..with(&[command])
+        };
+        assert!(
+            system
+                .validate_from_caller()
+                .expect_err("not OCI")
+                .contains("oci.entrypoint")
+        );
+        assert!(
+            with(&[("oci.entrypoint", "valkey-server\n--port 1")])
+                .validate_from_caller()
+                .is_err()
+        );
         // Apelora's own keys stay reserved.
         assert!(
             with(&[("environment.APELORA_SERVICE_DB", "10.0.0.1")])

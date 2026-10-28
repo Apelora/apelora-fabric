@@ -344,6 +344,18 @@ pub const SETTINGS: &[Setting] = &[
         "User terminal sessions run as",
     ),
     s(
+        "APELORA_MOCK_WORKER",
+        Cp,
+        None,
+        "1 runs the deployment worker inside the control plane on the mock cluster (development builds with the dev-worker feature only)",
+    ),
+    s(
+        "APELORA_DRAIN_WAIT_SECS",
+        Cp,
+        Some("30"),
+        "Seconds evacuating or restoring a member waits for its replicas to leave their service addresses; 0 skips it",
+    ),
+    s(
         "APELORA_CONSOLE_GID",
         Cp,
         Some("1000"),
@@ -372,6 +384,12 @@ pub const SETTINGS: &[Setting] = &[
         Cp,
         Some("disabled"),
         "enabled offers PowerShell",
+    ),
+    s(
+        "APELORA_RDP_GATEWAY",
+        Cp,
+        Some("disabled"),
+        "enabled offers remote desktop sessions into Windows modules through the control plane (the person runs apelora-desktop-tunnel; not yet verified against a Windows guest)",
     ),
     s(
         "APELORA_ALLOWED_ORIGINS",
@@ -450,6 +468,24 @@ pub const SETTINGS: &[Setting] = &[
         Worker,
         Some("60"),
         "Unhealthy for this long: restarted",
+    ),
+    s(
+        "APELORA_UPDATE_HEALTHY_SECS",
+        Worker,
+        Some("20"),
+        "A rolling update's new replica must pass its service's health check this long before the old one goes",
+    ),
+    s(
+        "APELORA_UPDATE_TIMEOUT_SECS",
+        Worker,
+        Some("300"),
+        "A new replica not healthy this long after it was created stops the rolling update; it is removed and the old replicas keep serving",
+    ),
+    s(
+        "APELORA_UPDATE_DRAIN_SECS",
+        Worker,
+        Some("5"),
+        "Seconds an old replica keeps running after it left its service address, for requests in flight to finish",
     ),
     s(
         "APELORA_FENCE_PROBE",
@@ -590,6 +626,20 @@ pub fn markdown() -> String {
             let _ = writeln!(out, "| `{}` | {default} | {what}{note} |", x.name);
         }
     }
+    out.push_str(
+        "\n## Named by other settings\n\n\
+         These variables have names an administrator chooses, so they are not listed above. Their values are \
+         secrets: read when needed, never stored, logged or shown.\n\n\
+         | Setting | Read by | What it does |\n|---|---|---|\n\
+         | `APELORA_ALERT_SECRET_<NAME>` | worker | The signing secret of an alert channel whose `secretRef` names it ([alerts runbook](../runbooks/alerts.md)) |\n\
+         | `APELORA_BMC_SECRET_<NAME>` | worker | The password of a BMC whose entry in `APELORA_BMC_MAP` names it as `secretRef` ([member-failure runbook](../runbooks/member-failure.md)) |\n\
+         | `APELORA_SECTOR_<CREDENTIALS>_CLIENT_CERT`, `_CLIENT_KEY`, `_SERVER_CERT` | control plane | Paths of the Incus identity and server certificate of a registered sector whose `credentials` names them ([ADR 0008](../adr/0008-sectors.md)); read when the sector is probed, never stored |\n\
+         \n## Read by the DNS resolver\n\n\
+         `apelora-dns` runs inside an application's resolver module, not on the servers.\n\n\
+         | Setting | Default | What it does |\n|---|---|---|\n\
+         | `APELORA_DNS_RECORDS_FILE` | `/etc/apelora-dns.records` | The service names it answers (`name address` lines), read again on every query |\n\
+         | `APELORA_DNS_UPSTREAM_FILE` | `/etc/apelora-dns.upstream` | The resolvers it forwards every other lookup to |\n",
+    );
     out
 }
 

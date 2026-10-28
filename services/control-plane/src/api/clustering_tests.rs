@@ -508,13 +508,33 @@ async fn an_upgrade_walks_evacuate_package_and_restore(pool: Pool) {
         .await;
     assert_eq!(st, StatusCode::ACCEPTED, "{r}");
     assert_eq!(r["next"], "upgraded");
+    // Still on the old release: recording the upgrade is refused and nothing moves on.
+    let upgraded = json!({ "action": "upgraded", "member": member, "confirm": member });
     let (st, r) = l
         .req(
             "POST",
             "/api/v1/cluster/upgrade",
             &token,
-            Some(json!({ "action": "upgraded", "member": member, "confirm": member })),
+            Some(upgraded.clone()),
         )
+        .await;
+    assert_eq!(
+        (st, r["error"]["code"].as_str()),
+        (StatusCode::CONFLICT, Some("not_upgraded")),
+        "{r}"
+    );
+    assert!(
+        r["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("still runs Incus 7.0.1")),
+        "{r}"
+    );
+    mock.member_versions
+        .lock()
+        .expect("lock")
+        .insert(member.clone(), super::admin::pinned_incus());
+    let (st, r) = l
+        .req("POST", "/api/v1/cluster/upgrade", &token, Some(upgraded))
         .await;
     assert_eq!(st, StatusCode::OK, "{r}");
     assert_eq!(r["next"], "restore");

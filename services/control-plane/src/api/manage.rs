@@ -283,9 +283,10 @@ fn action_states(
         return Actions::all(|| deny("deploy a published version first"));
     }
     match status {
-        DeploymentStatus::Starting | DeploymentStatus::Stopping | DeploymentStatus::Migrating => {
-            Actions::all(|| deny("an operation is in progress"))
-        }
+        DeploymentStatus::Starting
+        | DeploymentStatus::Stopping
+        | DeploymentStatus::Migrating
+        | DeploymentStatus::Updating => Actions::all(|| deny("an operation is in progress")),
         DeploymentStatus::Unknown => {
             Actions::all(|| deny("the control plane cannot observe this application right now"))
         }
@@ -923,7 +924,10 @@ pub(super) async fn put_draft(
             commit(tx).await?;
             Ok(Json(draft_dto(d)).into_response())
         }
-        Err(current) => Ok((StatusCode::CONFLICT, Json(json!({ "error": { "code": "draft_conflict", "message": format!("someone saved version {current} since you started from {}; nothing was overwritten", req.base_version.map_or("the beginning".to_owned(), |v| v.to_string())) }, "currentVersion": current }))).into_response()),
+        Err(current) => Ok((StatusCode::CONFLICT, Json(super::ErrorBody {
+            error: super::ErrorDetail { code: "draft_conflict".into(), message: format!("someone saved version {current} since you started from {}; nothing was overwritten", req.base_version.map_or("the beginning".to_owned(), |v| v.to_string())) },
+            current_version: Some(current),
+        })).into_response()),
     }
 }
 
@@ -1259,6 +1263,11 @@ pub(super) async fn operate(
     let (row, res) = load(&state, &p, &name).await?;
     allow(&p, "application.operate", &res)?;
     let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    if req.action == OperationKind::Update {
+        return Err(bad_request(
+            "an update is started by deploying a version whose image or settings changed",
+        ));
+    }
     let pool = store(&state)?;
     let conflict = |code: &'static str, msg: String| ApiError::new(StatusCode::CONFLICT, code, msg);
 
@@ -1355,6 +1364,7 @@ pub(super) async fn operate(
         OperationKind::Shutdown => &info.actions.shutdown,
         OperationKind::Restart => &info.actions.restart,
         OperationKind::Migrate => &info.actions.migrate,
+        OperationKind::Update => unreachable!("refused above"),
     };
     if !verdict.allowed {
         return Err(conflict(
@@ -1403,6 +1413,7 @@ pub(super) async fn operate(
                 OperationKind::Shutdown => "Shutting down",
                 OperationKind::Restart => "Restarting",
                 OperationKind::Migrate => "Migrating",
+                OperationKind::Update => "Updating",
             };
             return Err(conflict(
                 "confirmation_required",
@@ -1485,6 +1496,7 @@ pub(super) async fn operate(
             .as_ref()
             .map(|m| vec![json!({ "action": "migrate", "state": "pending", "steps": m.steps() })])
             .unwrap_or_default(),
+        OperationKind::Update => unreachable!("refused above"),
         OperationKind::Restart => {
             let mut v = phase("stop", layers(&modules, &connections, false), &up);
             // Everything that was running comes back, providers first.

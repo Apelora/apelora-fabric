@@ -216,7 +216,7 @@ export function InstancesView({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: s
   const [terminal, setTerminal] = useState<TerminalTarget | null>(null);
   const canDeploy = !!me?.permissions.includes("deploy");
   // Sessions go into Apelora's instances of an application; the control plane decides each one.
-  const canSession = holds(me, "instance.console");
+  const canSession = holds(me, "instance.console") || holds(me, "instance.desktop");
   const projects = me?.deployProjects ?? [];
 
   const track = (target: string, label: string, jobId: string) => {

@@ -308,6 +308,101 @@ fn committed_openapi_document_is_current() {
     );
 }
 
+#[test]
+fn every_timestamp_in_the_openapi_document_says_it_is_a_date_time() {
+    fn walk(v: &serde_json::Value, at: &str, missing: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(serde_json::Value::Object(props)) = m.get("properties") {
+                    for (name, p) in props {
+                        let string = p["type"] == "string"
+                            || p["type"]
+                                .as_array()
+                                .is_some_and(|t| t.contains(&"string".into()));
+                        if name.ends_with("At") && string && p["format"] != "date-time" {
+                            missing.push(format!("{at}.{name}"));
+                        }
+                    }
+                }
+                for (k, x) in m {
+                    walk(x, &format!("{at}/{k}"), missing);
+                }
+            }
+            serde_json::Value::Array(xs) => xs.iter().for_each(|x| walk(x, at, missing)),
+            _ => {}
+        }
+    }
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut missing = Vec::new();
+    walk(&doc, "", &mut missing);
+    assert!(missing.is_empty(), "without format date-time: {missing:?}");
+    assert_eq!(
+        doc["components"]["schemas"]["Job"]["properties"]["createdAt"]["format"],
+        "date-time"
+    );
+}
+
+#[test]
+fn api_descriptions_do_not_point_into_the_repository() {
+    fn walk(v: &serde_json::Value, found: &mut Vec<String>) {
+        match v {
+            serde_json::Value::Object(m) => {
+                if let Some(d) = m.get("description").and_then(|d| d.as_str())
+                    && ["ADR ", "docs/", "crates/", "[`"]
+                        .iter()
+                        .any(|internal| d.contains(internal))
+                {
+                    found.push(d.to_owned());
+                }
+                m.values().for_each(|x| walk(x, found));
+            }
+            serde_json::Value::Array(xs) => xs.iter().for_each(|x| walk(x, found)),
+            _ => {}
+        }
+    }
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut found = Vec::new();
+    walk(&doc, &mut found);
+    assert!(found.is_empty(), "{found:#?}");
+}
+
+#[test]
+fn every_operation_lists_the_refusals_any_request_can_get_and_every_error_says_what_it_means() {
+    let doc: serde_json::Value =
+        serde_json::from_str(&super::openapi_json()).expect("the document is JSON");
+    let mut problems = Vec::new();
+    for (path, item) in doc["paths"].as_object().expect("paths") {
+        for (method, op) in item.as_object().expect("path item") {
+            let r = &op["responses"];
+            let id = format!("{method} {path}");
+            if !r["429"].is_object() {
+                problems.push(format!("{id}: no 429"));
+            }
+            if !rate_limit::is_public_path(path) && !r["401"].is_object() {
+                problems.push(format!("{id}: no 401"));
+            }
+            for (status, resp) in r.as_object().expect("responses") {
+                if !status.starts_with('2')
+                    && resp["description"].as_str().is_none_or(str::is_empty)
+                {
+                    problems.push(format!("{id}: {status} has no description"));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+    assert!(
+        doc["paths"]["/api/v1/health"]["get"]["responses"]["401"].is_null(),
+        "a public route cannot answer 401"
+    );
+    assert!(
+        doc["paths"]["/api/v1/jobs"]["get"]["responses"]["429"]["headers"]["Retry-After"]
+            .is_object()
+    );
+}
+
 #[tokio::test]
 async fn openapi_document_is_public_and_lists_every_route() {
     let (status, doc, _) = call(
@@ -905,7 +1000,7 @@ fn long_lived_join_tokens_get_a_warning() {
     assert!(cluster_admin::lifetime_warnings("2026-10-20T00:30:00Z", now).is_empty());
     let w = cluster_admin::lifetime_warnings("2026-10-20T03:00:00.123456789+00:00", now);
     assert!(w[0].contains("cluster.join_token_expiry"), "{w:?}");
-    assert!(cluster_admin::lifetime_warnings("mock: never used", now).is_empty());
+    assert!(cluster_admin::lifetime_warnings("not a time", now).is_empty());
 }
 
 // ---- Administration ------------------------------------------------------------------------
@@ -1814,6 +1909,119 @@ async fn the_status_says_when_traffic_cannot_move_because_a_member_is_down(pool:
         Value::Null,
         "other failures are not this notice"
     );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn evacuating_takes_the_members_replicas_out_of_their_service_addresses_first(pool: Pool) {
+    use apelora_persistence::drains::active_drains;
+    let mock = Provider::Mock(MockIncus::default());
+    let state = AppState::new(mock.clone(), Auth::Tokens(pool.clone()))
+        .with_admin(Some(mock.clone()))
+        .with_drain_wait(std::time::Duration::from_secs(5));
+    let admin = apelora_persistence::create_token(&pool, "admin", "fabric-admin", None)
+        .await
+        .expect("token")
+        .0;
+    let spec: apelora_domain::InstanceSpec = serde_json::from_value(json!({
+        "project": "apelora", "name": "shop-web-01", "kind": "container", "start": true,
+        "source": { "protocol": "oci", "server": "https://docker.io", "alias": "library/nginx:1" },
+        "owner": { "application": "shop", "module": "web-01", "replica": 1 } }))
+    .expect("spec");
+    mock.create_instance(&spec).await.expect("create");
+    let member = mock
+        .instances()
+        .await
+        .expect("instances")
+        .into_iter()
+        .find(|i| i.name == "shop-web-01")
+        .expect("instance")
+        .location;
+    // Stands in for the worker: every sync the evacuation asks for succeeds.
+    let worker = {
+        let pool = pool.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Some(job) = apelora_persistence::claim_job(&pool, "test-worker", 30)
+                    .await
+                    .expect("claim")
+                {
+                    assert_eq!(job.kind, "network.resync");
+                    assert_eq!(job.payload, json!({ "application": "shop" }));
+                    apelora_persistence::complete_job(
+                        &pool,
+                        &job,
+                        "test-worker",
+                        &apelora_persistence::Outcome::Succeeded,
+                    )
+                    .await
+                    .expect("complete");
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+    };
+    let base = format!("/api/v1/cluster/members/{member}");
+    let confirm = Some(json!({ "confirm": member }));
+    let (status, started) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert_eq!(
+        started["drain"],
+        "Took 1 replica of 1 application out of their service addresses first; they serve again once moved."
+    );
+    let drains = active_drains(&pool).await.expect("drains");
+    assert_eq!(
+        drains
+            .iter()
+            .map(|d| (d.instance.as_str(), d.from_member.as_str()))
+            .collect::<Vec<_>>(),
+        [("shop-web-01", member.as_str())]
+    );
+    // Restoring starts what stayed on the member: its drains end.
+    let (status, restored) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/restore"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{restored}");
+    assert!(active_drains(&pool).await.expect("drains").is_empty());
+    // Without a worker the wait ends at its bound, says so, and the evacuation goes ahead.
+    worker.abort();
+    let state = state.with_drain_wait(std::time::Duration::from_secs(1));
+    let (status, started) = send(
+        state.clone(),
+        "POST",
+        &format!("{base}/evacuate"),
+        &admin,
+        confirm.clone(),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+    assert!(
+        started["drain"]
+            .as_str()
+            .is_some_and(|d| d.contains("did not finish within 1 s")),
+        "{started}"
+    );
+    let audited: Value = sqlx::query_scalar(
+        "SELECT detail FROM audit_events WHERE action = 'cluster.member.evacuate' ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("audit");
+    assert_eq!(audited["drain"], started["drain"]);
 }
 
 #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]

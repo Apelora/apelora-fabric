@@ -37,6 +37,7 @@ npm run dev              # Studio at http://127.0.0.1:5173
 npm run dev:console      # Fabric Console at http://127.0.0.1:5174 (proxies /api to 127.0.0.1:8080)
 DATABASE_URL= cargo run -p apelora-control-plane   # API at http://127.0.0.1:8080, mock provider, no sign-in (development only)
 cargo run -p apelora-control-plane   # same, with the dev database from .cargo/config.toml: sign-in required
+APELORA_MOCK_WORKER=1 cargo run -p apelora-control-plane --features dev-worker   # same, with the deployment worker inside it on the same mock cluster: deployments show their instances
 docker compose -f infra/dev/compose.yaml up -d   # PostgreSQL 18 on 127.0.0.1:15432 for Rust tests and the worker
 DATABASE_URL=… cargo run -p apelora-control-plane -- token create --name me --role fabric-admin   # API token (shown once)
 npm run api:generate   # after API changes: OpenAPI document + TypeScript client (packages/api-client)
@@ -88,7 +89,7 @@ bash scripts/test-cluster/ui-e2e.sh   # sign-in to deploy to traffic, through th
 | Security, licensing, agent tools | `security-review`, `identity-authorization`, `license-compliance`, `mcp-security` |
 | Identity, roles, scopes, approvals, audit | `identity-authorization`, `security-tenancy`, `rust-control-plane` |
 | Application management (drafts, versions, Start/Stop/Restart) | `application-lifecycle`, `studio-design-system`, `playwright-qa` |
-| Terminal and PowerShell into modules (built; RDP not built) | `secure-remote-access`, `identity-authorization`, `security-review` |
+| Terminal, PowerShell and remote desktop into modules (built; PowerShell and RDP unverified and off by default) | `secure-remote-access`, `identity-authorization`, `security-review` |
 | Mutation testing, strengthening tests | `mutation-testing`, `testing-operations`, `quality-assurance` |
 | Design work and scaling | `system-design-framework`, `capacity-estimation`, `scalability-patterns` |
 

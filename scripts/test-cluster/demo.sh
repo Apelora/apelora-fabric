@@ -3,13 +3,14 @@
 # End-to-end demonstration on the disposable test cluster (Phase 10): deploys an application
 # through the real control plane and worker, then checks, step by step, what the platform
 # promises — replicas apart, a service address, enforced connections, internet access,
-# a replica failing its health check, publishing, recovery from a failed member, evacuation —
-# and removes everything again.
+# a replica failing its health check, publishing, recovery from a failed member, evacuation,
+# a rolling update — and removes everything again.
 # Every check prints PASS or FAIL; the first FAIL stops the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (at least three members), the dev
 # PostgreSQL (infra/dev/compose.yaml) and jq. Mutates only the test cluster.
 #   bash scripts/test-cluster/demo.sh            # log in a new temporary directory
+#   DEMO_SETTLE_SECS=300 bash scripts/test-cluster/demo.sh   # watch the restored member longer (issue #51)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -49,6 +50,7 @@ evacuated=""
 cleanup() {
   set +e
   say "cleanup"
+  touch "$run/stop-watch"
   [ -n "$stopped_vm" ] && limactl start "$stopped_vm" >/dev/null 2>&1
   # Never leave a member evacuated: its uplink bridge is down until restore (TEST-CLUSTER.md).
   [ -n "$evacuated" ] && [ -s "$run/token" ] && api -X POST -d "{\"confirm\":\"$evacuated\"}" "$API/cluster/members/$evacuated/restore" >/dev/null && sleep 20
@@ -91,7 +93,7 @@ echo "$out" | tail -1 | tr -d '[:space:]' > "$run/token"
 echo "$out" | grep -o '^Created token [a-f0-9-]*' | awk '{print $3}' > "$run/token-id"
 export APELORA_NETWORK_UPLINK=incusbr0 APELORA_SERVICE_ADDRESSES=198.18.100.0/28 \
   APELORA_SUPERVISE_SECS=10 APELORA_RECOVER_AFTER_SECS=30 APELORA_HEALTH_RESTART_AFTER_SECS=30 \
-  RUST_LOG=info
+  RUST_LOG=${DEMO_RUST_LOG:-info}
 nohup "$repo/target/debug/apelora-control-plane" > "$run/control-plane.log" 2>&1 &
 nohup "$repo/target/debug/apelora-deployment-worker" > "$run/worker.log" 2>&1 &
 sleep 3
@@ -107,6 +109,7 @@ body=$(jq -n --arg nginx "$nginx" '{
     {module: "client-01", internet: "web", spec: {project: "", name: "", kind: "container", start: true,
       source: {protocol: "simplestreams", server: "https://images.linuxcontainers.org", alias: "debian/13"}}},
     {module: "web-01", replicas: 2, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
+      config: {"environment.DEMO_RELEASE": "1"},
       source: {protocol: "oci", server: "https://docker.io", alias: $nginx}}}],
   connections: [{from: "client-01", to: "web-01", transport: "tcp", port: 80}],
   published: [{module: "web-01", transport: "tcp", port: 80}]}')
@@ -162,11 +165,21 @@ for _ in $(seq 1 18); do sleep 5; [ "$(health_of "$sick")" = healthy ] && break;
 # --- Publishing (the outside network routes the address to the application's router) --
 router=$(incus_ network get "$APP" volatile.network.ipv4.address --project apelora)
 published=""
-for m in apelora-incus apelora-incus-2 apelora-incus-3; do
-  r=$(echo "ip route replace $svc/32 via $router dev incusbr0; curl -s -m 3 http://$svc/ | head -1; ip route del $svc/32 via $router dev incusbr0" | member "$m")
-  [ -n "$r" ] && published="$m" && break
+# Three rounds: on the lab a first attempt from every member sometimes gets no answer within
+# 3 s (seen twice in eight runs on 2026-10-26, cause not found); a real outage fails all three.
+for round in 1 2 3; do
+  for m in apelora-incus apelora-incus-2 apelora-incus-3; do
+    r=$(echo "ip route replace $svc/32 via $router dev incusbr0; curl -s -m 3 http://$svc/ | head -1; ip route del $svc/32 via $router dev incusbr0" | member "$m")
+    [ -n "$r" ] && published="$m" && break 2
+  done
+  sleep 5
 done
-[ -n "$published" ] && pass "published port reachable from outside (via $published, the network's gateway)" || fail "published port not reachable"
+if [ -z "$published" ]; then
+  for lb in $(incus_ query "/1.0/networks/$APP/load-balancers?project=apelora" | jq -r '.[] | split("/") | last'); do
+    say "load balancer $lb: $(incus_ query "/1.0/networks/$APP/load-balancers/$lb?project=apelora" | jq -c '{backends: [.backends[] | {(.name): .target_address}], ports: .ports, config}') state $(incus_ query "/1.0/networks/$APP/load-balancers/$lb/state?project=apelora" | jq -c '.backend_health')"
+  done
+fi
+[ -n "$published" ] && pass "published port reachable from outside (via $published, the network's gateway; round $round)" || fail "published port not reachable"
 
 # --- A member fails ---------------------------------------------------------------------
 victim=$(echo "$status" | jq -r --arg c "$(echo "$status" | jq -r '.items[] | select(.module=="client-01") | .location')" \
@@ -215,18 +228,107 @@ fi
 target=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.module=="web-01") | .location' | grep -v apelora-test-1 | head -1)
 preview=$(api "$API/cluster/members/$target/evacuation")
 [ "$(echo "$preview" | jq '.plan.blocked | length')" -eq 0 ] && pass "dry run for $target: $(echo "$preview" | jq -c '[.plan.items[] | [.instance, .impact]]')" || fail "evacuation blocked"
-api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/evacuate" >/dev/null
+# Requests go to the service address the whole time, from before the evacuation until the
+# replicas are back: Apelora takes a replica out of its service address before Incus moves it
+# (both ways), so requests no longer go to a replica that is stopping.
+# Start from a whole service: after the previous step the load balancer may still point at the
+# retired substitute until a refused sync goes through. Both backends must be online in OVN.
+lb_online() { incus_ query "/1.0/networks/$APP/load-balancers/$svc/state?project=apelora" | jq '[.backend_health // {} | to_entries[] | select([.value.ports[]?.status] | all(. == "online"))] | length'; }
+for _ in $(seq 1 36); do [ "$(lb_online)" -eq 2 ] && break; sleep 5; done
+[ "$(lb_online)" -eq 2 ] && pass "both web replicas are online behind the service address before the evacuation" || fail "the service was not whole before the evacuation"
+watch="$run/watch"; : > "$watch"
+( while [ ! -f "$run/stop-watch" ]; do echo "$(date +%T) $(probe "$svc")" >> "$watch"; done ) &
+watcher=$!
+# What the load balancer thinks of each backend meanwhile (for reading a failure afterwards).
+( while [ ! -f "$run/stop-watch" ]; do echo "$(date +%T) $(incus_ query "/1.0/networks/$APP/load-balancers/$svc/state?project=apelora" | jq -c '[.backend_health // {} | to_entries[] | {(.key): [.value.ports[]?.status]}] | add')" >> "$run/lb-state"; sleep 2; done ) &
+lbwatcher=$!
+sleep 3
+# The replica Incus moves away and back, and when the evacuation began (for the audit check).
+mover=$(api "$API/applications/$APP/status" | jq -r --arg m "$target" '.items[] | select(.module=="web-01" and .location==$m) | .instance' | head -1)
+evac_from=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+started=$(api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/evacuate")
 evacuated=$target
+say "evacuate: $(echo "$started" | jq -r .drain)"
+[[ $(echo "$started" | jq -r .drain) == Took* ]] && pass "the replicas on $target left their service address before Incus moved them" || fail "no drain before the evacuation: $started"
 for _ in $(seq 1 30); do sleep 5; [ "$(api "$API/cluster" | jq -r --arg m "$target" '.members[] | select(.name==$m) | .status')" = Evacuated ] && break; done
-# Apelora does not drain the member first yet (issue #50): the health check takes a stopped
-# replica out after two failed checks five seconds apart. Give it that long, then expect no failure.
-sleep 12
-out=$(probe "$svc"); say "service while $target is evacuated: $out"
-[[ $out != *FAIL* ]] && pass "service up during evacuation" || fail "service failed during evacuation"
-api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/restore" >/dev/null
+# The moved replica rejoins its service address at the next supervision pass (10 s here).
+sleep 20
+say "while $target is evacuated: $(incus_ list "$APP-web-01" --project apelora -f csv -c nsL4 | tr '\n' ' ')· backends $(incus_ query "/1.0/networks/$APP/load-balancers/$svc?project=apelora" | jq -c '[.backends[] | {(.name): .target_address}] | add')"
+restored=$(api -X POST -d "{\"confirm\":\"$target\"}" "$API/cluster/members/$target/restore")
+say "restore: $(echo "$restored" | jq -r .drain)"
+[[ $(echo "$restored" | jq -r .drain) == Took* ]] && pass "the replicas returning to $target left their service address before Incus moved them back" || fail "no drain before the restore: $restored"
 for _ in $(seq 1 30); do sleep 5; [ "$(api "$API/cluster" | jq -r --arg m "$target" '.members[] | select(.name==$m) | .status')" = Online ] && break; done
 evacuated=""
+# The returning replica rejoins once it runs on the member again; watch it serve for a while,
+# through the service address and at its own address from the client (issue #51: reachable from
+# its own member, where OVN's health check runs, but not from the others).
+settle=${DEMO_SETTLE_SECS:-30}
+own=""
+for _ in $(seq 1 12); do
+  own=$(incus_ list "$mover" --project apelora -f csv -c 4 | grep -o '^[0-9.]*' | head -1)
+  [ -n "$own" ] && break; sleep 5
+done
+client_at=$(api "$API/applications/$APP/status" | jq -r '.items[] | select(.module=="client-01") | .location')
+say "watching $mover at $own from the client on $client_at, and the service address, for $settle s"
+direct="$run/direct"; : > "$direct"
+if [ -n "$own" ]; then
+  ( while [ ! -f "$run/stop-direct" ]; do echo "$(date +%T) $(probe "$own")" >> "$direct"; done ) &
+  directwatcher=$!
+fi
+sleep "$settle"
+touch "$run/stop-watch" "$run/stop-direct"; wait "$watcher" "$lbwatcher" ${directwatcher:-} || true
+d_requests=$(( $(wc -w < "$direct") - $(wc -l < "$direct") )); d_failed=$({ grep -o FAIL "$direct" || true; } | wc -l | tr -d ' ')
+d_first=$({ grep FAIL "$direct" || true; } | head -1 | cut -d' ' -f1); d_last=$({ grep FAIL "$direct" || true; } | tail -1 | cut -d' ' -f1)
+say "$mover at its own address after the restore: $d_requests requests, $d_failed failed${d_first:+ (from $d_first to $d_last)}"
+{ echo "$mover at $own from the client on $client_at:"; cat "$direct"; } >> "$log"
+requests=$(( $(wc -w < "$watch") - $(wc -l < "$watch") )); failed=$({ grep -o FAIL "$watch" || true; } | wc -l | tr -d ' ')
+{ grep FAIL "$watch" || true; } | while read -r line; do say "a request failed at ${line%% *}"; done
+{ echo "load balancer backend health during the window:"; cat "$run/lb-state"; } >> "$log"
+say "service during the evacuation and the restore: $requests requests, $failed failed"
+# Draining removes the ten seconds in which a moving replica still got requests (issue #50).
+# What is left on the lab is a rare single request lost while OVN applies a change: allow one
+# in a thousand, and fail on anything more (a replica unreachable after it moved back, issue #51).
+[ "$requests" -ge 40 ] && [ $(( failed * 1000 )) -le "$requests" ] && pass "$failed of $requests requests failed while $target was evacuated and restored (at most one in a thousand)" || fail "$failed of $requests requests failed during the evacuation and the restore"
 pass "member restored"
+# Incus starts the replicas it moves; the supervisor must not start them as well (issue #52).
+moved_starts=$(api "$API/audit?action=application.replica.restart&from=$evac_from" | jq '.items | length')
+[ "$moved_starts" -eq 0 ] && pass "the supervisor left the moved replicas for Incus to start" || fail "the supervisor started $moved_starts replica(s) during the evacuation or the restore"
+
+# --- A rolling update (issue #48) --------------------------------------------------------
+# The same design with one setting changed: each web replica is replaced by a new one, which
+# must pass its service's health check before the old one leaves the service address and is
+# deleted. Requests go to the service address the whole time.
+for _ in $(seq 1 36); do [ "$(lb_online)" -eq 2 ] && break; sleep 5; done
+[ "$(lb_online)" -eq 2 ] && pass "both web replicas are online behind the service address before the update" || fail "the service was not whole before the update"
+rm -f "$run/stop-watch"; : > "$watch"
+( while [ ! -f "$run/stop-watch" ]; do echo "$(date +%T) $(probe "$svc")" >> "$watch"; done ) &
+watcher=$!
+sleep 3
+update_body=$(echo "$body" | jq '(.modules[] | select(.module == "web-01") | .spec.config["environment.DEMO_RELEASE"]) = "2"')
+res=$(api -X POST -H 'Idempotency-Key: demo-2' -d "$update_body" "$API/applications/$APP/deployments")
+say "plan: $(echo "$res" | jq -c '[.plan.items[] | [.instance, .action, (.outdated // [] | join("+"))]]')"
+op=$(echo "$res" | jq -r '.operation // empty')
+[ "$(echo "$res" | jq '[.plan.items[] | select(.action == "replace")] | length')" -eq 2 ] && [ -n "$op" ] \
+  && pass "both web replicas are planned for replacement, by one update operation" || fail "no rolling update: $res"
+t0=$(date +%s); ostate=""
+for _ in $(seq 1 120); do
+  ostate=$(api "$API/applications/$APP/operations/$op" | jq -r .state)
+  case "$ostate" in succeeded|failed|cancelled) break ;; esac
+  sleep 5
+done
+touch "$run/stop-watch"; wait "$watcher" || true
+oinfo=$(api "$API/applications/$APP/operations/$op")
+[ "$ostate" = succeeded ] && pass "the update replaced both replicas in $(( $(date +%s) - t0 )) s" || fail "the update ended $ostate: $(echo "$oinfo" | jq -r .error)"
+now_web=$(incus_ list "$APP-web-01" --project apelora -f csv -c n | sort | tr '\n' ' ')
+[ "$now_web" = "$APP-web-01-r2-u1 $APP-web-01-u1 " ] && pass "the replicas are now $now_web" || fail "replicas after the update: $now_web"
+release=$(incus_ config get "$APP-web-01-u1" environment.DEMO_RELEASE --project apelora)
+[ "$release" = 2 ] && pass "the new replicas run the design's setting (DEMO_RELEASE=2)" || fail "setting after the update: $release"
+requests=$(( $(wc -w < "$watch") - $(wc -l < "$watch") )); failed=$({ grep -o FAIL "$watch" || true; } | wc -l | tr -d ' ')
+{ grep FAIL "$watch" || true; } | while read -r line; do say "a request failed at ${line%% *}"; done
+[ "$requests" -ge 40 ] && [ $(( failed * 1000 )) -le "$requests" ] && pass "$failed of $requests requests failed during the update (at most one in a thousand)" || fail "$failed of $requests requests failed during the update"
+again=$(api -X POST -H 'Idempotency-Key: demo-3' -d "$update_body" "$API/applications/$APP/deployments")
+[ "$(echo "$again" | jq '[.plan.items[] | select(.action != "keep")] | length')" -eq 0 ] && [ "$(echo "$again" | jq -r '.operation // empty')" = "" ] \
+  && pass "deployed again unchanged: nothing is replaced" || fail "a second deployment still changes something: $(echo "$again" | jq -c .plan.items)"
 
 say "audit: $(api "$API/audit?limit=50" | jq -c '[.items[] | select(.actor=="supervisor" or .actor=="demo") | .action] | group_by(.) | map({(.[0]): length}) | add')"
 say "DEMONSTRATION PASSED"

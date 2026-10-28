@@ -91,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     apelora_incus_adapter::set_image_mirrors(mirrors.clone());
+    embedded_worker(&auth, &provider)?;
     let admin = apelora_incus_adapter::config::admin_provider_from_env(
         |k| std::env::var(k).ok(),
         &provider,
@@ -210,7 +211,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => None,
     };
+    let drain_wait = match std::env::var("APELORA_DRAIN_WAIT_SECS") {
+        Ok(v) if !v.trim().is_empty() => match v.trim().parse::<u64>() {
+            Ok(n) if n <= 600 => n,
+            _ => {
+                return Err(format!(
+                    "APELORA_DRAIN_WAIT_SECS: {v:?} is not a number of seconds from 0 to 600"
+                )
+                .into());
+            }
+        },
+        _ => api::DEFAULT_DRAIN_WAIT_SECS,
+    };
+    if drain_wait == 0 {
+        tracing::warn!(
+            "APELORA_DRAIN_WAIT_SECS=0: evacuating or restoring a member does not take its replicas out of their service addresses first"
+        );
+    }
     let state = api::AppState::new(provider, auth)
+        .with_drain_wait(std::time::Duration::from_secs(drain_wait))
         .with_deploy_fingerprint(deploy_fingerprint)
         .with_console(console)
         .with_oidc(oidc)
@@ -284,6 +303,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+/// Development only (`APELORA_MOCK_WORKER=1`, built with `--features dev-worker`): runs the
+/// deployment worker in this process on the same mock cluster, so instances and volumes the
+/// worker creates are the ones the API lists. A worker against Incus is always its own process.
+fn embedded_worker(
+    auth: &api::Auth,
+    provider: &apelora_incus_adapter::Provider,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var("APELORA_MOCK_WORKER").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+    #[cfg(feature = "dev-worker")]
+    {
+        if provider.mode() != apelora_domain::ProviderMode::Mock {
+            return Err("APELORA_MOCK_WORKER runs a worker inside the control plane only with the mock provider; run apelora-deployment-worker against Incus".into());
+        }
+        let api::Auth::Tokens(pool) = auth else {
+            return Err("APELORA_MOCK_WORKER needs DATABASE_URL: the worker reads its jobs from the database".into());
+        };
+        let (pool, provider) = (pool.clone(), provider.clone());
+        let worker = std::env::var("APELORA_WORKER_ID")
+            .unwrap_or_else(|_| format!("embedded-worker-{}", std::process::id()));
+        tracing::warn!(%worker, "a deployment worker runs inside the control plane on the mock cluster (development only)");
+        tokio::spawn(async move {
+            if let Err(e) =
+                apelora_deployment_worker::serve(pool, provider, worker, std::future::pending())
+                    .await
+            {
+                tracing::error!(error = %e, "the embedded worker stopped");
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(feature = "dev-worker"))]
+    {
+        let _ = (auth, provider);
+        Err("APELORA_MOCK_WORKER needs a control plane built with --features dev-worker".into())
+    }
 }
 
 /// Browser sign-in settings: the public client the Console and the Studio use

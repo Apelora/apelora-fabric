@@ -329,7 +329,7 @@ export function ApplicationsView({ me, onAuth }: { me?: WhoAmI | null; onAuth: (
   const [statuses, setStatuses] = useState<Statuses>({});
   const [open, setOpen] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalTarget | null>(null);
-  const canSession = holds(me ?? null, "instance.console");
+  const canSession = holds(me ?? null, "instance.console") || holds(me ?? null, "instance.desktop");
   const operations = useApplicationOperations(reload);
   useEffect(() => {
     if (list.kind !== "ok") return;

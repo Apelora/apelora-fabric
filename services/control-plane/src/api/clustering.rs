@@ -36,7 +36,7 @@ use super::{ApiError, AppState, ErrorBody, Principal, Source, require, source};
 const VERSION_BUDGET: Duration = Duration::from_secs(5);
 
 /// The site this process is connected to, and whether a second site could hold another
-/// deployment (ADR 0008). One connected site is not a plan.
+/// deployment. One connected site is not a plan.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteReport {
@@ -76,7 +76,8 @@ pub struct ClusterMembersReport {
     pub upgrade: Option<UpgradeView>,
 }
 
-/// One recorded power-off of a failed server (ADR 0014). No BMC address.
+/// One recorded power-off of a failed server through its baseboard management controller (BMC).
+/// The BMC's address is not included.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct PowerOff {
@@ -193,15 +194,20 @@ pub(super) async fn members(
         members: details,
         quorum,
         versions,
-        sites: site_report(info.clustered, members.len())?,
+        sites: site_report(&state, info.clustered, members.len()).await?,
         power_offs,
         rebalance,
         upgrade,
     }))
 }
 
-/// The one Incus this process can reach, counted as one sector. A second site is not invented.
-fn site_report(clustered: bool, member_count: usize) -> Result<SiteReport, ApiError> {
+/// The Incus this process runs against, counted as one sector, with every registered sector that
+/// answers now. A second site is not invented: an unreachable sector does not count.
+async fn site_report(
+    state: &AppState,
+    clustered: bool,
+    member_count: usize,
+) -> Result<SiteReport, ApiError> {
     let place =
         apelora_metrics::Place::from_env(|key| std::env::var(key).ok()).map_err(|message| {
             ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "invalid_place", message)
@@ -213,7 +219,17 @@ fn site_report(clustered: bool, member_count: usize) -> Result<SiteReport, ApiEr
         name: place.sector.clone(),
         members,
     };
-    let plan = apelora_domain::sites::survival(&place.region, &home, std::slice::from_ref(&home));
+    let mut sectors = vec![home.clone()];
+    for s in super::sectors::registered(state).await? {
+        if s.state == super::sectors::SectorState::Connected {
+            sectors.push(apelora_domain::sites::Sector {
+                site: s.site,
+                name: s.name,
+                members: s.members.unwrap_or(0),
+            });
+        }
+    }
+    let plan = apelora_domain::sites::survival(&place.region, &home, &sectors);
     Ok(SiteReport {
         region: plan.region,
         site: plan.site,
@@ -624,6 +640,18 @@ pub(super) async fn upgrade(
                 }
                 let provider = super::cluster_admin::admin(&state)?;
                 provider.member_state(&cmd.member, false).await?;
+            }
+            if cmd.action == "upgraded" {
+                let detail = details.iter().find(|d| d.name == cmd.member);
+                if let Some(why) =
+                    detail.and_then(|d| upgrade::not_upgraded(d, &super::admin::pinned_incus()))
+                {
+                    return Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        "not_upgraded",
+                        format!("nothing was recorded: {why}"),
+                    ));
+                }
             }
             if cmd.action == "restore" {
                 let provider = super::cluster_admin::admin(&state)?;

@@ -31,17 +31,34 @@ pub fn substitute_name(application: &str, module: &str, replica: u8, n: u8) -> S
     format!("{}-s{n}", replica_name(application, module, replica))
 }
 
-/// Whether `name` is replica `base` itself or one of its substitutes (`<base>-s<n>`).
+/// The name of a replica's `n`th update: the instance a rolling update creates beside it with
+/// the new image or settings, which takes the replica's place once it is healthy.
+pub fn update_name(application: &str, module: &str, replica: u8, n: u8) -> String {
+    format!("{}-u{n}", replica_name(application, module, replica))
+}
+
+/// The suffix `name` has after replica `base`: `""` for the replica itself, `s` for a
+/// substitute (`<base>-s<n>`), `u` for an update (`<base>-u<n>`); `None` for another slot.
+fn slot_role(name: &str, base: &str) -> Option<&'static str> {
+    let rest = name.strip_prefix(base)?;
+    if rest.is_empty() {
+        return Some("");
+    }
+    let numbered = |r: &str| !r.is_empty() && r.bytes().all(|b| b.is_ascii_digit());
+    match rest {
+        r if r.strip_prefix("-s").is_some_and(numbered) => Some("s"),
+        r if r.strip_prefix("-u").is_some_and(numbered) => Some("u"),
+        _ => None,
+    }
+}
+
+/// Whether `name` is replica `base` itself, one of its substitutes or one of its updates.
 fn in_slot(name: &str, base: &str) -> bool {
-    name == base
-        || name
-            .strip_prefix(base)
-            .and_then(|r| r.strip_prefix("-s"))
-            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    slot_role(name, base).is_some()
 }
 
 /// The application's instances that fill replica `replica` of `module` in `project`: the
-/// replica and its substitutes, recognised by Apelora's labels and their names. An instance
+/// replica, its substitutes and its updates, recognised by Apelora's labels and their names. An instance
 /// whose member is unreachable has no visible labels; one with the slot's name counts (names
 /// are unique in a project, and the name was Apelora's before its member went away).
 pub fn slot_instances<'a>(
@@ -111,7 +128,7 @@ pub struct DesiredModule {
     /// (from the class); the port check alone cannot tell a hung application from a ready one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub readiness: Option<crate::readiness::Readiness>,
-    /// This module answers service names for the application (ADR 0004 step 4). Absent
+    /// This module answers service names for the application. Absent
     /// means it does not: a resolver is never added unless the design asks for one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dns_resolver: bool,
@@ -156,6 +173,15 @@ pub enum PlanAction {
     /// The application's instance exists with other resource limits than the design asks for:
     /// its CPU and memory limits are changed in place (`changes` says which).
     Resize,
+    /// The instance runs another image or settings than the design asks for (`outdated` says
+    /// which): a new replica is created beside it with the design's, and this one is removed
+    /// once the new one is healthy, one replica at a time. Stateless modules only.
+    Replace,
+    /// A singleton or stateful instance runs another image or settings than the design asks
+    /// for: it is stopped, rebuilt from the design's image with its settings (its name, member,
+    /// address and volumes are kept) and started again. Its module is down meanwhile, so
+    /// deploying asks for `confirmDisruption`.
+    Rebuild,
     /// The application's instance is no longer in the design.
     Remove,
     /// The name is taken by an instance that is not this module's: nothing can be applied.
@@ -179,8 +205,8 @@ pub struct PlanItem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<LimitChange>,
     /// What the running instance was built from that the design now asks differently:
-    /// `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running
-    /// modules is not built yet.
+    /// `image`, `settings` or `storage`. A stateless replica is replaced (`replace`); a singleton
+    /// or stateful module is kept as it is (updating those is not built yet).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub outdated: Vec<String>,
 }
@@ -279,7 +305,7 @@ pub struct Plan {
     pub items: Vec<PlanItem>,
     /// Facts the designer should know before applying, e.g. single points of failure.
     pub warnings: Vec<String>,
-    /// The deployment against the quotas above its environment (ADR 0012); absent when no
+    /// The deployment against the quotas above its environment; absent when no
     /// quota applies. `allowed: false` means applying is refused.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quota: Option<crate::tenancy::QuotaCheck>,
@@ -360,6 +386,30 @@ pub fn outdated_parts(recorded: &str, wanted: &str) -> Vec<String> {
         .collect()
 }
 
+/// The config changes that give an existing instance the settings of `spec`, as Incus applies a
+/// `PATCH` (an empty value removes a key): every key the design sets, the removal of each
+/// [`crate::design_setting`] the instance has and the design no longer sets, and what it is now
+/// built from ([`crate::SPEC_KEY`]). Anything else on the instance (Incus's `volatile.*` and
+/// `image.*`, Apelora's labels) is left alone.
+pub fn settings_patch(
+    current: &std::collections::BTreeMap<String, String>,
+    spec: &InstanceSpec,
+) -> std::collections::BTreeMap<String, String> {
+    let mut patch: std::collections::BTreeMap<String, String> = spec
+        .config
+        .iter()
+        .filter(|(k, _)| !k.starts_with("user.apelora."))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    for k in current.keys() {
+        if crate::design_setting(k) && !spec.config.contains_key(k) {
+            patch.insert(k.clone(), String::new());
+        }
+    }
+    patch.insert(crate::SPEC_KEY.to_owned(), spec_fingerprint(spec));
+    patch
+}
+
 /// The spec replica `replica` of a module is created with: its name, project and
 /// ownership labels are set here, never taken from the caller.
 pub fn owned_spec(
@@ -419,6 +469,7 @@ pub fn plan(
     let mut wanted = Vec::new();
 
     for d in desired {
+        let fingerprint = spec_fingerprint(&d.spec);
         for replica in 1..=d.replicas.max(1) {
             let name = replica_name(application, &d.module, replica);
             wanted.push(name.clone());
@@ -439,49 +490,90 @@ pub fn plan(
                 continue;
             }
             let slot = slot_instances(application, project, &d.module, replica, observed);
-            for sub in slot.iter().filter(|i| i.name != name) {
-                wanted.push(sub.name.clone());
-                items.push(PlanItem {
-                    instance: sub.name.clone(),
-                    ..item(
-                        PlanAction::Keep,
-                        format!("substitute for {name} ({})", sub.status),
-                    )
-                });
-            }
-            items.push(match in_project.iter().find(|i| i.name == name) {
-                None if !slot.is_empty() => continue,
-                None => item(PlanAction::Create, "not deployed yet".into()),
-                Some(i) if i.unreachable => item(
-                    PlanAction::Keep,
-                    format!("its member {} cannot be reached", i.location),
-                ),
-                Some(i) if ours(i) && i.owner.as_ref().is_some_and(|o| o.module == d.module && o.replica == replica) => {
-                    let changes = limit_changes(&d.spec.config, &i.limits);
-                    let outdated = i
-                        .built_from
-                        .as_deref()
-                        .map(|b| outdated_parts(b, &spec_fingerprint(&d.spec)))
-                        .unwrap_or_default();
+            for i in &slot {
+                wanted.push(i.name.clone());
+                let role = match slot_role(&i.name, &name) {
+                    Some("s") => format!("substitute for {name}; "),
+                    _ => String::new(),
+                };
+                let base = PlanItem {
+                    instance: i.name.clone(),
+                    ..item(PlanAction::Keep, String::new())
+                };
+                if i.unreachable {
+                    items.push(PlanItem {
+                        reason: format!("{role}its member {} cannot be reached", i.location),
+                        ..base
+                    });
+                    continue;
+                }
+                // A substitute is temporary (one of the slot's two instances is retired when
+                // the failed member returns): it is kept as it is.
+                if !role.is_empty() {
+                    items.push(PlanItem {
+                        reason: format!("{role}kept as it is ({})", i.status),
+                        ..base
+                    });
+                    continue;
+                }
+                let changes = limit_changes(&d.spec.config, &i.limits);
+                let outdated = i
+                    .built_from
+                    .as_deref()
+                    .map(|b| outdated_parts(b, &fingerprint))
+                    .unwrap_or_default();
+                let what = outdated.join(" and ");
+                let rebuilt = !outdated.is_empty()
+                    && d.availability != Availability::Stateless
+                    && !outdated.iter().any(|p| p == "storage");
+                items.push(if rebuilt {
+                    PlanItem {
+                        action: PlanAction::Rebuild,
+                        reason: format!(
+                            "runs another {what} ({}): stopped, rebuilt from the design's image with its settings and started again; its volumes and address are kept, the module is down meanwhile",
+                            i.status
+                        ),
+                        outdated,
+                        ..base
+                    }
+                } else if !outdated.is_empty() && d.availability == Availability::Stateless {
+                    PlanItem {
+                        action: PlanAction::Replace,
+                        reason: format!(
+                            "{role}runs another {what} ({}): a new replica with the design's replaces it, healthy before this one is removed",
+                            i.status
+                        ),
+                        outdated,
+                        ..base
+                    }
+                } else {
                     let kept = if outdated.is_empty() {
                         String::new()
                     } else {
-                        format!("; keeps its previous {} (updating running modules is not built yet)", outdated.join(" and "))
+                        format!("; keeps its previous {what} (a change of a module's volumes is not applied to a running instance: move its data to a new module)")
                     };
-                    let mut it = if changes.is_empty() {
-                        item(PlanAction::Keep, format!("already deployed ({}){kept}", i.status))
+                    if changes.is_empty() {
+                        PlanItem {
+                            reason: format!("{role}already deployed ({}){kept}", i.status),
+                            outdated,
+                            ..base
+                        }
                     } else {
                         PlanItem {
-                            changes: changes.clone(),
-                            ..item(
-                                PlanAction::Resize,
-                                format!("resources change: {} ({}){kept}", describe(&changes), i.status),
-                            )
+                            action: PlanAction::Resize,
+                            reason: format!("{role}resources change: {} ({}){kept}", describe(&changes), i.status),
+                            changes,
+                            outdated,
+                            ..base
                         }
-                    };
-                    it.outdated = outdated;
-                    it
-                }
+                    }
+                });
+            }
+            if !slot.is_empty() {
+                continue;
+            }
+            items.push(match in_project.iter().find(|i| i.name == name) {
+                None => item(PlanAction::Create, "not deployed yet".into()),
                 Some(i) if !i.managed => item(
                     PlanAction::Conflict,
                     "an instance with this name exists and was not created by Apelora".into(),
@@ -527,14 +619,28 @@ pub fn plan(
             if single.len() == 1 { "s" } else { "" }
         ));
     }
+    let rebuilt: Vec<&str> = items
+        .iter()
+        .filter(|i| i.action == PlanAction::Rebuild)
+        .map(|i| i.instance.as_str())
+        .collect();
+    if !rebuilt.is_empty() {
+        warnings.push(format!(
+            "{} {} stopped while rebuilt with the design's image and settings; data on volumes is kept. Deploying needs confirmDisruption",
+            rebuilt.join(", "),
+            if rebuilt.len() == 1 { "is" } else { "are each" },
+        ));
+    }
     let outdated: Vec<&str> = items
         .iter()
-        .filter(|i| !i.outdated.is_empty())
+        .filter(|i| {
+            !i.outdated.is_empty() && !matches!(i.action, PlanAction::Replace | PlanAction::Rebuild)
+        })
         .map(|i| i.instance.as_str())
         .collect();
     if !outdated.is_empty() {
         warnings.push(format!(
-            "{} keep{} the image or settings {} was created with: deploying does not update running modules yet; remove the module and deploy it again to apply the design",
+            "{} keep{} the volumes {} was created with: deploying does not change a running instance's volumes; move the data to a new module to apply the design",
             outdated.join(", "),
             if outdated.len() == 1 { "s" } else { "" },
             if outdated.len() == 1 { "it" } else { "they were each" },
@@ -647,7 +753,8 @@ mod tests {
             (PlanAction::Resize, 0)
         );
 
-        // Another image and another setting: named, kept with the reason, and warned about.
+        // Another image and another setting on a stateless replica: replaced, with what
+        // differs named, and no warning about keeping it.
         let mut changed = web.clone();
         changed.spec.source.alias = "debian/14".into();
         changed
@@ -655,20 +762,40 @@ mod tests {
             .config
             .insert("environment.MODE".into(), "green".into());
         let p = item(&changed, &first);
-        assert_eq!(p.items[0].action, PlanAction::Keep);
+        assert_eq!(p.items[0].action, PlanAction::Replace);
         assert_eq!(p.items[0].outdated, ["image", "settings"]);
         assert!(
-            p.items[0].reason.contains(
-                "keeps its previous image and settings (updating running modules is not built yet)"
-            ),
+            p.items[0]
+                .reason
+                .starts_with("runs another image and settings (Running): a new replica"),
             "{}",
             p.items[0].reason
         );
         assert!(
+            !p.warnings.iter().any(|w| w.contains("keeps the image")),
+            "{:?}",
             p.warnings
-                .iter()
-                .any(|w| w
-                    .starts_with("shop-web-01 keeps the image or settings it was created with")),
+        );
+
+        // The same change on a singleton: rebuilt in place, with the downtime warned about.
+        let single = DesiredModule {
+            availability: Availability::Singleton,
+            ..changed.clone()
+        };
+        let p = item(&single, &first);
+        assert_eq!(p.items[0].action, PlanAction::Rebuild);
+        assert_eq!(p.items[0].outdated, ["image", "settings"]);
+        assert!(
+            p.items[0]
+                .reason
+                .contains("its volumes and address are kept"),
+            "{}",
+            p.items[0].reason
+        );
+        assert!(
+            p.warnings.iter().any(|w| w.starts_with(
+                "shop-web-01 is stopped while rebuilt with the design's image and settings"
+            )),
             "{:?}",
             p.warnings
         );
@@ -694,7 +821,63 @@ mod tests {
         );
         let mut moved = stateful.clone();
         moved.spec.volumes = vec![volume("/var/lib/db", 1024)];
-        assert_eq!(item(&moved, &db).items[0].outdated, ["storage"]);
+        // Its volumes cannot be changed under it: kept, named and warned about, never rebuilt.
+        let p = item(&moved, &db);
+        assert_eq!(
+            (p.items[0].action, p.items[0].outdated.clone()),
+            (PlanAction::Keep, vec!["storage".to_owned()])
+        );
+        assert!(
+            p.warnings
+                .iter()
+                .any(|w| w.starts_with("shop-db-01 keeps the volumes it was created with")),
+            "{:?}",
+            p.warnings
+        );
+        // A new image with a volume change still is not rebuilt.
+        moved.spec.source.alias = "debian/14".into();
+        assert_eq!(item(&moved, &db).items[0].action, PlanAction::Keep);
+    }
+
+    #[test]
+    fn a_settings_patch_sets_the_design_removes_what_it_dropped_and_keeps_the_rest() {
+        let mut spec = desired("db-01").spec;
+        spec.config
+            .insert("environment.MODE".into(), "green".into());
+        spec.config.insert("limits.memory".into(), "1GiB".into());
+        let current: std::collections::BTreeMap<String, String> = [
+            ("environment.MODE", "blue"),
+            ("environment.OLD", "x"),
+            ("limits.cpu", "2"),
+            ("user.team", "shop"),
+            ("user.apelora.application", "shop"),
+            ("volatile.uuid", "u"),
+            ("image.os", "Debian"),
+            ("security.nesting", "true"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        let patch = settings_patch(&current, &spec);
+        let get = |k: &str| patch.get(k).map(String::as_str);
+        assert_eq!(get("environment.MODE"), Some("green"));
+        assert_eq!(get("limits.memory"), Some("1GiB"));
+        assert_eq!(
+            get("environment.OLD"),
+            Some(""),
+            "dropped from the design: removed"
+        );
+        assert_eq!(get("limits.cpu"), Some(""));
+        assert_eq!(get("user.team"), Some(""));
+        assert_eq!(get(crate::SPEC_KEY), Some(spec_fingerprint(&spec).as_str()));
+        for untouched in [
+            "user.apelora.application",
+            "volatile.uuid",
+            "image.os",
+            "security.nesting",
+        ] {
+            assert_eq!(get(untouched), None, "{untouched} is not the design's");
+        }
     }
 
     #[test]
@@ -744,6 +927,7 @@ mod tests {
             evacuate: None,
             unreachable: false,
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         }
     }
@@ -932,6 +1116,49 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["shop-web-01-r2-s1"]
         );
+    }
+
+    #[test]
+    fn an_update_takes_its_replicas_slot_and_is_itself_replaced_when_outdated() {
+        let web = stateless("web-01", 2);
+        let fingerprint = spec_fingerprint(&web.spec);
+        let built = |name: &str, replica: u8, from: &str| {
+            let mut i = observed_instance(name, Some(("shop", "web-01", replica)));
+            i.built_from = Some(from.to_owned());
+            i
+        };
+        // Mid-update: replica 1 has its update beside it, replica 2 is still the old one.
+        let observed = [
+            built("shop-web-01", 1, "image=old,settings=old,storage=old"),
+            built("shop-web-01-u1", 1, &fingerprint),
+            built("shop-web-01-r2", 2, "image=old,settings=old,storage=old"),
+        ];
+        let p = plan("shop", "apelora", std::slice::from_ref(&web), &observed);
+        assert_eq!(
+            actions(&p),
+            vec![
+                ("shop-web-01", PlanAction::Replace),
+                ("shop-web-01-u1", PlanAction::Keep),
+                ("shop-web-01-r2", PlanAction::Replace),
+            ]
+        );
+        assert_eq!(update_name("shop", "web-01", 2, 1), "shop-web-01-r2-u1");
+        // Done: the updates fill the slots, nothing is created again or removed.
+        let observed = [
+            built("shop-web-01-u1", 1, &fingerprint),
+            built("shop-web-01-r2-u1", 2, &fingerprint),
+        ];
+        let p = plan("shop", "apelora", std::slice::from_ref(&web), &observed);
+        assert_eq!(
+            actions(&p),
+            vec![
+                ("shop-web-01-u1", PlanAction::Keep),
+                ("shop-web-01-r2-u1", PlanAction::Keep),
+            ]
+        );
+        // A name that only looks like an update of another slot is not one.
+        assert!(!in_slot("shop-web-01-u", "shop-web-01"));
+        assert!(!in_slot("shop-web-01-ux", "shop-web-01"));
     }
 
     fn with_limits(mut d: DesiredModule, limits: &[(&str, &str)]) -> DesiredModule {

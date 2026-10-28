@@ -29,17 +29,17 @@ Migration **0018** (`0018_directories.sql`): `directories (id, name UNIQUE, url,
 Session tokens are `apu_` + 64 hex characters. **One function issues them** (control plane, `api/sessions_auth.rs`):
 
 ```rust
-pub async fn issue_session(pool: &Pool, user_id: Uuid, method: SessionMethod, external_groups: &[String]) -> Result<IssuedSession, ApiError>
+pub async fn issue_session(tx: &mut PgConnection, user_id: Uuid, method: SessionMethod, groups: SessionGroups<'_>) -> Result<IssuedSession, ApiError>
 // IssuedSession { token: String, expires_at: OffsetDateTime }
 ```
 
-`resolve_principal` accepts `apu_` tokens: live (not revoked, `expires_at` in the future, `last_used_at` within the idle hour), person not disabled; groups are the person's Apelora groups plus groups mapped to the session's `group_source` whose external name is in `external_groups` (ADR 0016); `mfa` is false.
+`resolve_principal` accepts `apu_` tokens: live (not revoked, `expires_at` in the future, `last_used_at` within the idle hour), person not disabled; groups are the person's Apelora groups plus groups mapped to the session's `group_source` whose external name is among the session's directory groups (`SessionGroups`, ADR 0016); `mfa` is false.
 
 ### API
 
 | Method and path | Who | Body → answer |
 |---|---|---|
-| `POST /api/v1/sign-in/password` | public, limited per address | `{ username, password, directory?: uuid }` → `{ token, expiresAt, name }`; `401 invalid_credentials` "The username or password is incorrect." (also when locked or unknown) |
+| `POST /api/v1/sign-in/password` | public, limited per address | `{ username, password, directory?: uuid }` → `{ token, expiresAt, name }`; `401 invalid_credentials` "The username or password is incorrect." (also when locked or unknown); `400 local_accounts_disabled` when sign-in with a local password is turned off |
 | `POST /api/v1/sign-in/setup` | public | `{ token, password }` → 204; `400 setup_invalid` when spent, expired or unknown; `400 weak_password` with the rule |
 | `POST /api/v1/sign-out` | signed in | revokes the presented `apu_` session; 204 for other credentials |
 | `PUT /api/v1/me/password` | a local account | `{ current, new }` → 204, other sessions revoked |
@@ -51,6 +51,32 @@ pub async fn issue_session(pool: &Pool, user_id: Uuid, method: SessionMethod, ex
 `GET /api/v1/sign-in` gains `localAccounts: bool` and `directories: [{ id, name }]` (enabled ones only). `GET /api/v1/identity/sign-in` gains the local-accounts setting and the directories with their reachability.
 
 Audit actions: `auth.password.succeeded`, `auth.password.failed` (username, reason `unknown|wrong|locked|disabled`), `auth.locked`, `auth.setup.completed`, `auth.password.changed`, `identity.local_account.created`, `identity.local_account.reset`, `auth.directory.succeeded|failed`, `identity.directory.saved|deleted`, `identity.local_accounts.enabled|disabled`, `auth.signed_out`.
+
+A password sign-in, with a local account or a directory, and the requests after it:
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor B as Browser
+  participant C as Control plane
+  participant D as Directory (LDAP over TLS)
+  participant DB as PostgreSQL
+  B->>C: POST /api/v1/sign-in/password (username, password, optional directory)
+  Note over C: at most 10 attempts a minute per client address
+  alt local account
+    C->>DB: read the login by username
+    C->>C: Argon2id check (a dummy hash for unknown names)
+    Note over C,DB: wrong: count the failure, five lock the account for 15 min
+  else directory
+    C->>D: bind as the person, 10 s in all
+    C->>D: read the entry and groups with that bind
+    C->>DB: create or refresh the user
+  end
+  C->>DB: issue_session: store the token's hash, audit the sign-in
+  C-->>B: token apu_..., expiresAt, name
+  B->>C: later requests with Authorization Bearer apu_...
+  C->>DB: session live (idle under 1 h, under 8 h old), groups
+```
 
 ### Browser
 

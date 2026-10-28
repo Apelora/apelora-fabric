@@ -311,6 +311,7 @@ mod tests {
             evacuate: None,
             unreachable: location == "m2",
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         }
     }

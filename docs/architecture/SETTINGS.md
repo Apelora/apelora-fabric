@@ -43,10 +43,12 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_CONSOLE_POWERSHELL` | `disabled` | enabled offers PowerShell |
 | `APELORA_CONSOLE_UID` | `1000` | User terminal sessions run as |
 | `APELORA_DB_BACKUP_DIR` | none | Directory the database backup and restore-drill scripts write their records to (read only; Administration shows whether backups are recent and a restore was verified) |
+| `APELORA_DRAIN_WAIT_SECS` | `30` | Seconds evacuating or restoring a member waits for its replicas to leave their service addresses; 0 skips it |
 | `APELORA_INCUS_ADMIN_CLIENT_CERT` | none | Client certificate file of the unrestricted admin identity (never shown) |
 | `APELORA_INCUS_ADMIN_CLIENT_KEY` | none | Private key file of the unrestricted admin identity (never shown) |
 | `APELORA_LEGACY_TOKENS` | `enabled` | disabled refuses legacy apl_ API tokens |
 | `APELORA_METRICS_ADDR` | `off` | Separate metrics listener without authentication |
+| `APELORA_MOCK_WORKER` | none | 1 runs the deployment worker inside the control plane on the mock cluster (development builds with the dev-worker feature only) |
 | `APELORA_NETWORK_UPLINK` | none | Uplink for per-application OVN networks |
 | `APELORA_OIDC_AUDIENCE` | none | Names this API has at the provider |
 | `APELORA_OIDC_AUTHORIZED_PARTIES` | none | Clients a token must be issued to (azp) |
@@ -66,6 +68,7 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_RATE_LIMIT_PUBLIC_PER_MIN` | `120` | Public requests per client address per minute |
 | `APELORA_RATE_LIMIT_WRITES_BURST` | `200` | Changes saved up per signed-in caller |
 | `APELORA_RATE_LIMIT_WRITES_PER_MIN` | `600` | Changes per signed-in caller per minute |
+| `APELORA_RDP_GATEWAY` | `disabled` | enabled offers remote desktop sessions into Windows modules through the control plane (the person runs apelora-desktop-tunnel; not yet verified against a Windows guest) |
 | `APELORA_SERVICE_ADDRESSES` | none | Routed IPv4 (/16–/30) or IPv6 (/112–/126) range for service addresses |
 | `APELORA_SHARED_POOL` | none | Shared storage pool behind the data-replicated volume class (modules that restart on another server after fencing) |
 | `APELORA_TLS_CERT` | none | Certificate chain file for HTTPS served by the API itself (never shown) |
@@ -97,6 +100,9 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_RECOVER_AFTER_SECS` | `120` | Offline time before replicas are substituted |
 | `APELORA_RESTORE_DRILL_RECORD` | none | The restore drill's result file the restore-age alert reads |
 | `APELORA_SUPERVISE_SECS` | `30` | Seconds between replica supervisor passes |
+| `APELORA_UPDATE_DRAIN_SECS` | `5` | Seconds an old replica keeps running after it left its service address, for requests in flight to finish |
+| `APELORA_UPDATE_HEALTHY_SECS` | `20` | A rolling update's new replica must pass its service's health check this long before the old one goes |
+| `APELORA_UPDATE_TIMEOUT_SECS` | `300` | A new replica not healthy this long after it was created stops the rolling update; it is removed and the old replicas keep serving |
 | `APELORA_WORKER_ID` | none | Worker name (default worker-<process id>) |
 
 ## Read by the web development server only
@@ -104,3 +110,22 @@ Every setting is an environment variable. The control plane reads its own at sta
 | Setting | Default | What it does |
 |---|---|---|
 | `APELORA_API_URL` | `http://127.0.0.1:8080` | Where the web development server sends /api |
+
+## Named by other settings
+
+These variables have names an administrator chooses, so they are not listed above. Their values are secrets: read when needed, never stored, logged or shown.
+
+| Setting | Read by | What it does |
+|---|---|---|
+| `APELORA_ALERT_SECRET_<NAME>` | worker | The signing secret of an alert channel whose `secretRef` names it ([alerts runbook](../runbooks/alerts.md)) |
+| `APELORA_BMC_SECRET_<NAME>` | worker | The password of a BMC whose entry in `APELORA_BMC_MAP` names it as `secretRef` ([member-failure runbook](../runbooks/member-failure.md)) |
+| `APELORA_SECTOR_<CREDENTIALS>_CLIENT_CERT`, `_CLIENT_KEY`, `_SERVER_CERT` | control plane | Paths of the Incus identity and server certificate of a registered sector whose `credentials` names them ([ADR 0008](../adr/0008-sectors.md)); read when the sector is probed, never stored |
+
+## Read by the DNS resolver
+
+`apelora-dns` runs inside an application's resolver module, not on the servers.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `APELORA_DNS_RECORDS_FILE` | `/etc/apelora-dns.records` | The service names it answers (`name address` lines), read again on every query |
+| `APELORA_DNS_UPSTREAM_FILE` | `/etc/apelora-dns.upstream` | The resolvers it forwards every other lookup to |

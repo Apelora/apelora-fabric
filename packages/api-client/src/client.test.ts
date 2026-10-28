@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError, createClient, followJob, operations } from "./index";
+import { ApiRequestError, createClient, followJob, followOperation, operations } from "./index";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -123,6 +123,16 @@ describe("api client", () => {
     expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/api/v1/jobs/j1");
   });
 
+  it("follows an application operation until it is final", async () => {
+    const states = ["running", "running", "failed"];
+    const fetch = vi.fn(async () => json(200, { id: "o1", kind: "update", state: states.shift(), error: "update stopped" }));
+    const seen: string[] = [];
+    const op = await followOperation(createClient({ fetch }), "shop", "o1", (o) => seen.push(o.state), { intervalMs: 1 });
+    expect(op.state).toBe("failed");
+    expect(seen).toEqual(["running", "running", "failed"]);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/api/v1/applications/shop/operations/o1");
+  });
+
   it("rejects incomplete requests at compile time", () => {
     const api = createClient({ fetch: async () => json(200, {}) });
     const never = () => {
@@ -159,6 +169,7 @@ describe("api client", () => {
       "DELETE /api/v1/machines/{name}/approval",
       "DELETE /api/v1/me/sign-ins/{id}",
       "DELETE /api/v1/me/tokens/{id}",
+      "DELETE /api/v1/sectors/{name}",
       "DELETE /api/v1/sessions/{id}",
       "DELETE /api/v1/tokens/{id}",
       "GET /api/v1/alerts",
@@ -236,6 +247,7 @@ describe("api client", () => {
       "GET /api/v1/preflight",
       "GET /api/v1/projects",
       "GET /api/v1/provisioners/maas/machines",
+      "GET /api/v1/sectors",
       "GET /api/v1/sessions",
       "GET /api/v1/settings",
       "GET /api/v1/sign-in",
@@ -311,6 +323,7 @@ describe("api client", () => {
       "POST /api/v1/provisioners/maas/machines/{system_id}/deploy",
       "POST /api/v1/provisioners/maas/machines/{system_id}/release",
       "POST /api/v1/provisioners/maas/machines/{system_id}/test",
+      "POST /api/v1/sectors",
       "POST /api/v1/sign-in/password",
       "POST /api/v1/sign-in/setup",
       "POST /api/v1/sign-out",

@@ -74,6 +74,7 @@ export const RUNTIME_LABEL: Record<DeploymentStatus, string> = {
   degraded: "Degraded",
   stopping: "Stopping",
   migrating: "Migrating",
+  updating: "Updating",
   stopped: "Stopped",
   failed: "Failed",
   unknown: "Unknown",

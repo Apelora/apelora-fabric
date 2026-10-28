@@ -1393,6 +1393,28 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
     )
     .await;
 
+    // ---- sectors ----
+    s.step(
+        Atomic,
+        "POST",
+        "/api/v1/sectors",
+        "/api/v1/sectors",
+        r,
+        json!({ "name": "rack-b1", "site": "site-b", "url": "https://incus.b.example:8443", "credentials": "SITE_B" }),
+        "sector.add",
+    )
+    .await;
+    s.step(
+        Atomic,
+        "DELETE",
+        "/api/v1/sectors/{name}",
+        "/api/v1/sectors/rack-b1",
+        r,
+        json!({ "confirm": "rack-b1" }),
+        "sector.remove",
+    )
+    .await;
+
     // ---- every route is either exercised above or exempt, with a reason ----
     let exempt: BTreeSet<(String, String)> = EXEMPT
         .iter()

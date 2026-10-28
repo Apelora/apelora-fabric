@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-//! Application operations: start, stop, shut down, restart and migrate carried out phase by phase.
+//! Application operations: start, stop, shut down, restart, migrate and update carried out phase
+//! by phase.
 //!
 //! The `application.operation` job is a coordinator. It queues the ordinary per-instance jobs
 //! of one phase, waits for them, confirms what Incus then reports, and only then moves on. It
@@ -9,6 +10,9 @@
 //!
 //! Success is declared only when the last phase's instances are confirmed in the target state
 //! by Incus. HTTP-level readiness is not checked (see `docs/architecture/current-state.md`).
+//!
+//! An `update` (a rolling replacement, [`crate::rollout`]) has two phases that queue no
+//! instance job: `healthy` and `drain` are looked at here on every pass until they pass or fail.
 
 use apelora_incus_adapter::Provider;
 use apelora_persistence::lifecycle::{get_operation, update_operation};
@@ -20,27 +24,29 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Step {
-    project: String,
-    name: String,
+pub(crate) struct Step {
+    pub(crate) project: String,
+    pub(crate) name: String,
     #[serde(alias = "appliance")]
-    module: String,
+    pub(crate) module: String,
     #[serde(default)]
-    job: Option<Uuid>,
+    pub(crate) job: Option<Uuid>,
     /// `pending`, `running`, `succeeded`, `failed`, `skipped`.
-    state: String,
+    pub(crate) state: String,
     #[serde(default)]
-    error: Option<String>,
-    /// What a `migrate` step asks of `instance.move`: the request the control plane checked
-    /// when the operation was accepted. Other steps carry none.
+    pub(crate) error: Option<String>,
+    /// What a `migrate` step asks of `instance.move`, or a `create` step of `instance.create`:
+    /// the request the control plane checked when the operation was accepted. `healthy` and
+    /// `drain` steps keep their progress here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    payload: Option<Value>,
+    pub(crate) payload: Option<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Phase {
     /// `start`, `stop` (graceful: each guest is asked to shut down; also what operations
-    /// recorded before ADR 0015 say), `poweroff` (immediate) or `migrate`.
+    /// recorded before ADR 0015 say), `poweroff` (immediate), `migrate`, or one of an update's
+    /// `create`, `healthy`, `drain`, `delete` and `rebuild`.
     action: String,
     state: String,
     steps: Vec<Step>,
@@ -109,13 +115,18 @@ pub async fn run(
     let kind = match phases[at].action.as_str() {
         "start" => "instance.start",
         "migrate" => "instance.move",
+        "create" => "instance.create",
+        "rebuild" => "instance.rebuild",
+        "delete" => "instance.delete",
         _ => "instance.stop",
     };
-    let target_status = if phases[at].action == "start" {
+    let target_status = if matches!(phases[at].action.as_str(), "start" | "create" | "rebuild") {
         "Running"
     } else {
         "Stopped"
     };
+    // An update's checks: no instance job, looked at on every pass.
+    let checks = matches!(phases[at].action.as_str(), "healthy" | "drain");
 
     // Cancellation stops between phases: a phase not started yet is skipped with all after it;
     // a running phase's instance jobs are left to finish (each stops at its own safe point).
@@ -140,7 +151,9 @@ pub async fn run(
 
     // First look at this phase: queue the instance jobs, under the request that asked for the
     // operation.
-    if phases[at].state == "pending" {
+    if phases[at].state == "pending" && checks {
+        phases[at].state = "running".into();
+    } else if phases[at].state == "pending" {
         let phases_action = phases[at].action.clone();
         for (i, s) in phases[at].steps.iter_mut().enumerate() {
             let key = format!("application.operation:{op_id}:{at}:{i}");
@@ -150,7 +163,7 @@ pub async fn run(
                 kind,
                 Some(op.application_id),
                 &match phases_action.as_str() {
-                    "migrate" => s
+                    "migrate" | "create" | "rebuild" => s
                         .payload
                         .clone()
                         .unwrap_or_else(|| json!({ "project": s.project, "name": s.name })),
@@ -177,8 +190,40 @@ pub async fn run(
 
     // Later looks: read the jobs, and confirm against Incus what they report as done.
     let mut changed = false;
+    if checks {
+        let policy = crate::rollout::UpdatePolicy::from_env(|k| std::env::var(k).ok());
+        let draining = phases[at].action == "drain";
+        for (i, s) in phases[at]
+            .steps
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, s)| matches!(s.state.as_str(), "pending" | "running"))
+        {
+            s.state = "running".into();
+            let key = format!("application.operation:{op_id}:{at}:{i}");
+            let check = if draining {
+                crate::rollout::drain(pool, provider, job, &op, s, &key, policy).await?
+            } else {
+                crate::rollout::healthy(pool, provider, job, &op, s, &key, policy).await?
+            };
+            match check {
+                crate::rollout::Check::Waiting => {}
+                crate::rollout::Check::Passed => s.state = "succeeded".into(),
+                crate::rollout::Check::Failed(why) => {
+                    s.state = "failed".into();
+                    s.error = Some(why);
+                }
+            }
+            changed = true;
+        }
+    }
     let migrating = phases[at].action == "migrate";
-    for s in phases[at].steps.iter_mut().filter(|s| s.state == "running") {
+    let deleting = phases[at].action == "delete";
+    for s in phases[at]
+        .steps
+        .iter_mut()
+        .filter(|s| !checks && s.state == "running")
+    {
         let Some(job_id) = s.job else { continue };
         let (status, _, err) = job_status(pool, job_id).await?;
         match status.as_str() {
@@ -206,6 +251,12 @@ pub async fn run(
                     target_status
                 };
                 match seen {
+                    // A deleted instance is confirmed by its absence.
+                    Ok(None) if deleting => s.state = "succeeded".into(),
+                    Ok(Some(_)) if deleting => {
+                        s.state = "failed".into();
+                        s.error = Some("Incus still reports the instance".into());
+                    }
                     Ok(Some(i))
                         if i.status == expected
                             && moved_to.as_deref().is_none_or(|m| i.location == m) =>
@@ -246,8 +297,23 @@ pub async fn run(
             _ => {}
         }
     }
-    if let Some(bad) = phases[at].steps.iter().find(|s| s.state == "failed") {
-        let message = format!("{}: {}", bad.name, bad.error.clone().unwrap_or_default());
+    if let Some(bad) = phases[at]
+        .steps
+        .iter()
+        .find(|s| s.state == "failed")
+        .cloned()
+    {
+        let mut message = format!("{}: {}", bad.name, bad.error.clone().unwrap_or_default());
+        // An update stops here: what this phase left half done is undone, and the replicas
+        // not replaced yet keep serving.
+        if op.kind == "update" {
+            let action = phases[at].action.clone();
+            let key = format!("application.operation:{op_id}:{at}");
+            let note =
+                crate::rollout::stopped(pool, job, &op, &action, &mut phases[at].steps, &key)
+                    .await?;
+            message = format!("update stopped: {message}; {note}");
+        }
         let instance = format!("{}/{}", bad.project, bad.name);
         phases[at].state = "failed".into();
         for later in phases.iter_mut().skip(at + 1) {

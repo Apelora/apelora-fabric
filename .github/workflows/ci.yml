@@ -121,6 +121,8 @@ jobs:
           # Pull requests read main's cache and never write their own (the cache budget is shared).
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      # The development build that runs the worker inside the control plane (records API examples).
+      - run: cargo clippy --locked -p apelora-control-plane --features dev-worker -- -D warnings
 
   rust-test:
     name: Rust (test, database backup drill)

@@ -1,9 +1,20 @@
 import { useId } from "react";
-import { effectiveValue, validateProperty, type ModuleInstance, type ConfigValue, type Property } from "@apelora/assembly-model";
+import { appliedSettings, effectiveValue, setupVariable, validateProperty, type ModuleInstance, type ConfigValue, type Property } from "@apelora/assembly-model";
 import { lookupClass } from "@apelora/module-catalog";
 import { useStudioApi } from "../../features/editor/context";
 
-function Field({ app, prop }: { app: ModuleInstance; prop: Property }) {
+/**
+ * What a setting of a deployable class does not do yet, or null when it changes what runs (or
+ * the class is design-only, where every setting is design).
+ */
+function notApplied(prop: Property, deployable: boolean, applied: Set<string>): string | null {
+  if (!deployable || applied.has(prop.id)) return null;
+  return prop.supply === "deploy"
+    ? `Reaches the module as ${setupVariable(prop)}; its image does not read it yet.`
+    : "Kept in the design: not applied to the running module yet.";
+}
+
+function Field({ app, prop, note }: { app: ModuleInstance; prop: Property; note: string | null }) {
   const api = useStudioApi();
   const uid = useId();
   const override = app.config?.[prop.id];
@@ -41,6 +52,7 @@ function Field({ app, prop }: { app: ModuleInstance; prop: Property }) {
       <p id={`${uid}-d`} className={`text-[10px] leading-snug ${problem ? "text-error" : "text-base-content/70"}`} role={problem ? "alert" : undefined} data-testid={problem ? "cfg-error" : undefined}>
         {problem ? `${problem.message} ${problem.hint}` : `${prop.supply === "deploy" ? "Asked when the application is deployed. " : ""}${prop.type === "secret" ? `Reference name only; the secret itself is never stored here.${prop.description ? ` ${prop.description}` : ""}` : prop.description ?? ""}`}
       </p>
+      {note && <p className="flex items-baseline gap-1.5 text-[10px] leading-snug text-base-content/70"><span className="status status-warning shrink-0" aria-hidden="true" /><span data-testid="cfg-not-applied">{note}</span></p>}
     </div>
   );
 }
@@ -53,17 +65,21 @@ export function ConfigForm({ app }: { app: ModuleInstance }) {
   const groups = new Map<string, Property[]>();
   for (const p of props) groups.set(p.group ?? "General", [...(groups.get(p.group ?? "General") ?? []), p]);
   const overrides = Object.keys(app.config ?? {}).length;
+  const deployable = !!cls?.runtime;
+  const applied = appliedSettings(cls);
+  const changing = props.filter((p) => applied.has(p.id)).length;
   return (
     <section aria-label="Configuration" data-testid="config-form">
       <div className="mb-1 flex items-center justify-between">
         <h4 className="text-[11px] font-semibold uppercase tracking-wide text-base-content/60">Configuration</h4>
         <button type="button" className="btn btn-ghost btn-xs" data-testid="cfg-reset-all" disabled={overrides === 0} onClick={() => api.getState().resetCfg(app.id)}>Reset all</button>
       </div>
+      {deployable && <p className="mb-2 text-[11px] text-base-content/70" data-testid="cfg-applied-summary">{changing === 0 ? "None of these settings changes the running module yet." : `${changing} of ${props.length} ${props.length === 1 ? "setting changes" : "settings change"} the running module; the others are kept in the design.`}</p>}
       <div className="flex flex-col gap-2">
         {[...groups].map(([name, list], i) => (
           <details key={name} open={i === 0 || list.some((p) => app.config?.[p.id] !== undefined || validateProperty(p, effectiveValue(p, app.config)) !== null)} className="apl-details rounded-box border border-base-300" data-testid="cfg-group" data-group={name}>
             <summary className="flex cursor-pointer select-none items-center justify-between px-2 py-1 text-[11px] font-medium">{name}<span className="text-base-content/70">{list.length}</span></summary>
-            <div className="flex flex-col gap-2.5 border-t border-base-300 p-2">{list.map((p) => <Field key={p.id} app={app} prop={p} />)}</div>
+            <div className="flex flex-col gap-2.5 border-t border-base-300 p-2">{list.map((p) => <Field key={p.id} app={app} prop={p} note={notApplied(p, deployable, applied)} />)}</div>
           </details>
         ))}
       </div>

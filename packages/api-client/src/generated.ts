@@ -183,7 +183,7 @@ export type AlertItem = {
   lastSeenAt: string;
   resolvedAt?: string | null;
   rule: string;
-  /** The runbook section, relative to `docs/runbooks/`. */
+  /** Where the operator runbooks explain this alert: a page and section, e.g. `alerts.md#jobs-are-failing`. */
   runbook: string;
   severity: AlertSeverity;
   silencedBy?: null | AlertSilencedBy;
@@ -804,6 +804,8 @@ export type DatabaseBackupReport = {
 };
 
 export type DeployRequest = {
+  /** Required when the plan rebuilds a singleton or stateful module (`rebuild`): it acknowledges that the module is stopped while it is rebuilt. Data on volumes is kept. */
+  confirmDisruption?: boolean;
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
   /** The Studio document, saved as an immutable revision. Ignored when `version` is given. */
@@ -823,6 +825,8 @@ export type DeployResponse = {
   jobs: QueuedChange[];
   /** The job that applies the connections to the application's network, when enforced. */
   networkJob?: string | null;
+  /** The rolling update that replaces the plan's `replace` instances one replica at a time, each new one healthy before the old one goes (an application operation of kind `update`); absent when nothing is replaced. */
+  operation?: string | null;
   /** The plan that was applied (recomputed when applying). */
   plan: Plan;
   revision: number;
@@ -844,7 +848,7 @@ export type DeploymentInfo = {
   status: DeploymentStatus;
 };
 
-export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "migrating" | "stopped" | "failed" | "unknown";
+export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "migrating" | "updating" | "stopped" | "failed" | "unknown";
 
 export type DesignInfo = {
   draftVersion?: number | null;
@@ -861,7 +865,7 @@ export type DesignStatus = "draft" | "validated" | "published";
 /** One module of the design, turned into the instances it should run as. */
 export type DesiredModule = {
   availability?: Availability;
-  /** This module answers service names for the application (ADR 0004 step 4). Absent means it does not: a resolver is never added unless the design asks for one. */
+  /** This module answers service names for the application. Absent means it does not: a resolver is never added unless the design asks for one. */
   dnsResolver?: boolean;
   /** The operating system inside (from the class): decides which sessions it offers. */
   guestOs?: GuestOs;
@@ -1042,7 +1046,7 @@ export type EnvironmentDto = {
   incusDetail: string;
   /** The restricted Incus project this environment deploys into. */
   incusProject?: string | null;
-  /** The restrictions and features of a project Apelora creates (ADR 0012); an adopted project keeps its own (see the Tenancy page for what Incus has). */
+  /** The restrictions and features of a project Apelora creates; an adopted project keeps its own (see the Tenancy page for what Incus has). */
   incusProjectConfig: Record<string, unknown>;
   /** Apelora created or adopted the Incus project (`incusState` is not `pending`). */
   incusProvisioned: boolean;
@@ -1067,6 +1071,8 @@ export type EnvironmentRef = {
 
 /** Error body for every non-2xx response. */
 export type ErrorBody = {
+  /** With `draft_conflict` only: the version someone else saved, to start again from. */
+  currentVersion?: number | null;
   error: ErrorDetail;
 };
 
@@ -1504,7 +1510,7 @@ export type Instance = {
   /** What Incus does with it when its member is evacuated (`cluster.evacuate`, with profiles applied); `None`: Incus's default, `auto`. */
   evacuate?: string | null;
   kind: InstanceKind;
-  /** The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`, `limits.memory`), as Incus reports them; only the keys in [`plan::RESIZABLE_KEYS`]. */
+  /** The resource limits set on the instance itself (`limits.cpu`, `limits.cpu.allowance`, `limits.memory`), as Incus reports them; no other keys. */
   limits?: Record<string, unknown>;
   location: string;
   /** Carries Apelora's ownership marker: only these can be stopped or deleted through Apelora. */
@@ -1593,7 +1599,7 @@ export type InstancePageActions = {
 
 /** An instance Apelora should create. Apelora's ownership marker is added on creation. */
 export type InstanceSpec = {
-  /** Architectures the image is known to run on (see [`ARCHITECTURES`]); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
+  /** Architectures the image is known to run on, as Incus names them (`x86_64`, `aarch64`, …); empty allows any. Checked against the cluster before creating and against the instance Incus created. */
   architectures?: string[];
   /** Extra instance config; keys under `user.apelora.` are reserved. */
   config?: Record<string, unknown>;
@@ -1605,7 +1611,7 @@ export type InstanceSpec = {
   /** Profiles to apply, in order; empty applies the project's `default` profile. */
   profiles?: string[];
   project: string;
-  /** The pool of the root disk when it is not the one the project's profile gives: the shared pool for a module that restarts on another member after a failure (ADR 0013). Set by the control plane from the module's volume classes, never by a caller. */
+  /** The pool of the root disk when it is not the one the project's profile gives: the shared pool for a module that restarts on another member after a failure. Set by the control plane from the module's volume classes, never by a caller. */
   rootPool?: string | null;
   source: ImageSource;
   /** Start the instance once created. */
@@ -2000,6 +2006,8 @@ export type MachineList = {
 export type MachineState = "registered" | "approved" | "approval-expired" | "held" | "eligible" | "left";
 
 export type MemberStateStarted = {
+  /** What was done first so no request goes to a replica Incus is about to move: the replicas taken out of their service addresses, and whether that finished in time. */
+  drain: string;
   member: string;
   /** Incus operation carrying out the evacuation or restore. */
   operation: string;
@@ -2335,6 +2343,15 @@ export type NewRole = {
   permissions: string[];
 };
 
+export type NewSector = {
+  /** Names the variables `APELORA_SECTOR_<credentials>_CLIENT_CERT`, `_CLIENT_KEY` and `_SERVER_CERT` on the control plane. Never a file or a secret. */
+  credentials: string;
+  name: string;
+  site: string;
+  /** `https://host:port` of its Incus API. */
+  url: string;
+};
+
 export type NewServiceIdentity = {
   credentialRef?: string | null;
   /** Automation identities only: days until their token expires (1–365, default 90). */
@@ -2389,7 +2406,7 @@ export type OperationDto = {
   stepsTotal: number;
 };
 
-export type OperationKind = "start" | "stop" | "shutdown" | "restart" | "migrate";
+export type OperationKind = "start" | "stop" | "shutdown" | "restart" | "migrate" | "update";
 
 export type OperationList = {
   items: OperationDto[];
@@ -2556,7 +2573,7 @@ export type Plan = {
   warnings: string[];
 };
 
-export type PlanAction = "create" | "keep" | "resize" | "remove" | "conflict";
+export type PlanAction = "create" | "keep" | "resize" | "replace" | "rebuild" | "remove" | "conflict";
 
 export type PlanItem = {
   action: PlanAction;
@@ -2565,7 +2582,7 @@ export type PlanItem = {
   instance: string;
   /** The module in the design (for `remove`: the label of the instance being removed). */
   module: string;
-  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running modules is not built yet. */
+  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. A stateless replica is replaced (`replace`); a singleton or stateful module is kept as it is (updating those is not built yet). */
   outdated?: string[];
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;
@@ -2597,7 +2614,7 @@ export type PolicyList = {
   items: PolicyDto[];
 };
 
-/** One recorded power-off of a failed server (ADR 0014). No BMC address. */
+/** One recorded power-off of a failed server through its baseboard management controller (BMC). The BMC's address is not included. */
 export type PowerOff = {
   at: string;
   member: string;
@@ -2898,6 +2915,11 @@ export type RemovalPreview = {
   source: Source;
 };
 
+export type RemoveSector = {
+  /** The sector's name, typed again. */
+  confirm: string;
+};
+
 export type ReplicaSummary = {
   desired: number;
   healthy: number;
@@ -3033,6 +3055,37 @@ export type Scope = {
   name: string;
   type: "pool";
 };
+
+/** One sector as the Servers area shows it. */
+export type SectorInfo = {
+  addedAt?: string | null;
+  addedBy?: string | null;
+  /** For a registered sector: the variables that must name its identity's files. */
+  credentialVars: string[];
+  /** Why it is not connected, in a sentence. */
+  detail?: string | null;
+  /** The sector this control plane runs against (`APELORA_SITE`, `APELORA_SECTOR`). */
+  home: boolean;
+  incusVersion?: string | null;
+  /** Members of its cluster (1 for a standalone server); `null` when it did not answer. */
+  members?: number | null;
+  name: string;
+  site: string;
+  state: SectorState;
+  /** Its Incus API; `null` for the home sector (`APELORA_INCUS_URL`, a setting). */
+  url?: string | null;
+  warning?: string | null;
+};
+
+export type SectorList = {
+  /** The home sector first, then the registered ones by site and name. */
+  items: SectorInfo[];
+  /** Applications deploy only to the home sector in this version. */
+  note: string;
+  source: Source;
+};
+
+export type SectorState = "connected" | "unreachable" | "not-configured";
 
 /** Facts about the Incus server the adapter is talking to. */
 export type ServerInfo = {
@@ -3178,7 +3231,7 @@ export type SignInSettings = {
   providers: ProviderView[];
 };
 
-/** The site this process is connected to, and whether a second site could hold another deployment (ADR 0008). One connected site is not a plan. */
+/** The site this process is connected to, and whether a second site could hold another deployment. One connected site is not a plan. */
 export type SiteReport = {
   connectedSites: number;
   members: number;
@@ -3764,6 +3817,9 @@ export const operations = {
   maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/deploy", params: ["system_id"], public: false },
   maas_release: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/release", params: ["system_id"], public: false },
   maas_test: { method: "POST", path: "/api/v1/provisioners/maas/machines/{system_id}/test", params: ["system_id"], public: false },
+  sectors: { method: "GET", path: "/api/v1/sectors", params: [], public: false },
+  add_sector: { method: "POST", path: "/api/v1/sectors", params: [], public: false },
+  remove_sector: { method: "DELETE", path: "/api/v1/sectors/{name}", params: ["name"], public: false },
   sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
   terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
@@ -4126,6 +4182,12 @@ export type Responses = {
   maas_release: MaasAccepted;
   /** Starts a hardware test run (burn-in) through MAAS. Needs `hardware.commission` and the hostname typed again. Only a machine that is `Ready`, `Broken` or `Failed testing`: one that is allocated or deployed (an Incus member, for one) is refused, so tests never load a running server. Audited with the test names; MAAS is asked first. */
   maas_test: MaasAccepted;
+  /** The sectors this control plane knows and whether each answers. Needs `cluster.view`. */
+  sectors: SectorList;
+  /** Registers another Incus cluster as a sector. Stores its name, site, address and the name of its credentials; the identity's files stay on the control plane. Needs `cluster.manage`. */
+  add_sector: SectorInfo;
+  /** Forgets a registered sector. Nothing changes in its Incus. Needs `cluster.manage`. */
+  remove_sector: null;
   /** Open sessions the caller started, and those on applications they may operate. */
   sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
@@ -4336,6 +4398,9 @@ export type Bodies = {
   maas_deploy: MaasDeploy;
   maas_release: MaasRelease;
   maas_test: MaasTest;
+  sectors: never;
+  add_sector: NewSector;
+  remove_sector: RemoveSector;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

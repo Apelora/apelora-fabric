@@ -78,6 +78,10 @@ pub struct InstanceState {
     pub stateful: bool,
     /// The resource limits set on the instance itself (`apelora_domain::plan::RESIZABLE_KEYS`).
     pub limits: std::collections::BTreeMap<String, String>,
+    /// What it was built from (`user.apelora.spec`, [`apelora_domain::plan::spec_fingerprint`]).
+    pub built_from: Option<String>,
+    /// The settings a design sets that the instance has ([`apelora_domain::design_setting`]).
+    pub settings: std::collections::BTreeMap<String, String>,
 }
 
 /// A snapshot of a volume.
@@ -436,6 +440,8 @@ impl Provider {
                 kind: i.instance.kind,
                 stateful: i.stateful,
                 limits: i.instance.limits.clone(),
+                built_from: i.instance.built_from.clone(),
+                settings: i.settings.clone(),
             })),
             Provider::Incus(c) => c.instance(project, name).await,
         }
@@ -534,6 +540,97 @@ impl Provider {
         match self {
             Provider::Mock(m) => m.create(&spec),
             Provider::Incus(c) => c.create_instance(&spec).await,
+        }
+    }
+
+    /// Rebuilds a stopped Apelora-owned instance's root disk from the image of `spec` (through
+    /// this installation's mirror, as a creation would) and returns the operation. Incus keeps
+    /// the instance's name, member, config and devices, so its volumes stay attached with their
+    /// data (REAL INCUS TESTED, system and OCI images); what was on the root disk is gone.
+    pub async fn rebuild_instance(&self, spec: &InstanceSpec) -> Result<String, AdapterError> {
+        spec.validate().map_err(AdapterError::InvalidConfig)?;
+        let spec = mirrored(spec)?.into_owned();
+        match self {
+            Provider::Mock(m) => {
+                let mut all = m.lock();
+                let i = all
+                    .iter_mut()
+                    .find(|i| i.instance.project == spec.project && i.instance.name == spec.name)
+                    .ok_or_else(|| {
+                        AdapterError::NotFound(format!("instance {}/{}", spec.project, spec.name))
+                    })?;
+                if !i.instance.managed || i.instance.status != "Stopped" {
+                    return Err(AdapterError::Api {
+                        status: 400,
+                        message: "only a stopped instance of Apelora's can be rebuilt".into(),
+                    });
+                }
+                i.base_image = spec.source.fingerprint.clone();
+                drop(all);
+                m.net().rebuilds.push(spec.name.clone());
+                Ok(m.op())
+            }
+            Provider::Incus(c) => c.rebuild_instance(&spec).await,
+        }
+    }
+
+    /// Applies a design's settings to an Apelora-owned instance: `patch` as
+    /// [`apelora_domain::plan::settings_patch`] makes it (an empty value removes a key) and the
+    /// profiles (`default` when the design names none). Only design settings and
+    /// [`apelora_domain::SPEC_KEY`] are accepted. Returns the operation, or `None` when Incus
+    /// applied it at once.
+    pub async fn apply_settings(
+        &self,
+        project: &str,
+        name: &str,
+        patch: &std::collections::BTreeMap<String, String>,
+        profiles: &[String],
+    ) -> Result<Option<String>, AdapterError> {
+        if let Some(k) = patch
+            .keys()
+            .find(|k| !apelora_domain::design_setting(k) && k.as_str() != apelora_domain::SPEC_KEY)
+        {
+            return Err(AdapterError::InvalidConfig(format!(
+                "{k} is not a setting a design applies"
+            )));
+        }
+        let profiles: Vec<String> = if profiles.is_empty() {
+            vec!["default".into()]
+        } else {
+            profiles.to_vec()
+        };
+        match self {
+            Provider::Mock(m) => {
+                let mut all = m.lock();
+                let i = all
+                    .iter_mut()
+                    .find(|i| i.instance.project == project && i.instance.name == name)
+                    .ok_or_else(|| AdapterError::NotFound(format!("instance {project}/{name}")))?;
+                if !i.instance.managed {
+                    return Err(AdapterError::Api {
+                        status: 409,
+                        message: "the instance is not managed by Apelora".into(),
+                    });
+                }
+                for (k, v) in patch {
+                    if k == apelora_domain::SPEC_KEY {
+                        i.instance.built_from = Some(v.clone());
+                        continue;
+                    }
+                    if v.is_empty() {
+                        i.settings.remove(k);
+                        i.instance.limits.remove(k);
+                    } else {
+                        i.settings.insert(k.clone(), v.clone());
+                        if apelora_domain::plan::RESIZABLE_KEYS.contains(&k.as_str()) {
+                            i.instance.limits.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                drop(all);
+                Ok(Some(m.op()))
+            }
+            Provider::Incus(c) => c.apply_settings(project, name, patch, &profiles).await,
         }
     }
 
@@ -1427,7 +1524,10 @@ impl Provider {
                 let net = m.net();
                 Ok(found
                     .map(|n| {
-                        let mut a = vec![format!("198.51.100.{}/32", n + 1)];
+                        let mut a = Vec::new();
+                        if !net.no_ipv4_yet.contains(name) {
+                            a.push(format!("198.51.100.{}/32", n + 1));
+                        }
                         if net.ipv6 && !net.no_ipv6_yet.contains(name) {
                             a.push(format!("2001:db8:a::{:x}/128", n + 1));
                         }
@@ -1620,7 +1720,7 @@ impl Provider {
                 }
                 list.push(SnapshotInfo {
                     name: snapshot.to_owned(),
-                    created_at: format!("mock: snapshot {}", list.len() + 1),
+                    created_at: jiff::Timestamp::now().to_string(),
                 });
                 None
             }
@@ -2348,6 +2448,8 @@ pub struct MockNetwork {
     pub failing: std::collections::BTreeSet<String>,
     /// Instances restarted, in order (tests).
     pub restarts: Vec<String>,
+    /// Instances rebuilt, in order (tests).
+    pub rebuilds: Vec<String>,
     /// `project/network` → the service-name records (`user.apelora.dns`).
     pub dns: std::collections::BTreeMap<String, String>,
     /// `project/network` → the nameservers advertised to the application (`dns.nameservers`).
@@ -2363,6 +2465,8 @@ pub struct MockNetwork {
     pub ipv6: bool,
     /// Instances whose IPv6 address has not arrived yet (it comes after IPv4) (tests).
     pub no_ipv6_yet: std::collections::BTreeSet<String>,
+    /// Instances whose IPv4 lease has not arrived yet, as after a move on the test cluster (tests).
+    pub no_ipv4_yet: std::collections::BTreeSet<String>,
     /// Instances that will never get IPv6: the sync should stop waiting (tests).
     pub ipv6_wait_over: std::collections::BTreeSet<String>,
     /// A member Incus cannot reach (`host:port`): every load balancer change is refused, as
@@ -2465,6 +2569,8 @@ pub struct MockInstance {
     pub uuid: String,
     /// The root disk's pool when the spec chose one (`rootPool`); `None`: the profile's.
     pub root_pool: Option<String>,
+    /// The design settings it has ([`apelora_domain::design_setting`]).
+    pub settings: std::collections::BTreeMap<String, String>,
 }
 
 /// The mock's one log file per instance, named like Incus's for its kind.
@@ -2617,6 +2723,7 @@ impl MockIncus {
                     .filter_map(|k| spec.config.get(*k).map(|v| ((*k).to_owned(), v.clone())))
                     .collect(),
                 built_from: spec.config.get(apelora_domain::SPEC_KEY).cloned(),
+                evacuated_from: None,
             },
             base_image: spec.source.fingerprint.clone(),
             volume_devices: Vec::new(),
@@ -2625,6 +2732,12 @@ impl MockIncus {
                 .get("migration.stateful")
                 .is_some_and(|v| v == "true"),
             root_pool: spec.root_pool.clone(),
+            settings: spec
+                .config
+                .iter()
+                .filter(|(k, _)| apelora_domain::design_setting(k))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         });
         Ok(self.op())
     }
@@ -2805,6 +2918,23 @@ impl MockIncus {
             .ok_or_else(|| AdapterError::NotFound(format!("cluster member {name}")))
     }
 
+    /// Leaves an instance where Incus leaves one partway through an evacuation: moved to
+    /// `member`, stopped, and carrying the member it came from (`volatile.evacuate.origin`).
+    /// `false` when there is no such instance.
+    pub fn moved_by_evacuation(&self, project: &str, name: &str, member: &str) -> bool {
+        let mut all = self.lock();
+        let Some(i) = all
+            .iter_mut()
+            .find(|i| i.instance.project == project && i.instance.name == name)
+        else {
+            return false;
+        };
+        let origin = std::mem::replace(&mut i.instance.location, member.to_owned());
+        i.instance.evacuated_from = Some(origin);
+        i.instance.status = "Stopped".into();
+        true
+    }
+
     /// Simulates a server joining with its pending token (as `incus admin init` would), held
     /// out of placement when `held` (as the enrolment script does). `false` without a token.
     pub fn join(&self, member: &str, held: bool) -> bool {
@@ -2841,7 +2971,8 @@ impl MockIncus {
         }
         let pending = PendingJoin {
             member_name: member.to_owned(),
-            expires_at: "mock: never used".into(),
+            // The lifetime Apelora recommends for `cluster.join_token_expiry`.
+            expires_at: (jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1)).to_string(),
         };
         let mut all = self.join_tokens.lock().unwrap_or_else(|e| e.into_inner());
         all.retain(|t| t.member_name != member);
@@ -2946,6 +3077,7 @@ impl Default for MockIncus {
             evacuate: None,
             unreachable: false,
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         };
         Self {
@@ -2978,6 +3110,7 @@ impl Default for MockIncus {
                     volume_devices: Vec::new(),
                     stateful: false,
                     root_pool: None,
+                    settings: Default::default(),
                 })
                 .collect(),
             )),

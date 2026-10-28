@@ -106,11 +106,13 @@ test("mock data says so", async ({ page }) => {
 });
 
 test("loading, then an error with a retry; a later failure keeps the data and says how old it is", async ({ page }) => {
+  // One switch per endpoint: the servers panel polls on its own, so it must keep failing until its own retry.
   let fail = true;
+  let failServers = true;
   await stub(page, {
     ...base(),
     "/api/v1/health/components": () => (fail ? { status: 503, json: { error: { code: "store_unavailable", message: "the database is not reachable; check DATABASE_URL" } }, delay: 400 } : { json: healthy() }),
-    "/api/v1/health/servers": () => (fail ? { status: 502, json: { error: { code: "incus_unreachable", message: "cannot reach the Incus server: connection refused" } }, delay: 400 } : { json: servers() }),
+    "/api/v1/health/servers": () => (failServers ? { status: 502, json: { error: { code: "incus_unreachable", message: "cannot reach the Incus server: connection refused" } }, delay: 400 } : { json: servers() }),
   });
   await page.goto("/#/health");
   await expect(page.getByTestId("health-loading")).toHaveText("Checking each component…");
@@ -119,11 +121,14 @@ test("loading, then an error with a retry; a later failure keeps the data and sa
   await expect(page.getByTestId("health-servers-error")).toHaveText("cannot reach the Incus server: connection refused");
   fail = false;
   await page.getByTestId("health-error").locator("..").getByRole("button", { name: "Try again" }).click();
+  await expect(page.getByTestId("health-overall")).toHaveText("Healthy");
+  failServers = false;
   await page.getByTestId("health-servers-error").locator("..").getByRole("button", { name: "Try again" }).click();
   await expect(page.getByTestId("health-overall")).toHaveText("Healthy");
   await expect(page.getByTestId("server-card")).toHaveCount(3);
 
   fail = true;
+  failServers = true;
   await page.getByTestId("health-refresh").click();
   const stale = page.getByTestId("health-stale");
   await expect(stale).toContainText("Could not read the latest state");

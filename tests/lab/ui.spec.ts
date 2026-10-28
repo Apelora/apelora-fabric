@@ -254,6 +254,11 @@ test.describe("a web tier: a client and two NGINX replicas", () => {
     for (const r of [r1, r2]) inInstance(r, `echo ${r} > /usr/share/nginx/html/index.html`);
     const ip = ipv4ByInstance();
     for (const i of [client, r1, r2]) expect(ip[i]?.length, `${i} has an IPv4 address`).toBeGreaterThan(0);
+    // The module's properties on the canvas list the same addresses for each replica.
+    await studio.goto(`/studio/applications/${app}/designer`);
+    await properties("nginx-01");
+    for (const r of [r1, r2]) await expect(studio.locator(`[data-testid=running-instance][data-instance="${r}"]`).getByTestId("instance-addresses")).toContainText(ip[r]![0]!);
+    await studio.keyboard.press("Escape");
     expect(inInstance(client, "echo $APELORA_SERVICE_NGINX_01").trim()).toBe(svc);
     await expect.poll(() => { const answers = probe(client, svc); return !answers.includes("FAIL") && answers.includes(r1) && answers.includes(r2); }, { timeout: 90_000, intervals: [5000] }).toBe(true);
     expect(canConnect(client, ip[r1]![0]!, 80), "client → web on 80: drawn").toBe(true);

@@ -98,7 +98,14 @@ pub struct AppState {
     environment: Arc<Vec<(String, String)>>,
     /// The MAAS provisioner (`APELORA_MAAS_URL`); `Off`: only manual machines.
     maas: provisioners::Maas,
+    /// How long evacuating or restoring a member waits for the replicas Incus will move to
+    /// leave their service addresses (`APELORA_DRAIN_WAIT_SECS`); zero: no drain.
+    drain_wait: std::time::Duration,
 }
+
+/// Seconds evacuating or restoring a member waits for its replicas to leave their service
+/// addresses unless `APELORA_DRAIN_WAIT_SECS` says otherwise: a sync per application takes a few.
+pub const DEFAULT_DRAIN_WAIT_SECS: u64 = 30;
 
 /// The project Apelora deploys into unless `APELORA_DEPLOY_PROJECTS` says otherwise.
 pub const DEFAULT_DEPLOY_PROJECT: &str = "apelora";
@@ -133,6 +140,7 @@ impl AppState {
             monitoring: Arc::default(),
             environment: Arc::default(),
             maas: provisioners::Maas::Off,
+            drain_wait: std::time::Duration::from_secs(DEFAULT_DRAIN_WAIT_SECS),
         }
     }
 
@@ -155,6 +163,11 @@ impl AppState {
 
     pub fn with_maas(mut self, maas: provisioners::Maas) -> Self {
         self.maas = maas;
+        self
+    }
+
+    pub fn with_drain_wait(mut self, wait: std::time::Duration) -> Self {
+        self.drain_wait = wait;
         self
     }
 
@@ -301,6 +314,8 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/v1/cluster/recovery", get(recovery::recovery))
         .route("/api/v1/cluster/upgrade", post(clustering::upgrade))
+        .route("/api/v1/sectors", get(sectors::list).post(sectors::add))
+        .route("/api/v1/sectors/{name}", delete(sectors::remove))
         .route("/api/v1/health/components", get(fabric_health::components))
         .route("/api/v1/health/servers", get(fabric_health::servers))
         .route("/api/v1/capacity", get(fabric_health::capacity))
@@ -755,6 +770,7 @@ impl IntoResponse for ApiError {
                     code: self.code.into(),
                     message: self.message.clone(),
                 },
+                current_version: None,
             }),
         )
             .into_response();
@@ -1132,8 +1148,12 @@ fn source(mode: ProviderMode) -> Source {
 
 /// Error body for every non-2xx response.
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorBody {
     pub error: ErrorDetail,
+    /// With `draft_conflict` only: the version someone else saved, to start again from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_version: Option<i32>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -1618,6 +1638,171 @@ impl Modify for BearerAuth {
     }
 }
 
+/// Every string property named `…At` is an RFC 3339 timestamp; says so (`format: date-time`) so
+/// clients can parse it as one. A test checks the whole document.
+struct Timestamps;
+
+impl Timestamps {
+    fn mark(schema: &mut utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>) {
+        use utoipa::openapi::schema::{
+            ArrayItems, KnownFormat, Schema, SchemaFormat, SchemaType, Type,
+        };
+        let utoipa::openapi::RefOr::T(schema) = schema else {
+            return;
+        };
+        match schema {
+            Schema::Object(o) => {
+                for (name, p) in o.properties.iter_mut() {
+                    if let utoipa::openapi::RefOr::T(Schema::Object(field)) = p {
+                        let string = match &field.schema_type {
+                            SchemaType::Type(t) => *t == Type::String,
+                            SchemaType::Array(ts) => ts.contains(&Type::String),
+                            SchemaType::AnyValue => false,
+                        };
+                        if name.ends_with("At") && string {
+                            field.format = Some(SchemaFormat::KnownFormat(KnownFormat::DateTime));
+                        }
+                    }
+                    Self::mark(p);
+                }
+            }
+            Schema::Array(a) => {
+                if let ArrayItems::RefOrSchema(items) = &mut a.items {
+                    Self::mark(items);
+                }
+            }
+            Schema::OneOf(c) => c.items.iter_mut().for_each(Self::mark),
+            Schema::AllOf(c) => c.items.iter_mut().for_each(Self::mark),
+            Schema::AnyOf(c) => c.items.iter_mut().for_each(Self::mark),
+            _ => {}
+        }
+    }
+}
+
+impl Modify for Timestamps {
+    fn modify(&self, api: &mut utoipa::openapi::OpenApi) {
+        if let Some(c) = api.components.as_mut() {
+            c.schemas.values_mut().for_each(Self::mark);
+        }
+    }
+}
+
+/// Error statuses every operation shares, and what each error status means.
+///
+/// The middleware can refuse any request with `429 rate_limited` (`rate_limit`), and any request
+/// to a route outside [`rate_limit::PUBLIC_PATHS`] with `401`; both are added to every operation
+/// that does not list them. Error responses without a description get the meaning of their status.
+struct ErrorResponses;
+
+impl ErrorResponses {
+    fn meaning(status: &str) -> Option<&'static str> {
+        Some(match status {
+            "400" => "The request is not valid; the error says which part.",
+            "401" => "Not signed in: no token, or one that is unknown, expired or revoked.",
+            "403" => "The caller may not do this.",
+            "404" => "Not found, or not visible to the caller.",
+            "409" => "Conflicts with the current state; the error code says how.",
+            "410" => "No longer possible: it expired.",
+            "422" => "The request is well formed but cannot be carried out; the error says why.",
+            "429" => {
+                "Too many requests from this address or caller; retry after `Retry-After` seconds."
+            }
+            "500" => "Apelora failed; the response's `x-request-id` finds it in the server log.",
+            "502" => {
+                "A service Apelora relies on (Incus, an identity provider, a provisioner) refused or did not answer."
+            }
+            "503" => {
+                "Something this needs is not configured or not reachable yet; the error code says what."
+            }
+            _ => return None,
+        })
+    }
+
+    fn error(status: &str) -> utoipa::openapi::RefOr<utoipa::openapi::Response> {
+        let mut r = utoipa::openapi::ResponseBuilder::new()
+            .description(Self::meaning(status).unwrap_or_default())
+            .content(
+                "application/json",
+                utoipa::openapi::ContentBuilder::new()
+                    .schema(Some(utoipa::openapi::Ref::from_schema_name("ErrorBody")))
+                    .build(),
+            )
+            .build();
+        if status == "429" {
+            r.headers.insert(
+                "Retry-After".into(),
+                utoipa::openapi::HeaderBuilder::new()
+                    .schema(
+                        utoipa::openapi::ObjectBuilder::new()
+                            .schema_type(utoipa::openapi::schema::Type::Integer),
+                    )
+                    .description(Some("Seconds to wait before trying again."))
+                    .build(),
+            );
+        }
+        r.into()
+    }
+}
+
+impl Modify for ErrorResponses {
+    fn modify(&self, api: &mut utoipa::openapi::OpenApi) {
+        for (path, item) in api.paths.paths.iter_mut() {
+            for op in [
+                &mut item.get,
+                &mut item.put,
+                &mut item.post,
+                &mut item.delete,
+                &mut item.patch,
+            ]
+            .into_iter()
+            .flatten()
+            {
+                let operation = op.operation_id.clone().unwrap_or_default();
+                let responses = &mut op.responses.responses;
+                // The statuses the handler can answer, from the table of its codes.
+                if let Some((_, by)) = error_codes::ERROR_CODES
+                    .iter()
+                    .find(|(id, _)| *id == operation)
+                {
+                    for (status, _) in by.iter() {
+                        responses
+                            .entry((*status).into())
+                            .or_insert_with(|| Self::error(status));
+                    }
+                }
+                let mut shared = vec!["429"];
+                if !rate_limit::is_public_path(path) {
+                    shared.push("401");
+                }
+                for status in shared {
+                    responses
+                        .entry(status.into())
+                        .or_insert_with(|| Self::error(status));
+                }
+                for (status, r) in responses.iter_mut() {
+                    let utoipa::openapi::RefOr::T(r) = r else {
+                        continue;
+                    };
+                    if let Some(meaning) = Self::meaning(status)
+                        && r.description.is_empty()
+                    {
+                        r.description = meaning.into();
+                    }
+                    let codes = error_codes::codes(&operation, status);
+                    if !codes.is_empty() && !r.description.contains("`error.code`") {
+                        let list = codes
+                            .iter()
+                            .map(|c| format!("`{c}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        r.description = format!("{} `error.code`: {list}.", r.description);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The `/api/v1` contract. `packages/api-client/openapi.json` is generated from this and the
 /// TypeScript client from that file; a test fails when either is stale.
 #[derive(OpenApi)]
@@ -1639,6 +1824,7 @@ impl Modify for BearerAuth {
         cluster_admin::preview_evacuation, cluster_admin::evacuate, cluster_admin::restore,
         cluster_admin::preview_removal, cluster_admin::remove,
         clustering::members, clustering::groups, clustering::settings, clustering::change_settings, clustering::upgrade,
+        sectors::list, sectors::add, sectors::remove,
         recovery::recovery, recovery::confirm,
         machines::list, provisioners::machines, provisioners::commission, provisioners::deploy, provisioners::release, provisioners::test, machines::register, machines::approve, machines::withdraw,
         machines::preview_admission, machines::admit, machines::remove,
@@ -1661,7 +1847,7 @@ impl Modify for BearerAuth {
         networks::settings, networks::applications,
         storage::pool_usage, storage::volumes, storage::orphans, storage::backups, storage::back_up,
         storage::delete_backup, storage::set_schedules, storage::preview_restore, storage::restore),
-    modifiers(&BearerAuth),
+    modifiers(&BearerAuth, &Timestamps, &ErrorResponses),
     security(("bearer" = [])),
     tags((name = "system"), (name = "inventory"), (name = "deployment"), (name = "applications"), (name = "cluster"), (name = "administration"), (name = "audit"), (name = "identity"), (name = "sessions"), (name = "alerts"))
 )]
@@ -1700,10 +1886,12 @@ mod db_backups;
 mod deploy;
 mod directories;
 mod document;
+mod error_codes;
 mod fabric_health;
 pub mod headers;
 mod health_cache;
 mod identity;
+mod sectors;
 pub use identity::bind_unsourced_mappings;
 mod instance_detail;
 mod jobs;
@@ -1750,6 +1938,8 @@ mod manage_tests;
 mod metrics_tests;
 #[cfg(test)]
 mod recovery_tests;
+#[cfg(test)]
+mod sectors_tests;
 #[cfg(test)]
 mod sessions_auth_tests;
 #[cfg(test)]

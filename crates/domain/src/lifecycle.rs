@@ -27,6 +27,8 @@ pub enum DeploymentStatus {
     Stopping,
     /// A migration to another server is in progress.
     Migrating,
+    /// A rolling update is replacing replicas one at a time; the service keeps answering.
+    Updating,
     Stopped,
     /// The most recent start, stop or restart failed and the application has not been brought
     /// to a good state since.
@@ -50,6 +52,9 @@ pub enum OperationKind {
     Restart,
     /// Moves every instance to another server, keeping what can run while it moves.
     Migrate,
+    /// Replaces outdated stateless replicas one at a time (a rolling update). Started by
+    /// deploying a version whose image or settings changed, never asked for directly.
+    Update,
 }
 
 impl OperationKind {
@@ -60,6 +65,7 @@ impl OperationKind {
             OperationKind::Shutdown => "shutdown",
             OperationKind::Restart => "restart",
             OperationKind::Migrate => "migrate",
+            OperationKind::Update => "update",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -69,6 +75,7 @@ impl OperationKind {
             OperationKind::Shutdown,
             OperationKind::Restart,
             OperationKind::Migrate,
+            OperationKind::Update,
         ]
         .into_iter()
         .find(|k| k.as_str() == s)
@@ -158,6 +165,7 @@ pub fn derive_status(i: &StatusInput<'_>) -> DeploymentStatus {
             OperationKind::Stop | OperationKind::Shutdown => DeploymentStatus::Stopping,
             OperationKind::Start | OperationKind::Restart => DeploymentStatus::Starting,
             OperationKind::Migrate => DeploymentStatus::Migrating,
+            OperationKind::Update => DeploymentStatus::Updating,
         };
     }
     if observed.iter().any(|o| o.unreachable) {
@@ -353,6 +361,7 @@ mod tests {
             evacuate: None,
             unreachable: false,
             built_from: None,
+            evacuated_from: None,
             limits: Default::default(),
         }
     }
