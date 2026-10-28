@@ -336,7 +336,7 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         .step(
             Atomic,
             "POST",
-            "/api/v1/identity/projects/{project}/environments",
+            "/api/v1/identity/projects/{projectId}/environments",
             &format!("/api/v1/identity/projects/{project}/environments"),
             r,
             json!({ "slug": "prod", "name": "Production", "kind": "production" }),

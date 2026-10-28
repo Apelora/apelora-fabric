@@ -96,7 +96,7 @@ function CreateEnvironment({ project, me, open, onAuth, onClose, onCreated }: { 
     <NameSlugDialog open={open} form={{ title: `Create an environment in ${project.name}`, noun: "environment", testId: "env-dialog", busyText: "Creating…", extra }} onClose={() => { setError(null); onClose(); }} busy={busy} error={error}
       name={name} setName={setName} slug={slug} setSlug={setSlug} canSubmit={!!name.trim() && validSlug(slug)}
       submit={() => void run(async () => {
-        const e = await client.request("create_environment", { params: { project: project.id }, body: { name: name.trim(), slug, kind, incusProject: platform && existing.trim() ? existing.trim() : null } });
+        const e = await client.request("create_environment", { params: { projectId: project.id }, body: { name: name.trim(), slug, kind, incusProject: platform && existing.trim() ? existing.trim() : null } });
         setName(""); setSlug(""); setExisting("");
         onCreated(e);
       })} />
@@ -131,7 +131,7 @@ function Environment({ env }: { env: EnvironmentDto }) {
 }
 
 function Environments({ project, me, onAuth }: { project: ProjectDto; me: WhoAmI | null; onAuth: (m: string) => void }) {
-  const [envs, reload] = useLoad<EnvironmentDto[]>(() => client.request("environments", { params: { project: project.id } }).then((r) => r.items), onAuth);
+  const [envs, reload] = useLoad<EnvironmentDto[]>(() => client.request("environments", { params: { projectId: project.id } }).then((r) => r.items), onAuth);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   return (

@@ -817,12 +817,12 @@ pub(super) const GATES: &[(&str, &str, &[&str])] = &[
     ),
     (
         "GET",
-        "/api/v1/identity/projects/{project}/environments",
+        "/api/v1/identity/projects/{projectId}/environments",
         &["project.view"],
     ),
     (
         "POST",
-        "/api/v1/identity/projects/{project}/environments",
+        "/api/v1/identity/projects/{projectId}/environments",
         &["environment.manage"],
     ),
     // Tenancy and quotas (ADR 0012): the handlers check the exact scope; setting a quota is

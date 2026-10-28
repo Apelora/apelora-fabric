@@ -562,7 +562,7 @@ pub fn router(state: AppState) -> Router {
             post(identity::create_project),
         )
         .route(
-            "/api/v1/identity/projects/{project}/environments",
+            "/api/v1/identity/projects/{projectId}/environments",
             get(identity::environments).post(identity::create_environment),
         )
         .route("/api/v1/identity/tenancy", get(tenancy::overview))
@@ -1801,7 +1801,7 @@ impl Modify for ErrorResponses {
 /// TypeScript client from that file; a test fails when either is stale.
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
+    info(title = "Apelora control plane API", description = "Inventory, audit and identity for an Apelora fabric. Inventory responses name their source (mock or Incus) and when they were observed.\n\nConventions: a list answers `items`; a paged list also answers `next` while older entries remain, which the next request passes as `after`. Something created at once answers 201 with it, something queued answers 202 with how to follow it (a job or an operation), and a change or removal with nothing to return answers 204. A removal that needs a name typed again takes it as the `confirm` query parameter. A check that changes nothing has a noun path (`…/evacuation`, `…/migration`, `…/restoration`). `Idempotency-Key` makes a request that queues work safe to repeat; other requests ignore it. An error answers `error.code` and `error.message`; each code has one status.", license(name = "AGPL-3.0-only", identifier = "AGPL-3.0-only")),
     paths(health, sign_in, sessions_auth::sign_in_password, sessions_auth::complete_setup, sessions_auth::sign_out, sessions_auth::change_password,
         account::my_tokens, account::create_my_token, account::rotate_my_token, account::revoke_my_token,
         account::personal_tokens, account::revoke_personal_token, account::my_sign_ins, account::end_my_sign_in,

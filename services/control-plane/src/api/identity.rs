@@ -805,8 +805,8 @@ async fn project_resource(
 }
 
 /// Environments of a project. Needs `project.view` on it.
-#[utoipa::path(get, path = "/api/v1/identity/projects/{project}/environments", tag = "identity", operation_id = "environments",
-    params(("project" = Uuid, Path, description = "Project id")),
+#[utoipa::path(get, path = "/api/v1/identity/projects/{projectId}/environments", tag = "identity", operation_id = "environments",
+    params(("projectId" = Uuid, Path, description = "Apelora project id")),
     responses((status = 200, body = EnvironmentList), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody)))]
 pub(super) async fn environments(
     State(state): State<AppState>,
@@ -839,8 +839,8 @@ fn forbidden_view(perm: &str) -> ApiError {
 /// choose it); platform administrators (`cluster.manage`) may map an existing one. When the
 /// derived project already exists and Apelora did not create it for this environment, nothing
 /// is created: 409 `incus_project_exists`. Needs `environment.manage`.
-#[utoipa::path(post, path = "/api/v1/identity/projects/{project}/environments", tag = "identity", operation_id = "create_environment", request_body = NewEnvironment,
-    params(("project" = Uuid, Path, description = "Project id")),
+#[utoipa::path(post, path = "/api/v1/identity/projects/{projectId}/environments", tag = "identity", operation_id = "create_environment", request_body = NewEnvironment,
+    params(("projectId" = Uuid, Path, description = "Apelora project id")),
     responses((status = 201, body = EnvironmentDto), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub(super) async fn create_environment(
     State(state): State<AppState>,

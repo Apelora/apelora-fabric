@@ -28,7 +28,7 @@ export function createApiBackend(): AppBackend {
         const projects = await client.request("projects", {});
         const out: EnvChoice[] = [];
         for (const p of projects.items) {
-          const envs = await client.request("environments", { params: { project: p.id } });
+          const envs = await client.request("environments", { params: { projectId: p.id } });
           for (const e of envs.items) out.push({ id: e.id, label: `${p.organizationSlug} / ${p.name} · ${e.name}`, project: p.name, organization: p.organizationSlug, kind: e.kind });
         }
         return out;
