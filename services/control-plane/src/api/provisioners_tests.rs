@@ -79,7 +79,10 @@ async fn without_maas_the_list_says_so_and_a_maas_machine_cannot_be_registered(p
     .await;
     assert_eq!(
         (st, e["error"]["code"].as_str()),
-        (StatusCode::BAD_REQUEST, Some("provisioner_not_configured"))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("provisioner_not_configured")
+        )
     );
 }
 

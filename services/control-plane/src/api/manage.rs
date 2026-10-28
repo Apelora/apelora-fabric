@@ -1291,7 +1291,7 @@ pub(super) async fn operate(
     // Never act on a guess: if Incus cannot be read, refuse.
     let Ok(all) = state.provider.instances().await else {
         return Err(ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
+            StatusCode::BAD_GATEWAY,
             "incus_unreachable",
             "the control plane cannot reach Incus, so it cannot check the application's state; nothing was changed",
         ));
