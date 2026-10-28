@@ -87,7 +87,12 @@ test.describe("fabric console", () => {
         : route.fulfill({ status: 401, json: { error: { code: "unauthenticated", message: "an API token is required (Authorization: Bearer <token>)" } } });
     await page.route("**/api/v1/health", (route) => route.fulfill({ json: { ...health("mock", false), auth: "tokens" } }));
     await page.route("**/api/v1/sign-in", (route) => route.fulfill({ json: { providers: [], apiTokens: true } }));
-    await page.route("**/api/v1/whoami", guard(whoami("fabric-admin", ADMIN)));
+    // The overview's own request is refused before the sign-in check is: the check's later
+    // refusal must not replace "not accepted" with a bare sign-in page.
+    await page.route("**/api/v1/whoami", async (route) => {
+      if (route.request().headers()["authorization"] !== `Bearer ${good}`) await new Promise((r) => setTimeout(r, 300));
+      await guard(whoami("fabric-admin", ADMIN))(route);
+    });
     await page.route("**/api/v1/cluster", guard(cluster("mock", ["mock-member-01"])));
     await page.route("**/api/v1/instances", guard(instances("mock")));
     await page.goto("/");
@@ -100,7 +105,9 @@ test.describe("fabric console", () => {
 
     // A wrong token: said plainly, the field is marked and emptied (a refused secret is not kept on screen).
     await page.getByTestId("token-input").fill("apl_wrong");
+    const checked = page.waitForResponse((r) => r.url().endsWith("/api/v1/whoami") && r.request().headers()["authorization"] === "Bearer apl_wrong");
     await page.getByTestId("sign-in").getByRole("button", { name: "Sign in" }).click();
+    await checked;
     await expect(page.getByTestId("sign-in-error")).toHaveText("That token was not accepted. It may have expired or been revoked.");
     await expect(page.getByTestId("token-input")).toHaveAttribute("aria-invalid", "true");
     await expect(page.getByTestId("token-input")).toHaveValue("");

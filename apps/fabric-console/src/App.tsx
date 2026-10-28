@@ -162,15 +162,17 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // Several requests can be refused for the same token (the sign-in check and the overview's
+  // own); the first refusal says why, and a later one must not replace it.
   const onAuth = useCallback((msg: string) => {
     const had = readToken() !== null;
     writeToken(null);
     setMe(null);
-    setAuthNeeded(
+    const reason: SignInReason =
       providerError.current ? { error: providerError.current }
         : fromProvider.current ? { error: `You signed in, but Apelora did not accept the identity provider's token: ${msg}` }
-        : submitted.current ? "rejected" : had ? "ended" : "required",
-    );
+        : submitted.current ? "rejected" : had ? "ended" : "required";
+    setAuthNeeded((shown) => shown ?? reason);
     submitted.current = false;
     fromProvider.current = false;
     providerError.current = null;
