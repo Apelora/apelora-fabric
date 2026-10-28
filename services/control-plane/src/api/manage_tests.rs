@@ -1556,3 +1556,220 @@ async fn an_application_is_migrated_after_a_dry_run_and_a_confirmation_and_every
         "{b}"
     );
 }
+
+// ---- rolling updates --------------------------------------------------------------------------
+
+/// Moves the recorded moments of the application's update `secs` into the past.
+async fn age_update(l: &Lab, secs: i64) {
+    let ops: Vec<(Uuid, String, Value)> = sqlx::query_as(
+        "SELECT id, state, phases FROM application_operations WHERE kind = 'update'",
+    )
+    .fetch_all(&l.pool)
+    .await
+    .expect("ops");
+    for (id, state, mut phases) in ops {
+        for phase in phases.as_array_mut().expect("phases") {
+            for step in phase["steps"].as_array_mut().expect("steps") {
+                if let Some(p) = step["payload"].as_object_mut() {
+                    for k in ["since", "onlineSince", "leftAt"] {
+                        if let Some(t) = p.get(k).and_then(Value::as_i64) {
+                            p.insert(k.into(), json!(t - secs));
+                        }
+                    }
+                }
+            }
+        }
+        apelora_persistence::lifecycle::update_operation(&l.pool, id, &state, &phases, None)
+            .await
+            .expect("age");
+    }
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn deploying_changed_settings_replaces_stateless_replicas_through_one_update(pool: Pool) {
+    let (l, mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    deployed(&l, &s).await;
+    let mut web = module("web-01", "stateless");
+    web["spec"]["config"] = json!({ "environment.MODE": "green" });
+    let body = json!({ "project": "acme-prod-live", "document": {}, "modules": [web, module("db-01", "stateful")],
+        "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }] });
+    let deploy = || {
+        l.req(
+            "POST",
+            "/api/v1/applications/shop/deployments",
+            &s.owner,
+            Some(body.clone()),
+        )
+    };
+
+    // The web replica runs another setting: replaced by an update operation, not a job of its own.
+    let (st, d) = deploy().await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    let replace: Vec<&Value> = d["plan"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .filter(|i| i["action"] == "replace")
+        .collect();
+    assert_eq!(replace.len(), 1, "{d}");
+    assert_eq!(
+        (
+            replace[0]["instance"].as_str(),
+            replace[0]["outdated"].clone()
+        ),
+        (Some("shop-web-01"), json!(["settings"]))
+    );
+    assert!(d["operation"].is_string(), "{d}");
+    assert!(d["jobs"].as_array().expect("jobs").is_empty(), "{d}");
+    assert_eq!(info(&l, &s.owner).await["deployment"]["status"], "updating");
+
+    // Nothing else is deployed, and an update is never asked for directly.
+    let (st, b) = deploy().await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("operation_in_progress")),
+        "{b}"
+    );
+    let (st, b) = operate(&l, &s.owner, "update", false).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{b}");
+
+    for _ in 0..20 {
+        settle(&l).await;
+        age_update(&l, 30).await;
+    }
+    let (state, error): (String, Option<String>) =
+        sqlx::query_as("SELECT state, error FROM application_operations WHERE kind = 'update'")
+            .fetch_one(&l.pool)
+            .await
+            .expect("op");
+    assert_eq!((state.as_str(), error), ("succeeded", None));
+    let mut names: Vec<String> = Provider::Mock(mock)
+        .instances()
+        .await
+        .expect("instances")
+        .into_iter()
+        .filter(|i| i.name.starts_with("shop-"))
+        .map(|i| i.name)
+        .collect();
+    names.sort();
+    assert_eq!(names, ["shop-db-01", "shop-web-01-u1"]);
+    assert_eq!(info(&l, &s.owner).await["deployment"]["status"], "running");
+    // Deployed again unchanged: the update fills the slot and nothing is replaced.
+    let (st, d) = deploy().await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    assert!(d["operation"].is_null(), "{d}");
+    assert!(
+        d["plan"]["items"]
+            .as_array()
+            .expect("items")
+            .iter()
+            .all(|i| i["action"] == "keep"),
+        "{d}"
+    );
+}
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_stateful_module_whose_settings_changed_is_rebuilt_only_once_the_disruption_is_confirmed(
+    pool: Pool,
+) {
+    let (l, mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    deployed(&l, &s).await;
+    let mut db = module("db-01", "stateful");
+    db["spec"]["config"] = json!({ "environment.MODE": "green" });
+    db["spec"]["source"]["alias"] = json!("nginx:1.30");
+    let body = |confirm: bool| {
+        json!({ "project": "acme-prod-live", "document": {}, "modules": [module("web-01", "stateless"), db.clone()],
+            "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }], "confirmDisruption": confirm })
+    };
+    let deploy = |confirm: bool| {
+        l.req(
+            "POST",
+            "/api/v1/applications/shop/deployments",
+            &s.owner,
+            Some(body(confirm)),
+        )
+    };
+    let jobs = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM jobs")
+            .fetch_one(&l.pool)
+            .await
+            .expect("jobs")
+    };
+
+    // The plan says so, and deploying without confirming changes nothing.
+    let (st, plan) = l
+        .req(
+            "POST",
+            "/api/v1/applications/shop/plan",
+            &s.owner,
+            Some(body(false)),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{plan}");
+    let item = plan["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|i| i["instance"] == "shop-db-01")
+        .cloned()
+        .expect("db");
+    assert_eq!(
+        (item["action"].as_str(), item["outdated"].clone()),
+        (Some("rebuild"), json!(["image", "settings"]))
+    );
+    assert!(
+        plan["warnings"]
+            .to_string()
+            .contains("stopped while rebuilt"),
+        "{plan}"
+    );
+    let before = jobs().await;
+    let (st, b) = deploy(false).await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("confirmation_required")),
+        "{b}"
+    );
+    assert!(
+        b["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Data on volumes is kept")),
+        "{b}"
+    );
+    assert_eq!(jobs().await, before, "nothing queued");
+
+    // Confirmed: one update operation rebuilds it under the same name.
+    let (st, d) = deploy(true).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    assert!(d["operation"].is_string(), "{d}");
+    for _ in 0..10 {
+        settle(&l).await;
+        age_update(&l, 30).await;
+    }
+    let (state, confirmed): (String, bool) = sqlx::query_as(
+        "SELECT state, confirmed_disruption FROM application_operations WHERE kind = 'update'",
+    )
+    .fetch_one(&l.pool)
+    .await
+    .expect("op");
+    assert_eq!((state.as_str(), confirmed), ("succeeded", true));
+    assert_eq!(mock.net().rebuilds, ["shop-db-01"]);
+    let db_now = Provider::Mock(mock)
+        .instance("acme-prod-live", "shop-db-01")
+        .await
+        .expect("read")
+        .expect("same name");
+    assert_eq!(
+        (
+            db_now.status.as_str(),
+            db_now.settings.get("environment.MODE").map(String::as_str)
+        ),
+        ("Running", Some("green"))
+    );
+    // Deployed again: nothing left to rebuild, no confirmation needed.
+    let (st, d) = deploy(false).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    assert!(d["operation"].is_null(), "{d}");
+}

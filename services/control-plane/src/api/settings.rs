@@ -470,6 +470,24 @@ pub const SETTINGS: &[Setting] = &[
         "Unhealthy for this long: restarted",
     ),
     s(
+        "APELORA_UPDATE_HEALTHY_SECS",
+        Worker,
+        Some("20"),
+        "A rolling update's new replica must pass its service's health check this long before the old one goes",
+    ),
+    s(
+        "APELORA_UPDATE_TIMEOUT_SECS",
+        Worker,
+        Some("300"),
+        "A new replica not healthy this long after it was created stops the rolling update; it is removed and the old replicas keep serving",
+    ),
+    s(
+        "APELORA_UPDATE_DRAIN_SECS",
+        Worker,
+        Some("5"),
+        "Seconds an old replica keeps running after it left its service address, for requests in flight to finish",
+    ),
+    s(
         "APELORA_FENCE_PROBE",
         Worker,
         Some("off"),

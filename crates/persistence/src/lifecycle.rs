@@ -442,6 +442,17 @@ pub async fn create_operation_in(
     Ok((row, true))
 }
 
+/// The kind of the application's operation still pending or running, if any (there is at most
+/// one, see [`create_operation`]).
+pub async fn active_operation_kind(pool: &PgPool, application_id: Uuid) -> Result<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT kind FROM application_operations WHERE application_id = $1 AND state IN ('pending', 'running')",
+    )
+    .bind(application_id)
+    .fetch_optional(pool)
+    .await?)
+}
+
 pub async fn get_operation(pool: &PgPool, id: Uuid) -> Result<Option<OperationRow>> {
     Ok(sqlx::query_as(&format!(
         "SELECT {OP_COLS} FROM application_operations WHERE id = $1"

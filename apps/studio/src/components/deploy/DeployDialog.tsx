@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
+import { ApiRequestError, followJob, followOperation, newIdempotencyKey, type Job, type OperationDto, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
 import { budgetIssues, compileNetwork, effectiveValue, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, validateProperty, withSetup, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
@@ -15,12 +15,14 @@ type Step =
   | { kind: "not-allowed"; message: string }
   | { kind: "configure" }
   | { kind: "review"; plan: Plan }
-  | { kind: "applying"; plan: Plan; jobs: { instance: string; action: PlanAction; job?: Job }[]; revision: number };
+  | { kind: "applying"; plan: Plan; jobs: { instance: string; action: PlanAction; job?: Job }[]; revision: number; update?: OperationDto };
 
 const ACTION: Record<PlanAction, { label: string; tone: string }> = {
   create: { label: "Create", tone: "status-success" },
   keep: { label: "Keep", tone: "status-neutral" },
   resize: { label: "Resize", tone: "status-info" },
+  replace: { label: "Replace", tone: "status-info" },
+  rebuild: { label: "Rebuild", tone: "status-warning" },
   remove: { label: "Remove", tone: "status-warning" },
   conflict: { label: "Conflict", tone: "status-error" },
 };
@@ -43,6 +45,8 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
   const [appName, setAppName] = useState("");
   const [project, setProject] = useState("");
   const [removeMissing, setRemoveMissing] = useState(false);
+  // A rebuilt singleton or stateful module is down meanwhile: asked for every new preview.
+  const [confirmDisruption, setConfirmDisruption] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setup, setSetup] = useState<Record<string, Record<string, string>>>({});
@@ -117,6 +121,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     setError(null);
     try {
       const plan = await client.request("plan_application", { params: { name: appName }, body: { project, modules: desired(), connections: connections(), published: published() } });
+      setConfirmDisruption(false);
       setStep({ kind: "review", plan });
     } catch (e) {
       setError(messageOf(e));
@@ -134,21 +139,27 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
       const document = { ...base, ...(used.length ? { catalog: { classes: used } } : {}) };
       const res = await client.request("deploy_application", {
         params: { name: appName },
-        body: { project, document, modules: desired(), connections: connections(), published: published(), removeMissing, version: target.version },
+        body: { project, document, modules: desired(), connections: connections(), published: published(), removeMissing, confirmDisruption, version: target.version },
         idempotencyKey: newIdempotencyKey(),
       });
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
       setStep({ kind: "applying", plan: res.plan, jobs, revision: res.revision });
       live.watch(appName, project);
-      await Promise.all(
-        res.jobs.map((j, i) =>
-          followJob(client, j.jobId, (job) =>
-            setStep((s) => (s.kind === "applying" ? { ...s, jobs: s.jobs.map((x, k) => (k === i ? { ...x, job } : x)) } : s)),
-          ),
+      const watching: Promise<unknown>[] = res.jobs.map((j, i) =>
+        followJob(client, j.jobId, (job) =>
+          setStep((s) => (s.kind === "applying" ? { ...s, jobs: s.jobs.map((x, k) => (k === i ? { ...x, job } : x)) } : s)),
         ),
       );
+      // Replaced replicas go one at a time in a rolling update: followed until it ends.
+      const update = res.operation
+        ? followOperation(client, appName, res.operation, (op) => setStep((s) => (s.kind === "applying" ? { ...s, update: op } : s)))
+        : null;
+      if (update) watching.push(update);
+      await Promise.all(watching);
       await live.refresh();
-      api.getState().toast("success", `Deployed version ${target.version} of ${appName}`);
+      const stopped = update ? await update : null;
+      if (stopped && stopped.state !== "succeeded") api.getState().toast("error", `The update of ${appName} stopped: ${stopped.error ?? stopped.state}`);
+      else api.getState().toast("success", `Deployed version ${target.version} of ${appName}`);
       onDone?.();
     } catch (e) {
       setError(messageOf(e));
@@ -158,7 +169,8 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     }
   };
 
-  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || i.action === "resize" || (i.action === "remove" && removeMissing)).length;
+  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || i.action === "resize" || i.action === "replace" || i.action === "rebuild" || (i.action === "remove" && removeMissing)).length;
+  const rebuilt = (plan: Plan) => plan.items.filter((i) => i.action === "rebuild").map((i) => i.module);
   const conflicts = (plan: Plan) => plan.items.some((i) => i.action === "conflict");
   const overQuota = (plan: Plan) => plan.quota?.allowed === false;
   const nameError = appName && !NAME.test(appName) ? "Lowercase letters, digits and hyphens, starting with a letter (at most 40)." : null;
@@ -270,12 +282,18 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
                 <span>Also delete the instances no longer in the design</span>
               </label>
             )}
+            {rebuilt(step.plan).length > 0 && (
+              <label className="flex items-start gap-2">
+                <input type="checkbox" className="checkbox checkbox-sm mt-0.5" checked={confirmDisruption} onChange={(e) => setConfirmDisruption(e.target.checked)} data-testid="deploy-confirm-disruption" />
+                <span>Stop {rebuilt(step.plan).join(", ")} while {rebuilt(step.plan).length === 1 ? "it is" : "they are"} rebuilt. {rebuilt(step.plan).length === 1 ? "Its" : "Their"} clients lose service meanwhile; data on volumes is kept.</span>
+              </label>
+            )}
             {step.plan.quota && <QuotaReview quota={step.plan.quota} />}
             {conflicts(step.plan) && <p role="alert" className="text-error" data-testid="deploy-conflicts">Resolve the conflicts first: rename the module or the application. Nothing is deployed while any remain.</p>}
             {error && <p role="alert" className="text-error" data-testid="deploy-error">{error}</p>}
             <div className="modal-action mt-0">
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setStep({ kind: "configure" })}>Back</button>
-              <button type="button" className="btn btn-sm btn-primary" disabled={busy || conflicts(step.plan) || overQuota(step.plan)} onClick={() => void apply(step.plan)} data-testid="deploy-apply">
+              <button type="button" className="btn btn-sm btn-primary" disabled={busy || conflicts(step.plan) || overQuota(step.plan) || (rebuilt(step.plan).length > 0 && !confirmDisruption)} onClick={() => void apply(step.plan)} data-testid="deploy-apply">
                 {busy ? "Deploying…" : changes(step.plan) ? `Deploy ${changes(step.plan)} change${changes(step.plan) === 1 ? "" : "s"}` : "Save revision (no changes)"}
               </button>
             </div>
@@ -285,7 +303,8 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
         {step.kind === "applying" && (
           <div className="flex flex-col gap-3 text-sm" data-testid="deploy-progress">
             <p className="text-base-content/70">Revision {step.revision} saved. The canvas shows each module's state while this design is open.</p>
-            {step.jobs.length === 0 ? <p>Nothing to change.</p> : (
+            {step.update && <UpdateProgress op={step.update} replaced={step.plan.items.filter((i) => i.action === "replace").length} rebuilt={step.plan.items.filter((i) => i.action === "rebuild").length} />}
+            {step.jobs.length === 0 && !step.update ? <p>Nothing to change.</p> : step.jobs.length > 0 && (
               <ul className="divide-y divide-base-300 rounded-box border border-base-300">
                 {step.jobs.map((j) => (
                   <li key={j.instance} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2" data-testid="deploy-job">
@@ -336,6 +355,27 @@ function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforc
   );
 }
 
+/** An outdated instance that deploying keeps as it is (a replaced one is the change itself). */
+const kept = (i: Plan["items"][number]) => !!i.outdated?.length && i.action !== "replace" && i.action !== "rebuild";
+
+/** An update's progress: replaced replicas (create, healthy, drain, remove) and rebuilt instances, one at a time. */
+function UpdateProgress({ op, replaced, rebuilt }: { op: OperationDto; replaced: number; rebuilt: number }) {
+  const total = replaced + rebuilt;
+  const s = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const what = [replaced && `${s(replaced, "replica", "replicas")} replaced, each healthy before the one it replaced was removed`, rebuilt && `${s(rebuilt, "instance", "instances")} rebuilt`].filter(Boolean).join("; ");
+  const text = op.state === "succeeded" ? `${what.charAt(0).toUpperCase()}${what.slice(1)}.`
+    : op.state === "failed" ? `Update stopped: ${op.error ?? "see the application's operations"}`
+    : op.state === "cancelled" ? "Update cancelled; what was not updated yet keeps running."
+    : rebuilt && !replaced ? `Rebuilding ${s(rebuilt, "instance", "instances")} one at a time.`
+    : `Updating ${s(total, "instance", "instances")} one at a time: ${op.stepsDone} of ${op.stepsTotal} steps done.`;
+  return (
+    <p className={op.state === "failed" ? "text-error" : "text-base-content/70"} role={op.state === "failed" ? "alert" : undefined} data-testid="deploy-update" data-state={op.state}>
+      <span className={`status ${op.state === "failed" ? "status-error" : op.state === "succeeded" ? "status-success" : "status-info animate-pulse"} mr-2`} aria-hidden="true" />
+      {text}
+    </p>
+  );
+}
+
 function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean }) {
   return (
     <div className="max-h-64 overflow-auto rounded-box border border-base-300">
@@ -346,7 +386,7 @@ function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean
             <tr key={i.instance} data-testid="plan-row" data-action={i.action} data-outdated={i.outdated?.join(" ") || undefined}>
               <td>{i.module}</td>
               <td className="font-mono text-xs">{i.instance}</td>
-              <td className="whitespace-nowrap"><span className={`status ${i.outdated?.length ? "status-warning" : ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}{i.outdated?.length ? " · outdated" : ""}</td>
+              <td className="whitespace-nowrap"><span className={`status ${kept(i) ? "status-warning" : ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}{kept(i) ? " · outdated" : ""}</td>
               <td className="text-base-content/70">{i.reason}</td>
             </tr>
           ))}

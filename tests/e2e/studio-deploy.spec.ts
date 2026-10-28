@@ -203,8 +203,8 @@ test.describe("deploying from the Studio", () => {
       "GET /api/v1/whoami": () => ({ json: operator }),
       "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [
         { ...item("nginx-01", "resize", "limits.cpu 1 → 2, limits.memory 512MiB → 1GiB"), changes: [{ key: "limits.cpu", from: "1", to: "2" }, { key: "limits.memory", from: "512MiB", to: "1GiB" }] },
-        { ...item("nginx-02", "keep", "already deployed (Running); keeps its previous image (updating running modules is not built yet)"), outdated: ["image"] },
-      ], warnings: ["commerce-stack-nginx-02 keeps the image or settings it was created with: deploying does not update running modules yet; remove the module and deploy it again to apply the design"] } }),
+        { ...item("nginx-02", "keep", "already deployed (Running); keeps its previous storage (a change of a module's volumes is not applied to a running instance: move its data to a new module)"), outdated: ["storage"] },
+      ], warnings: ["commerce-stack-nginx-02 keeps the volumes it was created with: deploying does not change a running instance's volumes; move the data to a new module to apply the design"] } }),
     });
     await open(page);
     await openDeploy(page);
@@ -215,11 +215,76 @@ test.describe("deploying from the Studio", () => {
     await expect(rows.first()).toContainText("Resize");
     await expect(rows.first()).toContainText("limits.cpu 1 → 2");
     await expect(page.getByTestId("deploy-apply")).toHaveText("Deploy 1 change");
-    // A running instance built from another image is kept and says so; it is not counted as a change.
-    await expect(rows.nth(1)).toHaveAttribute("data-outdated", "image");
+    // A running instance whose volumes the design changed is kept and says so; it is not counted as a change.
+    await expect(rows.nth(1)).toHaveAttribute("data-outdated", "storage");
     await expect(rows.nth(1)).toContainText("Keep · outdated");
-    await expect(rows.nth(1)).toContainText("keeps its previous image");
-    await expect(page.getByTestId("deploy-dialog")).toContainText("deploying does not update running modules yet");
+    await expect(rows.nth(1)).toContainText("keeps its previous storage");
+    await expect(page.getByTestId("deploy-dialog")).toContainText("deploying does not change a running instance's volumes");
+  });
+
+  test("an outdated stateless replica is replaced by a rolling update the dialog follows to the end", async ({ page }) => {
+    let polls = 0;
+    const op = (state: string, stepsDone: number) => ({ id: "o1", application: "commerce-stack", kind: "update", state, requestedBy: "alex", confirmedDisruption: false,
+      createdAt: now, startedAt: now, finishedAt: state === "running" ? null : now, error: null, stepsDone, stepsTotal: 8, phases: [] });
+    const replace = { ...item("nginx-01", "replace", "runs another image (Running): a new replica with the design's replaces it, healthy before this one is removed"), outdated: ["image"] };
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "POST /api/v1/applications/commerce-stack/plan": () => ({ json: { items: [replace, { ...replace, instance: "commerce-stack-nginx-01-r2", replica: 2 }, item("nginx-02", "keep", "already deployed (Running)")], warnings: [] } }),
+      "POST /api/v1/applications/commerce-stack/deployments": () => ({ status: 202, json: { application: "commerce-stack", revision: 2, operation: "o1", jobs: [],
+        plan: { items: [replace, { ...replace, instance: "commerce-stack-nginx-01-r2", replica: 2 }, item("nginx-02", "keep", "already deployed (Running)")], warnings: [] } } }),
+      "GET /api/v1/applications/commerce-stack/operations/o1": () => { polls += 1; return { json: polls < 2 ? op("running", 4) : op("succeeded", 8) }; },
+      "GET /api/v1/applications/commerce-stack/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [], services: [] } }),
+    });
+    await open(page);
+    await openDeploy(page);
+    await page.getByTestId("deploy-preview").click();
+    const rows = page.getByTestId("plan-row");
+    // Replacing is the change itself, not an outdated instance that is kept.
+    await expect(rows.first()).toHaveAttribute("data-action", "replace");
+    await expect(rows.first()).toContainText("Replace");
+    await expect(rows.first()).not.toContainText("outdated");
+    await expect(page.getByTestId("deploy-apply")).toHaveText("Deploy 2 changes");
+    await page.getByTestId("deploy-apply").click();
+    const update = page.getByTestId("deploy-update");
+    await expect(update).toHaveAttribute("data-state", "succeeded");
+    await expect(update).toHaveText("2 replicas replaced, each healthy before the one it replaced was removed.");
+    await expect(page.getByTestId("deploy-progress")).not.toContainText("Nothing to change");
+  });
+
+  test("rebuilding a stateful module needs its downtime confirmed, and the confirmation is sent", async ({ page }) => {
+    let sent: Record<string, unknown> | null = null;
+    const rebuild = { ...item("nginx-02", "rebuild", "runs another image (Running): stopped, rebuilt from the design's image with its settings and started again; its volumes and address are kept, the module is down meanwhile"), outdated: ["image"] };
+    const plan = { items: [item("nginx-01", "keep", "already deployed (Running)"), rebuild], warnings: ["commerce-stack-nginx-02 is stopped while rebuilt with the design's image and settings; data on volumes is kept. Deploying needs confirmDisruption"] };
+    await stub(page, {
+      "GET /api/v1/health": () => ({ json: health }),
+      "GET /api/v1/whoami": () => ({ json: operator }),
+      "POST /api/v1/applications/commerce-stack/plan": () => ({ json: plan }),
+      "POST /api/v1/applications/commerce-stack/deployments": (req) => {
+        sent = req.postDataJSON() as Record<string, unknown>;
+        return { status: 202, json: { application: "commerce-stack", revision: 2, operation: "o2", jobs: [], plan } };
+      },
+      "GET /api/v1/applications/commerce-stack/operations/o2": () => ({ json: { id: "o2", application: "commerce-stack", kind: "update", state: "succeeded", requestedBy: "alex", confirmedDisruption: true,
+        createdAt: now, startedAt: now, finishedAt: now, error: null, stepsDone: 1, stepsTotal: 1, phases: [] } }),
+      "GET /api/v1/applications/commerce-stack/status": () => ({ json: { source: { provider: "incus", observedAt: now }, items: [], services: [] } }),
+    });
+    await open(page);
+    await openDeploy(page);
+    await page.getByTestId("deploy-preview").click();
+    const row = page.getByTestId("plan-row").nth(1);
+    await expect(row).toHaveAttribute("data-action", "rebuild");
+    await expect(row).toContainText("Rebuild");
+    await expect(row).not.toContainText("outdated");
+    const apply = page.getByTestId("deploy-apply");
+    await expect(apply).toHaveText("Deploy 1 change");
+    // Not until the person says the module may be down.
+    await expect(apply).toBeDisabled();
+    const confirm = page.getByTestId("deploy-confirm-disruption");
+    await expect(confirm.locator("xpath=..")).toContainText("Stop nginx-02 while it is rebuilt");
+    await confirm.check();
+    await apply.click();
+    await expect(page.getByTestId("deploy-update")).toHaveText("1 instance rebuilt.");
+    expect(sent!.confirmDisruption).toBe(true);
   });
 
   test("the review shows quota use, and a deployment over quota cannot be applied", async ({ page }) => {

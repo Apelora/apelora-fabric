@@ -14,6 +14,7 @@ pub mod network;
 pub mod operations;
 pub mod outbox;
 pub mod recovery;
+pub mod rollout;
 pub mod storage;
 pub mod supervisor;
 pub mod wake;

@@ -489,6 +489,22 @@ impl InstanceSpec {
     }
 }
 
+/// Whether `key` is one a design sets on its instances (the families
+/// [`caller_config_allowed`] accepts, without Apelora's own `user.apelora.*` labels): applying a
+/// design's settings to an existing instance sets these and removes the ones it no longer has.
+pub fn design_setting(key: &str) -> bool {
+    matches!(
+        key,
+        "limits.cpu"
+            | "limits.cpu.allowance"
+            | "limits.memory"
+            | "migration.stateful"
+            | "cluster.evacuate"
+            | "oci.entrypoint"
+    ) || key.starts_with("environment.")
+        || (key.starts_with("user.") && !key.starts_with("user.apelora."))
+}
+
 /// Whether a caller may put `key = value` into an instance's Incus config. An allow-list, so
 /// that a key which lets an instance reach its host (`security.*`, `raw.*`, `linux.*`, kernel
 /// limits) is refused by Apelora even when the project is not restricted (preflight only warns).

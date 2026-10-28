@@ -64,6 +64,8 @@ test.describe("sectors", () => {
     await expect(b).toHaveAttribute("data-state", "not-configured");
     await expect(b).toContainText("Identity missing");
     await expect(b).toContainText("Set APELORA_SECTOR_SITE_B_CLIENT_CERT");
+    // Checked once the dialog has closed: mid-fade its text measures as low contrast.
+    await expect(dialog).toBeHidden();
     expect((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze()).violations.filter((v) => v.impact === "serious" || v.impact === "critical")).toEqual([]);
 
     await b.getByTestId("sector-forget").click();

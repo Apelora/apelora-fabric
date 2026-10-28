@@ -833,6 +833,13 @@ impl IncusClient {
                     .config
                     .get("migration.stateful")
                     .is_some_and(|v| v == "true"),
+                built_from: d.config.get(apelora_domain::SPEC_KEY).cloned(),
+                settings: d
+                    .config
+                    .iter()
+                    .filter(|(k, _)| apelora_domain::design_setting(k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
             })),
             Err(AdapterError::NotFound(_)) => Ok(None),
             Err(e) => Err(e),
@@ -1403,6 +1410,76 @@ impl IncusClient {
     /// `PUT /1.0/instances/<name>/state`.
     /// `PATCH /1.0/instances/<name>`: merges the given limits into the instance's own
     /// configuration (an empty value removes a key). Refuses an instance Apelora does not own.
+    /// `POST /1.0/instances/<name>/rebuild` from the spec's image (the spec is validated and
+    /// mirrored by the caller); Incus refuses a running instance.
+    pub(crate) async fn rebuild_instance(
+        &self,
+        spec: &InstanceSpec,
+    ) -> Result<String, AdapterError> {
+        match self.instance(&spec.project, &spec.name).await? {
+            None => {
+                return Err(AdapterError::NotFound(format!(
+                    "instance {}/{}",
+                    spec.project, spec.name
+                )));
+            }
+            Some(s) if !s.managed => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: "the instance is not managed by Apelora".into(),
+                });
+            }
+            Some(_) => {}
+        }
+        let mut source = json!({
+            "type": "image",
+            "protocol": match spec.source.protocol {
+                ImageProtocol::Simplestreams => "simplestreams",
+                ImageProtocol::Oci => "oci",
+            },
+            "server": spec.source.server,
+            "alias": spec.source.alias,
+        });
+        if let Some(fp) = &spec.source.fingerprint {
+            source["fingerprint"] = json!(fp);
+        }
+        self.start_operation(
+            Method::POST,
+            &format!(
+                "/1.0/instances/{}/rebuild?project={}",
+                spec.name, spec.project
+            ),
+            Some(&json!({ "source": source })),
+        )
+        .await
+    }
+
+    /// `PATCH /1.0/instances/<name>` with a design's settings and profiles (checked by the caller).
+    pub(crate) async fn apply_settings(
+        &self,
+        project: &str,
+        name: &str,
+        patch: &std::collections::BTreeMap<String, String>,
+        profiles: &[String],
+    ) -> Result<Option<String>, AdapterError> {
+        match self.instance(project, name).await? {
+            None => return Err(AdapterError::NotFound(format!("instance {project}/{name}"))),
+            Some(s) if !s.managed => {
+                return Err(AdapterError::Api {
+                    status: 409,
+                    message: "the instance is not managed by Apelora".into(),
+                });
+            }
+            Some(_) => {}
+        }
+        self.start_operation_or_done(
+            Method::PATCH,
+            &format!("/1.0/instances/{name}?project={project}"),
+            Some(&json!({ "config": patch, "profiles": profiles })),
+        )
+        .await
+    }
+
     pub(crate) async fn set_instance_limits(
         &self,
         project: &str,

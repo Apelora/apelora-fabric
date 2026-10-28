@@ -804,6 +804,8 @@ export type DatabaseBackupReport = {
 };
 
 export type DeployRequest = {
+  /** Required when the plan rebuilds a singleton or stateful module (`rebuild`): it acknowledges that the module is stopped while it is rebuilt. Data on volumes is kept. */
+  confirmDisruption?: boolean;
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
   /** The Studio document, saved as an immutable revision. Ignored when `version` is given. */
@@ -823,6 +825,8 @@ export type DeployResponse = {
   jobs: QueuedChange[];
   /** The job that applies the connections to the application's network, when enforced. */
   networkJob?: string | null;
+  /** The rolling update that replaces the plan's `replace` instances one replica at a time, each new one healthy before the old one goes (an application operation of kind `update`); absent when nothing is replaced. */
+  operation?: string | null;
   /** The plan that was applied (recomputed when applying). */
   plan: Plan;
   revision: number;
@@ -844,7 +848,7 @@ export type DeploymentInfo = {
   status: DeploymentStatus;
 };
 
-export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "migrating" | "stopped" | "failed" | "unknown";
+export type DeploymentStatus = "not-deployed" | "starting" | "running" | "degraded" | "stopping" | "migrating" | "updating" | "stopped" | "failed" | "unknown";
 
 export type DesignInfo = {
   draftVersion?: number | null;
@@ -2402,7 +2406,7 @@ export type OperationDto = {
   stepsTotal: number;
 };
 
-export type OperationKind = "start" | "stop" | "shutdown" | "restart" | "migrate";
+export type OperationKind = "start" | "stop" | "shutdown" | "restart" | "migrate" | "update";
 
 export type OperationList = {
   items: OperationDto[];
@@ -2569,7 +2573,7 @@ export type Plan = {
   warnings: string[];
 };
 
-export type PlanAction = "create" | "keep" | "resize" | "remove" | "conflict";
+export type PlanAction = "create" | "keep" | "resize" | "replace" | "rebuild" | "remove" | "conflict";
 
 export type PlanItem = {
   action: PlanAction;
@@ -2578,7 +2582,7 @@ export type PlanItem = {
   instance: string;
   /** The module in the design (for `remove`: the label of the instance being removed). */
   module: string;
-  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running modules is not built yet. */
+  /** What the running instance was built from that the design now asks differently: `image`, `settings` or `storage`. A stateless replica is replaced (`replace`); a singleton or stateful module is kept as it is (updating those is not built yet). */
   outdated?: string[];
   /** Why, in a sentence (e.g. what the conflicting instance is). */
   reason: string;

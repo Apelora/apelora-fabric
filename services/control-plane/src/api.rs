@@ -1757,7 +1757,19 @@ impl Modify for ErrorResponses {
             .into_iter()
             .flatten()
             {
+                let operation = op.operation_id.clone().unwrap_or_default();
                 let responses = &mut op.responses.responses;
+                // The statuses the handler can answer, from the table of its codes.
+                if let Some((_, by)) = error_codes::ERROR_CODES
+                    .iter()
+                    .find(|(id, _)| *id == operation)
+                {
+                    for (status, _) in by.iter() {
+                        responses
+                            .entry((*status).into())
+                            .or_insert_with(|| Self::error(status));
+                    }
+                }
                 let mut shared = vec!["429"];
                 if !rate_limit::is_public_path(path) {
                     shared.push("401");
@@ -1768,11 +1780,22 @@ impl Modify for ErrorResponses {
                         .or_insert_with(|| Self::error(status));
                 }
                 for (status, r) in responses.iter_mut() {
-                    if let (utoipa::openapi::RefOr::T(r), Some(meaning)) =
-                        (r, Self::meaning(status))
+                    let utoipa::openapi::RefOr::T(r) = r else {
+                        continue;
+                    };
+                    if let Some(meaning) = Self::meaning(status)
                         && r.description.is_empty()
                     {
                         r.description = meaning.into();
+                    }
+                    let codes = error_codes::codes(&operation, status);
+                    if !codes.is_empty() && !r.description.contains("`error.code`") {
+                        let list = codes
+                            .iter()
+                            .map(|c| format!("`{c}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        r.description = format!("{} `error.code`: {list}.", r.description);
                     }
                 }
             }
@@ -1863,6 +1886,7 @@ mod db_backups;
 mod deploy;
 mod directories;
 mod document;
+mod error_codes;
 mod fabric_health;
 pub mod headers;
 mod health_cache;
