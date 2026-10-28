@@ -367,7 +367,7 @@ test.describe("fabric console views", () => {
       "POST /api/v1/machines/server-04/approve": () => {
         pending = [{ memberName: "server-04", expiresAt: "2026-10-20T03:00:00Z" }];
         machines = [{ ...machines[0], state: "approved", nextStep: "Run the enrolment script on the server and paste the join token." }];
-        return { status: 201, json: { name: "server-04", expiresAt: "2026-10-20T03:00:00Z", token, enrolCommand: "sudo bash scripts/enrol/enrol-member.sh --name server-04 --address <this server's cluster address>", warnings: ["this token stays valid until 2026-10-20T03:00:00Z; set the Incus option cluster.join_token_expiry to 1H or less"] } };
+        return { status: 201, json: { name: "server-04", expiresAt: "2026-10-20T03:00:00Z", token, enrolCommand: "sudo bash scripts/enrol/enrol-member.sh --name server-04 --address <this server's cluster address> --pool-size <size of the local loop pool, such as 20GiB>", warnings: ["this token stays valid until 2026-10-20T03:00:00Z; set the Incus option cluster.join_token_expiry to 1H or less"] } };
       },
       "GET /api/v1/machines/server-04/admission": () => ({ json: { source: { provider: "incus", observedAt: now }, name: "server-04", admissible, checks: [
         check("member-online", "Member online", "pass", "online"),

@@ -119,16 +119,38 @@ incus cluster add "$NEW_MEMBER"      # prints the token
 On the **new server**, install Incus first. It must be a fresh installation, because joining deletes what is on it. Then join with the token:
 
 ```sh
+NEW_MEMBER=...          # the same name the token was created for
 SERVER_IP=...           # the new server's own address
+LEADER=...              # a member that is already in the cluster
 TOKEN=...               # from the step above; paste it, never keep it in a file or script
 
 cat >join.yaml <<EOF
 cluster:
   enabled: true
+  server_name: $NEW_MEMBER
   server_address: $SERVER_IP:8443
+  cluster_address: $LEADER:8443
   cluster_token: $TOKEN
+  member_config:
+  - entity: storage-pool
+    name: local
+    key: size
+    value: 20GiB
+  - entity: storage-pool
+    name: local
+    key: source
+    value: ""
 EOF
 incus admin init --preseed <join.yaml
+rm -f join.yaml
+```
+
+A sized loop pool asks the new member for `size` and `source`. An empty `source` tells Incus to create the loop file. A pool on a real disk sets `source` to that device and does not set `size`. Delete `join.yaml` after the join: it held the token.
+
+The same loop-pool answers from the enrolment script, which also holds the member out of placement. The token stays on standard input:
+
+```sh
+printf '%s\n' "$TOKEN" | sudo bash enrol-member.sh --name "$NEW_MEMBER" --address "$SERVER_IP" --pool-size 20GiB
 ```
 
 `incus cluster list` on any member now shows every server online, and three of them with the database role.

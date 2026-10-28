@@ -20,8 +20,10 @@ Design: [node enrolment](../design/node-enrolment.md).
    command to run are shown once; the token is single-use and expires
    (`cluster.join_token_expiry`, keep it at 1 hour or less). State: *Waiting to join*.
 3. **Enrol the server:** copy `scripts/enrol/enrol-member.sh` to it and run, as root,
-   `bash enrol-member.sh --name <name> --address <its cluster address>` — add
-   `--member-config <file>` for per-member storage settings and, with OVN,
+   `bash enrol-member.sh --name <name> --address <its cluster address> --pool-size <size>`.
+   `--pool-size 20GiB` is the sized loop pool named `local`: it answers `size` and an empty
+   `source`, so Incus creates the loop file. A pool on a disk uses `--member-config <file>`
+   instead (one YAML item per key; do not pass both). With OVN, add
    `--ovn-remote tcp:<ovn-db>:6642 --ovn-encap-ip <its address>`. Paste the token when asked
    (it is not echoed; pass it on standard input in automation — never on the command line). The
    script checks Incus ≥ 7.0 and kernel ≥ 6.12, configures the OVN controller, joins, and holds

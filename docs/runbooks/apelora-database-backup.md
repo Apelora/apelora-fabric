@@ -246,4 +246,4 @@ Changes in that window:
 
 - The scripts have been run against PostgreSQL 18, and the example units have been started on a test host. The timers have not yet run on their own schedule on a production host. Check the first scheduled backup and drill yourself (Administration → Apelora's database backups shows them).
 - Restoring onto a new host has been tried with a second PostgreSQL on the same machine, not on a second machine.
-- Starting the control plane and the worker on a restored database, and reconciling what the backup missed (§9), have not been rehearsed as one exercise. The restore stops once the database verifies. Rehearse the whole path once before you need it.
+- Starting the control plane and the worker on a restored database has been rehearsed on one machine without a cluster (`scripts/ops/test-db-plane.sh`): the jobs in the backup were picked up and later ones were absent. Reconciling what the backup missed against a live cluster (§9) has not been rehearsed. Rehearse the whole path once before you need it.
