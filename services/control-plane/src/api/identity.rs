@@ -2598,7 +2598,7 @@ pub(super) async fn request_approval(
         if db::count_open_approvals(pool, &p.actor_ref()).await? >= MAX_OPEN_REQUESTS {
             return Err(ApiError::new(
                 StatusCode::TOO_MANY_REQUESTS,
-                "too_many_requests",
+                "too_many_open_requests",
                 "you already have many requests waiting; cancel or wait for some",
             ));
         }

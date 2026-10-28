@@ -1052,7 +1052,8 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
                     "operation_in_progress",
                 ],
             ),
-            ("503", &["database_not_configured", "incus_unreachable"]),
+            ("502", &["incus_unreachable"]),
+            ("503", &["database_not_configured"]),
         ],
     ),
     ("organizations", &[("503", &["database_not_configured"])]),
@@ -1167,19 +1168,16 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
     (
         "register_machine",
         &[
-            (
-                "400",
-                &[
-                    "invalid_request",
-                    "provisioner_not_configured",
-                    "unknown_machine",
-                ],
-            ),
+            ("400", &["invalid_request", "unknown_machine"]),
             ("403", &["forbidden", "mfa_required"]),
             ("502", &["provisioner_unavailable"]),
             (
                 "503",
-                &["cluster_admin_not_configured", "database_not_configured"],
+                &[
+                    "cluster_admin_not_configured",
+                    "database_not_configured",
+                    "provisioner_not_configured",
+                ],
             ),
         ],
     ),
@@ -1712,6 +1710,19 @@ mod tests {
                     assert!(
                         code.contains(&format!("\"{c}\"")),
                         "{op}: {c} is used nowhere"
+                    );
+                }
+            }
+        }
+        // One code, one status, whichever operation answers it.
+        let mut status_of: std::collections::BTreeMap<&str, &str> = Default::default();
+        for (op, by) in ERROR_CODES {
+            for (status, codes) in *by {
+                for c in *codes {
+                    let first = *status_of.entry(c).or_insert(status);
+                    assert_eq!(
+                        first, *status,
+                        "{op}: {c} is answered with {first} elsewhere"
                     );
                 }
             }

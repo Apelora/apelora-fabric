@@ -2637,8 +2637,18 @@
               }
             }
           },
+          "502": {
+            "description": "A service Apelora relies on (Incus, an identity provider, a provisioner) refused or did not answer. `error.code`: `incus_unreachable`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "Something this needs is not configured or not reachable yet; the error code says what. `error.code`: `database_not_configured`, `incus_unreachable`.",
+            "description": "Something this needs is not configured or not reachable yet; the error code says what. `error.code`: `database_not_configured`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14906,7 +14916,7 @@
             }
           },
           "400": {
-            "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`, `provisioner_not_configured`, `unknown_machine`.",
+            "description": "The request is not valid; the error says which part. `error.code`: `invalid_request`, `unknown_machine`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14974,7 +14984,7 @@
             }
           },
           "503": {
-            "description": "Something this needs is not configured or not reachable yet; the error code says what. `error.code`: `cluster_admin_not_configured`, `database_not_configured`.",
+            "description": "Something this needs is not configured or not reachable yet; the error code says what. `error.code`: `cluster_admin_not_configured`, `database_not_configured`, `provisioner_not_configured`.",
             "content": {
               "application/json": {
                 "schema": {

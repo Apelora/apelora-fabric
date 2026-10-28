@@ -2449,7 +2449,10 @@ async fn a_machine_is_registered_approved_joined_held_admitted_and_audited(pool:
     .await;
     assert_eq!(
         (status, err["error"]["code"].as_str()),
-        (StatusCode::BAD_REQUEST, Some("provisioner_not_configured"))
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("provisioner_not_configured")
+        )
     );
 
     let (status, m) = send(

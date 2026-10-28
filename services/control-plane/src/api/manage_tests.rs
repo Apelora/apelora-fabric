@@ -894,7 +894,7 @@ async fn an_unreadable_incus_makes_status_unknown_and_refuses_to_act(pool: Pool)
     .await;
     assert_eq!(
         (st, code(&b)),
-        (StatusCode::SERVICE_UNAVAILABLE, Some("incus_unreachable")),
+        (StatusCode::BAD_GATEWAY, Some("incus_unreachable")),
         "{b}"
     );
 }

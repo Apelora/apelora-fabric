@@ -272,7 +272,7 @@ pub(super) async fn check_registration(
 ) -> Result<String, ApiError> {
     if !state.maas.configured() {
         return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
+            StatusCode::SERVICE_UNAVAILABLE,
             "provisioner_not_configured",
             "no maas provisioner is configured (APELORA_MAAS_URL); register the machine as manual",
         ));
