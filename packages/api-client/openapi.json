@@ -19858,6 +19858,10 @@
           "modules"
         ],
         "properties": {
+          "confirmDisruption": {
+            "type": "boolean",
+            "description": "Required when the plan rebuilds a singleton or stateful module (`rebuild`): it\nacknowledges that the module is stopped while it is rebuilt. Data on volumes is kept."
+          },
           "connections": {
             "type": [
               "array",
@@ -25890,6 +25894,7 @@
           "keep",
           "resize",
           "replace",
+          "rebuild",
           "remove",
           "conflict"
         ]

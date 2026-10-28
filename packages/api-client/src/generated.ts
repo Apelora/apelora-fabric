@@ -804,6 +804,8 @@ export type DatabaseBackupReport = {
 };
 
 export type DeployRequest = {
+  /** Required when the plan rebuilds a singleton or stateful module (`rebuild`): it acknowledges that the module is stopped while it is rebuilt. Data on volumes is kept. */
+  confirmDisruption?: boolean;
   /** The design's connections; enforced when the control plane has a network uplink. */
   connections?: Connection[] | null;
   /** The Studio document, saved as an immutable revision. Ignored when `version` is given. */
@@ -2571,7 +2573,7 @@ export type Plan = {
   warnings: string[];
 };
 
-export type PlanAction = "create" | "keep" | "resize" | "replace" | "remove" | "conflict";
+export type PlanAction = "create" | "keep" | "resize" | "replace" | "rebuild" | "remove" | "conflict";
 
 export type PlanItem = {
   action: PlanAction;

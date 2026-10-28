@@ -669,6 +669,8 @@ async fn reads_ownership_and_reports_failed_operations() {
             kind: InstanceKind::Unknown,
             stateful: false,
             limits: Default::default(),
+            built_from: None,
+            settings: Default::default(),
         }))
     );
     assert_eq!(
@@ -738,6 +740,12 @@ async fn mock_lifecycle_is_shared_between_clones_and_marks_ownership() {
             kind: InstanceKind::Container,
             stateful: false,
             limits: std::collections::BTreeMap::from([("limits.cpu".to_owned(), "1".to_owned())]),
+            built_from: Some(apelora_domain::plan::spec_fingerprint(&InstanceSpec {
+                name: "web-01".into(),
+                config: [("limits.cpu".to_owned(), "1".to_owned())].into(),
+                ..oci_spec()
+            })),
+            settings: std::collections::BTreeMap::from([("limits.cpu".to_owned(), "1".to_owned())]),
         }))
     );
     assert_eq!(
@@ -1587,4 +1595,74 @@ async fn ensure_treats_already_exists_as_ours_when_the_object_carries_our_marker
     c.ensure_address_set("apelora", "shop-web-01", "shop")
         .await
         .expect("created by the other request, still ours");
+}
+
+#[tokio::test]
+async fn a_rebuild_sends_the_designs_image_and_settings_change_only_design_keys() {
+    let (base, seen) = recording_server(vec![
+        (
+            "GET /1.0/instances/web-01?project=apelora",
+            sync(json!({ "name": "web-01", "status": "Stopped", "architecture": "x86_64",
+                "config": { "user.apelora.managed": "true", "user.apelora.spec": "image=a,settings=b,storage=c",
+                    "environment.MODE": "blue", "environment.OLD": "x", "volatile.uuid": "u" } })),
+        ),
+        ("POST /1.0/instances/web-01/rebuild?project=apelora", accepted()),
+        ("PATCH /1.0/instances/web-01?project=apelora", accepted()),
+    ])
+    .await;
+    let p = Provider::Incus(IncusClient::plain_for_tests(&base));
+    let now = p
+        .instance("apelora", "web-01")
+        .await
+        .expect("read")
+        .expect("exists");
+    assert_eq!(
+        now.built_from.as_deref(),
+        Some("image=a,settings=b,storage=c")
+    );
+    assert_eq!(
+        now.settings.keys().collect::<Vec<_>>(),
+        ["environment.MODE", "environment.OLD"],
+        "only the settings a design sets"
+    );
+    let spec = InstanceSpec {
+        project: "apelora".into(),
+        name: "web-01".into(),
+        config: [("environment.MODE".to_owned(), "green".to_owned())].into(),
+        ..oci_spec()
+    };
+    assert_eq!(p.rebuild_instance(&spec).await.as_deref(), Ok(OP));
+    let patch = apelora_domain::plan::settings_patch(&now.settings, &spec);
+    p.apply_settings("apelora", "web-01", &patch, &[])
+        .await
+        .expect("patched");
+    // Nothing but design settings and what it is built from can be sent.
+    let bad =
+        std::collections::BTreeMap::from([("security.privileged".to_owned(), "true".to_owned())]);
+    assert!(matches!(
+        p.apply_settings("apelora", "web-01", &bad, &[]).await,
+        Err(AdapterError::InvalidConfig(_))
+    ));
+    let seen = seen.lock().expect("log");
+    let body = |k: &str| {
+        seen.iter()
+            .find(|(c, _)| c.starts_with(k))
+            .map(|(_, b)| b.clone())
+            .unwrap_or_else(|| panic!("no {k} call"))
+    };
+    assert_eq!(
+        body("POST /1.0/instances/web-01/rebuild")["source"]["protocol"],
+        "oci"
+    );
+    assert_eq!(
+        body("PATCH"),
+        json!({ "config": { "environment.MODE": "green", "environment.OLD": "",
+            "user.apelora.spec": apelora_domain::plan::spec_fingerprint(&spec) },
+            "profiles": ["default"] }),
+        "the design's settings, a dropped one removed, the new fingerprint; volatile keys untouched"
+    );
+    assert_eq!(
+        seen.iter().filter(|(c, _)| c.starts_with("PATCH")).count(),
+        1
+    );
 }

@@ -46,7 +46,7 @@ pub(crate) struct Step {
 struct Phase {
     /// `start`, `stop` (graceful: each guest is asked to shut down; also what operations
     /// recorded before ADR 0015 say), `poweroff` (immediate), `migrate`, or one of an update's
-    /// `create`, `healthy`, `drain` and `delete`.
+    /// `create`, `healthy`, `drain`, `delete` and `rebuild`.
     action: String,
     state: String,
     steps: Vec<Step>,
@@ -116,10 +116,11 @@ pub async fn run(
         "start" => "instance.start",
         "migrate" => "instance.move",
         "create" => "instance.create",
+        "rebuild" => "instance.rebuild",
         "delete" => "instance.delete",
         _ => "instance.stop",
     };
-    let target_status = if matches!(phases[at].action.as_str(), "start" | "create") {
+    let target_status = if matches!(phases[at].action.as_str(), "start" | "create" | "rebuild") {
         "Running"
     } else {
         "Stopped"
@@ -162,7 +163,7 @@ pub async fn run(
                 kind,
                 Some(op.application_id),
                 &match phases_action.as_str() {
-                    "migrate" | "create" => s
+                    "migrate" | "create" | "rebuild" => s
                         .payload
                         .clone()
                         .unwrap_or_else(|| json!({ "project": s.project, "name": s.name })),

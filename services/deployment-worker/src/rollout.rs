@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //! Rolling updates (docs/design/rolling-updates.md): the phases of an `update` operation that
-//! queue no instance job of their own. Each replica of a stateless module whose image or
+//! queue no instance job of their own, and what a failed phase leaves to undo. A singleton or
+//! stateful module is not replaced but rebuilt in place (`rebuild`, an `instance.rebuild`). Each replica of a stateless module whose image or
 //! settings changed goes through four phases: `create` (an `instance.create` of its update,
 //! `<replica>-u<n>`), `healthy` (here: the update passes its service's health check for a
 //! while), `drain` (here: the old replica leaves its service address) and `delete` (an
@@ -342,6 +343,25 @@ pub(crate) async fn stopped(
                 .await?;
                 notes.push(format!("{} is removed", s.name));
             }
+            // A rebuild that failed (after its attempts) leaves the instance stopped: it is
+            // started again as it is, so the module serves rather than stays down.
+            "rebuild" => {
+                let mut conn = pool.acquire().await?;
+                enqueue_job_from(
+                    &mut conn,
+                    "instance.start",
+                    Some(op.application_id),
+                    &json!({ "project": s.project, "name": s.name }),
+                    Some(&format!("{key}:undo:{}", s.name)),
+                    &JobOrigin {
+                        request_id: job.request_id.as_deref(),
+                        queued_by: Some(&op.requested_by),
+                        retry_of: None,
+                    },
+                )
+                .await?;
+                notes.push(format!("{} is started again as it is", s.name));
+            }
             "drain" => {
                 if let Some(from) = field(s, "from").and_then(Value::as_str).map(str::to_owned) {
                     undrain(
@@ -675,6 +695,89 @@ mod tests {
                 "skipped"
             ]
         );
+    }
+
+    /// An update with one `rebuild` phase for the database, from `mode` and image `alias`.
+    async fn rebuild(pool: &Pool, app: uuid::Uuid, mode: &str, alias: &str) -> uuid::Uuid {
+        let mut db = module("db-01", 1, Availability::Stateful, mode);
+        db.spec.source.alias = alias.into();
+        let spec = deploy_spec("shop", PROJECT, &db, 1, Some("incusbr0"));
+        let phases = json!([{ "action": "rebuild", "state": "pending", "steps": [
+            { "project": PROJECT, "name": "shop-db-01", "module": "db-01", "state": "pending", "payload": spec }
+        ] }]);
+        create_operation(
+            pool,
+            &NewOperation {
+                application_id: app,
+                project: PROJECT,
+                kind: "update",
+                phases: &phases,
+                requested_by: "tester",
+                confirmed: true,
+                key: None,
+                request_id: None,
+            },
+        )
+        .await
+        .expect("operation")
+        .0
+        .id
+    }
+
+    #[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+    async fn a_stateful_module_is_rebuilt_in_place_and_a_settings_change_alone_is_not_rebuilt(
+        pool: Pool,
+    ) {
+        let mock = MockIncus::default();
+        let provider = Provider::Mock(mock.clone());
+        let app = deployed(&pool, &provider).await;
+        let before = provider
+            .instance(PROJECT, "shop-db-01")
+            .await
+            .expect("read")
+            .expect("exists");
+
+        // A new image and a new setting: stopped, rebuilt, given the setting, started again.
+        let op = rebuild(&pool, app, "green", "debian/14").await;
+        let done = finish(&pool, &provider, op, 15).await;
+        assert_eq!((done.state.as_str(), done.error), ("succeeded", None));
+        assert_eq!(mock.net().rebuilds, ["shop-db-01"]);
+        let mut green = module("db-01", 1, Availability::Stateful, "green");
+        green.spec.source.alias = "debian/14".into();
+        let after = provider
+            .instance(PROJECT, "shop-db-01")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(
+            after.built_from.as_deref(),
+            Some(apelora_domain::plan::spec_fingerprint(&green.spec).as_str())
+        );
+        assert_eq!(
+            after.settings.get("environment.MODE").map(String::as_str),
+            Some("green")
+        );
+        assert_eq!(
+            (after.status.as_str(), after.location.as_str()),
+            ("Running", before.location.as_str()),
+            "the same instance, on the same member, running again"
+        );
+
+        // The setting alone changes again: no rebuild, the settings only.
+        let op = rebuild(&pool, app, "blue", "debian/14").await;
+        let done = finish(&pool, &provider, op, 15).await;
+        assert_eq!(done.state, "succeeded");
+        assert_eq!(mock.net().rebuilds, ["shop-db-01"], "not rebuilt again");
+        let after = provider
+            .instance(PROJECT, "shop-db-01")
+            .await
+            .expect("read")
+            .expect("exists");
+        assert_eq!(
+            after.settings.get("environment.MODE").map(String::as_str),
+            Some("blue")
+        );
+        assert_eq!(after.status, "Running");
     }
 
     #[test]

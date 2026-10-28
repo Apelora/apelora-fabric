@@ -1668,3 +1668,108 @@ async fn deploying_changed_settings_replaces_stateless_replicas_through_one_upda
         "{d}"
     );
 }
+
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_stateful_module_whose_settings_changed_is_rebuilt_only_once_the_disruption_is_confirmed(
+    pool: Pool,
+) {
+    let (l, mock) = mock_lab(pool);
+    let s = shop(&l).await;
+    deployed(&l, &s).await;
+    let mut db = module("db-01", "stateful");
+    db["spec"]["config"] = json!({ "environment.MODE": "green" });
+    db["spec"]["source"]["alias"] = json!("nginx:1.30");
+    let body = |confirm: bool| {
+        json!({ "project": "acme-prod-live", "document": {}, "modules": [module("web-01", "stateless"), db.clone()],
+            "connections": [{ "from": "web-01", "to": "db-01", "transport": "tcp", "port": 5432 }], "confirmDisruption": confirm })
+    };
+    let deploy = |confirm: bool| {
+        l.req(
+            "POST",
+            "/api/v1/applications/shop/deployments",
+            &s.owner,
+            Some(body(confirm)),
+        )
+    };
+    let jobs = || async {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM jobs")
+            .fetch_one(&l.pool)
+            .await
+            .expect("jobs")
+    };
+
+    // The plan says so, and deploying without confirming changes nothing.
+    let (st, plan) = l
+        .req(
+            "POST",
+            "/api/v1/applications/shop/plan",
+            &s.owner,
+            Some(body(false)),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{plan}");
+    let item = plan["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|i| i["instance"] == "shop-db-01")
+        .cloned()
+        .expect("db");
+    assert_eq!(
+        (item["action"].as_str(), item["outdated"].clone()),
+        (Some("rebuild"), json!(["image", "settings"]))
+    );
+    assert!(
+        plan["warnings"]
+            .to_string()
+            .contains("stopped while rebuilt"),
+        "{plan}"
+    );
+    let before = jobs().await;
+    let (st, b) = deploy(false).await;
+    assert_eq!(
+        (st, code(&b)),
+        (StatusCode::CONFLICT, Some("confirmation_required")),
+        "{b}"
+    );
+    assert!(
+        b["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("Data on volumes is kept")),
+        "{b}"
+    );
+    assert_eq!(jobs().await, before, "nothing queued");
+
+    // Confirmed: one update operation rebuilds it under the same name.
+    let (st, d) = deploy(true).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    assert!(d["operation"].is_string(), "{d}");
+    for _ in 0..10 {
+        settle(&l).await;
+        age_update(&l, 30).await;
+    }
+    let (state, confirmed): (String, bool) = sqlx::query_as(
+        "SELECT state, confirmed_disruption FROM application_operations WHERE kind = 'update'",
+    )
+    .fetch_one(&l.pool)
+    .await
+    .expect("op");
+    assert_eq!((state.as_str(), confirmed), ("succeeded", true));
+    assert_eq!(mock.net().rebuilds, ["shop-db-01"]);
+    let db_now = Provider::Mock(mock)
+        .instance("acme-prod-live", "shop-db-01")
+        .await
+        .expect("read")
+        .expect("same name");
+    assert_eq!(
+        (
+            db_now.status.as_str(),
+            db_now.settings.get("environment.MODE").map(String::as_str)
+        ),
+        ("Running", Some("green"))
+    );
+    // Deployed again: nothing left to rebuild, no confirmation needed.
+    let (st, d) = deploy(false).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "{d}");
+    assert!(d["operation"].is_null(), "{d}");
+}

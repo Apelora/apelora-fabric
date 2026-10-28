@@ -177,6 +177,11 @@ pub enum PlanAction {
     /// which): a new replica is created beside it with the design's, and this one is removed
     /// once the new one is healthy, one replica at a time. Stateless modules only.
     Replace,
+    /// A singleton or stateful instance runs another image or settings than the design asks
+    /// for: it is stopped, rebuilt from the design's image with its settings (its name, member,
+    /// address and volumes are kept) and started again. Its module is down meanwhile, so
+    /// deploying asks for `confirmDisruption`.
+    Rebuild,
     /// The application's instance is no longer in the design.
     Remove,
     /// The name is taken by an instance that is not this module's: nothing can be applied.
@@ -381,6 +386,30 @@ pub fn outdated_parts(recorded: &str, wanted: &str) -> Vec<String> {
         .collect()
 }
 
+/// The config changes that give an existing instance the settings of `spec`, as Incus applies a
+/// `PATCH` (an empty value removes a key): every key the design sets, the removal of each
+/// [`crate::design_setting`] the instance has and the design no longer sets, and what it is now
+/// built from ([`crate::SPEC_KEY`]). Anything else on the instance (Incus's `volatile.*` and
+/// `image.*`, Apelora's labels) is left alone.
+pub fn settings_patch(
+    current: &std::collections::BTreeMap<String, String>,
+    spec: &InstanceSpec,
+) -> std::collections::BTreeMap<String, String> {
+    let mut patch: std::collections::BTreeMap<String, String> = spec
+        .config
+        .iter()
+        .filter(|(k, _)| !k.starts_with("user.apelora."))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    for k in current.keys() {
+        if crate::design_setting(k) && !spec.config.contains_key(k) {
+            patch.insert(k.clone(), String::new());
+        }
+    }
+    patch.insert(crate::SPEC_KEY.to_owned(), spec_fingerprint(spec));
+    patch
+}
+
 /// The spec replica `replica` of a module is created with: its name, project and
 /// ownership labels are set here, never taken from the caller.
 pub fn owned_spec(
@@ -494,7 +523,20 @@ pub fn plan(
                     .map(|b| outdated_parts(b, &fingerprint))
                     .unwrap_or_default();
                 let what = outdated.join(" and ");
-                items.push(if !outdated.is_empty() && d.availability == Availability::Stateless {
+                let rebuilt = !outdated.is_empty()
+                    && d.availability != Availability::Stateless
+                    && !outdated.iter().any(|p| p == "storage");
+                items.push(if rebuilt {
+                    PlanItem {
+                        action: PlanAction::Rebuild,
+                        reason: format!(
+                            "runs another {what} ({}): stopped, rebuilt from the design's image with its settings and started again; its volumes and address are kept, the module is down meanwhile",
+                            i.status
+                        ),
+                        outdated,
+                        ..base
+                    }
+                } else if !outdated.is_empty() && d.availability == Availability::Stateless {
                     PlanItem {
                         action: PlanAction::Replace,
                         reason: format!(
@@ -508,7 +550,7 @@ pub fn plan(
                     let kept = if outdated.is_empty() {
                         String::new()
                     } else {
-                        format!("; keeps its previous {what} (updating singleton and stateful modules is not built yet)")
+                        format!("; keeps its previous {what} (a change of a module's volumes is not applied to a running instance: move its data to a new module)")
                     };
                     if changes.is_empty() {
                         PlanItem {
@@ -577,14 +619,28 @@ pub fn plan(
             if single.len() == 1 { "s" } else { "" }
         ));
     }
+    let rebuilt: Vec<&str> = items
+        .iter()
+        .filter(|i| i.action == PlanAction::Rebuild)
+        .map(|i| i.instance.as_str())
+        .collect();
+    if !rebuilt.is_empty() {
+        warnings.push(format!(
+            "{} {} stopped while rebuilt with the design's image and settings; data on volumes is kept. Deploying needs confirmDisruption",
+            rebuilt.join(", "),
+            if rebuilt.len() == 1 { "is" } else { "are each" },
+        ));
+    }
     let outdated: Vec<&str> = items
         .iter()
-        .filter(|i| !i.outdated.is_empty() && i.action != PlanAction::Replace)
+        .filter(|i| {
+            !i.outdated.is_empty() && !matches!(i.action, PlanAction::Replace | PlanAction::Rebuild)
+        })
         .map(|i| i.instance.as_str())
         .collect();
     if !outdated.is_empty() {
         warnings.push(format!(
-            "{} keep{} the image or settings {} was created with: deploying does not update singleton or stateful modules yet; remove the module and deploy it again to apply the design",
+            "{} keep{} the volumes {} was created with: deploying does not change a running instance's volumes; move the data to a new module to apply the design",
             outdated.join(", "),
             if outdated.len() == 1 { "s" } else { "" },
             if outdated.len() == 1 { "it" } else { "they were each" },
@@ -721,26 +777,25 @@ mod tests {
             p.warnings
         );
 
-        // The same change on a singleton: kept with the reason, and warned about.
+        // The same change on a singleton: rebuilt in place, with the downtime warned about.
         let single = DesiredModule {
             availability: Availability::Singleton,
             ..changed.clone()
         };
         let p = item(&single, &first);
-        assert_eq!(p.items[0].action, PlanAction::Keep);
+        assert_eq!(p.items[0].action, PlanAction::Rebuild);
         assert_eq!(p.items[0].outdated, ["image", "settings"]);
         assert!(
-            p.items[0].reason.contains(
-                "keeps its previous image and settings (updating singleton and stateful modules is not built yet)"
-            ),
+            p.items[0]
+                .reason
+                .contains("its volumes and address are kept"),
             "{}",
             p.items[0].reason
         );
         assert!(
-            p.warnings
-                .iter()
-                .any(|w| w
-                    .starts_with("shop-web-01 keeps the image or settings it was created with")),
+            p.warnings.iter().any(|w| w.starts_with(
+                "shop-web-01 is stopped while rebuilt with the design's image and settings"
+            )),
             "{:?}",
             p.warnings
         );
@@ -766,7 +821,63 @@ mod tests {
         );
         let mut moved = stateful.clone();
         moved.spec.volumes = vec![volume("/var/lib/db", 1024)];
-        assert_eq!(item(&moved, &db).items[0].outdated, ["storage"]);
+        // Its volumes cannot be changed under it: kept, named and warned about, never rebuilt.
+        let p = item(&moved, &db);
+        assert_eq!(
+            (p.items[0].action, p.items[0].outdated.clone()),
+            (PlanAction::Keep, vec!["storage".to_owned()])
+        );
+        assert!(
+            p.warnings
+                .iter()
+                .any(|w| w.starts_with("shop-db-01 keeps the volumes it was created with")),
+            "{:?}",
+            p.warnings
+        );
+        // A new image with a volume change still is not rebuilt.
+        moved.spec.source.alias = "debian/14".into();
+        assert_eq!(item(&moved, &db).items[0].action, PlanAction::Keep);
+    }
+
+    #[test]
+    fn a_settings_patch_sets_the_design_removes_what_it_dropped_and_keeps_the_rest() {
+        let mut spec = desired("db-01").spec;
+        spec.config
+            .insert("environment.MODE".into(), "green".into());
+        spec.config.insert("limits.memory".into(), "1GiB".into());
+        let current: std::collections::BTreeMap<String, String> = [
+            ("environment.MODE", "blue"),
+            ("environment.OLD", "x"),
+            ("limits.cpu", "2"),
+            ("user.team", "shop"),
+            ("user.apelora.application", "shop"),
+            ("volatile.uuid", "u"),
+            ("image.os", "Debian"),
+            ("security.nesting", "true"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        let patch = settings_patch(&current, &spec);
+        let get = |k: &str| patch.get(k).map(String::as_str);
+        assert_eq!(get("environment.MODE"), Some("green"));
+        assert_eq!(get("limits.memory"), Some("1GiB"));
+        assert_eq!(
+            get("environment.OLD"),
+            Some(""),
+            "dropped from the design: removed"
+        );
+        assert_eq!(get("limits.cpu"), Some(""));
+        assert_eq!(get("user.team"), Some(""));
+        assert_eq!(get(crate::SPEC_KEY), Some(spec_fingerprint(&spec).as_str()));
+        for untouched in [
+            "user.apelora.application",
+            "volatile.uuid",
+            "image.os",
+            "security.nesting",
+        ] {
+            assert_eq!(get(untouched), None, "{untouched} is not the design's");
+        }
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # Updating running modules (rolling replacement and rollback)
 
-Status: slices 1 (2026-10-25) and 2 (2026-10-28) built; slice 3 to do · Date: 2026-10-28 · Related: [application deployment](application-deployment.md) (lists "replacing an instance whose image changed, rollback" as out of scope), [ADR 0015](../adr/0015-application-lifecycle-verbs.md), [application readiness](application-readiness.md)
+Status: slices 1 (2026-10-25), 2 and 3 (2026-10-28) built · Date: 2026-10-28 · Related: [application deployment](application-deployment.md) (lists "replacing an instance whose image changed, rollback" as out of scope), [ADR 0015](../adr/0015-application-lifecycle-verbs.md), [application readiness](application-readiness.md)
 
 ## 1. Problem and scope
 
@@ -28,7 +28,8 @@ A deployment plan knows five actions: create, keep, resize, remove, conflict (`c
 | no label (created before this change) | `keep`, with the reason "built before Apelora recorded its settings; redeploy to replace" |
 | label equal | `keep` / `resize` as today |
 | label differs, stateless module | `replace`, with `outdated` naming what differs (image, settings, storage) |
-| label differs, singleton or stateful | `keep`/`resize` with `outdated` and a warning (slice 3) |
+| label differs in image or settings, singleton or stateful | `rebuild` (slice 3), with a warning; deploying needs `confirmDisruption` |
+| label differs in storage | `keep`/`resize` with `outdated` and a warning: a rebuild cannot change volumes |
 
 A substitute (`-s<n>`) is kept as it is: it is temporary, and one of its slot's two instances is retired when the failed member returns.
 
@@ -58,13 +59,13 @@ sequenceDiagram
   end
 ```
 
-**Single replica or stateful (slice 3).** Stop, recreate with the same volumes attached, start; needs `confirmDisruption`, like Stop.
+**Single replica or stateful (slice 3, built).** Not recreated but **rebuilt in place**: a new instance would get the module's volumes only on the same member (they are named after the instance and member-local), so the instance itself is kept. One `rebuild` phase per instance in the same `update` operation runs an `instance.rebuild` job: stop it gracefully, rebuild its root disk from the design's image when the image changed (Incus `POST /1.0/instances/<name>/rebuild`, through the image mirror), apply the design's settings (`apelora_domain::plan::settings_patch`: every key the design sets, the removal of the design settings it no longer sets, the new `user.apelora.spec`, written last so an interrupted rebuild is redone; Incus's `volatile.*` and `image.*` and Apelora's labels are untouched) and start it. A settings-only change skips the rebuild. Name, member, address, devices and volumes are kept, and so is their data; the root disk is replaced. The module is down meanwhile, so the deployment is refused with `confirmation_required` unless it carries `confirmDisruption`; the Studio asks with a checkbox. A rebuild that fails after its attempts stops the update and starts the instance again as it is. A change to a module's volumes (class, content, path) is not applied: such an instance is kept and named outdated.
 
 ## 3. Slices
 
 1. **Visible** (built 2026-10-25): record `user.apelora.spec` at creation; the plan keeps the instance (`keep` or `resize`) and lists the differing parts in `outdated`, with the reason and a warning that deploying does not update running modules yet. A `replace` action is deliberately not added before slice 2: an action that deploying does not carry out would be counted as a change and mislead. The Studio's review marks such rows *Keep · outdated*. Tests: planner unit tests for each row of the table above and for what must not count (limits, discovery keys, volume size); the lab test through the screens publishes a version with another NGINX channel and sees both running replicas marked outdated.
 2. **Stateless rolling replacement** with health gating and stop-on-failure (built 2026-10-28). Tests: planner rows (`replace`, an update filling its slot), the worker's update to the end and an update stopped by a replica that never passes (`services/deployment-worker/src/rollout.rs`), the API (`deploying_changed_settings_replaces_stateless_replicas_through_one_update`), the Studio's review and progress (`studio-deploy.spec.ts`). REAL INCUS TESTED (2026-10-28, four members, Incus 7.0.2, `demo.sh`): a setting of the two NGINX web replicas changed; both were planned `replace` under one update, replaced in 151 s, the new ones (`-u1`, `-r2-u1`) run the new setting, 0 of 6,864 requests to the service address failed meanwhile, and deploying the same design again replaced nothing. The stop-on-failure path is MOCK VERIFIED only.
-3. **Single replica and stateful** replacement with confirmation.
+3. **Single replica and stateful** rebuilt in place with confirmation (built 2026-10-28). REAL INCUS TESTED before building (Incus 7.0.2: a container with a member-local volume rebuilt from Debian 12 to 13, and an OCI NGINX 1.29 to 1.30, kept its volume's data, member and devices) and through the worker's job (`a_stateful_instance_is_rebuilt_in_place_keeping_its_volume_and_data`); the planner, the operation, the API's confirmation and the Studio's checkbox are MOCK VERIFIED (`a_stateful_module_whose_settings_changed_is_rebuilt_only_once_the_disruption_is_confirmed`, `studio-deploy.spec.ts`).
 
 ## 4. Failure handling
 

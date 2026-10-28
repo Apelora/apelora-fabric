@@ -67,6 +67,10 @@ pub struct DeployRequest {
     /// Also delete the application's instances that are no longer in the design.
     #[serde(default)]
     pub remove_missing: bool,
+    /// Required when the plan rebuilds a singleton or stateful module (`rebuild`): it
+    /// acknowledges that the module is stopped while it is rebuilt. Data on volumes is kept.
+    #[serde(default)]
+    pub confirm_disruption: bool,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -633,6 +637,25 @@ pub(super) async fn deploy(
             format!("nothing was deployed; {}", conflicts.join("; ")),
         ));
     }
+    // A rebuilt singleton or stateful module is down while it is rebuilt: the caller says so.
+    let rebuilt: Vec<&str> = applied
+        .items
+        .iter()
+        .filter(|i| i.action == PlanAction::Rebuild)
+        .map(|i| i.instance.as_str())
+        .collect();
+    if !rebuilt.is_empty() && !req.confirm_disruption {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "confirmation_required",
+            format!(
+                "nothing was deployed: {} {} stopped while rebuilt with the design's image and settings, so {} clients lose service meanwhile. Data on volumes is kept. Deploy again with confirmDisruption",
+                rebuilt.join(", "),
+                if rebuilt.len() == 1 { "is" } else { "are each" },
+                if rebuilt.len() == 1 { "its" } else { "their" },
+            ),
+        ));
+    }
     // The environment's Incus project is prepared on first use, and the quotas above it are
     // checked before anything is saved or queued (ADR 0012).
     if let Some(env) = target.environment_id {
@@ -777,13 +800,31 @@ pub(super) async fn deploy(
     for item in applied
         .items
         .iter()
-        .filter(|i| i.action == PlanAction::Replace)
+        .filter(|i| matches!(i.action, PlanAction::Replace | PlanAction::Rebuild))
     {
         let desired = req
             .modules
             .iter()
             .find(|d| d.module == item.module)
             .ok_or_else(|| bad_request(format!("module {} disappeared", item.module)))?;
+        // A singleton or stateful module keeps its instance: rebuilt in place, in this order.
+        if item.action == PlanAction::Rebuild {
+            let env = discovery_env(
+                &name,
+                &desired.module,
+                req.connections.as_deref().unwrap_or_default(),
+                &addresses,
+            );
+            let spec = with_discovery(
+                spec_for(&state, &name, &req.project, desired, item.replica, enforce),
+                &env,
+            );
+            let spec = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;
+            phases.push(json!({ "action": "rebuild", "state": "pending", "steps": [
+                { "project": req.project, "name": item.instance, "module": item.module, "state": "pending", "payload": spec }
+            ] }));
+            continue;
+        }
         let Some(new) = (1..=9)
             .map(|n| update_name(&name, &item.module, item.replica, n))
             .find(|n| {
@@ -847,7 +888,7 @@ pub(super) async fn deploy(
                 kind: "update",
                 phases: &json!(phases),
                 requested_by: &p.actor_ref(),
-                confirmed: false,
+                confirmed: req.confirm_disruption,
                 key: key
                     .as_ref()
                     .map(|k| format!("{k}:{name}:update"))
@@ -944,6 +985,8 @@ pub(super) async fn deploy(
                 "keep": applied.count(PlanAction::Keep),
                 "resize": applied.count(PlanAction::Resize),
                 "replace": applied.count(PlanAction::Replace),
+                "rebuild": applied.count(PlanAction::Rebuild),
+                "confirmedDisruption": req.confirm_disruption,
                 "operation": operation,
                 "remove": if req.remove_missing { applied.count(PlanAction::Remove) } else { 0 },
                 "role": p.role,

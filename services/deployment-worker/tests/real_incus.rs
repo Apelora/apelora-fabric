@@ -1543,3 +1543,109 @@ async fn an_application_is_shut_down_stopped_at_once_and_migrated(pool: Pool) {
         .await;
     }
 }
+
+/// Updating a stateful module rebuilds its instance in place (issue #48, slice 3): stopped,
+/// rebuilt from another image, given the design's settings and started again on the same member,
+/// with its volume still attached and its data on it; what was on the root disk is gone.
+#[ignore = "needs a disposable Incus with a volume pool: docs/development/TEST-CLUSTER.md"]
+#[sqlx::test(migrator = "apelora_persistence::MIGRATOR")]
+async fn a_stateful_instance_is_rebuilt_in_place_keeping_its_volume_and_data(pool: Pool) {
+    let provider = real_incus();
+    let project = project();
+    let volume_pool = std::env::var("APELORA_TEST_VOLUME_POOL").unwrap_or_else(|_| "local".into());
+    let name = unique("apl-rbd");
+    let spec = |alias: &str, mode: &str| {
+        json!({ "project": project, "name": name, "kind": "container", "start": true,
+            "source": { "protocol": "simplestreams", "server": "https://images.linuxcontainers.org", "alias": alias },
+            "config": { "environment.MODE": mode },
+            "owner": { "application": "apl-rebuild-test", "module": "db", "replica": 1 },
+            "volumes": [{ "name": "data", "sizeMib": 256, "path": "/srv/data", "pool": volume_pool }] })
+    };
+    converge(
+        &pool,
+        &provider,
+        "instance.create",
+        &spec("debian/12", "blue"),
+    )
+    .await;
+    let before = status(&provider, &project, &name).await.expect("created");
+    let sh = |script: &str| {
+        let (provider, p, n) = (provider.clone(), project.clone(), name.clone());
+        let args = vec!["sh".to_owned(), "-c".to_owned(), script.to_owned()];
+        async move {
+            provider
+                .run_probe(&p, &n, &args, 0, 20)
+                .await
+                .expect("run")
+                .exit
+        }
+    };
+    assert_eq!(
+        sh("echo kept > /srv/data/f && echo gone > /root/g").await,
+        Some(0)
+    );
+
+    converge(
+        &pool,
+        &provider,
+        "instance.rebuild",
+        &spec("debian/13", "green"),
+    )
+    .await;
+    let after = status(&provider, &project, &name)
+        .await
+        .expect("still there");
+    assert_eq!(
+        (after.status.as_str(), after.location.as_str()),
+        ("Running", before.location.as_str()),
+        "the same instance, on the same member, running"
+    );
+    assert_eq!(after.volume_devices, ["vol-data"]);
+    assert_eq!(
+        sh("grep -q trixie /etc/os-release").await,
+        Some(0),
+        "rebuilt from debian/13"
+    );
+    assert_eq!(
+        sh("[ \"$(cat /srv/data/f)\" = kept ]").await,
+        Some(0),
+        "the volume's data is kept"
+    );
+    assert_eq!(
+        sh("[ ! -e /root/g ]").await,
+        Some(0),
+        "the old root disk is gone"
+    );
+    assert_eq!(
+        sh("[ \"$MODE\" = green ]").await,
+        Some(0),
+        "the design's setting"
+    );
+    let built: apelora_domain::InstanceSpec =
+        serde_json::from_value(spec("debian/13", "green")).expect("spec");
+    assert_eq!(
+        after.built_from.as_deref(),
+        Some(apelora_domain::plan::spec_fingerprint(&built).as_str())
+    );
+
+    converge(
+        &pool,
+        &provider,
+        "instance.delete",
+        &json!({ "project": project, "name": name }),
+    )
+    .await;
+    let member = Some(after.location.as_str()).filter(|m| !m.is_empty() && *m != "none");
+    assert_eq!(
+        provider
+            .delete_volume(
+                &project,
+                &volume_pool,
+                member,
+                &format!("{name}-data"),
+                "apl-rebuild-test"
+            )
+            .await,
+        Ok(true)
+    );
+}
