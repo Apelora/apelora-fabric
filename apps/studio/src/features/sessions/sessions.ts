@@ -72,7 +72,7 @@ export interface Opened {
 
 /** Asks the control plane for a single-use ticket. `approvalId` is the approval production needs. */
 export async function openSession(t: Target, size: { cols: number; rows: number }, approvalId?: string): Promise<SessionTicket> {
-  return client.request("open_session", { params: { name: t.app, instance: t.instance }, body: { kind: t.kind, cols: size.cols, rows: size.rows }, approvalId: approvalId || undefined });
+  return client.request("open_remote_session", { params: { name: t.app, instance: t.instance }, body: { kind: t.kind, cols: size.cols, rows: size.rows }, approvalId: approvalId || undefined });
 }
 
 /** Asks another person to approve this instance's session. Returns the approval id. */

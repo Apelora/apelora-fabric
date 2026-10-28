@@ -490,7 +490,7 @@ pub struct UpgradeCommand {
 
 /// One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus:
 /// `upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`.
-#[utoipa::path(post, path = "/api/v1/cluster/upgrade", tag = "cluster", operation_id = "cluster_upgrade",
+#[utoipa::path(post, path = "/api/v1/cluster/upgrade", tag = "cluster", operation_id = "upgrade_cluster",
     request_body = UpgradeCommand,
     responses((status = 200, body = UpgradeView), (status = 202, body = UpgradeView),
         (status = 400, body = ErrorBody), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),

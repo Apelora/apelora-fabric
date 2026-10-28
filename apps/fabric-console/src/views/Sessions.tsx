@@ -30,7 +30,7 @@ function useNow(ms: number) {
 }
 
 function ActiveSessions({ onAuth }: { onAuth: (m: string) => void }) {
-  const [list, reload] = useLoad<SessionList>(() => client.get("sessions"), onAuth);
+  const [list, reload] = useLoad<SessionList>(() => client.get("remote_sessions"), onAuth);
   usePolled(reload, POLL_MS);
   const now = useNow(5_000);
   const [ending, setEnding] = useState<SessionInfo | null>(null);
@@ -41,7 +41,7 @@ function ActiveSessions({ onAuth }: { onAuth: (m: string) => void }) {
     setEnding(null);
     setNotice(null);
     void run(async () => {
-      await client.request("terminate_session", { params: { id: s.id } });
+      await client.request("end_remote_session", { params: { id: s.id } });
       setNotice(`${s.mine ? "Your" : `${s.person}'s`} session on ${s.instance} was ended.`);
       reload();
     });

@@ -659,7 +659,7 @@ fn origin_of(headers: &HeaderMap) -> Option<String> {
 /// single-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or
 /// `instance.desktop` (RDP) on the application; in production also an approval
 /// (`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`.
-#[utoipa::path(post, path = "/api/v1/applications/{name}/instances/{instance}/sessions", tag = "sessions", operation_id = "open_session",
+#[utoipa::path(post, path = "/api/v1/applications/{name}/instances/{instance}/sessions", tag = "sessions", operation_id = "open_remote_session",
     params(("name" = String, Path, description = "Application name"), ("instance" = String, Path, description = "Instance name")),
     request_body = NewSession,
     responses((status = 201, body = SessionTicket), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody),
@@ -817,7 +817,7 @@ pub(super) async fn open(
 // ---- GET /sessions, DELETE /sessions/{id} -----------------------------------------------------
 
 /// Open sessions the caller started, and those on applications they may operate.
-#[utoipa::path(get, path = "/api/v1/sessions", tag = "sessions", operation_id = "sessions",
+#[utoipa::path(get, path = "/api/v1/sessions", tag = "sessions", operation_id = "remote_sessions",
     responses((status = 200, body = SessionList), (status = 401, body = ErrorBody)))]
 pub(super) async fn list(
     State(state): State<AppState>,
@@ -848,7 +848,7 @@ pub(super) async fn list(
 
 /// Ends a session now. Allowed for the person who has it and for whoever may operate its
 /// application. Anything else answers 404.
-#[utoipa::path(delete, path = "/api/v1/sessions/{id}", tag = "sessions", operation_id = "terminate_session",
+#[utoipa::path(delete, path = "/api/v1/sessions/{id}", tag = "sessions", operation_id = "end_remote_session",
     params(("id" = Uuid, Path, description = "Session id")),
     responses((status = 204), (status = 404, body = ErrorBody)))]
 pub(super) async fn terminate(

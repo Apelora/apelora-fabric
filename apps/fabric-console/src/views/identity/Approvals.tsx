@@ -86,7 +86,7 @@ export function ApprovalsPanel({ me, catalogue, policies, onAuth }: { me: WhoAmI
     ...policies.filter((p) => p.kind === "approval" && p.enabled).flatMap((p) => stringsOf(p.parameters.actions)),
   ])].sort();
 
-  const act = (a: ApprovalDto, op: "approve_request" | "reject_request" | "cancel_request", done: string) => {
+  const act = (a: ApprovalDto, op: "approve_approval" | "reject_approval" | "cancel_approval", done: string) => {
     setNotice(null);
     void run(async () => {
       await client.request(op, { params: { id: a.id } });
@@ -131,12 +131,12 @@ export function ApprovalsPanel({ me, catalogue, policies, onAuth }: { me: WhoAmI
                       <td className="whitespace-nowrap text-right align-top">
                         {a.state === "pending" && canDecide && (
                           <>
-                            <button type="button" className="btn btn-xs btn-ghost" disabled={busy} aria-label={`Approve ${a.action} on ${a.target}`} onClick={() => act(a, "approve_request", `Approved ${a.action} on ${a.target}. The requester has 30 minutes to use it once.`)}>Approve</button>
-                            <button type="button" className="btn btn-xs btn-ghost text-error" disabled={busy} aria-label={`Reject ${a.action} on ${a.target}`} onClick={() => act(a, "reject_request", `Rejected ${a.action} on ${a.target}.`)}>Reject</button>
+                            <button type="button" className="btn btn-xs btn-ghost" disabled={busy} aria-label={`Approve ${a.action} on ${a.target}`} onClick={() => act(a, "approve_approval", `Approved ${a.action} on ${a.target}. The requester has 30 minutes to use it once.`)}>Approve</button>
+                            <button type="button" className="btn btn-xs btn-ghost text-error" disabled={busy} aria-label={`Reject ${a.action} on ${a.target}`} onClick={() => act(a, "reject_approval", `Rejected ${a.action} on ${a.target}.`)}>Reject</button>
                           </>
                         )}
                         {a.state === "pending" && isMine && canRequest && (
-                          <button type="button" className="btn btn-xs btn-ghost" disabled={busy} aria-label={`Cancel the request for ${a.action} on ${a.target}`} onClick={() => act(a, "cancel_request", `Your request for ${a.action} on ${a.target} was cancelled.`)}>Cancel request</button>
+                          <button type="button" className="btn btn-xs btn-ghost" disabled={busy} aria-label={`Cancel the request for ${a.action} on ${a.target}`} onClick={() => act(a, "cancel_approval", `Your request for ${a.action} on ${a.target} was cancelled.`)}>Cancel request</button>
                         )}
                       </td>
                     </tr>

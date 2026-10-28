@@ -19,8 +19,8 @@ describe("api client", () => {
     const fetch = vi.fn(async () => json(201, {}));
     const api = createClient({ token: () => "t", fetch });
     const opts = { params: { name: "shop", instance: "shop-web-01" }, body: { kind: "terminal" as const } };
-    await api.request("open_session", opts);
-    await api.request("open_session", { ...opts, approvalId: "a-1", idempotencyKey: "k-1" });
+    await api.request("open_remote_session", opts);
+    await api.request("open_remote_session", { ...opts, approvalId: "a-1", idempotencyKey: "k-1" });
     const h = fetch.mock.calls.map((c) => (c as unknown as [string, RequestInit])[1].headers as Record<string, string>);
     expect(h[0]?.["apelora-approval"]).toBeUndefined();
     expect(h[0]?.["idempotency-key"]).toBeUndefined();

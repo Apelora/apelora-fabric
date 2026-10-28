@@ -2175,7 +2175,7 @@
           "sessions"
         ],
         "summary": "Opens a session: checks the caller, the instance and the approval rule, and answers with a\nsingle-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or\n`instance.desktop` (RDP) on the application; in production also an approval\n(`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`.",
-        "operationId": "open_session",
+        "operationId": "open_remote_session",
         "parameters": [
           {
             "name": "name",
@@ -5280,7 +5280,7 @@
           "identity"
         ],
         "summary": "Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API\ntokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once.",
-        "operationId": "approve_request",
+        "operationId": "approve_approval",
         "parameters": [
           {
             "name": "id",
@@ -5391,7 +5391,7 @@
           "identity"
         ],
         "summary": "Withdraws your own pending request. Needs `approval.request`.",
-        "operationId": "cancel_request",
+        "operationId": "cancel_approval",
         "parameters": [
           {
             "name": "id",
@@ -5492,7 +5492,7 @@
           "identity"
         ],
         "summary": "Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused).",
-        "operationId": "reject_request",
+        "operationId": "reject_approval",
         "parameters": [
           {
             "name": "id",
@@ -6122,7 +6122,7 @@
           "cluster"
         ],
         "summary": "Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`.",
-        "operationId": "list_join_tokens",
+        "operationId": "join_tokens",
         "responses": {
           "200": {
             "description": "Done; the response holds the result.",
@@ -7458,7 +7458,7 @@
           "cluster"
         ],
         "summary": "One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus:\n`upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`.",
-        "operationId": "cluster_upgrade",
+        "operationId": "upgrade_cluster",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10139,7 +10139,7 @@
           "identity"
         ],
         "summary": "Projects the caller may see, optionally of one organisation. Needs `project.view`.",
-        "operationId": "projects_list",
+        "operationId": "projects",
         "parameters": [
           {
             "name": "organization",
@@ -11501,7 +11501,7 @@
           "identity"
         ],
         "summary": "The directories people sign in with, each checked with a TLS connection now. Needs\n`platform.security.manage`.",
-        "operationId": "list_directories",
+        "operationId": "directories",
         "responses": {
           "200": {
             "description": "Done; the response holds the result.",
@@ -14810,7 +14810,7 @@
           "cluster"
         ],
         "summary": "Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`.",
-        "operationId": "list_machines",
+        "operationId": "machines",
         "responses": {
           "200": {
             "description": "Done; the response holds the result.",
@@ -15109,7 +15109,7 @@
           "cluster"
         ],
         "summary": "The admission checks for a joined machine (dry run; changes nothing). Needs\n`manage-infrastructure`.",
-        "operationId": "machine_admission",
+        "operationId": "preview_machine_admission",
         "parameters": [
           {
             "name": "name",
@@ -16515,7 +16515,7 @@
           "inventory"
         ],
         "summary": "Incus projects. Needs `read-inventory`.",
-        "operationId": "projects",
+        "operationId": "incus_projects",
         "responses": {
           "200": {
             "description": "Done; the response holds the result.",
@@ -17471,7 +17471,7 @@
           "sessions"
         ],
         "summary": "Open sessions the caller started, and those on applications they may operate.",
-        "operationId": "sessions",
+        "operationId": "remote_sessions",
         "responses": {
           "200": {
             "description": "Done; the response holds the result.",
@@ -17530,7 +17530,7 @@
           "sessions"
         ],
         "summary": "Ends a session now. Allowed for the person who has it and for whoever may operate its\napplication. Anything else answers 404.",
-        "operationId": "terminate_session",
+        "operationId": "end_remote_session",
         "parameters": [
           {
             "name": "id",

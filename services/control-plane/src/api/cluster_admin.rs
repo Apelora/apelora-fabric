@@ -151,7 +151,7 @@ pub(super) async fn create(
 }
 
 /// Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`.
-#[utoipa::path(get, path = "/api/v1/cluster/join-tokens", tag = "cluster", operation_id = "list_join_tokens",
+#[utoipa::path(get, path = "/api/v1/cluster/join-tokens", tag = "cluster", operation_id = "join_tokens",
     responses((status = 200, body = JoinTokenList), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn list(

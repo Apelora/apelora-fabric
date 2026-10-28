@@ -387,7 +387,7 @@ pub struct DirectoryList {
 
 /// The directories people sign in with, each checked with a TLS connection now. Needs
 /// `platform.security.manage`.
-#[utoipa::path(get, path = "/api/v1/identity/sign-in/directories", tag = "identity", operation_id = "list_directories",
+#[utoipa::path(get, path = "/api/v1/identity/sign-in/directories", tag = "identity", operation_id = "directories",
     responses((status = 200, body = DirectoryList), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody)))]
 pub(super) async fn list(
     State(state): State<AppState>,

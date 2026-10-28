@@ -704,7 +704,7 @@ fn project_dto(p: db::ProjectRow) -> ProjectDto {
 }
 
 /// Projects the caller may see, optionally of one organisation. Needs `project.view`.
-#[utoipa::path(get, path = "/api/v1/identity/projects", tag = "identity", operation_id = "projects_list", params(ProjectQuery),
+#[utoipa::path(get, path = "/api/v1/identity/projects", tag = "identity", operation_id = "projects", params(ProjectQuery),
     responses((status = 200, body = ProjectList), (status = 401, body = ErrorBody), (status = 403, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn projects(
     State(state): State<AppState>,
@@ -2745,7 +2745,7 @@ async fn decide(
 
 /// Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API
 /// tokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once.
-#[utoipa::path(post, path = "/api/v1/approvals/{id}/approve", tag = "identity", operation_id = "approve_request",
+#[utoipa::path(post, path = "/api/v1/approvals/{id}/approve", tag = "identity", operation_id = "approve_approval",
     params(("id" = Uuid, Path, description = "Approval id")),
     responses((status = 200, body = ApprovalDto), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody), (status = 410, body = ErrorBody)))]
 pub(super) async fn approve_request(
@@ -2757,7 +2757,7 @@ pub(super) async fn approve_request(
 }
 
 /// Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused).
-#[utoipa::path(post, path = "/api/v1/approvals/{id}/reject", tag = "identity", operation_id = "reject_request",
+#[utoipa::path(post, path = "/api/v1/approvals/{id}/reject", tag = "identity", operation_id = "reject_approval",
     params(("id" = Uuid, Path, description = "Approval id")),
     responses((status = 200, body = ApprovalDto), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub(super) async fn reject_request(
@@ -2769,7 +2769,7 @@ pub(super) async fn reject_request(
 }
 
 /// Withdraws your own pending request. Needs `approval.request`.
-#[utoipa::path(post, path = "/api/v1/approvals/{id}/cancel", tag = "identity", operation_id = "cancel_request",
+#[utoipa::path(post, path = "/api/v1/approvals/{id}/cancel", tag = "identity", operation_id = "cancel_approval",
     params(("id" = Uuid, Path, description = "Approval id")),
     responses((status = 200, body = ApprovalDto), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub(super) async fn cancel_request(

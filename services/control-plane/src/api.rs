@@ -1577,7 +1577,7 @@ async fn instances(
 }
 
 /// Incus projects. Needs `read-inventory`.
-#[utoipa::path(get, path = "/api/v1/projects", tag = "inventory", responses(
+#[utoipa::path(get, path = "/api/v1/projects", tag = "inventory", operation_id = "incus_projects", responses(
     (status = 200, body = ProjectList), (status = 401, body = ErrorBody),
     (status = 403, body = ErrorBody), (status = 502, body = ErrorBody)))]
 async fn projects(

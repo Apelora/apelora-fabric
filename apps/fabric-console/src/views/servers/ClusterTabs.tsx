@@ -231,7 +231,7 @@ function UpgradeAssistant({ view, ready, onDone }: { view: UpgradeView; ready: b
     setBusy(true);
     setError(null);
     try {
-      await client.request("cluster_upgrade", { body: { action, member, confirm } });
+      await client.request("upgrade_cluster", { body: { action, member, confirm } });
       setOpen(null);
       setTyped("");
       onDone();

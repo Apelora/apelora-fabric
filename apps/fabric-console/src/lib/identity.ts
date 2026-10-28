@@ -191,7 +191,7 @@ export type Directory = {
  */
 export function useDirectory(me: WhoAmI | null, onAuth: (m: string) => void, want: Wanted): Directory {
   const [orgs, rOrgs] = useOptional(!!want.orgs && holds(me, "organization.view"), () => client.get("organizations").then((r) => r.items), onAuth);
-  const [projects, rProjects] = useOptional(!!want.projects && holds(me, "project.view", "organization.view"), () => client.get("projects_list").then((r) => r.items), onAuth);
+  const [projects, rProjects] = useOptional(!!want.projects && holds(me, "project.view", "organization.view"), () => client.get("projects").then((r) => r.items), onAuth);
   const [groups, rGroups] = useOptional(!!want.groups && holds(me, "user.view", "group.manage"), () => client.get("groups").then((r) => r.items), onAuth);
   const [users, rUsers] = useOptional(!!want.users && holds(me, "user.view", "user.manage"), () => client.get("users").then((r) => r.items), onAuth);
   const [services, rServices] = useOptional(!!want.services && holdsPlatform(me, "service_identity.manage"), () => client.get("service_identities").then((r) => r.items), onAuth);

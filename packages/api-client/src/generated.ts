@@ -3635,7 +3635,7 @@ export const operations = {
   application_draft: { method: "GET", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
   save_application_draft: { method: "PUT", path: "/api/v1/applications/{name}/draft", params: ["name"], public: false },
   application_events: { method: "GET", path: "/api/v1/applications/{name}/events", params: ["name"], public: false },
-  open_session: { method: "POST", path: "/api/v1/applications/{name}/instances/{instance}/sessions", params: ["name","instance"], public: false },
+  open_remote_session: { method: "POST", path: "/api/v1/applications/{name}/instances/{instance}/sessions", params: ["name","instance"], public: false },
   preview_application_migration: { method: "GET", path: "/api/v1/applications/{name}/migration", params: ["name"], public: false },
   application_operations: { method: "GET", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
   operate_application: { method: "POST", path: "/api/v1/applications/{name}/operations", params: ["name"], public: false },
@@ -3661,15 +3661,15 @@ export const operations = {
   restore_volume_snapshot: { method: "POST", path: "/api/v1/applications/{name}/volumes/{volume}/snapshots/{snapshot}/restore", params: ["name","volume","snapshot"], public: false },
   approvals: { method: "GET", path: "/api/v1/approvals", params: [], public: false },
   request_approval: { method: "POST", path: "/api/v1/approvals", params: [], public: false },
-  approve_request: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
-  cancel_request: { method: "POST", path: "/api/v1/approvals/{id}/cancel", params: ["id"], public: false },
-  reject_request: { method: "POST", path: "/api/v1/approvals/{id}/reject", params: ["id"], public: false },
+  approve_approval: { method: "POST", path: "/api/v1/approvals/{id}/approve", params: ["id"], public: false },
+  cancel_approval: { method: "POST", path: "/api/v1/approvals/{id}/cancel", params: ["id"], public: false },
+  reject_approval: { method: "POST", path: "/api/v1/approvals/{id}/reject", params: ["id"], public: false },
   audit: { method: "GET", path: "/api/v1/audit", params: [], public: false },
   audit_export: { method: "GET", path: "/api/v1/audit/export", params: [], public: false },
   capacity: { method: "GET", path: "/api/v1/capacity", params: [], public: false },
   cluster: { method: "GET", path: "/api/v1/cluster", params: [], public: false },
   cluster_groups: { method: "GET", path: "/api/v1/cluster/groups", params: [], public: false },
-  list_join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
+  join_tokens: { method: "GET", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   create_join_token: { method: "POST", path: "/api/v1/cluster/join-tokens", params: [], public: false },
   revoke_join_token: { method: "DELETE", path: "/api/v1/cluster/join-tokens/{member}", params: ["member"], public: false },
   cluster_members: { method: "GET", path: "/api/v1/cluster/members", params: [], public: false },
@@ -3682,7 +3682,7 @@ export const operations = {
   cluster_recovery: { method: "GET", path: "/api/v1/cluster/recovery", params: [], public: false },
   cluster_settings: { method: "GET", path: "/api/v1/cluster/settings", params: [], public: false },
   change_cluster_settings: { method: "PATCH", path: "/api/v1/cluster/settings", params: [], public: false },
-  cluster_upgrade: { method: "POST", path: "/api/v1/cluster/upgrade", params: [], public: false },
+  upgrade_cluster: { method: "POST", path: "/api/v1/cluster/upgrade", params: [], public: false },
   database_backups: { method: "GET", path: "/api/v1/database-backups", params: [], public: false },
   health: { method: "GET", path: "/api/v1/health", params: [], public: true },
   health_components: { method: "GET", path: "/api/v1/health/components", params: [], public: false },
@@ -3711,7 +3711,7 @@ export const operations = {
   policies: { method: "GET", path: "/api/v1/identity/policies", params: [], public: false },
   save_policy: { method: "PUT", path: "/api/v1/identity/policies", params: [], public: false },
   delete_policy: { method: "DELETE", path: "/api/v1/identity/policies/{id}", params: ["id"], public: false },
-  projects_list: { method: "GET", path: "/api/v1/identity/projects", params: [], public: false },
+  projects: { method: "GET", path: "/api/v1/identity/projects", params: [], public: false },
   environments: { method: "GET", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
   create_environment: { method: "POST", path: "/api/v1/identity/projects/{project}/environments", params: ["project"], public: false },
   quota: { method: "GET", path: "/api/v1/identity/quotas/{scope}/{id}", params: ["scope","id"], public: false },
@@ -3726,7 +3726,7 @@ export const operations = {
   sign_in_settings: { method: "GET", path: "/api/v1/identity/sign-in", params: [], public: false },
   set_api_tokens: { method: "PUT", path: "/api/v1/identity/sign-in/api-tokens", params: [], public: false },
   check_identity_provider: { method: "POST", path: "/api/v1/identity/sign-in/check", params: [], public: false },
-  list_directories: { method: "GET", path: "/api/v1/identity/sign-in/directories", params: [], public: false },
+  directories: { method: "GET", path: "/api/v1/identity/sign-in/directories", params: [], public: false },
   create_directory: { method: "POST", path: "/api/v1/identity/sign-in/directories", params: [], public: false },
   check_directory: { method: "POST", path: "/api/v1/identity/sign-in/directories/check", params: [], public: false },
   update_directory: { method: "PUT", path: "/api/v1/identity/sign-in/directories/{id}", params: ["id"], public: false },
@@ -3758,10 +3758,10 @@ export const operations = {
   cancel_job: { method: "POST", path: "/api/v1/jobs/{id}/cancel", params: ["id"], public: false },
   job_detail: { method: "GET", path: "/api/v1/jobs/{id}/detail", params: ["id"], public: false },
   retry_job: { method: "POST", path: "/api/v1/jobs/{id}/retry", params: ["id"], public: false },
-  list_machines: { method: "GET", path: "/api/v1/machines", params: [], public: false },
+  machines: { method: "GET", path: "/api/v1/machines", params: [], public: false },
   register_machine: { method: "POST", path: "/api/v1/machines", params: [], public: false },
   remove_machine: { method: "DELETE", path: "/api/v1/machines/{name}", params: ["name"], public: false },
-  machine_admission: { method: "GET", path: "/api/v1/machines/{name}/admission", params: ["name"], public: false },
+  preview_machine_admission: { method: "GET", path: "/api/v1/machines/{name}/admission", params: ["name"], public: false },
   admit_machine: { method: "POST", path: "/api/v1/machines/{name}/admit", params: ["name"], public: false },
   withdraw_machine_approval: { method: "DELETE", path: "/api/v1/machines/{name}/approval", params: ["name"], public: false },
   approve_machine: { method: "POST", path: "/api/v1/machines/{name}/approve", params: ["name"], public: false },
@@ -3777,7 +3777,7 @@ export const operations = {
   application_networks: { method: "GET", path: "/api/v1/networks/applications", params: [], public: false },
   network_settings: { method: "GET", path: "/api/v1/networks/settings", params: [], public: false },
   preflight: { method: "GET", path: "/api/v1/preflight", params: [], public: false },
-  projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
+  incus_projects: { method: "GET", path: "/api/v1/projects", params: [], public: false },
   maas_machines: { method: "GET", path: "/api/v1/provisioners/maas/machines", params: [], public: false },
   maas_commission: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/commission", params: ["systemId"], public: false },
   maas_deploy: { method: "POST", path: "/api/v1/provisioners/maas/machines/{systemId}/deploy", params: ["systemId"], public: false },
@@ -3786,8 +3786,8 @@ export const operations = {
   sectors: { method: "GET", path: "/api/v1/sectors", params: [], public: false },
   add_sector: { method: "POST", path: "/api/v1/sectors", params: [], public: false },
   remove_sector: { method: "DELETE", path: "/api/v1/sectors/{name}", params: ["name"], public: false },
-  sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
-  terminate_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
+  remote_sessions: { method: "GET", path: "/api/v1/sessions", params: [], public: false },
+  end_remote_session: { method: "DELETE", path: "/api/v1/sessions/{id}", params: ["id"], public: false },
   effective_settings: { method: "GET", path: "/api/v1/settings", params: [], public: false },
   sign_in_options: { method: "GET", path: "/api/v1/sign-in", params: [], public: true },
   sign_in_with_password: { method: "POST", path: "/api/v1/sign-in/password", params: [], public: true },
@@ -3852,7 +3852,7 @@ export type Responses = {
   /** What happened to the application: creation, saves, versions, deployments, operations, refusals. Needs `application.view`. */
   application_events: AuditList;
   /** Opens a session: checks the caller, the instance and the approval rule, and answers with a single-use ticket for the websocket. Needs `instance.console` (terminal, PowerShell) or `instance.desktop` (RDP) on the application; in production also an approval (`Apelora-Approval: <id>`) of `instance.console` on `instance:<application>/<instance>`. */
-  open_session: SessionTicket;
+  open_remote_session: SessionTicket;
   /** Dry run of migrating the application to another server: for each instance whether it keeps running, what is copied and what blocks it. Changes nothing. Needs `application.operate`. */
   preview_application_migration: MigrationPreview;
   /** Recent operations of the application, newest first. Needs `application.view`. */
@@ -3904,11 +3904,11 @@ export type Responses = {
   /** Asks for approval of one risky action on one target. You must be allowed to do the action yourself; someone else with `approval.grant` then decides. Needs `approval.request`. */
   request_approval: ApprovalDto;
   /** Approves a request made by someone else. Needs `approval.grant`, held by a signed-in person: API tokens are refused (`approval_needs_a_person`). The approval is good for 30 minutes, once. */
-  approve_request: ApprovalDto;
+  approve_approval: ApprovalDto;
   /** Withdraws your own pending request. Needs `approval.request`. */
-  cancel_request: ApprovalDto;
+  cancel_approval: ApprovalDto;
   /** Rejects a request. Needs `approval.grant`, held by a signed-in person (API tokens are refused). */
-  reject_request: ApprovalDto;
+  reject_approval: ApprovalDto;
   /** Audit events the caller may read, newest first, filtered by actor, target, action prefix, outcome and time, and paged with `after` and `next`. Needs `audit.read` (platform-wide, or limited to the events of the caller's organisations, projects and applications) and a database. */
   audit: AuditList;
   /** Exports the audit events the caller may read, with the same filters as the list (`limit` does not apply), newest first, as CSV or JSON lines. Streamed one database page at a time. Needs `audit.read`; the export itself is audited as `audit.exported` with its filters. */
@@ -3920,7 +3920,7 @@ export type Responses = {
   /** Cluster groups and their members (empty on a standalone server). Read-only; needs `cluster.view`. */
   cluster_groups: ClusterGroupList;
   /** Join tokens waiting to be used (no secrets). Needs `manage-infrastructure`. */
-  list_join_tokens: JoinTokenList;
+  join_tokens: JoinTokenList;
   /** Approves a new cluster member: asks Incus for a single-use join token. Needs `manage-infrastructure`. The token is in this response only. */
   create_join_token: JoinTokenCreated;
   /** Withdraws a new member's approval: revokes its unused join token. Needs `manage-infrastructure`. */
@@ -3946,7 +3946,7 @@ export type Responses = {
   /** Changes cluster settings through Incus with the admin identity. Every key must be one the Servers page lists and every value is checked. Settings that already hold the value are left out; nothing to change is refused. With `dryRun` it only reports (what each becomes and what to watch for). Applying needs `cluster.sensitive_change` and another person's approval of `cluster-settings:<keys joined by />` (`Apelora-Approval`), spent before the change, and is audited with the old and new values. */
   change_cluster_settings: SettingsChangeReport;
   /** One step of the rolling upgrade. Apelora evacuates and restores. It does not install Incus: `upgraded` records that the package was upgraded on the server. Needs `cluster.evacuate`. */
-  cluster_upgrade: UpgradeView;
+  upgrade_cluster: UpgradeView;
   /** Whether Apelora's database is being backed up and a restore has been proven, from the records the scripts leave in `APELORA_DB_BACKUP_DIR`. Needs `cluster.view`. */
   database_backups: DatabaseBackupReport;
   /** Public. Reports that the service answers, the inventory provider, the authentication mode and whether Incus is reachable. Incus is asked at most every 15 s whatever the request rate; versions and error text are only on `GET /api/v1/system` (signed in). */
@@ -4004,7 +4004,7 @@ export type Responses = {
   /** Deletes a policy. Needs `access_policy.manage`. */
   delete_policy: null;
   /** Projects the caller may see, optionally of one organisation. Needs `project.view`. */
-  projects_list: IdentityProjectList;
+  projects: IdentityProjectList;
   /** Environments of a project. Needs `project.view` on it. */
   environments: EnvironmentList;
   /** Creates an environment. The Incus project it maps to is derived from the names (tenants cannot choose it); platform administrators (`cluster.manage`) may map an existing one. When the derived project already exists and Apelora did not create it for this environment, nothing is created: 409 `incus_project_exists`. Needs `environment.manage`. */
@@ -4034,7 +4034,7 @@ export type Responses = {
   /** Reads a provider's discovery document and key set, without saving anything: what an administrator checks before saving. Needs `platform.security.manage`. */
   check_identity_provider: ProviderCheck;
   /** The directories people sign in with, each checked with a TLS connection now. Needs `platform.security.manage`. */
-  list_directories: DirectoryList;
+  directories: DirectoryList;
   /** Adds a directory; it is offered on the sign-in page at once when enabled. Needs `platform.security.manage` (and an approval where the policy asks for one); audited. */
   create_directory: DirectoryView;
   /** Connects with TLS, binds as a test person and reads their entry and groups, without saving anything. Reports what it found or the precise reason it failed. Needs `platform.security.manage`. */
@@ -4098,13 +4098,13 @@ export type Responses = {
   /** Queues a new job that repeats a failed one, linked to it (`retryOf`); the failed job is kept unchanged as evidence. Needs the permission that queues that kind of job on its target. Refused (409) when the job did not fail (`not_failed`), was retried already (`already_retried`), a newer job for the same target was queued since (`superseded`), or it is an application operation (`not_retryable`: start it again from the application). Audited. */
   retry_job: JobAccepted;
   /** Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`. */
-  list_machines: MachineList;
+  machines: MachineList;
   /** Registers a machine. A name that is already an eligible member is adopted as admitted. Needs `manage-infrastructure`; audited. */
   register_machine: Machine;
   /** Forgets a machine that is not a cluster member (revoking an unused join token). Needs `manage-infrastructure`; audited. */
   remove_machine: null;
   /** The admission checks for a joined machine (dry run; changes nothing). Needs `manage-infrastructure`. */
-  machine_admission: Admission;
+  preview_machine_admission: Admission;
   /** Admits a joined machine: re-runs the admission checks and, when none fails, lets Incus place instances on it. Needs `manage-infrastructure`; audited. */
   admit_machine: Admission;
   /** Withdraws an approval: revokes the machine's unused join token. Needs `manage-infrastructure`; audited. */
@@ -4136,7 +4136,7 @@ export type Responses = {
   /** Read-only readiness checks of the Incus server or cluster, of the projects Apelora deploys into, and of the image mirrors (whether each image server the catalog uses is mirrored and whether the mirrors answer). Changes nothing. Needs `read-inventory`. */
   preflight: PreflightReport;
   /** Incus projects. Needs `read-inventory`. */
-  projects: ProjectList;
+  incus_projects: ProjectList;
   /** The machines MAAS manages, with the Apelora machine and Incus member each became. Needs `cluster.view`. Read-only: MAAS is asked to list, nothing else. */
   maas_machines: MaasMachines;
   /** Starts commissioning. Needs `hardware.commission` and the hostname typed again. The cloud-init of a later deploy is not part of this. Audited; MAAS is asked first. */
@@ -4154,9 +4154,9 @@ export type Responses = {
   /** Forgets a registered sector. Nothing changes in its Incus. Needs `cluster.manage`. */
   remove_sector: null;
   /** Open sessions the caller started, and those on applications they may operate. */
-  sessions: SessionList;
+  remote_sessions: SessionList;
   /** Ends a session now. Allowed for the person who has it and for whoever may operate its application. Anything else answers 404. */
-  terminate_session: null;
+  end_remote_session: null;
   /** The settings this control plane runs with: every setting the control plane and the worker read, the value when it may be shown (never a secret, a key or a certificate path), whether it is the default and where it came from; sign-in settings saved in the Console; the workers seen recently. Needs `cluster.view` on the platform. */
   effective_settings: EffectiveSettings;
   /** Public. How people can sign in to this control plane. */
@@ -4213,7 +4213,7 @@ export type Bodies = {
   application_draft: never;
   save_application_draft: SaveDraft;
   application_events: never;
-  open_session: NewSession;
+  open_remote_session: NewSession;
   preview_application_migration: never;
   application_operations: never;
   operate_application: OperateRequest;
@@ -4239,15 +4239,15 @@ export type Bodies = {
   restore_volume_snapshot: ConfirmSnapshot;
   approvals: never;
   request_approval: NewApproval;
-  approve_request: never;
-  cancel_request: never;
-  reject_request: never;
+  approve_approval: never;
+  cancel_approval: never;
+  reject_approval: never;
   audit: never;
   audit_export: never;
   capacity: never;
   cluster: never;
   cluster_groups: never;
-  list_join_tokens: never;
+  join_tokens: never;
   create_join_token: CreateJoinToken;
   revoke_join_token: never;
   cluster_members: never;
@@ -4260,7 +4260,7 @@ export type Bodies = {
   cluster_recovery: never;
   cluster_settings: never;
   change_cluster_settings: ChangeSettings;
-  cluster_upgrade: UpgradeCommand;
+  upgrade_cluster: UpgradeCommand;
   database_backups: never;
   health: never;
   health_components: never;
@@ -4289,7 +4289,7 @@ export type Bodies = {
   policies: never;
   save_policy: SavePolicy;
   delete_policy: never;
-  projects_list: never;
+  projects: never;
   environments: never;
   create_environment: NewEnvironment;
   quota: never;
@@ -4304,7 +4304,7 @@ export type Bodies = {
   sign_in_settings: never;
   set_api_tokens: ApiTokensRequest;
   check_identity_provider: CheckRequest;
-  list_directories: never;
+  directories: never;
   create_directory: DirectoryInput;
   check_directory: DirectoryCheckRequest;
   update_directory: DirectoryInput;
@@ -4336,10 +4336,10 @@ export type Bodies = {
   cancel_job: never;
   job_detail: never;
   retry_job: never;
-  list_machines: never;
+  machines: never;
   register_machine: RegisterMachine;
   remove_machine: never;
-  machine_admission: never;
+  preview_machine_admission: never;
   admit_machine: never;
   withdraw_machine_approval: never;
   approve_machine: never;
@@ -4355,7 +4355,7 @@ export type Bodies = {
   application_networks: never;
   network_settings: never;
   preflight: never;
-  projects: never;
+  incus_projects: never;
   maas_machines: never;
   maas_commission: MaasConfirm;
   maas_deploy: MaasDeploy;
@@ -4364,8 +4364,8 @@ export type Bodies = {
   sectors: never;
   add_sector: NewSector;
   remove_sector: never;
-  sessions: never;
-  terminate_session: never;
+  remote_sessions: never;
+  end_remote_session: never;
   effective_settings: never;
   sign_in_options: never;
   sign_in_with_password: PasswordSignInRequest;

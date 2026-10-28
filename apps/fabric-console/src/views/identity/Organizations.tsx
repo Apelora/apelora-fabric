@@ -168,7 +168,7 @@ function Disclosure({ title, meta, level, open, onToggle, controls, children }: 
 }
 
 function Projects({ org, me, onAuth }: { org: OrganizationDto; me: WhoAmI | null; onAuth: (m: string) => void }) {
-  const [projects, reload] = useLoad<ProjectDto[]>(() => client.request("projects_list", { query: { organization: org.id } }).then((r) => r.items), onAuth);
+  const [projects, reload] = useLoad<ProjectDto[]>(() => client.request("projects", { query: { organization: org.id } }).then((r) => r.items), onAuth);
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

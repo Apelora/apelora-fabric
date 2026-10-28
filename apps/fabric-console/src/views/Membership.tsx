@@ -153,7 +153,7 @@ export function RemoveMemberDialog({ member, onClose, onRemoved }: { member: str
 
 /** Servers → Machines and join tokens: enrolment of new servers and the tokens still unused. */
 export function MachinesTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: string) => void }) {
-  const [tokens, reload] = useLoad<JoinTokenList>(() => client.get("list_join_tokens"), onAuth);
+  const [tokens, reload] = useLoad<JoinTokenList>(() => client.get("join_tokens"), onAuth);
   const [error, setError] = useState<string | null>(null);
   const [toRevoke, setToRevoke] = useState<string | null>(null);
 

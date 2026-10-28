@@ -73,7 +73,7 @@ function AdmitDialog({ name, onClose, onAdmitted }: { name: string | null; onClo
     let current = true;
     setResult(null);
     setError(null);
-    client.request("machine_admission", { params: { name } }).then(
+    client.request("preview_machine_admission", { params: { name } }).then(
       (r) => { if (current) setResult(r); },
       (e: unknown) => { if (current) setError(messageOf(e)); },
     );
@@ -147,7 +147,7 @@ function Actions({ m, busy, onApprove, onWithdraw, onAdmit, onRemove }: {
  * joins with the enrolment script and is held from placement, then checks and admission.
  */
 export function MachinesSection({ onAuth, onChanged }: { onAuth: (m: string) => void; onChanged: () => void }) {
-  const [list, reload] = useLoad<MachineList>(() => client.get("list_machines"), onAuth);
+  const [list, reload] = useLoad<MachineList>(() => client.get("machines"), onAuth);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);

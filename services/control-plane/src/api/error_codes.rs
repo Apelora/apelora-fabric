@@ -208,7 +208,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         ],
     ),
     (
-        "approve_request",
+        "approve_approval",
         &[
             (
                 "403",
@@ -270,7 +270,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
             ("503", &["database_not_configured"]),
         ],
     ),
-    ("cancel_request", &[("503", &["database_not_configured"])]),
+    ("cancel_approval", &[("503", &["database_not_configured"])]),
     ("capacity", &[("403", &["forbidden", "mfa_required"])]),
     (
         "change_cluster_settings",
@@ -334,7 +334,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         &[("503", &["cluster_admin_not_configured"])],
     ),
     (
-        "cluster_upgrade",
+        "upgrade_cluster",
         &[
             ("400", &["confirmation_mismatch", "invalid_request"]),
             ("403", &["forbidden", "mfa_required"]),
@@ -875,19 +875,16 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
             ("503", &["database_not_configured"]),
         ],
     ),
+    ("directories", &[("403", &["forbidden", "mfa_required"])]),
     (
-        "list_directories",
-        &[("403", &["forbidden", "mfa_required"])],
-    ),
-    (
-        "list_join_tokens",
+        "join_tokens",
         &[
             ("403", &["forbidden", "mfa_required"]),
             ("503", &["cluster_admin_not_configured"]),
         ],
     ),
     (
-        "list_machines",
+        "machines",
         &[(
             "503",
             &["cluster_admin_not_configured", "database_not_configured"],
@@ -965,7 +962,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         ],
     ),
     (
-        "machine_admission",
+        "preview_machine_admission",
         &[
             ("400", &["invalid_request"]),
             ("403", &["forbidden", "mfa_required"]),
@@ -1007,7 +1004,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         &[("403", &["forbidden", "mfa_required"])],
     ),
     (
-        "open_session",
+        "open_remote_session",
         &[
             ("400", &["invalid_request"]),
             ("403", &["forbidden", "mfa_required"]),
@@ -1144,7 +1141,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
             ("503", &["database_not_configured"]),
         ],
     ),
-    ("projects_list", &[("503", &["database_not_configured"])]),
+    ("projects", &[("503", &["database_not_configured"])]),
     (
         "publish_application",
         &[
@@ -1182,7 +1179,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         ],
     ),
     (
-        "reject_request",
+        "reject_approval",
         &[
             (
                 "403",
@@ -1410,7 +1407,10 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
             ("503", &["database_not_configured"]),
         ],
     ),
-    ("sessions", &[("403", &["forbidden", "mfa_required"])]),
+    (
+        "remote_sessions",
+        &[("403", &["forbidden", "mfa_required"])],
+    ),
     (
         "set_api_tokens",
         &[
@@ -1532,7 +1532,7 @@ pub(super) const ERROR_CODES: &[(&str, Codes)] = &[
         ],
     ),
     (
-        "terminate_session",
+        "end_remote_session",
         &[
             ("403", &["forbidden", "mfa_required"]),
             ("404", &["not_found"]),

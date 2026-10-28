@@ -137,7 +137,7 @@ fn conflict(code: &'static str, message: impl Into<String>) -> ApiError {
 }
 
 /// Machines being enrolled, with their state derived from Incus. Needs `manage-infrastructure`.
-#[utoipa::path(get, path = "/api/v1/machines", tag = "cluster", operation_id = "list_machines",
+#[utoipa::path(get, path = "/api/v1/machines", tag = "cluster", operation_id = "machines",
     responses((status = 200, body = MachineList), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 502, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn list(
@@ -379,7 +379,7 @@ async fn admission(
 
 /// The admission checks for a joined machine (dry run; changes nothing). Needs
 /// `manage-infrastructure`.
-#[utoipa::path(get, path = "/api/v1/machines/{name}/admission", tag = "cluster", operation_id = "machine_admission",
+#[utoipa::path(get, path = "/api/v1/machines/{name}/admission", tag = "cluster", operation_id = "preview_machine_admission",
     params(("name" = String, Path, description = "Machine name")),
     responses((status = 200, body = Admission), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody),

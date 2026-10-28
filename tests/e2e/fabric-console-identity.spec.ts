@@ -1145,8 +1145,8 @@ test.describe("audit history", () => {
     await expect(denied.locator("pre")).toContainText('"reason"');
   });
 
-  test("older events are appended using the last id; the end is announced", async ({ page }) => {
-    const calls = await stub(page, { ...base(), "GET /api/v1/identity/audit": (c) => (c.query.get("before") === "151" ? items(page2) : items(page1)) });
+  test("older events are appended using the page's next cursor; the end is announced", async ({ page }) => {
+    const calls = await stub(page, { ...base(), "GET /api/v1/identity/audit": (c) => (c.query.get("after") === "151" ? items(page2) : { json: { items: page1, next: "151" } }) });
     await page.goto("/#/identity/audit");
     await expect(page.getByTestId("identity-audit-row")).toHaveCount(50);
     await page.getByTestId("audit-older").click();
@@ -1155,7 +1155,7 @@ test.describe("audit history", () => {
     await expect(page.getByTestId("audit-end")).toHaveText("No older events.");
     await expect(page.getByTestId("identity-audit-row").last().getByTestId("audit-outcome")).toHaveText("Failed");
     // (React's strict mode in development mounts effects twice, so the first request can repeat.)
-    expect([...new Set(calls.filter((c) => c.path === "/api/v1/identity/audit").map((c) => c.query.get("before")))]).toEqual([null, "151"]);
+    expect([...new Set(calls.filter((c) => c.path === "/api/v1/identity/audit").map((c) => c.query.get("after")))]).toEqual([null, "151"]);
   });
 
   test("filters by outcome and by action prefix and says when nothing matches", async ({ page }) => {

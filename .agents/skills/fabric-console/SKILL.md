@@ -46,7 +46,7 @@ The console is a thin, honest client of the Rust API: every action goes through 
 - Lists the caller may not read are "off", not empty (`useDirectory`); application scopes need a pasted application id because the API does not list ids yet.
 - `AssignmentDialog` calls `preview_assignment` (debounced) and enables Save only when the preview for the current form says `allowed`; every effective permission shows its origin (role, scope, group, emergency).
 - Secrets shown once (automation tokens) use `SecretOnceDialog`: the value lives only in the opener's state while the dialog is open.
-- The client takes `query` for routes with query strings (`lookup_user`, `identity_audit`, `assignments`, `projects_list`).
+- The client takes `query` for routes with query strings (`lookup_user`, `identity_audit`, `assignments`, `projects`).
 - Tests: `tests/e2e/fabric-console-identity.spec.ts` with the stub in `tests/e2e/identity-fixtures.ts`.
 
 ## Verify

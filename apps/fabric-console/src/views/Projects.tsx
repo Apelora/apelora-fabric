@@ -5,7 +5,7 @@ import { client, useLoad } from "../lib/api";
 
 /** Incus projects (Administration): which are restricted, and what they are for. */
 export function ProjectsSection({ onAuth }: { onAuth: (m: string) => void }) {
-  const [projects, reload] = useLoad<ProjectList>(() => client.get("projects"), onAuth);
+  const [projects, reload] = useLoad<ProjectList>(() => client.get("incus_projects"), onAuth);
   return (
     <Section title="Incus projects" state={projects} testId="projects" onRetry={reload}>
       {(l) => (

@@ -25,7 +25,7 @@ export function createApiBackend(): AppBackend {
     get: (name) => wrap(async () => (await client.request("application", { params: { name } })) as Awaited<ReturnType<AppBackend["get"]>>),
     environments: () =>
       wrap(async () => {
-        const projects = await client.request("projects_list", {});
+        const projects = await client.request("projects", {});
         const out: EnvChoice[] = [];
         for (const p of projects.items) {
           const envs = await client.request("environments", { params: { project: p.id } });

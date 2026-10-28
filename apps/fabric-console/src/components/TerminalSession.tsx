@@ -231,7 +231,7 @@ export function TerminalSession({ target, onClose, onAuth }: { target: TerminalT
     setBusy(true);
     setError(null);
     try {
-      setTicket(await client.request("open_session", { params: { name: target.application, instance: target.instance }, body: { kind, cols: 100, rows: 30 }, approvalId: approval ?? undefined }));
+      setTicket(await client.request("open_remote_session", { params: { name: target.application, instance: target.instance }, body: { kind, cols: 100, rows: 30 }, approvalId: approval ?? undefined }));
       // A remote desktop is opened by the person's own client through the tunnel, not here.
       setPhase(kind === "rdp" ? "handover" : "connecting");
     } catch (e) {
