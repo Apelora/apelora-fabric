@@ -19928,6 +19928,14 @@
             "format": "uuid",
             "description": "The job that applies the connections to the application's network, when enforced."
           },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The rolling update that replaces the plan's `replace` instances one replica at a time,\neach new one healthy before the old one goes (an application operation of kind\n`update`); absent when nothing is replaced."
+          },
           "plan": {
             "$ref": "#/components/schemas/Plan",
             "description": "The plan that was applied (recomputed when applying)."
@@ -20009,6 +20017,7 @@
           "degraded",
           "stopping",
           "migrating",
+          "updating",
           "stopped",
           "failed",
           "unknown"
@@ -25312,7 +25321,8 @@
           "stop",
           "shutdown",
           "restart",
-          "migrate"
+          "migrate",
+          "update"
         ]
       },
       "OperationList": {
@@ -25879,6 +25889,7 @@
           "create",
           "keep",
           "resize",
+          "replace",
           "remove",
           "conflict"
         ]
@@ -25915,7 +25926,7 @@
             "items": {
               "type": "string"
             },
-            "description": "What the running instance was built from that the design now asks differently:\n`image`, `settings` or `storage`. Deploying keeps the instance as it is; updating running\nmodules is not built yet."
+            "description": "What the running instance was built from that the design now asks differently:\n`image`, `settings` or `storage`. A stateless replica is replaced (`replace`); a singleton\nor stateful module is kept as it is (updating those is not built yet)."
           },
           "reason": {
             "type": "string",

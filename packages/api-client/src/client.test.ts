@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiRequestError, createClient, followJob, operations } from "./index";
+import { ApiRequestError, createClient, followJob, followOperation, operations } from "./index";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -121,6 +121,16 @@ describe("api client", () => {
     expect(job.status).toBe("succeeded");
     expect(seen).toEqual(["pending", "running", "succeeded"]);
     expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/api/v1/jobs/j1");
+  });
+
+  it("follows an application operation until it is final", async () => {
+    const states = ["running", "running", "failed"];
+    const fetch = vi.fn(async () => json(200, { id: "o1", kind: "update", state: states.shift(), error: "update stopped" }));
+    const seen: string[] = [];
+    const op = await followOperation(createClient({ fetch }), "shop", "o1", (o) => seen.push(o.state), { intervalMs: 1 });
+    expect(op.state).toBe("failed");
+    expect(seen).toEqual(["running", "running", "failed"]);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe("/api/v1/applications/shop/operations/o1");
   });
 
   it("rejects incomplete requests at compile time", () => {

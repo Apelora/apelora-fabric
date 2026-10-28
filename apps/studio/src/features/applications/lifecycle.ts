@@ -25,7 +25,7 @@ interface LifecycleState {
 }
 
 const POLL_MS = 1500;
-const VERB: Record<OperationKind, string> = { start: "Start", stop: "Stop", shutdown: "Shutdown", restart: "Restart", migrate: "Migration" };
+const VERB: Record<OperationKind, string> = { start: "Start", stop: "Stop", shutdown: "Shutdown", restart: "Restart", migrate: "Migration", update: "Update" };
 
 export const useLifecycle = create<LifecycleState>((set, get) => ({
   tracked: {},

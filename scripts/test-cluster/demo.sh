@@ -3,8 +3,8 @@
 # End-to-end demonstration on the disposable test cluster (Phase 10): deploys an application
 # through the real control plane and worker, then checks, step by step, what the platform
 # promises — replicas apart, a service address, enforced connections, internet access,
-# a replica failing its health check, publishing, recovery from a failed member, evacuation —
-# and removes everything again.
+# a replica failing its health check, publishing, recovery from a failed member, evacuation,
+# a rolling update — and removes everything again.
 # Every check prints PASS or FAIL; the first FAIL stops the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,add-member,ovn,placement}.sh done (at least three members), the dev
@@ -109,6 +109,7 @@ body=$(jq -n --arg nginx "$nginx" '{
     {module: "client-01", internet: "web", spec: {project: "", name: "", kind: "container", start: true,
       source: {protocol: "simplestreams", server: "https://images.linuxcontainers.org", alias: "debian/13"}}},
     {module: "web-01", replicas: 2, availability: "stateless", spec: {project: "", name: "", kind: "container", start: true,
+      config: {"environment.DEMO_RELEASE": "1"},
       source: {protocol: "oci", server: "https://docker.io", alias: $nginx}}}],
   connections: [{from: "client-01", to: "web-01", transport: "tcp", port: 80}],
   published: [{module: "web-01", transport: "tcp", port: 80}]}')
@@ -292,6 +293,42 @@ pass "member restored"
 # Incus starts the replicas it moves; the supervisor must not start them as well (issue #52).
 moved_starts=$(api "$API/audit?action=application.replica.restart&from=$evac_from" | jq '.items | length')
 [ "$moved_starts" -eq 0 ] && pass "the supervisor left the moved replicas for Incus to start" || fail "the supervisor started $moved_starts replica(s) during the evacuation or the restore"
+
+# --- A rolling update (issue #48) --------------------------------------------------------
+# The same design with one setting changed: each web replica is replaced by a new one, which
+# must pass its service's health check before the old one leaves the service address and is
+# deleted. Requests go to the service address the whole time.
+for _ in $(seq 1 36); do [ "$(lb_online)" -eq 2 ] && break; sleep 5; done
+[ "$(lb_online)" -eq 2 ] && pass "both web replicas are online behind the service address before the update" || fail "the service was not whole before the update"
+rm -f "$run/stop-watch"; : > "$watch"
+( while [ ! -f "$run/stop-watch" ]; do echo "$(date +%T) $(probe "$svc")" >> "$watch"; done ) &
+watcher=$!
+sleep 3
+update_body=$(echo "$body" | jq '(.modules[] | select(.module == "web-01") | .spec.config["environment.DEMO_RELEASE"]) = "2"')
+res=$(api -X POST -H 'Idempotency-Key: demo-2' -d "$update_body" "$API/applications/$APP/deployments")
+say "plan: $(echo "$res" | jq -c '[.plan.items[] | [.instance, .action, (.outdated // [] | join("+"))]]')"
+op=$(echo "$res" | jq -r '.operation // empty')
+[ "$(echo "$res" | jq '[.plan.items[] | select(.action == "replace")] | length')" -eq 2 ] && [ -n "$op" ] \
+  && pass "both web replicas are planned for replacement, by one update operation" || fail "no rolling update: $res"
+t0=$(date +%s); ostate=""
+for _ in $(seq 1 120); do
+  ostate=$(api "$API/applications/$APP/operations/$op" | jq -r .state)
+  case "$ostate" in succeeded|failed|cancelled) break ;; esac
+  sleep 5
+done
+touch "$run/stop-watch"; wait "$watcher" || true
+oinfo=$(api "$API/applications/$APP/operations/$op")
+[ "$ostate" = succeeded ] && pass "the update replaced both replicas in $(( $(date +%s) - t0 )) s" || fail "the update ended $ostate: $(echo "$oinfo" | jq -r .error)"
+now_web=$(incus_ list "$APP-web-01" --project apelora -f csv -c n | sort | tr '\n' ' ')
+[ "$now_web" = "$APP-web-01-r2-u1 $APP-web-01-u1 " ] && pass "the replicas are now $now_web" || fail "replicas after the update: $now_web"
+release=$(incus_ config get "$APP-web-01-u1" environment.DEMO_RELEASE --project apelora)
+[ "$release" = 2 ] && pass "the new replicas run the design's setting (DEMO_RELEASE=2)" || fail "setting after the update: $release"
+requests=$(( $(wc -w < "$watch") - $(wc -l < "$watch") )); failed=$({ grep -o FAIL "$watch" || true; } | wc -l | tr -d ' ')
+{ grep FAIL "$watch" || true; } | while read -r line; do say "a request failed at ${line%% *}"; done
+[ "$requests" -ge 40 ] && [ $(( failed * 1000 )) -le "$requests" ] && pass "$failed of $requests requests failed during the update (at most one in a thousand)" || fail "$failed of $requests requests failed during the update"
+again=$(api -X POST -H 'Idempotency-Key: demo-3' -d "$update_body" "$API/applications/$APP/deployments")
+[ "$(echo "$again" | jq '[.plan.items[] | select(.action != "keep")] | length')" -eq 0 ] && [ "$(echo "$again" | jq -r '.operation // empty')" = "" ] \
+  && pass "deployed again unchanged: nothing is replaced" || fail "a second deployment still changes something: $(echo "$again" | jq -c .plan.items)"
 
 say "audit: $(api "$API/audit?limit=50" | jq -c '[.items[] | select(.actor=="supervisor" or .actor=="demo") | .action] | group_by(.) | map({(.[0]): length}) | add')"
 say "DEMONSTRATION PASSED"

@@ -437,12 +437,22 @@ impl Supervisor {
                     .into_iter()
                     .collect();
             let mut queued_here = 0;
+            // A rolling update holds two instances in a slot on purpose and its new replica is
+            // still warming up: its slots and health are the update's until it ends.
+            let updating =
+                apelora_persistence::lifecycle::active_operation_kind(pool, d.application_id)
+                    .await?
+                    .as_deref()
+                    == Some("update");
+            if updating {
+                tracing::debug!(application = %d.application, "supervisor: a rolling update is running; its replica slots and health restarts wait for it");
+            }
             // Replica slots first: substitutes for replicas stranded on a failed member, and
             // retirement of the extra instance once that member is back.
             let mut handled: Vec<String> = Vec::new();
             for da in desired
                 .iter()
-                .filter(|x| x.availability == Availability::Stateless)
+                .filter(|x| x.availability == Availability::Stateless && !updating)
             {
                 for replica in 1..=da.replicas.max(1) {
                     let slot =
@@ -729,6 +739,9 @@ impl Supervisor {
                 )
                 .await?;
                 tx.commit().await?;
+            }
+            if updating {
+                continue;
             }
             recreated.extend(
                 self.health

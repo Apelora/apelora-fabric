@@ -6,7 +6,8 @@ import type { AppView, OperationKind } from "../../features/applications/model";
 import { IconMove, IconPlay, IconPower, IconRestart, IconSpinner, IconStop } from "../icons";
 import { MigrateDialog } from "./MigrateDialog";
 
-const BUTTONS: { kind: OperationKind; label: string; icon: typeof IconPlay; danger?: boolean }[] = [
+/** What a person can ask for; an update comes from deploying a changed version. */
+const BUTTONS: { kind: Exclude<OperationKind, "update">; label: string; icon: typeof IconPlay; danger?: boolean }[] = [
   { kind: "start", label: "Start", icon: IconPlay },
   { kind: "restart", label: "Restart", icon: IconRestart },
   { kind: "shutdown", label: "Shut down", icon: IconPower },
@@ -14,7 +15,7 @@ const BUTTONS: { kind: OperationKind; label: string; icon: typeof IconPlay; dang
   { kind: "migrate", label: "Migrate…", icon: IconMove },
 ];
 
-const PROGRESS: Record<OperationKind, string> = { start: "Starting", restart: "Restarting", shutdown: "Shutting down", stop: "Stopping", migrate: "Migrating" };
+const PROGRESS: Record<OperationKind, string> = { start: "Starting", restart: "Restarting", shutdown: "Shutting down", stop: "Stopping", migrate: "Migrating", update: "Updating" };
 
 /**
  * Start, Restart, Shut down, Stop and Migrate for one application. Which are available comes from

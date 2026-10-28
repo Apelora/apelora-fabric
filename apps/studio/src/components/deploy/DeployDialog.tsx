@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { ApiRequestError, followJob, newIdempotencyKey, type Job, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
+import { ApiRequestError, followJob, followOperation, newIdempotencyKey, type Job, type OperationDto, type Plan, type PlanAction, type QuotaCheck } from "@apelora/api-client";
 import { lookupClass } from "@apelora/module-catalog";
 import { budgetIssues, compileNetwork, effectiveValue, type ApplicationAssembly, deploymentModules, publishedPorts, serviceEnvName, usedCustomClasses, validateProperty, withSetup, type NetworkPlan, type PublishedPort } from "@apelora/assembly-model";
 
@@ -15,12 +15,13 @@ type Step =
   | { kind: "not-allowed"; message: string }
   | { kind: "configure" }
   | { kind: "review"; plan: Plan }
-  | { kind: "applying"; plan: Plan; jobs: { instance: string; action: PlanAction; job?: Job }[]; revision: number };
+  | { kind: "applying"; plan: Plan; jobs: { instance: string; action: PlanAction; job?: Job }[]; revision: number; update?: OperationDto };
 
 const ACTION: Record<PlanAction, { label: string; tone: string }> = {
   create: { label: "Create", tone: "status-success" },
   keep: { label: "Keep", tone: "status-neutral" },
   resize: { label: "Resize", tone: "status-info" },
+  replace: { label: "Replace", tone: "status-info" },
   remove: { label: "Remove", tone: "status-warning" },
   conflict: { label: "Conflict", tone: "status-error" },
 };
@@ -140,15 +141,21 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
       const jobs = res.jobs.map((j) => ({ instance: j.instance, action: j.action }));
       setStep({ kind: "applying", plan: res.plan, jobs, revision: res.revision });
       live.watch(appName, project);
-      await Promise.all(
-        res.jobs.map((j, i) =>
-          followJob(client, j.jobId, (job) =>
-            setStep((s) => (s.kind === "applying" ? { ...s, jobs: s.jobs.map((x, k) => (k === i ? { ...x, job } : x)) } : s)),
-          ),
+      const watching: Promise<unknown>[] = res.jobs.map((j, i) =>
+        followJob(client, j.jobId, (job) =>
+          setStep((s) => (s.kind === "applying" ? { ...s, jobs: s.jobs.map((x, k) => (k === i ? { ...x, job } : x)) } : s)),
         ),
       );
+      // Replaced replicas go one at a time in a rolling update: followed until it ends.
+      const update = res.operation
+        ? followOperation(client, appName, res.operation, (op) => setStep((s) => (s.kind === "applying" ? { ...s, update: op } : s)))
+        : null;
+      if (update) watching.push(update);
+      await Promise.all(watching);
       await live.refresh();
-      api.getState().toast("success", `Deployed version ${target.version} of ${appName}`);
+      const stopped = update ? await update : null;
+      if (stopped && stopped.state !== "succeeded") api.getState().toast("error", `The update of ${appName} stopped: ${stopped.error ?? stopped.state}`);
+      else api.getState().toast("success", `Deployed version ${target.version} of ${appName}`);
       onDone?.();
     } catch (e) {
       setError(messageOf(e));
@@ -158,7 +165,7 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
     }
   };
 
-  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || i.action === "resize" || (i.action === "remove" && removeMissing)).length;
+  const changes = (plan: Plan) => plan.items.filter((i) => i.action === "create" || i.action === "resize" || i.action === "replace" || (i.action === "remove" && removeMissing)).length;
   const conflicts = (plan: Plan) => plan.items.some((i) => i.action === "conflict");
   const overQuota = (plan: Plan) => plan.quota?.allowed === false;
   const nameError = appName && !NAME.test(appName) ? "Lowercase letters, digits and hyphens, starting with a letter (at most 40)." : null;
@@ -285,7 +292,8 @@ export function DeployDialog({ open, onClose, target, onDone }: { open: boolean;
         {step.kind === "applying" && (
           <div className="flex flex-col gap-3 text-sm" data-testid="deploy-progress">
             <p className="text-base-content/70">Revision {step.revision} saved. The canvas shows each module's state while this design is open.</p>
-            {step.jobs.length === 0 ? <p>Nothing to change.</p> : (
+            {step.update && <UpdateProgress op={step.update} replaced={step.plan.items.filter((i) => i.action === "replace").length} />}
+            {step.jobs.length === 0 && !step.update ? <p>Nothing to change.</p> : step.jobs.length > 0 && (
               <ul className="divide-y divide-base-300 rounded-box border border-base-300">
                 {step.jobs.map((j) => (
                   <li key={j.instance} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2" data-testid="deploy-job">
@@ -336,6 +344,24 @@ function NetworkRules({ plan, enforced, published }: { plan: NetworkPlan; enforc
   );
 }
 
+/** An outdated instance that deploying keeps as it is (a replaced one is the change itself). */
+const kept = (i: Plan["items"][number]) => !!i.outdated?.length && i.action !== "replace";
+
+/** A rolling update's progress: each replaced replica takes four steps (create, healthy, drain, remove). */
+function UpdateProgress({ op, replaced }: { op: OperationDto; replaced: number }) {
+  const done = Math.floor(op.stepsDone / 4);
+  const text = op.state === "succeeded" ? `${replaced} replica${replaced === 1 ? "" : "s"} replaced, each healthy before the one it replaced was removed.`
+    : op.state === "failed" ? `Update stopped: ${op.error ?? "see the application's operations"}`
+    : op.state === "cancelled" ? "Update cancelled; the replicas not yet replaced keep running."
+    : `Replacing replicas one at a time: ${done} of ${replaced} done.`;
+  return (
+    <p className={op.state === "failed" ? "text-error" : "text-base-content/70"} role={op.state === "failed" ? "alert" : undefined} data-testid="deploy-update" data-state={op.state}>
+      <span className={`status ${op.state === "failed" ? "status-error" : op.state === "succeeded" ? "status-success" : "status-info animate-pulse"} mr-2`} aria-hidden="true" />
+      {text}
+    </p>
+  );
+}
+
 function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean }) {
   return (
     <div className="max-h-64 overflow-auto rounded-box border border-base-300">
@@ -346,7 +372,7 @@ function PlanTable({ plan, removeMissing }: { plan: Plan; removeMissing: boolean
             <tr key={i.instance} data-testid="plan-row" data-action={i.action} data-outdated={i.outdated?.join(" ") || undefined}>
               <td>{i.module}</td>
               <td className="font-mono text-xs">{i.instance}</td>
-              <td className="whitespace-nowrap"><span className={`status ${i.outdated?.length ? "status-warning" : ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}{i.outdated?.length ? " · outdated" : ""}</td>
+              <td className="whitespace-nowrap"><span className={`status ${kept(i) ? "status-warning" : ACTION[i.action].tone} mr-2`} aria-hidden="true" />{i.action === "remove" && !removeMissing ? "Left running" : ACTION[i.action].label}{kept(i) ? " · outdated" : ""}</td>
               <td className="text-base-content/70">{i.reason}</td>
             </tr>
           ))}

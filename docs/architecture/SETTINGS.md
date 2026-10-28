@@ -100,6 +100,9 @@ Every setting is an environment variable. The control plane reads its own at sta
 | `APELORA_RECOVER_AFTER_SECS` | `120` | Offline time before replicas are substituted |
 | `APELORA_RESTORE_DRILL_RECORD` | none | The restore drill's result file the restore-age alert reads |
 | `APELORA_SUPERVISE_SECS` | `30` | Seconds between replica supervisor passes |
+| `APELORA_UPDATE_DRAIN_SECS` | `5` | Seconds an old replica keeps running after it left its service address, for requests in flight to finish |
+| `APELORA_UPDATE_HEALTHY_SECS` | `20` | A rolling update's new replica must pass its service's health check this long before the old one goes |
+| `APELORA_UPDATE_TIMEOUT_SECS` | `300` | A new replica not healthy this long after it was created stops the rolling update; it is removed and the old replicas keep serving |
 | `APELORA_WORKER_ID` | none | Worker name (default worker-<process id>) |
 
 ## Read by the web development server only

@@ -9,7 +9,9 @@ use apelora_domain::InstanceSpec;
 use apelora_domain::network::{
     Connection, Internet, Published, SyncRequest, discovery_env, with_discovery,
 };
-use apelora_domain::plan::{DesiredModule, Plan, PlanAction, deploy_spec, owned_spec, plan};
+use apelora_domain::plan::{
+    DesiredModule, Plan, PlanAction, deploy_spec, owned_spec, plan, update_name,
+};
 use apelora_domain::{Permission, is_valid_name};
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, Query, State};
@@ -86,6 +88,11 @@ pub struct DeployResponse {
     pub jobs: Vec<QueuedChange>,
     /// The job that applies the connections to the application's network, when enforced.
     pub network_job: Option<Uuid>,
+    /// The rolling update that replaces the plan's `replace` instances one replica at a time,
+    /// each new one healthy before the old one goes (an application operation of kind
+    /// `update`); absent when nothing is replaced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<Uuid>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -402,13 +409,13 @@ async fn current_plan(
     name: &str,
     project: &str,
     modules: &[DesiredModule],
-) -> Result<Plan, ApiError> {
+) -> Result<(Plan, Vec<apelora_domain::Instance>), ApiError> {
     let observed = state.provider.instances().await?;
     let p = plan(name, project, modules, &observed);
     for i in &p.items {
         tracing::debug!(application = name, instance = %format!("{project}/{}", i.instance), module = %i.module, replica = i.replica, action = ?i.action, reason = %i.reason, "plan: decision");
     }
-    Ok(p)
+    Ok((p, observed))
 }
 
 /// Where an application operation lands, resolved from the database (never from client claims
@@ -512,7 +519,7 @@ pub(super) async fn preview(
     check_connections(&req.modules, req.connections.as_deref())?;
     check_published(&req.modules, &req.published)?;
     resolve_volume_pools(&state, &mut req.modules).await?;
-    let mut p = current_plan(&state, &name, &req.project, &req.modules).await?;
+    let (mut p, _) = current_plan(&state, &name, &req.project, &req.modules).await?;
     network_warnings(
         &state,
         &mut p,
@@ -591,7 +598,21 @@ pub(super) async fn deploy(
         && state.network_uplink.is_some()
         && apelora_persistence::deployment_enforced(pool, &name, &req.project).await?;
     let enforce = (req.connections.is_some() && state.network_uplink.is_some()) || cleanup;
-    let mut applied = current_plan(&state, &name, &req.project, &req.modules).await?;
+    // A rolling update holds two instances in a replica's slot and works from the deployment
+    // record it started with: nothing else is deployed until it ends.
+    if let Some(ctx) = &target.existing
+        && apelora_persistence::lifecycle::active_operation_kind(pool, ctx.application_id)
+            .await?
+            .as_deref()
+            == Some("update")
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "operation_in_progress",
+            "a rolling update of this application is still in progress; nothing was deployed. Deploy again once it has finished or stopped",
+        ));
+    }
+    let (mut applied, observed) = current_plan(&state, &name, &req.project, &req.modules).await?;
     network_warnings(
         &state,
         &mut applied,
@@ -749,6 +770,102 @@ pub(super) async fn deploy(
             job_id,
         });
     }
+    // Outdated stateless replicas are replaced one at a time by a rolling update: for each, its
+    // update (`<replica>-u<n>`) is created beside it, must be healthy, then the old one leaves
+    // its service address and is deleted (docs/design/rolling-updates.md).
+    let mut phases = Vec::new();
+    for item in applied
+        .items
+        .iter()
+        .filter(|i| i.action == PlanAction::Replace)
+    {
+        let desired = req
+            .modules
+            .iter()
+            .find(|d| d.module == item.module)
+            .ok_or_else(|| bad_request(format!("module {} disappeared", item.module)))?;
+        let Some(new) = (1..=9)
+            .map(|n| update_name(&name, &item.module, item.replica, n))
+            .find(|n| {
+                !observed
+                    .iter()
+                    .any(|i| i.project == req.project && i.name == *n)
+            })
+        else {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "plan_conflict",
+                format!(
+                    "nothing was deployed; {}: no name is left for its update",
+                    item.instance
+                ),
+            ));
+        };
+        if !is_valid_name(&new) {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "plan_conflict",
+                format!(
+                    "nothing was deployed; {}: the name of its update, {new:?}, is too long (at most 63 letters, digits and hyphens)",
+                    item.instance
+                ),
+            ));
+        }
+        let env = discovery_env(
+            &name,
+            &desired.module,
+            req.connections.as_deref().unwrap_or_default(),
+            &addresses,
+        );
+        let mut spec = with_discovery(
+            spec_for(&state, &name, &req.project, desired, item.replica, enforce),
+            &env,
+        );
+        spec.name = new.clone();
+        let spec = serde_json::to_value(&spec).map_err(|e| bad_request(e.to_string()))?;
+        let step = |instance: &str, payload: Option<&Value>| json!({ "project": req.project, "name": instance, "module": item.module, "state": "pending", "payload": payload });
+        for (action, instance, payload) in [
+            ("create", new.as_str(), Some(&spec)),
+            ("healthy", new.as_str(), None),
+            ("drain", item.instance.as_str(), None),
+            ("delete", item.instance.as_str(), None),
+        ] {
+            phases.push(
+                json!({ "action": action, "state": "pending", "steps": [step(instance, payload)] }),
+            );
+        }
+    }
+    let operation = if phases.is_empty() {
+        None
+    } else {
+        let request = super::requests::current();
+        let (op, _) = apelora_persistence::lifecycle::create_operation_in(
+            &mut tx,
+            &apelora_persistence::lifecycle::NewOperation {
+                application_id: app.id,
+                project: &req.project,
+                kind: "update",
+                phases: &json!(phases),
+                requested_by: &p.actor_ref(),
+                confirmed: false,
+                key: key
+                    .as_ref()
+                    .map(|k| format!("{k}:{name}:update"))
+                    .as_deref(),
+                request_id: request.as_deref(),
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            apelora_persistence::StoreError::Conflict(m) => ApiError::new(
+                StatusCode::CONFLICT,
+                "operation_in_progress",
+                format!("nothing was deployed: {m}"),
+            ),
+            other => other.into(),
+        })?;
+        Some(op.id)
+    };
     // The supervisor restores lost stateless replicas from this record.
     let service_range = state.service_range.as_deref().filter(|_| enforce);
     let desired = serde_json::to_value(&req.modules).map_err(|e| bad_request(e.to_string()))?;
@@ -826,6 +943,8 @@ pub(super) async fn deploy(
                 "create": applied.count(PlanAction::Create),
                 "keep": applied.count(PlanAction::Keep),
                 "resize": applied.count(PlanAction::Resize),
+                "replace": applied.count(PlanAction::Replace),
+                "operation": operation,
                 "remove": if req.remove_missing { applied.count(PlanAction::Remove) } else { 0 },
                 "role": p.role,
             }),
@@ -841,6 +960,7 @@ pub(super) async fn deploy(
             plan: applied,
             jobs,
             network_job,
+            operation,
         }),
     ))
 }
