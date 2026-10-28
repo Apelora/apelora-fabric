@@ -234,7 +234,7 @@ export function DirectoriesSection({ directories, onAuth, reload }: { directorie
     reload();
   });
   const remove = (d: DirectoryView) => void action.run(async () => {
-    await client.request("delete_directory", { params: { id: d.id }, body: { confirm: d.name } });
+    await client.request("delete_directory", { params: { id: d.id }, query: { confirm: d.name } });
     reload();
   });
 

@@ -2874,9 +2874,9 @@ async fn identity_providers_are_configured_in_the_console_applied_at_once_and_no
     let del = send(
         state.clone(),
         "DELETE",
-        &path,
+        &super::tests::confirmed(&path, "Lab IdP"),
         &person,
-        Some(json!({ "confirm": "Lab IdP" })),
+        None,
         None,
     )
     .await;

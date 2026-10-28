@@ -5,6 +5,8 @@
 //! name of the credentials is stored. This slice reads each sector's state and counts its sites
 //! for the members report; applications still deploy only to the home sector.
 
+use axum::extract::Query;
+use axum::extract::rejection::QueryRejection;
 use std::time::Duration;
 
 use apelora_domain::sites::{SectorRegistration, check_registration, credential_vars};
@@ -83,7 +85,9 @@ pub struct NewSector {
     pub credentials: String,
 }
 
-#[derive(Deserialize, ToSchema)]
+/// The name typed again, as a query parameter: a `DELETE` carries no body.
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct RemoveSector {
     /// The sector's name, typed again.
     pub confirm: String,
@@ -305,19 +309,18 @@ pub(super) async fn add(
 
 /// Forgets a registered sector. Nothing changes in its Incus. Needs `cluster.manage`.
 #[utoipa::path(delete, path = "/api/v1/sectors/{name}", tag = "cluster", operation_id = "remove_sector",
-    params(("name" = String, Path, description = "Sector name")),
-    request_body = RemoveSector,
+    params(("name" = String, Path, description = "Sector name"), RemoveSector),
     responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 503, body = ErrorBody)))]
 pub(super) async fn remove(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
     Path(name): Path<String>,
-    body: Result<Json<RemoveSector>, JsonRejection>,
+    query: Result<Query<RemoveSector>, QueryRejection>,
 ) -> Result<StatusCode, ApiError> {
     allow_platform(&p, "cluster.manage")?;
-    let Json(req) =
-        body.map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
+    let Query(req) = query
+        .map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, "invalid_request", e.body_text()))?;
     if req.confirm != name {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,

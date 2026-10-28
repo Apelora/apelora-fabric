@@ -11,6 +11,8 @@
 //! [`upsert_directory_user`] (the person in `users`; audits success). The session is then issued
 //! with the directory's group names as the session's external groups.
 
+use axum::extract::Query;
+use axum::extract::rejection::QueryRejection;
 use std::time::Duration;
 
 use apelora_persistence::directories::{self as db, DirectoryFields, DirectoryRecord};
@@ -486,7 +488,9 @@ pub(super) async fn update(
     Ok(Json(save(&state, &p, &headers, Some(id), input).await?))
 }
 
-#[derive(Deserialize, ToSchema)]
+/// The name typed again, as a query parameter: a `DELETE` carries no body.
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ConfirmDirectory {
     /// The directory's name again.
     pub confirm: String,
@@ -495,17 +499,17 @@ pub struct ConfirmDirectory {
 /// Removes a directory: its people can no longer sign in with it; their accounts and roles in
 /// Apelora stay. Its name must be typed again. Needs `platform.security.manage`; audited.
 #[utoipa::path(delete, path = "/api/v1/identity/sign-in/directories/{id}", tag = "identity", operation_id = "delete_directory",
-    params(("id" = Uuid, Path, description = "Directory id")), request_body = ConfirmDirectory,
+    params(("id" = Uuid, Path, description = "Directory id"), ConfirmDirectory),
     responses((status = 204), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody)))]
 pub(super) async fn delete(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-    body: Result<Json<ConfirmDirectory>, JsonRejection>,
+    query: Result<Query<ConfirmDirectory>, QueryRejection>,
 ) -> Result<StatusCode, ApiError> {
     allow_platform(&p, MANAGE)?;
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Query(req) = query.map_err(|e| bad_request(e.body_text()))?;
     let pool = store(&state)?;
     let existing = db::get_directory(pool, id).await?.ok_or_else(not_found)?;
     if req.confirm != existing.name {

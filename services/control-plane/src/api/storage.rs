@@ -9,6 +9,7 @@
 //! request runs the same check again, needs the volume's name typed and `application.operate`
 //! (and an approval where a policy asks), and queues the job together with its audit row.
 
+use axum::extract::rejection::QueryRejection;
 use std::collections::{BTreeMap, BTreeSet};
 
 use apelora_auth::Resource;
@@ -645,7 +646,9 @@ pub(super) async fn back_up(
     .await
 }
 
-#[derive(Deserialize, ToSchema)]
+/// The name typed again, as a query parameter: a `DELETE` carries no body.
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ConfirmBackup {
     /// The backup's Incus name again, typed by the person deleting it.
     pub confirm: String,
@@ -656,8 +659,7 @@ pub struct ConfirmBackup {
 /// record of a missing copy can be cleared. Needs `application.delete` (and an approval
 /// where a policy asks for one); audited.
 #[utoipa::path(delete, path = "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}", tag = "applications", operation_id = "delete_volume_backup",
-    params(BackupPath),
-    request_body = ConfirmBackup,
+    params(BackupPath, ConfirmBackup),
     responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody),
         (status = 502, body = ErrorBody)))]
@@ -670,11 +672,11 @@ pub(super) async fn delete_backup(
         volume,
         backup,
     }): Path<BackupPath>,
-    body: Result<Json<ConfirmBackup>, JsonRejection>,
+    query: Result<Query<ConfirmBackup>, QueryRejection>,
 ) -> Res<StatusCode> {
     let (_, res) = load(&state, &p, &name).await?;
     allow(&p, "application.delete", &res)?;
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Query(req) = query.map_err(|e| bad_request(e.body_text()))?;
     if req.confirm != backup {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,

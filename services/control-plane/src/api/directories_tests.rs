@@ -410,14 +410,24 @@ async fn directories_are_configured_checked_offered_and_audited(pool: Pool) {
 
     // Removing needs the name typed.
     let path = format!("/api/v1/identity/sign-in/directories/{down_id}");
-    let (status, e) = req("DELETE", path.clone(), Some(json!({ "confirm": "down" }))).await;
+    let (status, e) = req(
+        "DELETE",
+        super::tests::confirmed(path.clone(), "down"),
+        None,
+    )
+    .await;
     assert_eq!(
         (status, code(&e)),
         (StatusCode::BAD_REQUEST, Some("confirmation_mismatch"))
     );
-    let (status, _) = req("DELETE", path.clone(), Some(json!({ "confirm": "Down" }))).await;
+    let (status, _) = req(
+        "DELETE",
+        super::tests::confirmed(path.clone(), "Down"),
+        None,
+    )
+    .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let (status, _) = req("DELETE", path, Some(json!({ "confirm": "Down" }))).await;
+    let (status, _) = req("DELETE", super::tests::confirmed(path, "Down"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     let audit = audit_text(&pool).await;
@@ -473,8 +483,8 @@ async fn directory_settings_need_platform_security_manage(pool: Pool) {
         ),
         (
             "DELETE",
-            format!("/api/v1/identity/sign-in/directories/{id}"),
-            Some(json!({ "confirm": "X" })),
+            super::tests::confirmed(format!("/api/v1/identity/sign-in/directories/{id}"), "X"),
+            None,
         ),
     ] {
         let (status, e) = l.req(method, &path, &token, body).await;

@@ -163,7 +163,7 @@ export function SignInSettingsView({ onAuth }: { onAuth: (m: string) => void }) 
   });
   const remove = (p: ProviderView) => void action.run(async () => {
     if (!p.id) return;
-    await client.request("delete_identity_provider", { params: { id: p.id }, body: { confirm: p.name } });
+    await client.request("delete_identity_provider", { params: { id: p.id }, query: { confirm: p.name } });
     reload();
   });
 

@@ -11,6 +11,8 @@
 //! not turned off unless another way in remains (an answering provider, API tokens, or local
 //! accounts that are on with at least one account set up), and not by someone signed in that way.
 
+use axum::extract::Query;
+use axum::extract::rejection::QueryRejection;
 use std::sync::Arc;
 
 use apelora_identity::{OidcConfig, Verifier, discover, secure_url};
@@ -634,7 +636,9 @@ pub(super) async fn update(
     Ok(Json(save(&state, &p, &headers, Some(id), input).await?))
 }
 
-#[derive(Deserialize, ToSchema)]
+/// The name typed again, as a query parameter: a `DELETE` carries no body.
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ConfirmProvider {
     /// The provider's name again.
     pub confirm: String,
@@ -643,17 +647,17 @@ pub struct ConfirmProvider {
 /// Removes a provider saved in the Console: people stop being able to sign in with it.
 /// Its name must be typed again. Needs `platform.security.manage`; audited.
 #[utoipa::path(delete, path = "/api/v1/identity/sign-in/providers/{id}", tag = "identity", operation_id = "delete_identity_provider",
-    params(("id" = Uuid, Path, description = "Provider id")), request_body = ConfirmProvider,
+    params(("id" = Uuid, Path, description = "Provider id"), ConfirmProvider),
     responses((status = 204), (status = 400, body = ErrorBody), (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody)))]
 pub(super) async fn delete(
     State(state): State<AppState>,
     Extension(p): Extension<Principal>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-    body: Result<Json<ConfirmProvider>, JsonRejection>,
+    query: Result<Query<ConfirmProvider>, QueryRejection>,
 ) -> Result<StatusCode, ApiError> {
     allow_platform(&p, MANAGE)?;
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Query(req) = query.map_err(|e| bad_request(e.body_text()))?;
     let pool = store(&state)?;
     let existing = db::get_provider(pool, id).await?.ok_or_else(|| {
         ApiError::new(

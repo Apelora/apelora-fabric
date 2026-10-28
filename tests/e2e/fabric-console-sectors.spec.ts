@@ -30,7 +30,7 @@ async function rig(page: Page, platform: string[]) {
       return route.fulfill({ status: 201, json: rackB });
     }
     if (path === "/api/v1/sectors/rack-b1" && req.method() === "DELETE") {
-      sent.push({ method: "DELETE", body: req.postDataJSON() });
+      sent.push({ method: "DELETE", confirm: new URL(req.url()).searchParams.get("confirm"), body: req.postData() });
       items = [home];
       return route.fulfill({ status: 204 });
     }
@@ -74,7 +74,7 @@ test.describe("sectors", () => {
     await confirm.getByTestId("confirm-input").fill("rack-b1");
     await confirm.getByTestId("confirm-action").click();
     await expect(rows).toHaveCount(1);
-    expect(sent[1]).toEqual({ method: "DELETE", body: { confirm: "rack-b1" } });
+    expect(sent[1]).toEqual({ method: "DELETE", confirm: "rack-b1", body: null });
   });
 
   test("people who may only look see the sectors without the actions", async ({ page }) => {

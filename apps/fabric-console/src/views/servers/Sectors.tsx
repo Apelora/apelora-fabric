@@ -114,7 +114,7 @@ export function SectorsTab({ me, onAuth }: { me: WhoAmI | null; onAuth: (m: stri
     setBusy(true);
     setError(null);
     try {
-      await client.request("remove_sector", { params: { name: forget.name }, body: { confirm: forget.name } });
+      await client.request("remove_sector", { params: { name: forget.name }, query: { confirm: forget.name } });
       setForget(null);
       reload();
     } catch (e) {

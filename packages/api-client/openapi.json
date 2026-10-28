@@ -3578,18 +3578,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "description": "The volume's Incus name again, typed by the person deleting it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmVolume"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Done; nothing is returned."
@@ -4087,18 +4086,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "description": "The backup's Incus name again, typed by the person deleting it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmBackup"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Done; nothing is returned."
@@ -11882,18 +11880,17 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "description": "The directory's name again.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmDirectory"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Done; nothing is returned."
@@ -12313,18 +12310,17 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "description": "The provider's name again.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ConfirmProvider"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Done; nothing is returned."
@@ -17387,18 +17383,17 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "description": "The sector's name, typed again.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RemoveSector"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "204": {
             "description": "Done; nothing is returned."
@@ -21100,30 +21095,6 @@
           }
         }
       },
-      "ConfirmBackup": {
-        "type": "object",
-        "required": [
-          "confirm"
-        ],
-        "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "The backup's Incus name again, typed by the person deleting it."
-          }
-        }
-      },
-      "ConfirmDirectory": {
-        "type": "object",
-        "required": [
-          "confirm"
-        ],
-        "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "The directory's name again."
-          }
-        }
-      },
       "ConfirmMember": {
         "type": "object",
         "required": [
@@ -21140,18 +21111,6 @@
           }
         }
       },
-      "ConfirmProvider": {
-        "type": "object",
-        "required": [
-          "confirm"
-        ],
-        "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "The provider's name again."
-          }
-        }
-      },
       "ConfirmSnapshot": {
         "type": "object",
         "required": [
@@ -21161,18 +21120,6 @@
           "confirm": {
             "type": "string",
             "description": "The snapshot's name again, typed by the person restoring it."
-          }
-        }
-      },
-      "ConfirmVolume": {
-        "type": "object",
-        "required": [
-          "confirm"
-        ],
-        "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "The volume's Incus name again, typed by the person deleting it."
           }
         }
       },
@@ -28639,18 +28586,6 @@
           },
           "source": {
             "$ref": "#/components/schemas/Source"
-          }
-        }
-      },
-      "RemoveSector": {
-        "type": "object",
-        "required": [
-          "confirm"
-        ],
-        "properties": {
-          "confirm": {
-            "type": "string",
-            "description": "The sector's name, typed again."
           }
         }
       },

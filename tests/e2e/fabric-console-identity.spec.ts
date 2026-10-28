@@ -929,7 +929,7 @@ test.describe("sign-in settings", () => {
     await page.locator("dialog[open]").getByRole("textbox").fill("Globex staff");
     await confirm(page);
     await expect.poll(() => countOf(calls, `DELETE /api/v1/identity/sign-in/providers/${MAIN.id}`)).toBe(1);
-    expect(bodyOf(calls, `DELETE /api/v1/identity/sign-in/providers/${MAIN.id}`)).toEqual([{ confirm: "Globex staff" }]);
+    expect(calls.filter((c) => c.method === "DELETE" && c.path.includes("/sign-in/providers/")).map((c) => [c.query.get("confirm"), c.body])).toEqual([["Globex staff", null]]);
   });
 
   test("turning API tokens off asks first and shows the lockout refusal", async ({ page }) => {

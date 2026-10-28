@@ -206,7 +206,7 @@ function DeleteStep({ target, backup, onBack, onDone }: { target: Target; backup
     try {
       await client.request("delete_volume_backup", {
         params: { name: target.application, volume: target.volume, backup: backup.name },
-        body: { confirm: typed },
+        query: { confirm: typed },
       });
       onDone(`Backup from ${fmtTime(backup.takenAt)} deleted. ${target.volume} is unchanged.`);
     } catch (e) {

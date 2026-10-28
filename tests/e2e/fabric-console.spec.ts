@@ -629,7 +629,7 @@ test.describe("fabric console views", () => {
         vol("shop-web-01-logs", "attached", ["shop-web-01"]),
         ...(deleted ? [] : [vol("shop-db-01-data", "retained", [])]),
       ] } }),
-      "DELETE /api/v1/applications/shop/volumes/shop-db-01-data": (req) => { sent.push(req.postDataJSON()); deleted = true; return { status: 204 }; },
+      "DELETE /api/v1/applications/shop/volumes/shop-db-01-data": (req) => { sent.push({ confirm: new URL(req.url()).searchParams.get("confirm") }); deleted = true; return { status: 204 }; },
       "PATCH /api/v1/applications/shop/volumes/shop-web-01-logs": (req) => { sent.push(req.postDataJSON()); return { status: 204 }; },
     });
     await page.goto("/#/applications");

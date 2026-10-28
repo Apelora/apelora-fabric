@@ -64,7 +64,7 @@ function DeleteVolumeDialog({ application, volume, onClose, onDeleted }: { appli
     setBusy(true);
     setError(null);
     try {
-      await client.request("delete_application_volume", { params: { name: application, volume: name }, body: { confirm: typed } });
+      await client.request("delete_application_volume", { params: { name: application, volume: name }, query: { confirm: typed } });
       onDeleted();
     } catch (e) {
       setError(messageOf(e));

@@ -4,7 +4,9 @@
 //! module never deletes its data: deleting a volume is its own action, with the volume's
 //! name typed again, refused while an instance uses it, and audited.
 
+use axum::extract::Query;
 use axum::extract::rejection::JsonRejection;
+use axum::extract::rejection::QueryRejection;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::{Extension, Json};
@@ -57,7 +59,9 @@ pub struct ApplicationVolumes {
     pub items: Vec<VolumeItem>,
 }
 
-#[derive(Deserialize, ToSchema)]
+/// The name typed again, as a query parameter: a `DELETE` carries no body.
+#[derive(Deserialize, ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ConfirmVolume {
     /// The volume's Incus name again, typed by the person deleting it.
     pub confirm: String,
@@ -193,8 +197,7 @@ pub(super) async fn grow(
 /// (and an approval where the policy asks for one); audited.
 #[utoipa::path(delete, path = "/api/v1/applications/{name}/volumes/{volume}", tag = "applications", operation_id = "delete_application_volume",
     params(("name" = String, Path, description = "Application name"),
-        ("volume" = String, Path, description = "The volume's Incus name")),
-    request_body = ConfirmVolume,
+        ("volume" = String, Path, description = "The volume's Incus name"), ConfirmVolume),
     responses((status = 204), (status = 400, body = ErrorBody), (status = 401, body = ErrorBody),
         (status = 403, body = ErrorBody), (status = 404, body = ErrorBody), (status = 409, body = ErrorBody),
         (status = 502, body = ErrorBody)))]
@@ -203,11 +206,11 @@ pub(super) async fn delete(
     Extension(p): Extension<Principal>,
     headers: HeaderMap,
     Path((name, volume)): Path<(String, String)>,
-    body: Result<Json<ConfirmVolume>, JsonRejection>,
+    query: Result<Query<ConfirmVolume>, QueryRejection>,
 ) -> Result<StatusCode, ApiError> {
     let (_, res) = load(&state, &p, &name).await?;
     allow(&p, "application.delete", &res)?;
-    let Json(req) = body.map_err(|e| bad_request(e.body_text()))?;
+    let Query(req) = query.map_err(|e| bad_request(e.body_text()))?;
     if req.confirm != volume {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,

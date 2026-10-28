@@ -18,7 +18,7 @@ Delete a kept volume (its data and snapshots are gone for good):
 1. Make sure nobody needs the data. Back it up first if unsure: on the volume's member,
    `incus storage volume export <pool> <volume> <file> --project <project> --target <member>`.
 2. Fabric Console → Applications → Show details → *Delete…* next to the volume, type its name.
-   Or: `DELETE /api/v1/applications/<name>/volumes/<volume>` with `{"confirm": "<volume>"}`.
+   Or: `DELETE /api/v1/applications/<name>/volumes/<volume>?confirm=<volume>`.
    It needs `application.delete` (and an approval where the policy asks for one); it is refused
    while an instance uses the volume, and audited as `application.volume.delete`.
 

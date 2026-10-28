@@ -1157,6 +1157,21 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
 
 // ---- Applications ----------------------------------------------------------------------------
 
+/// `path` with the name a deletion needs typed again, as its `confirm` query parameter.
+pub(super) fn confirmed(path: impl AsRef<str>, name: impl AsRef<str>) -> String {
+    let encoded: String = name
+        .as_ref()
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect();
+    format!("{}?confirm={encoded}", path.as_ref())
+}
+
 pub(super) fn module(id: &str) -> Value {
     json!({ "module": id, "spec": {
         "project": "ignored", "name": "ignored", "kind": "container", "start": true,
@@ -3038,9 +3053,9 @@ async fn volumes_are_listed_kept_after_removal_and_deleted_only_on_purpose(pool:
             send(
                 state,
                 "DELETE",
-                "/api/v1/applications/shop/volumes/shop-db-01-data",
+                &confirmed("/api/v1/applications/shop/volumes/shop-db-01-data", confirm),
                 &token,
-                Some(json!({ "confirm": confirm })),
+                None,
                 None,
             )
             .await

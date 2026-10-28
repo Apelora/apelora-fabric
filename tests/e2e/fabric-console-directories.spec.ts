@@ -172,7 +172,8 @@ test("row actions: check from the edit dialog, edit, turn off, and remove with t
   await openDialog(page).getByRole("textbox").fill("Staff directory");
   await openDialog(page).getByTestId("confirm-action").click();
   await expect.poll(() => countOf(calls, `DELETE /api/v1/identity/sign-in/directories/${LAB.id}`)).toBe(1);
-  expect(bodyOf(calls, `DELETE /api/v1/identity/sign-in/directories/${LAB.id}`)).toEqual([{ confirm: "Staff directory" }]);
+  // The name typed again goes in the query: a DELETE carries no body.
+  expect(calls.filter((c) => c.method === "DELETE").map((c) => [c.query.get("confirm"), c.body])).toEqual([["Staff directory", null]]);
 });
 
 test.describe("phone", () => {

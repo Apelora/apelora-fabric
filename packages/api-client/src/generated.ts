@@ -713,16 +713,6 @@ export type Conditions = {
   requireMfa?: boolean;
 };
 
-export type ConfirmBackup = {
-  /** The backup's Incus name again, typed by the person deleting it. */
-  confirm: string;
-};
-
-export type ConfirmDirectory = {
-  /** The directory's name again. */
-  confirm: string;
-};
-
 export type ConfirmMember = {
   /** The member's name again, typed by the administrator. */
   confirm: string;
@@ -730,18 +720,8 @@ export type ConfirmMember = {
   force?: boolean;
 };
 
-export type ConfirmProvider = {
-  /** The provider's name again. */
-  confirm: string;
-};
-
 export type ConfirmSnapshot = {
   /** The snapshot's name again, typed by the person restoring it. */
-  confirm: string;
-};
-
-export type ConfirmVolume = {
-  /** The volume's Incus name again, typed by the person deleting it. */
   confirm: string;
 };
 
@@ -2915,11 +2895,6 @@ export type RemovalPreview = {
   source: Source;
 };
 
-export type RemoveSector = {
-  /** The sector's name, typed again. */
-  confirm: string;
-};
-
 export type ReplicaSummary = {
   desired: number;
   healthy: number;
@@ -4247,10 +4222,10 @@ export type Bodies = {
   application_version: never;
   application_volumes: never;
   grow_application_volume: GrowVolume;
-  delete_application_volume: ConfirmVolume;
+  delete_application_volume: never;
   volume_backups: never;
   back_up_volume: never;
-  delete_volume_backup: ConfirmBackup;
+  delete_volume_backup: never;
   preview_volume_restore: never;
   restore_volume_backup: RestoreVolumeRequest;
   set_volume_schedules: SetVolumeSchedules;
@@ -4329,11 +4304,11 @@ export type Bodies = {
   create_directory: DirectoryInput;
   check_directory: DirectoryCheckRequest;
   update_directory: DirectoryInput;
-  delete_directory: ConfirmDirectory;
+  delete_directory: never;
   set_local_accounts: LocalAccountsRequest;
   create_identity_provider: ProviderInput;
   update_identity_provider: ProviderInput;
-  delete_identity_provider: ConfirmProvider;
+  delete_identity_provider: never;
   sign_ins: never;
   end_sign_in: never;
   tenancy: never;
@@ -4384,7 +4359,7 @@ export type Bodies = {
   maas_test: MaasTest;
   sectors: never;
   add_sector: NewSector;
-  remove_sector: RemoveSector;
+  remove_sector: never;
   sessions: never;
   terminate_session: never;
   effective_settings: never;

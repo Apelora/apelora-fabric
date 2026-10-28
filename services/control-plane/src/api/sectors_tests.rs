@@ -109,9 +109,9 @@ async fn sectors_are_registered_read_counted_as_sites_and_forgotten(pool: Pool) 
     let (st, b) = l
         .req(
             "DELETE",
-            "/api/v1/sectors/rack-b1",
+            &super::tests::confirmed("/api/v1/sectors/rack-b1", "rack-b"),
             &w.admin,
-            Some(json!({ "confirm": "rack-b" })),
+            None,
         )
         .await;
     assert_eq!(
@@ -122,18 +122,18 @@ async fn sectors_are_registered_read_counted_as_sites_and_forgotten(pool: Pool) 
     let (st, b) = l
         .req(
             "DELETE",
-            "/api/v1/sectors/rack-b1",
+            &super::tests::confirmed("/api/v1/sectors/rack-b1", "rack-b1"),
             &w.admin,
-            Some(json!({ "confirm": "rack-b1" })),
+            None,
         )
         .await;
     assert_eq!(st, StatusCode::NO_CONTENT, "{b}");
     let (st, b) = l
         .req(
             "DELETE",
-            "/api/v1/sectors/rack-b1",
+            &super::tests::confirmed("/api/v1/sectors/rack-b1", "rack-b1"),
             &w.admin,
-            Some(json!({ "confirm": "rack-b1" })),
+            None,
         )
         .await;
     assert_eq!(st, StatusCode::NOT_FOUND, "{b}");

@@ -625,9 +625,12 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         Atomic,
         "DELETE",
         "/api/v1/identity/sign-in/providers/{id}",
-        &format!("/api/v1/identity/sign-in/providers/{p}"),
+        &super::tests::confirmed(
+            format!("/api/v1/identity/sign-in/providers/{p}"),
+            "Second IdP (renamed)",
+        ),
         r,
-        json!({ "confirm": "Second IdP (renamed)" }),
+        json!({}),
         "identity.provider.deleted",
     )
     .await;
@@ -660,9 +663,12 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         Atomic,
         "DELETE",
         "/api/v1/identity/sign-in/directories/{id}",
-        &format!("/api/v1/identity/sign-in/directories/{d}"),
+        &super::tests::confirmed(
+            format!("/api/v1/identity/sign-in/directories/{d}"),
+            "Lab directory 2",
+        ),
         r,
-        json!({ "confirm": "Lab directory 2" }),
+        json!({}),
         "identity.directory.deleted",
     )
     .await;
@@ -1041,9 +1047,9 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         Atomic,
         "DELETE",
         "/api/v1/applications/{name}/volumes/{volume}/backups/{backup}",
-        &format!("{volume}/backups/{backup}"),
+        &super::tests::confirmed(format!("{volume}/backups/{backup}"), &backup),
         r,
-        json!({ "confirm": backup }),
+        json!({}),
         "application.volume.backup.delete",
     )
     .await;
@@ -1066,9 +1072,9 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         Atomic,
         "DELETE",
         "/api/v1/applications/{name}/volumes/{volume}",
-        volume,
+        &super::tests::confirmed(volume, "shop-db-01-data"),
         r,
-        json!({ "confirm": "shop-db-01-data" }),
+        json!({}),
         "application.volume.delete",
     )
     .await;
@@ -1408,9 +1414,9 @@ async fn every_state_changing_route_audits_its_change_in_the_same_transaction(po
         Atomic,
         "DELETE",
         "/api/v1/sectors/{name}",
-        "/api/v1/sectors/rack-b1",
+        &super::tests::confirmed("/api/v1/sectors/rack-b1", "rack-b1"),
         r,
-        json!({ "confirm": "rack-b1" }),
+        json!({}),
         "sector.remove",
     )
     .await;

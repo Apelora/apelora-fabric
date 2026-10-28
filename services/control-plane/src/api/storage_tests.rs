@@ -242,7 +242,7 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
     let safety_name = safety["name"].as_str().expect("safety backup").to_owned();
     let del = format!("{VOLUME}/backups/{backup}");
     let (st, e) = l
-        .req("DELETE", &del, o, Some(json!({ "confirm": "nope" })))
+        .req("DELETE", &super::tests::confirmed(&del, "nope"), o, None)
         .await;
     assert_eq!(
         (st, e["error"]["code"].as_str()),
@@ -252,14 +252,14 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
     let (st, _) = l
         .req(
             "DELETE",
-            &format!("{VOLUME}/backups/missing-bk"),
+            &super::tests::confirmed(format!("{VOLUME}/backups/missing-bk"), "missing-bk"),
             o,
-            Some(json!({ "confirm": "missing-bk" })),
+            None,
         )
         .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
     let (st, _) = l
-        .req("DELETE", &del, o, Some(json!({ "confirm": backup })))
+        .req("DELETE", &super::tests::confirmed(&del, &backup), o, None)
         .await;
     assert_eq!(st, StatusCode::NO_CONTENT);
     let audited: i64 = sqlx::query_scalar(
@@ -305,9 +305,9 @@ async fn a_volume_is_backed_up_on_request_and_restored_from_a_backup_through_a_j
     let (st, _) = l
         .req(
             "DELETE",
-            &format!("{VOLUME}/backups/{safety_name}"),
+            &super::tests::confirmed(format!("{VOLUME}/backups/{safety_name}"), &safety_name),
             o,
-            Some(json!({ "confirm": safety_name })),
+            None,
         )
         .await;
     assert_eq!(st, StatusCode::NO_CONTENT);
@@ -458,18 +458,18 @@ async fn storage_routes_check_the_exact_application_and_infrastructure_needs_clu
     let (st, _) = l
         .req(
             "DELETE",
-            &format!("{VOLUME}/backups/x"),
+            &super::tests::confirmed(format!("{VOLUME}/backups/x"), "x"),
             &viewer,
-            Some(json!({ "confirm": "x" })),
+            None,
         )
         .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
     let (st, _) = super::tests::send(
         l.state.clone(),
         "DELETE",
-        &format!("{VOLUME}/backups/x"),
+        &super::tests::confirmed(format!("{VOLUME}/backups/x"), "x"),
         "",
-        Some(json!({ "confirm": "x" })),
+        None,
         None,
     )
     .await;

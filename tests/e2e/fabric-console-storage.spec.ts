@@ -185,7 +185,7 @@ test("deleting a backup types its name and leaves the volume", async ({ page }) 
   await stub(page, storageRoutes(deleter, {
     "GET /api/v1/applications/shop/volumes/shop-db-01-data/backups": () => ({ json: { source: src, backupPool: "backup", schedules: { snapshots: schedule(60, 24), backups: schedule(1440, 7) }, items } }),
     [`DELETE /api/v1/applications/shop/volumes/shop-db-01-data/backups/${BACKUP}`]: (req) => {
-      sent = req.postDataJSON();
+      sent = { confirm: new URL(req.url()).searchParams.get("confirm"), body: req.postData() };
       items = items.filter((b) => b.name !== BACKUP);
       return { status: 204 };
     },
@@ -216,7 +216,7 @@ test("deleting a backup types its name and leaves the volume", async ({ page }) 
   await expect(dialog.getByTestId("backups-notice")).toContainText("deleted");
   await expect(dialog.getByTestId("backups-notice")).toContainText("unchanged");
   await expect(dialog.getByTestId("backup-row")).toHaveCount(1);
-  expect(sent).toEqual({ confirm: BACKUP });
+  expect(sent).toEqual({ confirm: BACKUP, body: null });
 });
 
 test("back up now follows its job, and schedules are saved as set", async ({ page }) => {
