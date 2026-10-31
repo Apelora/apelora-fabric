@@ -8,7 +8,7 @@
 # the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,ovn}.sh done, the dev PostgreSQL (infra/dev/compose.yaml), jq,
-# and nothing else listening on 127.0.0.1:8080. Mutates only the test cluster.
+# and nothing else listening on 127.0.0.1:8080 (or set APELORA_API_ADDR). Mutates only the test cluster.
 #   bash scripts/test-cluster/dns.sh
 set -euo pipefail
 

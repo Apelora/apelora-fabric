@@ -10,37 +10,37 @@ Run the commands as root (or with `sudo`) on the server named in each step. Valu
 |---|---|
 | **Incus installation guide** (every supported distribution) | <https://linuxcontainers.org/incus/docs/main/installing/> |
 | **Release downloads and notes** | <https://github.com/lxc/incus/releases> |
-| **Packages for Debian and Ubuntu** (the project's own repository, which carries the LTS series) | <https://github.com/zabbly/incus>, repository at <https://pkgs.zabbly.com/incus/> |
+| **Packages for Debian and Ubuntu** (the project's own repository: `stable` carries the newest release, `lts-7.0` the 7.0 long-term series) | <https://github.com/zabbly/incus>, repository at <https://pkgs.zabbly.com/incus/> |
 | **Forming a cluster** | <https://linuxcontainers.org/incus/docs/main/howto/cluster_form/> |
 | **Setting up OVN** | <https://linuxcontainers.org/incus/docs/main/howto/network_ovn_setup/> |
-| **The series Apelora is tested with** | `series` and `pinned_tag` in [`upstream.lock.yaml`](../../upstream.lock.yaml) |
+| **The release Apelora is tested with** | `channel`, `series` and `pinned_tag` in [`upstream.lock.yaml`](../../upstream.lock.yaml) |
 
-Use the long-term support (LTS) series that `upstream.lock.yaml` pins, and the same release on every server. Newer feature releases are watched but not tested. Moving to another LTS series is a deliberate decision with its own record ([upstream Incus](../development/UPSTREAM-INCUS.md)).
+Install the release that `upstream.lock.yaml` pins, and the same release on every server. Apelora is tested on the newest Incus release; a weekly check opens a pull request when upstream publishes another, and the pin moves after it has been tested. The `stable` channel offers only its newest release, so a server installed a few days after upstream publishes may be one release ahead of the pin: that works, and the Servers page says it is newer than the tested one. Once installed, hold the packages (step 1) so that an unattended `apt upgrade` never moves a server alone; upgrade all servers together with the [upgrade assistant](../runbooks/incus-rolling-upgrade.md). Staying on the 7.0 long-term series (channel `lts-7.0`) also works, because Apelora needs only the API extensions its preflight checks; that series was last tested on 7.0.2 (28 October 2026) and later Apelora versions are tested on the pinned release only. The reasoning is in [upstream Incus](../development/UPSTREAM-INCUS.md).
 
 ## 1. Install Incus on every server
 
-There are two ways. Both end with `incus --version` printing the pinned series.
+There are two ways. Both end with `incus --version` printing the pinned release or a newer one.
 
 ### From the project's package repository
 
-This route gives the pinned LTS series on Debian and Ubuntu.
+This route gives the pinned release on Debian and Ubuntu.
 
-1. Set the series from `upstream.lock.yaml`.
+1. Set the channel from `upstream.lock.yaml`.
 2. Fetch the repository's signing key, and **compare its fingerprint with the one the publisher shows**. Stop if they differ.
 3. Add the repository and install.
 
 ```sh
-SERIES=7.0        # `series` in upstream.lock.yaml
+CHANNEL=stable    # `channel` in upstream.lock.yaml (lts-7.0 for the long-term series)
 
 apt-get update && apt-get install -y curl gpg
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://pkgs.zabbly.com/key.asc -o /etc/apt/keyrings/zabbly.asc
 gpg --show-keys --with-colons /etc/apt/keyrings/zabbly.asc | awk -F: '/^fpr/ {print $10; exit}'   # compare with the publisher's page
 
-cat >/etc/apt/sources.list.d/zabbly-incus-lts-$SERIES.sources <<EOF
+cat >/etc/apt/sources.list.d/zabbly-incus-$CHANNEL.sources <<EOF
 Enabled: yes
 Types: deb
-URIs: https://pkgs.zabbly.com/incus/lts-$SERIES
+URIs: https://pkgs.zabbly.com/incus/$CHANNEL
 Suites: $(. /etc/os-release && echo "$VERSION_CODENAME")
 Components: main
 Architectures: $(dpkg --print-architecture)
@@ -48,14 +48,15 @@ Signed-By: /etc/apt/keyrings/zabbly.asc
 EOF
 
 apt-get update && apt-get install -y incus
-incus --version
+apt-mark hold incus incus-base incus-client   # upgrade on purpose, all servers together
+incus --version                               # compare with `pinned_tag`
 ```
 
 The `incus` package includes virtual machine support. If you will run virtual machines, check that `ls /dev/kvm` finds the device.
 
 ### From your distribution
 
-Some distributions package Incus themselves. Use that package only if `apt policy incus` (or your package manager's equivalent) offers the pinned series: distributions often carry an older LTS. The [installation guide](https://linuxcontainers.org/incus/docs/main/installing/) lists the commands for each distribution.
+Some distributions package Incus themselves. Use that package only if `apt policy incus` (or your package manager's equivalent) offers the pinned release or a newer one: distributions often carry an older one. The [installation guide](https://linuxcontainers.org/incus/docs/main/installing/) lists the commands for each distribution.
 
 You can install only the client on a workstation to look around. The Incus daemon runs only on Linux.
 

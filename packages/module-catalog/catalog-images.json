@@ -22,7 +22,7 @@
       "setting": "channel = mainline",
       "protocol": "oci",
       "server": "https://docker.io",
-      "alias": "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724"
+      "alias": "library/nginx@sha256:c4d1df1ca40ef8cf932f19853f00eb0f81ffe5becda1256365bbf0a057060ffb"
     },
     {
       "class": "linux-base",
@@ -52,7 +52,7 @@
       "displayName": "Valkey",
       "protocol": "oci",
       "server": "https://docker.io",
-      "alias": "valkey/valkey@sha256:418652cfb58ef879d4978c33553735d7147016032d5aefaa14c828e611eb9dfd"
+      "alias": "valkey/valkey@sha256:3add1a336a920ea54770a001ab6feb3da5fceea96a40373a3a2cd469b815f0b7"
     },
     {
       "class": "blackbox-exporter",
@@ -66,7 +66,7 @@
       "displayName": "Uptime Kuma",
       "protocol": "oci",
       "server": "https://docker.io",
-      "alias": "louislam/uptime-kuma@sha256:4b95dbe7ac5343b768f8e04e3035ccd59997872b1a35ab9b0f082d2cc279070e"
+      "alias": "louislam/uptime-kuma@sha256:20abea8c48a163cf0a7a5d5936ab418e4b742d908704e1f58f6c06e56a9c6b67"
     }
   ]
 }

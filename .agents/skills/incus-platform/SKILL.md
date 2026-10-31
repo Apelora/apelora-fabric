@@ -35,6 +35,7 @@ Explain what changed, actual tests and commands run, source/API reference, remai
 
 ## Apelora adapter facts (verified against Incus 7.0.2 source and contract tests)
 
+- **Incus 7.5.1 (REAL INCUS TESTED 2026-10-30, ADR 0017):** the pin follows the newest release; the adapter and the worker needed no code change from 7.0.2. Run a release through `scripts/test-cluster/upgrade-incus.sh`, the `real_incus` tests, `demo.sh` and `ui-e2e.sh` before moving the pin. The cluster database upgrades one way. The `stable` package channel holds only its newest build.
 - Wire types follow `doc/rest-api.yaml` of the pinned release (read it in `upstream/incus` after `scripts/upstream/bootstrap.sh`). Lists use `?recursion=1`; instances, networks and operations also take `all-projects=true`. Envelope: `{type: sync|async|error, error, error_code, metadata}`.
 - `GET /1.0/operations?recursion=1` is a list in the spec but has been grouped by status on servers; the adapter accepts both.
 - A standalone (non-clustered) server has no members; check `environment.server_clustered` before calling `/1.0/cluster/members`.

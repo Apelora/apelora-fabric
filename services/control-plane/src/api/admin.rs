@@ -86,8 +86,12 @@ pub struct SystemInfo {
     pub api_version: String,
     /// Incus release Apelora is tested against (`upstream.lock.yaml`).
     pub incus_pinned: String,
-    /// Incus LTS series the pin follows, e.g. "7.0".
+    /// The Incus releases the pin follows: a long-term series such as "7.0", or "7" for every
+    /// 7.x release.
     pub incus_series: String,
+    /// Where the pin's packages come from: `stable` (the newest release) or `lts` (a long-term
+    /// series).
+    pub incus_channel: String,
     /// The Incus release this version of Apelora was last tested with, e.g. "7.0.2"; empty
     /// when none is recorded.
     pub incus_tested_release: String,
@@ -355,6 +359,7 @@ pub(super) async fn system(
         api_version: API_VERSION.into(),
         incus_pinned: lock_value(LOCK, "pinned_tag"),
         incus_series: lock_value(LOCK, "series"),
+        incus_channel: lock_value(LOCK, "channel"),
         incus_tested_release: lock_value(LOCK, "tested_release"),
         certificates,
         incus: super::incus_status(&state.provider).await,
@@ -401,8 +406,9 @@ mod tests {
     #[test]
     fn the_pinned_incus_release_is_read_from_the_lock_file() {
         const LOCK: &str = include_str!("../../../../upstream.lock.yaml");
-        assert!(super::lock_value(LOCK, "pinned_tag").starts_with("v7.0."));
-        assert_eq!(super::lock_value(LOCK, "series"), "7.0");
+        assert!(super::lock_value(LOCK, "pinned_tag").starts_with("v7."));
+        assert_eq!(super::lock_value(LOCK, "series"), "7");
+        assert_eq!(super::lock_value(LOCK, "channel"), "stable");
         assert_eq!(super::lock_value(LOCK, "missing"), "");
     }
 }

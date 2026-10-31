@@ -3341,9 +3341,11 @@ export type SystemInfo = {
   certificates: CertificateStatus[];
   /** Incus as observed now: running version, clustering, or why it cannot be reached. (The public `/api/v1/health` says only whether it is reachable.) */
   incus: IncusStatus;
+  /** Where the pin's packages come from: `stable` (the newest release) or `lts` (a long-term series). */
+  incusChannel: string;
   /** Incus release Apelora is tested against (`upstream.lock.yaml`). */
   incusPinned: string;
-  /** Incus LTS series the pin follows, e.g. "7.0". */
+  /** The Incus releases the pin follows: a long-term series such as "7.0", or "7" for every 7.x release. */
   incusSeries: string;
   /** The Incus release this version of Apelora was last tested with, e.g. "7.0.2"; empty when none is recorded. */
   incusTestedRelease: string;

@@ -334,7 +334,7 @@ test.describe("fabric console views", () => {
     const dialog = page.getByTestId("deploy-dialog");
     await dialog.getByTestId("deploy-class").selectOption({ label: "NGINX" });
     await dialog.getByTestId("deploy-setting").selectOption("mainline");
-    await expect(dialog.getByTestId("deploy-setting")).toContainText("mainline (1.31.7)");
+    await expect(dialog.getByTestId("deploy-setting")).toContainText("mainline (1.31.8)");
     await dialog.getByTestId("deploy-name").fill("2web");
     await expect(dialog).toContainText("starting with a letter");
     await expect(dialog.getByTestId("deploy-submit")).toBeDisabled();
@@ -346,7 +346,7 @@ test.describe("fabric console views", () => {
       project: "apelora", name: "web-02", kind: "container", start: true, architectures: ["x86_64", "aarch64"],
       // NGINX's deploy-time fields with their defaults: a server name, and the certificate by reference only.
       config: { "limits.cpu": "1", "limits.memory": "512MiB", "environment.SETUP_SERVER_NAME": "_", "environment.SECRET_CERT_SECRET": "nginx-tls" },
-      source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:bc4cad49969aaf95eb4eecec5572846f86e59f1e8332aba36ed64b91aff8b724" },
+      source: { protocol: "oci", server: "https://docker.io", alias: "library/nginx@sha256:c4d1df1ca40ef8cf932f19853f00eb0f81ffe5becda1256365bbf0a057060ffb" },
     });
   });
 
@@ -869,7 +869,7 @@ test.describe("fabric console operations and administration", () => {
     await stub(page, {
       "GET /api/v1/health": () => ({ json: health("incus", true) }),
       "GET /api/v1/whoami": () => ({ json: whoami("fabric-admin", ADMIN) }),
-      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.0.3", incusSeries: "7.0", incusTestedRelease: "7.0.2", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.0.2", clustered: true }, certificates: [
+      "GET /api/v1/system": () => ({ json: { version: "0.0.0", apiVersion: "v1", incusPinned: "v7.5.1", incusSeries: "7", incusChannel: "stable", incusTestedRelease: "7.5.1", incus: { connected: true, apiVersion: "1.0", serverVersion: "7.6.0", clustered: true }, certificates: [
         { certificate: "deploy", expiresAt: "2026-11-02T00:00:00Z", daysLeft: 12, state: "expiring" },
         { certificate: "server", expiresAt: "2036-10-18T00:00:00Z", daysLeft: 3650, state: "ok" },
       ] } }),
@@ -883,7 +883,7 @@ test.describe("fabric console operations and administration", () => {
       "DELETE /api/v1/tokens/t2": () => { revoked = "t2"; items = items.map((t) => (t.id === "t2" ? { ...t, revokedAt: now } : t)); return { status: 204 }; },
     });
     await page.goto("/#/administration");
-    await expect(page.getByTestId("system")).toContainText("7.0.3 (7.0 LTS series) · running 7.0.2 differs");
+    await expect(page.getByTestId("system")).toContainText("7.5.1 (newest 7.x release) · running 7.6.0 differs");
     await expect(page.getByTestId("certificate-row")).toHaveCount(0);
     await page.getByTestId("token-open").click();
     await page.getByTestId("token-name").fill("ci");

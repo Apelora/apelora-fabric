@@ -46,7 +46,7 @@ describe("runtimes", () => {
       },
     });
     const mainline = instanceRequestFor(nginx, { config: { channel: "mainline" } }, target);
-    expect(mainline.ok && mainline.request.source.alias).toContain("@sha256:bc4cad49");
+    expect(mainline.ok && mainline.request.source.alias).toContain("@sha256:c4d1df1c");
     const debian = instanceRequestFor(get("debian"), { config: { version: "13" } }, { ...target, start: false });
     expect(debian.ok && debian.request).toMatchObject({ kind: "container", start: false, source: { protocol: "simplestreams", alias: "debian/13" } });
   });

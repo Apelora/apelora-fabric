@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ClusterMember, Network, Project, ServerInfo, StoragePool};
 
-/// Oldest Incus release series Apelora supports (the pinned LTS).
+/// Oldest Incus major version Apelora supports (the 7.0 long-term series and every 7.x since).
 pub const MIN_INCUS_MAJOR: u32 = 7;
 /// Oldest kernel Apelora supports, as (major, minor).
 pub const MIN_KERNEL: (u32, u32) = (6, 12);

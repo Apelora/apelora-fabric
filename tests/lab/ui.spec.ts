@@ -230,7 +230,7 @@ test.describe("a web tier: a client and two NGINX replicas", () => {
     await expect(studio.getByTestId("mock-badge")).toHaveText("Live · 3 running");
   });
 
-  test("a new version with another image shows the running replicas as outdated, and nothing is deployed", async () => {
+  test("a new version with another image plans to replace the running replicas, and nothing is deployed", async () => {
     await studio.goto(`/studio/applications/${app}/designer`);
     await properties("nginx-01");
     await studio.getByTestId("props-tab-config").click();
@@ -244,7 +244,9 @@ test.describe("a web tier: a client and two NGINX replicas", () => {
     await dialog.getByTestId("deploy-preview").click();
     // What the cluster runs was recorded when each replica was created; the design now asks for another image.
     await expect(dialog.locator("[data-testid=plan-row][data-outdated=image]")).toHaveCount(2);
-    await expect(dialog).toContainText("deploying does not update running modules yet");
+    // A stateless module is replaced by a rolling update (the demonstration runs one on the lab).
+    await expect(dialog.locator("[data-testid=plan-row][data-action=replace]")).toHaveCount(2);
+    await expect(dialog).toContainText("healthy before this one is removed");
     await studio.goto("/studio/applications"); // leave without deploying
   });
 

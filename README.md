@@ -13,7 +13,7 @@
   <a href="https://github.com/Apelora/apelora-fabric/actions/workflows/github-code-scanning/codeql"><img src="https://github.com/Apelora/apelora-fabric/actions/workflows/github-code-scanning/codeql/badge.svg" alt="CodeQL"></a>
   <a href="https://github.com/Apelora/apelora-fabric/actions/workflows/upstream-check.yml"><img src="https://github.com/Apelora/apelora-fabric/actions/workflows/upstream-check.yml/badge.svg" alt="Upstream check"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0--only-blue" alt="License: AGPL-3.0-only"></a>
-  <a href="upstream.lock.yaml"><img src="https://img.shields.io/badge/Incus-7.0%20LTS-orange" alt="Incus 7.0 LTS"></a>
+  <a href="upstream.lock.yaml"><img src="https://img.shields.io/badge/Incus-7.5-orange" alt="Incus 7.5"></a>
   <a href="rust-toolchain.toml"><img src="https://img.shields.io/badge/Rust-1.88%2B-informational" alt="Rust 1.88 or later"></a>
   <a href="docs/architecture/current-state.md"><img src="https://img.shields.io/badge/status-early%20development-lightgrey" alt="Status: early development"></a>
   <a href="#citing-apelora-fabric"><img src="https://img.shields.io/badge/cite-CITATION.cff-9cf" alt="Cite this project"></a>

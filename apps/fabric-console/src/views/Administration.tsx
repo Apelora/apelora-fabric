@@ -38,7 +38,7 @@ function SystemSection({ onAuth }: { onAuth: (m: string) => void }) {
               {[
                 ["Apelora control plane", `${s.version} · API ${s.apiVersion}`],
                 ["Incus running", running ?? (s.incus?.error ? `not reachable: ${s.incus.error}` : "not connected")],
-                ["Incus pinned", `${pinned} (${s.incusSeries} LTS series)${running && running !== pinned ? ` · running ${running} differs` : ""}`],
+                ["Incus pinned", `${pinned} (${s.incusChannel === "lts" ? `${s.incusSeries} LTS series` : `newest ${s.incusSeries}.x release`})${running && running !== pinned ? ` · running ${running} differs` : ""}`],
                 ["Tested with", s.incusTestedRelease ? `Incus ${s.incusTestedRelease}` : "not recorded"],
               ].map(([k, v]) => (
                 <div key={k} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:justify-between sm:gap-6" data-testid="system-row">

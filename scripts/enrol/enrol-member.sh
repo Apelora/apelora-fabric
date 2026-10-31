@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # Enrols this server as a member of an Apelora cluster (Phase 09, docs/design/node-enrolment.md).
-# Run as root on the new server after installing its operating system and Incus 7.0 LTS, with
+# Run as root on the new server after installing its operating system and Incus (the release in docs/guides/install-incus.md), with
 # the join token from Apelora's "Approve" on standard input (or pasted at the prompt, which does
 # not echo it). The token never appears on a command line, in a file or in the output.
 #

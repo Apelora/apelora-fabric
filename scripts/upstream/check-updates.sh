@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Reports whether upstream has a newer release in the pinned series. Never changes anything.
+# Reports whether upstream has a newer release in the tracked series (`series` in the lock file:
+# "7" follows every 7.x release, newest first; "7.0" would follow one long-term series only).
+# Never changes anything.
 # Prints `update=<tag>` (or `update=`) and, in GitHub Actions, writes it to $GITHUB_OUTPUT.
 source "$(dirname "$0")/lib.sh"
 url="$(lock_get incus url)"; series="$(lock_get incus series)"; pinned="$(lock_get incus pinned_tag)"

@@ -9,7 +9,7 @@
 # stops the run (cleanup still happens).
 #
 # Needs: scripts/test-cluster/{up,ovn}.sh done, the dev PostgreSQL (infra/dev/compose.yaml), jq,
-# and nothing else listening on 127.0.0.1:8080. Mutates only the test cluster.
+# and nothing else listening on 127.0.0.1:8080 (or set APELORA_API_ADDR). Mutates only the test cluster.
 #   bash scripts/test-cluster/ipv6.sh
 set -euo pipefail
 
@@ -18,7 +18,8 @@ repo=$(cd "$here/../.." && pwd)
 run=$(mktemp -d -t apelora-ipv6)
 log="$run/ipv6.log"
 APP=v6check
-API=http://127.0.0.1:8080/api/v1
+addr=${APELORA_API_ADDR:-127.0.0.1:8080}
+API=http://$addr/api/v1
 export DATABASE_URL=${DATABASE_URL:-postgres://apelora:apelora-dev-only@127.0.0.1:15432/apelora}
 # shellcheck disable=SC1091
 source "$HOME/.config/apelora/test-cluster/env"
@@ -83,7 +84,7 @@ SQL
 trap cleanup EXIT
 
 say "IPv6 connections and service address — run directory $run"
-if curl -s -m 2 -o /dev/null http://127.0.0.1:8080/; then fail "something already listens on 127.0.0.1:8080"; fi
+if curl -s -m 2 -o /dev/null "http://$addr/"; then fail "something already listens on $addr (set APELORA_API_ADDR)"; fi
 (cd "$repo" && cargo build -q -p apelora-control-plane -p apelora-deployment-worker)
 umask 077
 out=$("$repo/target/debug/apelora-control-plane" token create --name v6check --role fabric-admin 2>&1)

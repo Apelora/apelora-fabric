@@ -6,17 +6,20 @@ upstreams:
   incus:
     url: https://github.com/lxc/incus
     fork: https://github.com/Apelora/incus
-    fork_patch_branch: apelora/7.0
+    fork_patch_branch: apelora/7
     licence: Apache-2.0
-    series: "7.0"
-    pinned_tag: v7.0.2
-    pinned_commit: 01f81e5e607bbb5818410318e4b3496ad1820824
-    latest_feature_release: v7.5.1
-    support: LTS until June 2031 (bug and security fixes for two years, then security only)
+    # "7" follows every 7.x release, newest first; a long-term series would be "7.0". `channel` is the
+    # package channel hosts install from: stable (pkgs.zabbly.com/incus/stable) or lts (…/lts-<series>).
+    series: "7"
+    channel: stable
+    pinned_tag: v7.5.1
+    pinned_commit: b20ec6c3cb17eaff28fc1145238b8769e44ce39d
+    latest_feature_release: v7.6.0
+    support: "A feature release gets fixes until the next one (about monthly). The 7.0 long-term series is supported by upstream until June 2031 (bug and security fixes for two years, then security only); Apelora needs only the API extensions below, tested on 7.0.2 until 2026-10-28."
     host_minimums: Linux kernel 6.12, cgroup v2, QEMU 8.2, LXC 6.0, nftables 1.0
     required_api_extensions: instance_create_start, operation_wait; instance_oci for OCI (checked by preflight against a real 7.0.1 server)
     # The Incus release the pin was last tested with (what the API reports), and the evidence.
-    tested_release: "7.0.2"
-    tested_with: "REAL INCUS TESTED 2026-10-23: four-member lab upgraded from package 1:7.0.1-debian13-202609250313 to 1:7.0.2-debian13-202610211947 (stand-by, voters, database leader last). The first member blocked the other three until they matched; all four then Online, server_version 7.0.2, api extension instance_port_forward present. Earlier functional evidence (lifecycle, OVN, evacuation) was produced on 7.0.1."
+    tested_release: "7.5.1"
+    tested_with: "REAL INCUS TESTED 2026-10-30: the four-member lab was upgraded from package 1:7.0.2-debian13-202610211947 to 1:7.5.1-debian13-202610270104 (scripts/test-cluster/upgrade-incus.sh: stand-by, voters, database leader last); every member Online on 7.5.1, api extensions instance_create_start, operation_wait, instance_oci and instance_port_forward present. Passed on it: all 20 real_incus tests (every catalog runtime, rebuild in place, resize, shared-pool moves), demo.sh (replicas apart, service address, ACLs, health failure, publishing, a member lost, evacuation with 0 of 4864 requests failed, rolling update with 0 of 6920 failed), ui-e2e.sh (11 steps), dns.sh and ipv6.sh. Incus 7.6.0 (2026-10-30) was not yet in the stable package channel. Earlier evidence was produced on 7.0.1 and 7.0.2."
     upgrade_policy: update pull request only; human review; no automatic production upgrades
-    verified: 2026-10-20
+    verified: 2026-10-30

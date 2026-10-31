@@ -377,10 +377,10 @@ Windows systems (3) · Directory & access (2) · Servers & apps (5)
 | Module | Runtime | Image by setting |
 |---|---|---|
 | **Resolver** (`resolver`) | system container (`incus-system-container`) | `debian/13` |
-| **NGINX** (`nginx`) | OCI application container (`incus-oci-container`) | channel = stable: `library/nginx@sha256:eb1c896deef8…` (1.30.6)<br>channel = mainline: `library/nginx@sha256:bc4cad49969a…` (1.31.7) |
+| **NGINX** (`nginx`) | OCI application container (`incus-oci-container`) | channel = stable: `library/nginx@sha256:eb1c896deef8…` (1.30.6)<br>channel = mainline: `library/nginx@sha256:c4d1df1ca40e…` (1.31.8) |
 | **Linux base** (`linux-base`) | virtual machine (`incus-vm`) | `debian/13` |
 | **Debian** (`debian`) | system container (`incus-system-container`) | version = 12: `debian/12`<br>version = 13: `debian/13` |
-| **Valkey** (`valkey`) | OCI application container (`incus-oci-container`) | `valkey/valkey@sha256:418652cfb58e…` (9.1.2) |
+| **Valkey** (`valkey`) | OCI application container (`incus-oci-container`) | `valkey/valkey@sha256:3add1a336a92…` (9.1.3) |
 | **Blackbox exporter** (`blackbox-exporter`) | OCI application container (`incus-oci-container`) | `prom/blackbox-exporter@sha256:ea1c7aa3ef3f…` (0.29.1) |
-| **Uptime Kuma** (`uptime-kuma`) | OCI application container (`incus-oci-container`) | `louislam/uptime-kuma@sha256:4b95dbe7ac53…` (2.5.7) |
+| **Uptime Kuma** (`uptime-kuma`) | OCI application container (`incus-oci-container`) | `louislam/uptime-kuma@sha256:20abea8c48a1…` (2.5.8) |
 

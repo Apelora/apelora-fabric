@@ -1169,16 +1169,17 @@ async fn recent_jobs_and_system_information_are_listed(pool: Pool) {
     assert_eq!(jobs["items"][0]["request"]["name"], "web-01");
     let (status, system) = send(state, "GET", "/api/v1/system", &auditor, None, None).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(system["incusSeries"], "7.0");
+    assert_eq!(system["incusSeries"], "7");
+    assert_eq!(system["incusChannel"], "stable");
     assert!(
         system["incusPinned"]
             .as_str()
-            .is_some_and(|v| v.starts_with("v7.0."))
+            .is_some_and(|v| v.starts_with("v7."))
     );
     // A plain release, never the evidence note kept in the repository.
     let tested = system["incusTestedRelease"].as_str().unwrap_or_default();
     assert!(
-        tested.starts_with("7.0.") && tested.bytes().all(|b| b.is_ascii_digit() || b == b'.'),
+        tested.starts_with("7.") && tested.bytes().all(|b| b.is_ascii_digit() || b == b'.'),
         "{tested}"
     );
 }
