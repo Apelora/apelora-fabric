@@ -28,7 +28,7 @@ argon2 = "0.6.0"
 futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
 axum = { version = "0.8.9", features = ["ws"] }
 getrandom = "0.4.3"
-jiff = "0.2.38"
+jiff = "1.0.2"
 # Directory sign-in over LDAP with TLS (ADR 0007). MIT OR Apache-2.0. Only its rustls backend
 # (aws-lc-rs, as the Incus adapter uses); no native TLS, Kerberos or NTLM.
 ldap3 = { version = "0.12.1", default-features = false, features = ["tls-rustls-aws-lc-rs"] }
