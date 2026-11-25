@@ -14,7 +14,7 @@
     "@apelora/assembly-model": "*",
     "@apelora/module-catalog": "*",
     "@apelora/terminal": "*",
-    "@xyflow/react": "^12.12.1",
+    "@xyflow/react": "^13.0.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zustand": "^5.1.0"
